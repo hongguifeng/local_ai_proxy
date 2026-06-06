@@ -52,7 +52,23 @@ def utc_now_iso() -> str:
 
 
 def local_now_for_filename() -> str:
-    return dt.datetime.now().astimezone().strftime("%m-%d_%H-%M-%S.%f")[:-3]
+    return dt.datetime.now().astimezone().strftime("%m-%d__%H-%M-%S.%f")[:-3]
+
+
+def local_time_for_filename() -> str:
+    """Return time-only string for filenames, e.g. 14-13-07.132."""
+    return dt.datetime.now().astimezone().strftime("%H-%M-%S.%f")[:-3]
+
+
+def format_duration_hms(ms: float) -> str:
+    """Format milliseconds as hh:mm:ss."""
+    total_seconds = int(ms / 1000)
+    hours = total_seconds // 3600
+    minutes = (total_seconds % 3600) // 60
+    seconds = total_seconds % 60
+    if hours > 0:
+        return f"{hours:02d}:{minutes:02d}:{seconds:02d}"
+    return f"00:{minutes:02d}:{seconds:02d}"
 
 
 def headers_to_dict(headers: Iterable[tuple[str, str]]) -> dict[str, list[str]]:
@@ -335,8 +351,9 @@ class TrafficLogger:
             json.dump(record, file, ensure_ascii=False, separators=(",", ":"))
             file.write("\n")
         if self.readable_dir:
+            readable_dir_name = self._readable_dir_name(record)
             readable_filename = self._readable_filename(record)
-            readable_path = self.readable_dir / readable_filename
+            readable_path = self.readable_dir / readable_dir_name
             self._ensure_readable_dir(readable_path)
             (readable_path / readable_filename).write_text(self._render_markdown(record), encoding="utf-8")
             self._write_body_json_files(readable_path, record)
@@ -353,17 +370,29 @@ class TrafficLogger:
         request = record["request"]  # type: ignore[assignment]
         response = record["response"]  # type: ignore[assignment]
         self._write_json_file(path / "request.json", body_json_value(request["body"]))  # type: ignore[index]
-        if isinstance(request, dict) and request.get("upstream_body"):
-            self._write_json_file(path / "upstream_request.json", body_json_value(request["upstream_body"]))  # type: ignore[index]
         self._write_json_file(path / "response.json", body_json_value(response["body"]))  # type: ignore[index]
 
-    def _readable_filename(self, record: dict[str, object]) -> str:
+    def _readable_dir_name(self, record: dict[str, object]) -> str:
+        """Return directory name with __ separators, original format."""
         timestamp = local_now_for_filename()
         method = str(record["request"]["method"])  # type: ignore[index]
         path = str(record["request"]["path"])  # type: ignore[index]
         safe_path = "".join(ch if ch.isalnum() else "-" for ch in path).strip("-")
         safe_path = safe_path[:80] or "root"
-        return f"{timestamp}_{method}_{safe_path}_{record['id']}.md"
+        return f"{timestamp}__{method}__{safe_path}__{record['id']}"
+
+    def _readable_filename(self, record: dict[str, object]) -> str:
+        """Return MD filename with only time: {start_time}__{end_time}.md."""
+        start_time = record["timestamp"]  # ISO format
+        duration_ms = record["duration_ms"]
+
+        start_dt = dt.datetime.fromisoformat(str(start_time))
+        end_dt = start_dt + dt.timedelta(milliseconds=duration_ms)
+
+        start_str = start_dt.strftime("%H-%M-%S.%f")[:-3]
+        end_str = end_dt.strftime("%H-%M-%S.%f")[:-3]
+
+        return f"{start_str}__{end_str}.md"
 
     def _render_markdown(self, record: dict[str, object]) -> str:
         request = record["request"]  # type: ignore[assignment]
@@ -377,7 +406,7 @@ class TrafficLogger:
             "## Summary",
             "",
             f"- Time: {record['timestamp']}",
-            f"- Duration: {record['duration_ms']} ms",
+            f"- Duration: {format_duration_hms(record['duration_ms'])} ({record['duration_ms']} ms)",
             f"- Client: {client['host']}:{client['port']}",  # type: ignore[index]
             f"- Target: {target['host']}:{target['port']}{target['path']}",  # type: ignore[index]
             f"- Request: {request['method']} {request['path']}",  # type: ignore[index]
