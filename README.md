@@ -1,63 +1,65 @@
 # LLM Proxy
 
-本项目是一个本地 HTTP 代理，用来转发并记录 Agent 与 OpenAI-compatible LLM API 之间的完整交互。上游可以是本地 `llama.cpp` server，也可以是 OpenRouter、OpenAI-compatible 网关等远程 API。
+English | [中文](README.cn.md)
 
-## 主要功能
+LLM Proxy is a local HTTP proxy that forwards and records the complete interaction between an Agent and an OpenAI-compatible LLM API. The upstream target can be a local `llama.cpp` server, OpenRouter, an OpenAI-compatible gateway, or another remote API.
 
-- 监听本地端口，默认 `127.0.0.1:1234`。
-- 转发到上游 LLM API，默认 `http://127.0.0.1:1235`。
-- 支持 `GET`、`POST`、`PUT`、`PATCH`、`DELETE`、`OPTIONS`、`HEAD`。
-- 记录请求和响应的 headers、body、状态码、耗时、客户端地址和目标地址。
-- 同时写入机器可解析 JSONL 日志和人工可读 Markdown/JSON 日志。
-- 按任务聚合多轮请求，方便回看同一次 Agent 工作流。
-- 对 OpenAI-compatible SSE 流式响应生成紧凑摘要，同时保留原始完整流数据。
-- 默认在转发前移除部分顶层采样参数，例如 `temperature`、`top_p`、`seed` 等。
+## Features
 
-## 工程结构
+- Listens on a local address, defaulting to `127.0.0.1:1234`.
+- Forwards requests to an upstream LLM API, defaulting to `http://127.0.0.1:1235`.
+- Supports `GET`, `POST`, `PUT`, `PATCH`, `DELETE`, `OPTIONS`, and `HEAD`.
+- Records request and response headers, bodies, status codes, durations, client addresses, and target addresses.
+- Writes both machine-readable JSONL logs and human-readable Markdown/JSON logs.
+- Groups multi-turn requests by task, making it easier to review a single Agent workflow.
+- Generates compact summaries for OpenAI-compatible SSE streaming responses while preserving the complete original stream data.
+- Removes selected top-level sampling parameters before forwarding by default, such as `temperature`, `top_p`, and `seed`.
+
+## Project Structure
 
 ```text
 llm_proxy/
-  __init__.py       # 包导出，保留常用 API
-  __main__.py       # python -m llm_proxy 入口
-  cli.py            # 命令行参数和服务启动
-  constants.py      # 共享常量
-  http_utils.py     # HTTP header 辅助函数
-  logger.py         # JSONL 与可读日志写入
-  payloads.py       # body 编码、解析和渲染
-  records.py        # 请求/响应记录分析和任务指纹
-  sanitize.py       # 请求字段清洗
-  server.py         # HTTP proxy server 与 handler
-  streams.py        # SSE 流式响应压缩摘要
-  target.py         # 上游地址解析和路径拼接
+  __init__.py       # Package exports for commonly used APIs
+  __main__.py       # Entry point for python -m llm_proxy
+  cli.py            # Command-line arguments and service startup
+  constants.py      # Shared constants
+  http_utils.py     # HTTP header helpers
+  logger.py         # JSONL and readable log writers
+  payloads.py       # Body encoding, parsing, and rendering
+  records.py        # Request/response record analysis and task fingerprints
+  sanitize.py       # Request field sanitization
+  server.py         # HTTP proxy server and handler
+  streams.py        # Compact summaries for SSE streaming responses
+  target.py         # Upstream address parsing and path joining
 tests/
-  test_proxy.py     # 单元测试
+  test_proxy.py     # Unit tests
 examples/
   responses_client.py
-proxy.py            # 兼容旧用法的入口脚本
-pyproject.toml      # Python 项目元数据和 console script
+proxy.py            # Backward-compatible entry script
+pyproject.toml      # Python project metadata and console script
 ```
 
-## 快速开始
+## Quick Start
 
-代理本地 `llama.cpp`：
+Proxy a local `llama.cpp` server:
 
 ```powershell
 python -m llm_proxy
 ```
 
-旧入口仍然可用：
+The legacy entry point is still available:
 
 ```powershell
 python proxy.py
 ```
 
-代理远程 OpenAI-compatible API：
+Proxy a remote OpenAI-compatible API:
 
 ```powershell
 python -m llm_proxy --target-url https://openrouter.ai/api/v1
 ```
 
-如需固定注入上游 header：
+Inject fixed upstream headers:
 
 ```powershell
 python -m llm_proxy `
@@ -67,62 +69,62 @@ python -m llm_proxy `
   --target-header "X-Title: LLM Proxy"
 ```
 
-客户端或 Agent 的 base URL 指向：
+Point your client or Agent base URL to:
 
 ```text
 http://127.0.0.1:1234
 ```
 
-## 日志
+## Logs
 
-默认日志位置：
+Default log locations:
 
-- JSONL：`logs/interactions.jsonl`
-- 可读日志：`logs/readable/`
+- JSONL: `logs/interactions.jsonl`
+- Readable logs: `logs/readable/`
 
-可读日志中，每次请求会生成一个独立目录，包含：
+Each readable interaction is written to its own directory and includes:
 
-- Markdown 摘要
+- A Markdown summary
 - `request.json`
 - `response.json`
 
-可识别为同一任务的请求会额外归档到：
+Requests recognized as part of the same task are also archived under:
 
 ```text
 logs/readable/tasks/
 ```
 
-如果响应是 SSE 流，`response.json` 会显示聚合后的 `stream_summary`，包括 `content`、`reasoning`、`tool_calls`、`finish_reasons`、`usage` 等字段。原始响应不会丢失，仍保存在 JSONL 的 `response.body.text` 和 `response.body.base64` 中。
+If the response is an SSE stream, `response.json` shows the aggregated `stream_summary`, including fields such as `content`, `reasoning`, `tool_calls`, `finish_reasons`, and `usage`. The raw response is not discarded; it remains available in `response.body.text` and `response.body.base64` in the JSONL log.
 
-## 请求清洗
+## Request Sanitization
 
-默认会在转发给上游前移除这些顶层 JSON 字段：
+By default, these top-level JSON fields are removed before a request is forwarded upstream:
 
 ```text
 temperature, top_p, top_k, min_p, typical_p, repeat_penalty,
 presence_penalty, frequency_penalty, seed
 ```
 
-自定义要移除的字段：
+Customize the fields to remove:
 
 ```powershell
 python -m llm_proxy --strip-request-fields "temperature,top_p"
 ```
 
-关闭请求清洗：
+Disable request sanitization:
 
 ```powershell
 python -m llm_proxy --strip-request-fields ""
 ```
 
-如果发生清洗，日志会记录：
+When sanitization occurs, the logs record:
 
 - `request.stripped_fields`
 - `request.upstream_body`
 
-## 常用配置
+## Configuration
 
-命令行参数和环境变量：
+Command-line arguments and environment variables:
 
 - `--listen-host` / `LLM_PROXY_HOST`
 - `--listen-port` / `LLM_PROXY_PORT`
@@ -137,11 +139,10 @@ python -m llm_proxy --strip-request-fields ""
 - `--strip-request-fields` / `LLM_PROXY_STRIP_REQUEST_FIELDS`
 - `--access-log` / `LLM_PROXY_ACCESS_LOG=1`
 
-`--target-url` 的优先级高于 `--target-scheme`、`--target-host` 和 `--target-port`。
+`--target-url` takes precedence over `--target-scheme`, `--target-host`, and `--target-port`.
 
-## 测试
+## Tests
 
 ```powershell
 python -m unittest discover -s tests
 ```
-
