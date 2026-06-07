@@ -22,6 +22,8 @@ from llm_proxy import (
 
 
 class JoinTargetPathTests(unittest.TestCase):
+    """验证上游 base path 和客户端 path 的拼接规则。"""
+
     def test_prepends_target_base_path(self) -> None:
         self.assertEqual(join_target_path("/v1", "/chat/completions"), "/v1/chat/completions")
 
@@ -39,6 +41,8 @@ class JoinTargetPathTests(unittest.TestCase):
 
 
 class StreamSummaryTests(unittest.TestCase):
+    """验证 SSE 流式响应可以被压缩成可读摘要。"""
+
     def test_compacts_responses_stream_text_deltas(self) -> None:
         body = (
             b'data: {"type":"response.created","response":{"id":"resp_1"}}\n\n'
@@ -69,6 +73,8 @@ class StreamSummaryTests(unittest.TestCase):
 
 
 class TrafficLoggerTaskGroupingTests(unittest.TestCase):
+    """验证 readable 日志里的任务归组逻辑。"""
+
     def test_keeps_pending_and_finished_records_in_one_task(self) -> None:
         log_dir = tempfile.TemporaryDirectory()
         try:
@@ -100,6 +106,7 @@ class TrafficLoggerTaskGroupingTests(unittest.TestCase):
                 },
             }
             logger.update_readable(
+                # 先模拟“请求已读完，但响应还没回来”的中间状态。
                 {
                     **base_record,
                     "event": "request_pending_response",
@@ -108,6 +115,7 @@ class TrafficLoggerTaskGroupingTests(unittest.TestCase):
                 }
             )
             logger.write(
+                # 再模拟同一个请求完成，应该仍然归到同一个任务。
                 {
                     **base_record,
                     "timestamp": "2026-06-07T08:00:02.000+00:00",
@@ -178,6 +186,8 @@ class TrafficLoggerTaskGroupingTests(unittest.TestCase):
                 {"type": "message", "role": "assistant", "content": [{"type": "output_text", "text": "looking at code"}]},
             ]
             second_input = [
+                # 第二次请求没有 previous_response_id，但前几条 input 和第一次相同，
+                # 日志器应通过 input_prefix 指纹判断它们属于同一个任务。
                 {"type": "message", "role": "user", "content": [{"type": "input_text", "text": "fix proxy logging"}]},
                 {"type": "message", "role": "assistant", "content": [{"type": "output_text", "text": "looking at code"}]},
                 {"type": "function_call", "call_id": "call_1", "name": "shell_command", "arguments": "{\"command\":\"rg\"}"},
@@ -262,10 +272,14 @@ class TrafficLoggerTaskGroupingTests(unittest.TestCase):
 
 
 class TargetUrlProxyTests(unittest.TestCase):
+    """验证代理服务器会按 target-url 转发请求并写日志。"""
+
     def test_target_url_forwards_to_configured_upstream_and_logs_request_first(self) -> None:
         upstream_seen: dict[str, object] = {}
 
         class UpstreamHandler(BaseHTTPRequestHandler):
+            """测试用上游服务，记录代理实际转发过来的内容。"""
+
             def do_POST(self) -> None:
                 length = int(self.headers.get("Content-Length", "0"))
                 upstream_seen["path"] = self.path
@@ -386,6 +400,7 @@ class TargetUrlProxyTests(unittest.TestCase):
 
             sock = socket.create_connection(("127.0.0.1", proxy.server_address[1]), timeout=5)
             sock.sendall(
+                # 故意只发送请求头，不发送 body，用来验证代理能先写 request_received 日志。
                 b"POST /v1/chat/completions HTTP/1.1\r\n"
                 b"Host: 127.0.0.1\r\n"
                 b"Content-Type: application/json\r\n"

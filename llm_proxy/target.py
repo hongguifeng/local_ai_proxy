@@ -1,4 +1,4 @@
-"""Upstream target parsing and path handling."""
+"""上游目标地址解析与路径拼接。"""
 
 from __future__ import annotations
 
@@ -9,6 +9,12 @@ from urllib.parse import urlsplit
 from .constants import DEFAULT_PORTS
 
 def parse_target(args: argparse.Namespace) -> dict[str, object]:
+    """根据命令行参数和环境变量解析上游服务地址。
+
+    用户可以用两种方式配置目标：
+    1. ``--target-url``：一次性写完整地址，例如 ``https://api.example.com/v1``。
+    2. ``--target-scheme/host/port``：分别写协议、主机和端口。
+    """
     raw_target_url = args.target_url or os.getenv("LLM_PROXY_TARGET_URL")
     if raw_target_url:
         parsed = urlsplit(raw_target_url)
@@ -35,6 +41,12 @@ def parse_target(args: argparse.Namespace) -> dict[str, object]:
 
 
 def join_target_path(base_path: str, request_path: str) -> str:
+    """把上游基础路径和客户端请求路径拼成最终转发路径。
+
+    例如目标是 ``http://server/v1``，客户端请求 ``/chat/completions``，
+    最终应该发到 ``/v1/chat/completions``。如果客户端已经带了 ``/v1``，
+    就不要重复拼接。
+    """
     if not base_path:
         return request_path
     if not request_path.startswith("/"):
@@ -46,5 +58,4 @@ def join_target_path(base_path: str, request_path: str) -> str:
     ):
         return request_path
     return f"{base_path}{request_path}"
-
 

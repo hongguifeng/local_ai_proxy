@@ -1,4 +1,11 @@
-"""JSONL and human-readable traffic logging."""
+"""流量日志记录器。
+
+本项目同时写两种日志：
+1. ``interactions.jsonl``：机器友好的 JSONL，每一行是一条事件记录。
+2. ``logs/readable``：人类友好的 Markdown/JSON 文件，方便直接打开查看请求和响应。
+
+另外，日志器会尝试把同一个 LLM 任务中的多次请求归到同一个 ``tasks`` 目录。
+"""
 
 from __future__ import annotations
 
@@ -30,11 +37,18 @@ from .time_utils import (
 )
 
 class TrafficLogger:
+    """线程安全的流量日志写入器。
+
+    代理服务器是多线程的，可能同时处理多个请求，所以所有写文件操作都用同一把锁保护。
+    """
+
     def __init__(self, path: Path, readable_dir: Path | None) -> None:
         self.path = path
         self.readable_dir = readable_dir
         self.lock = threading.Lock()
         self.readable_paths: dict[str, Path] = {}
+        # .task-index.json 保存“请求 ID/响应 ID/上下文 ID -> 任务”的索引，
+        # 下次写日志时可以继续把相关请求放进同一个任务目录。
         self.task_index_path = readable_dir / ".task-index.json" if readable_dir else None
         self.task_index = self._load_task_index()
         self.path.parent.mkdir(parents=True, exist_ok=True)
@@ -42,6 +56,10 @@ class TrafficLogger:
             self.readable_dir.mkdir(parents=True, exist_ok=True)
 
     def write(self, record: dict[str, object]) -> None:
+        """写一条完整日志记录。
+
+        这个方法会同时写 JSONL 和 readable 日志。代理结束请求时主要调用它。
+        """
         with self.lock:
             self._prepare_task(record)
             with self.path.open("a", encoding="utf-8") as file:
@@ -50,11 +68,16 @@ class TrafficLogger:
             self._write_readable(record)
 
     def update_readable(self, record: dict[str, object]) -> None:
+        """只更新 readable 日志，不追加 JSONL。
+
+        请求体读完但响应还没回来时会调用它，用来让 Markdown/JSON 文件先出现。
+        """
         with self.lock:
             self._prepare_task(record)
             self._write_readable(record)
 
     def _write_readable(self, record: dict[str, object]) -> None:
+        """写入或更新一条请求对应的 readable 目录。"""
         if not self.readable_dir:
             return
         record_id = str(record["id"])
@@ -65,6 +88,8 @@ class TrafficLogger:
             self._ensure_readable_dir(readable_path)
             self.readable_paths[record_id] = readable_path
         readable_filename = self._readable_filename(record)
+        # 同一个请求在“等待响应”和“请求完成”时会生成不同文件名，
+        # 这里删除旧 Markdown，保持目录里只有最新状态的一份摘要。
         for existing_markdown in readable_path.glob("*.md"):
             if existing_markdown.name != readable_filename:
                 existing_markdown.unlink()
@@ -73,6 +98,7 @@ class TrafficLogger:
         self._write_task_readable(record, readable_filename)
 
     def _load_task_index(self) -> dict[str, object]:
+        """读取任务索引；文件不存在或损坏时返回空索引。"""
         if not self.task_index_path or not self.task_index_path.exists():
             return {"tasks": {}, "request_to_task": {}, "response_to_task": {}, "context_to_task": {}}
         try:
@@ -88,15 +114,22 @@ class TrafficLogger:
         return loaded
 
     def _save_task_index(self) -> None:
+        """把任务索引写回磁盘。"""
         if not self.task_index_path:
             return
         self.task_index_path.write_text(json.dumps(self.task_index, ensure_ascii=False, indent=2), encoding="utf-8")
 
     def _prepare_task(self, record: dict[str, object]) -> None:
+        """为当前记录匹配或创建一个 LLM 任务。
+
+        只有常见的模型请求端点会进入任务归档逻辑，例如 Responses API、
+        Chat Completions 和 Completions。普通接口请求只写单次交互日志。
+        """
         if not self.readable_dir:
             return
         request = record.get("request")
         if not isinstance(request, dict) or request.get("body_pending"):
+            # body 还没读完时无法判断 payload 内容，所以先不做任务归档。
             return
         kind = endpoint_kind(request_path(record))
         if kind not in {"responses", "chat", "completions"}:
@@ -115,6 +148,7 @@ class TrafficLogger:
             task["requests"] = requests
         request_info = requests.get(request_id)
         if not isinstance(request_info, dict):
+            # 一个任务里可能有多次请求，sequence 用来表示它们的先后顺序。
             sequence = len(requests) + 1
             request_info = {
                 "sequence": sequence,
@@ -148,10 +182,12 @@ class TrafficLogger:
         if isinstance(payload, dict):
             previous_response_id = payload.get("previous_response_id")
             if isinstance(previous_response_id, str) and previous_response_id:
+                # Responses API 常用 previous_response_id 串联上下文，这是最可靠的归组线索。
                 response_to_task = self.task_index.setdefault("response_to_task", {})
                 if isinstance(response_to_task, dict):
                     response_to_task.setdefault(previous_response_id, task_id)
             for context_key in self._context_keys(payload):
+                # 某些客户端会传 conversation_id/thread_id/session_id，也可以作为归组线索。
                 context_to_task = self.task_index.setdefault("context_to_task", {})
                 if isinstance(context_to_task, dict):
                     context_to_task.setdefault(context_key, task_id)
@@ -159,6 +195,7 @@ class TrafficLogger:
         response_to_task = self.task_index.setdefault("response_to_task", {})
         if isinstance(response_to_task, dict):
             for response_id in response_ids_from_body(response_payload):
+                # 把本次响应 ID 也登记起来，下一次请求引用它时就能找到同一个任务。
                 response_to_task[response_id] = task_id
 
         record["task"] = {
@@ -171,6 +208,7 @@ class TrafficLogger:
         self._save_task_index()
 
     def _find_or_create_task(self, record: Mapping[str, object], kind: str, payload: object) -> dict[str, object] | None:
+        """查找现有任务；找不到就创建新任务。"""
         tasks = self.task_index.setdefault("tasks", {})
         if not isinstance(tasks, dict):
             self.task_index["tasks"] = {}
@@ -189,6 +227,14 @@ class TrafficLogger:
         return task
 
     def _match_existing_task(self, record: Mapping[str, object], kind: str, payload: object) -> str | None:
+        """按多种线索匹配已有任务。
+
+        匹配优先级从可靠到模糊：
+        1. 请求 ID 已经登记过。
+        2. previous_response_id 指向已知响应。
+        3. conversation/thread/session 之类上下文 ID。
+        4. 最后才使用启发式相似度。
+        """
         request_id = str(record["id"])
         request_to_task = self.task_index.get("request_to_task")
         if isinstance(request_to_task, dict):
@@ -217,6 +263,7 @@ class TrafficLogger:
         return self._best_heuristic_task(record, kind, payload)
 
     def _find_task_for_request_id(self, request_id: str) -> str | None:
+        """在任务列表里反查请求 ID，并顺手修复 request_to_task 索引。"""
         tasks = self.task_index.get("tasks")
         if not isinstance(tasks, dict):
             return None
@@ -232,6 +279,11 @@ class TrafficLogger:
         return None
 
     def _best_heuristic_task(self, record: Mapping[str, object], kind: str, payload: object) -> str | None:
+        """用启发式评分匹配任务。
+
+        这个方法用于没有明确上下文 ID 的情况。它会比较 endpoint、model、
+        请求内容指纹和时间距离。为了避免误归组，阈值设置得比较保守。
+        """
         if not isinstance(payload, dict):
             return None
         tasks = self.task_index.get("tasks")
@@ -254,6 +306,7 @@ class TrafficLogger:
                 continue
             age_seconds = abs((now - last_seen).total_seconds())
             if age_seconds > 30 * 60:
+                # 间隔超过 30 分钟的请求通常不应被认为是同一轮任务。
                 continue
 
             score = 0
@@ -277,6 +330,7 @@ class TrafficLogger:
                 score += 15
 
             if kind in {"chat", "responses"} and not content_match:
+                # 对对话类接口来说，必须有内容指纹匹配，否则只凭模型和时间太容易误判。
                 continue
             if score > best_score:
                 best_score = score
@@ -291,6 +345,7 @@ class TrafficLogger:
         return None
 
     def _new_task(self, record: Mapping[str, object], kind: str, payload: object) -> dict[str, object]:
+        """创建新的任务元数据。"""
         task_id = uuid.uuid4().hex
         anchor = self._task_anchor(record, kind, payload)
         task = {
@@ -311,6 +366,10 @@ class TrafficLogger:
         return task
 
     def _task_anchor(self, record: Mapping[str, object], kind: str, payload: object) -> str:
+        """生成任务目录名里的稳定锚点。
+
+        锚点尽量来自 previous_response_id 或请求内容指纹，实在没有再退回请求 ID。
+        """
         if kind == "responses" and isinstance(payload, dict):
             previous_response_id = payload.get("previous_response_id")
             if isinstance(previous_response_id, str) and previous_response_id:
@@ -322,6 +381,7 @@ class TrafficLogger:
         return f"req-{str(record['id'])[:12]}"
 
     def _context_keys(self, payload: Mapping[str, object]) -> list[str]:
+        """从请求 payload 中提取可能代表同一会话的上下文键。"""
         keys: list[str] = []
         conversation = payload.get("conversation")
         conversation_id = first_string(
@@ -338,6 +398,7 @@ class TrafficLogger:
         return keys
 
     def _task_request_dir_name(self, record: Mapping[str, object], sequence: int) -> str:
+        """生成任务目录下单次请求的子目录名。"""
         request = record["request"]  # type: ignore[index]
         started_at = record.get("started_timestamp", record.get("timestamp"))
         time_part = local_time_from_timestamp_for_filename(started_at)
@@ -345,6 +406,7 @@ class TrafficLogger:
         return f"{sequence:03d}__{time_part}__{path}__{record['id']}"
 
     def _task_anchor_from_dir_name(self, dir_name: str) -> str | None:
+        """从旧目录名中尽量恢复锚点，用于兼容已有日志目录。"""
         parts = str(dir_name).split("__")
         if len(parts) >= 4:
             return parts[-1]
@@ -353,6 +415,11 @@ class TrafficLogger:
         return None
 
     def _task_dir_name(self, task: Mapping[str, object]) -> str:
+        """生成任务目录名。
+
+        目录名包含开始时间、最后响应时间、接口类型和锚点。最后响应时间变化时，
+        目录名会跟着更新，方便从文件夹名看出任务持续到什么时候。
+        """
         started_at = task.get("started_at") or task.get("last_seen_at") or utc_now_iso()
         last_response_at = task.get("last_response_at") or started_at
         start_part = local_datetime_for_filename(started_at)
@@ -365,6 +432,7 @@ class TrafficLogger:
         return f"{start_part}__{end_part}__{kind}__{anchor}"
 
     def _sync_task_dir_name(self, task: dict[str, object]) -> None:
+        """如果任务目录名需要更新，就在磁盘上重命名目录。"""
         new_dir_name = self._task_dir_name(task)
         old_dir_name = str(task.get("dir_name") or "")
         if new_dir_name == old_dir_name:
@@ -377,6 +445,7 @@ class TrafficLogger:
         task["dir_name"] = new_dir_name
 
     def _write_task_readable(self, record: Mapping[str, object], readable_filename: str) -> None:
+        """把当前请求也写进它所属的任务目录。"""
         task_ref = record.get("task")
         if not isinstance(task_ref, dict) or not self.readable_dir:
             return
@@ -404,6 +473,7 @@ class TrafficLogger:
         self._write_task_index_markdown(task_path, task)
 
     def _write_task_index_markdown(self, task_path: Path, task: Mapping[str, object]) -> None:
+        """生成任务目录下的 index.md，列出该任务的请求时间线。"""
         task_path.mkdir(parents=True, exist_ok=True)
         requests = task.get("requests")
         request_items = list(requests.items()) if isinstance(requests, dict) else []
@@ -438,21 +508,24 @@ class TrafficLogger:
         (task_path / "index.md").write_text("\n".join(parts), encoding="utf-8")
 
     def _ensure_readable_dir(self, path: Path) -> None:
+        """确保目标是目录；如果同名文件已存在，先删除它。"""
         if path.is_file():
             path.unlink()
         path.mkdir(parents=True, exist_ok=True)
 
     def _write_json_file(self, path: Path, value: object) -> None:
+        """用统一格式写 JSON 文件。"""
         path.write_text(json.dumps(value, ensure_ascii=False, indent=2), encoding="utf-8")
 
     def _write_body_json_files(self, path: Path, record: dict[str, object]) -> None:
+        """在 readable 目录里写 request.json 和 response.json。"""
         request = record["request"]  # type: ignore[assignment]
         response = record["response"]  # type: ignore[assignment]
         self._write_json_file(path / "request.json", body_json_value(request["body"]))  # type: ignore[index]
         self._write_json_file(path / "response.json", body_json_value(response["body"]))  # type: ignore[index]
 
     def _readable_dir_name(self, record: dict[str, object]) -> str:
-        """Return directory name with __ separators, original format."""
+        """生成单次交互的 readable 目录名。"""
         timestamp = local_datetime_for_filename(readable_start_timestamp(record))
         method = str(record["request"]["method"])  # type: ignore[index]
         path = str(record["request"]["path"])  # type: ignore[index]
@@ -461,7 +534,7 @@ class TrafficLogger:
         return f"{timestamp}__{method}__{safe_path}__{record['id']}"
 
     def _readable_filename(self, record: dict[str, object]) -> str:
-        """Return MD filename with only time: {start_time}__{end_time}.md."""
+        """生成 Markdown 文件名，格式是 ``开始时间__结束时间.md``。"""
         start_time = readable_start_timestamp(record)
         duration_ms = record["duration_ms"]
 
@@ -474,6 +547,7 @@ class TrafficLogger:
         return f"{start_str}__{end_str}.md"
 
     def _render_markdown(self, record: dict[str, object]) -> str:
+        """把一条记录渲染成 Markdown 摘要。"""
         request = record["request"]  # type: ignore[assignment]
         response = record["response"]  # type: ignore[assignment]
         target = record["target"]  # type: ignore[assignment]
@@ -535,7 +609,7 @@ class TrafficLogger:
         return "\n".join(parts)
 
     def write_index(self, record: dict[str, object]) -> None:
+        """预留接口：未来可以在 readable 根目录生成总索引。"""
         if not self.readable_dir:
             return
-
 

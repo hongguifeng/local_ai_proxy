@@ -1,4 +1,8 @@
-"""LLM HTTP proxy package."""
+"""LLM HTTP proxy 包的公开 API。
+
+外部代码如果 ``import llm_proxy``，通常只需要这里导出的这些类和函数。
+这样可以隐藏内部模块拆分细节，也方便旧的 ``proxy.py`` 兼容入口复用。
+"""
 
 from __future__ import annotations
 
@@ -13,6 +17,7 @@ from .target import join_target_path, parse_target
 from .time_utils import local_datetime_for_filename, local_time_from_timestamp_for_filename
 
 __all__ = [
+    # __all__ 控制 ``from llm_proxy import *`` 会导出哪些名字。
     "ProxyHandler",
     "ProxyServer",
     "TrafficLogger",
