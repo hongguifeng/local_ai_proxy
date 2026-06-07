@@ -9,7 +9,16 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from types import SimpleNamespace
 
-from proxy import ProxyHandler, ProxyServer, TrafficLogger, body_json_value, join_target_path, parse_target
+from proxy import (
+    ProxyHandler,
+    ProxyServer,
+    TrafficLogger,
+    body_json_value,
+    join_target_path,
+    local_datetime_for_filename,
+    local_time_from_timestamp_for_filename,
+    parse_target,
+)
 
 
 class JoinTargetPathTests(unittest.TestCase):
@@ -57,6 +66,199 @@ class StreamSummaryTests(unittest.TestCase):
                 }
             },
         )
+
+
+class TrafficLoggerTaskGroupingTests(unittest.TestCase):
+    def test_keeps_pending_and_finished_records_in_one_task(self) -> None:
+        log_dir = tempfile.TemporaryDirectory()
+        try:
+            root = Path(log_dir.name)
+            logger = TrafficLogger(root / "interactions.jsonl", root / "readable")
+            timestamp = "2026-06-07T08:00:00.000+00:00"
+            base_record = {
+                "id": "req_1",
+                "timestamp": timestamp,
+                "started_timestamp": timestamp,
+                "client": {"host": "127.0.0.1", "port": 1000},
+                "target": {"scheme": "http", "host": "127.0.0.1", "port": 1235, "path": "/v1/responses"},
+                "request": {
+                    "method": "POST",
+                    "path": "/v1/responses",
+                    "headers": {},
+                    "body": {
+                        "size_bytes": 0,
+                        "base64": "",
+                        "text": json.dumps(
+                            {
+                                "model": "gpt-5.5",
+                                "instructions": "system",
+                                "tools": [{"type": "function", "name": "shell"}],
+                                "input": [{"type": "message", "role": "user", "content": [{"type": "input_text", "text": "hello"}]}],
+                            }
+                        ),
+                    },
+                },
+            }
+            logger.update_readable(
+                {
+                    **base_record,
+                    "event": "request_pending_response",
+                    "duration_ms": 1,
+                    "response": {"status": None, "headers": {}, "body": {"size_bytes": 0, "base64": "", "text": ""}},
+                }
+            )
+            logger.write(
+                {
+                    **base_record,
+                    "timestamp": "2026-06-07T08:00:02.000+00:00",
+                    "event": "request_finished",
+                    "duration_ms": 2000,
+                    "response": {
+                        "status": 200,
+                        "headers": {},
+                        "body": {
+                            "size_bytes": 0,
+                            "base64": "",
+                            "text": json.dumps({"id": "resp_1"}),
+                        },
+                    },
+                }
+            )
+
+            with (root / "readable" / ".task-index.json").open(encoding="utf-8") as file:
+                index = json.load(file)
+            self.assertEqual(len(index["tasks"]), 1)
+            only_task = next(iter(index["tasks"].values()))
+            self.assertEqual(only_task["request_count"], 1)
+            self.assertEqual(list(only_task["requests"]), ["req_1"])
+        finally:
+            log_dir.cleanup()
+
+    def test_groups_responses_requests_without_previous_response_id_using_input_prefix(self) -> None:
+        log_dir = tempfile.TemporaryDirectory()
+        try:
+            root = Path(log_dir.name)
+            logger = TrafficLogger(root / "interactions.jsonl", root / "readable")
+
+            def record(request_id: str, timestamp: str, input_items: list[object], response_id: str) -> dict[str, object]:
+                return {
+                    "id": request_id,
+                    "timestamp": timestamp,
+                    "started_timestamp": timestamp,
+                    "event": "request_finished",
+                    "duration_ms": 100,
+                    "client": {"host": "127.0.0.1", "port": 1000},
+                    "target": {"scheme": "http", "host": "127.0.0.1", "port": 1235, "path": "/v1/responses"},
+                    "request": {
+                        "method": "POST",
+                        "path": "/v1/responses",
+                        "headers": {},
+                        "body": {
+                            "size_bytes": 0,
+                            "base64": "",
+                            "text": json.dumps(
+                                {
+                                    "model": "gpt-5.5",
+                                    "instructions": "codex-system",
+                                    "tools": [{"type": "function", "name": "shell_command"}],
+                                    "input": input_items,
+                                }
+                            ),
+                        },
+                    },
+                    "response": {
+                        "status": 200,
+                        "headers": {},
+                        "body": {"size_bytes": 0, "base64": "", "text": json.dumps({"id": response_id})},
+                    },
+                }
+
+            first_input = [
+                {"type": "message", "role": "user", "content": [{"type": "input_text", "text": "fix proxy logging"}]},
+                {"type": "message", "role": "assistant", "content": [{"type": "output_text", "text": "looking at code"}]},
+            ]
+            second_input = [
+                {"type": "message", "role": "user", "content": [{"type": "input_text", "text": "fix proxy logging"}]},
+                {"type": "message", "role": "assistant", "content": [{"type": "output_text", "text": "looking at code"}]},
+                {"type": "function_call", "call_id": "call_1", "name": "shell_command", "arguments": "{\"command\":\"rg\"}"},
+                {"type": "function_call_output", "call_id": "call_1", "output": "proxy.py"},
+            ]
+            logger.write(record("req_1", "2026-06-07T08:00:00.000+00:00", first_input, "resp_1"))
+            logger.write(record("req_2", "2026-06-07T08:00:10.000+00:00", second_input, "resp_2"))
+
+            with (root / "readable" / ".task-index.json").open(encoding="utf-8") as file:
+                index = json.load(file)
+            self.assertEqual(len(index["tasks"]), 1)
+            only_task = next(iter(index["tasks"].values()))
+            self.assertEqual(only_task["request_count"], 2)
+            self.assertEqual(sorted(only_task["requests"]), ["req_1", "req_2"])
+        finally:
+            log_dir.cleanup()
+
+    def test_updates_task_dir_with_latest_response_time(self) -> None:
+        log_dir = tempfile.TemporaryDirectory()
+        try:
+            root = Path(log_dir.name)
+            logger = TrafficLogger(root / "interactions.jsonl", root / "readable")
+
+            def record(request_id: str, started_at: str, finished_at: str, previous_response_id: str | None, response_id: str) -> dict[str, object]:
+                payload: dict[str, object] = {
+                    "model": "gpt-5.5",
+                    "input": [{"type": "message", "role": "user", "content": [{"type": "input_text", "text": "continue task"}]}],
+                }
+                if previous_response_id:
+                    payload["previous_response_id"] = previous_response_id
+                return {
+                    "id": request_id,
+                    "timestamp": finished_at,
+                    "started_timestamp": started_at,
+                    "event": "request_finished",
+                    "duration_ms": 100,
+                    "client": {"host": "127.0.0.1", "port": 1000},
+                    "target": {"scheme": "http", "host": "127.0.0.1", "port": 1235, "path": "/v1/responses"},
+                    "request": {
+                        "method": "POST",
+                        "path": "/v1/responses",
+                        "headers": {},
+                        "body": {
+                            "size_bytes": 0,
+                            "base64": "",
+                            "text": json.dumps(payload),
+                        },
+                    },
+                    "response": {
+                        "status": 200,
+                        "headers": {},
+                        "body": {"size_bytes": 0, "base64": "", "text": json.dumps({"id": response_id})},
+                    },
+                }
+
+            first = record("req_1", "2026-06-07T08:00:00.000+00:00", "2026-06-07T08:00:02.000+00:00", None, "resp_1")
+            second = record("req_2", "2026-06-07T08:00:10.000+00:00", "2026-06-07T08:00:15.000+00:00", "resp_1", "resp_2")
+
+            logger.write(first)
+            first_expected = (
+                f"{local_datetime_for_filename(first['started_timestamp'])}"
+                f"__{local_time_from_timestamp_for_filename(first['timestamp'])}__responses__"
+            )
+            tasks_root = root / "readable" / "tasks"
+            task_dirs = [path for path in tasks_root.iterdir() if path.is_dir()]
+            self.assertEqual(len(task_dirs), 1)
+            first_task_dir = task_dirs[0]
+            self.assertTrue(first_task_dir.name.startswith(first_expected))
+
+            logger.write(second)
+            second_expected = (
+                f"{local_datetime_for_filename(first['started_timestamp'])}"
+                f"__{local_time_from_timestamp_for_filename(second['timestamp'])}__responses__"
+            )
+            task_dirs = [path for path in tasks_root.iterdir() if path.is_dir()]
+            self.assertEqual(len(task_dirs), 1)
+            second_task_dir = task_dirs[0]
+            self.assertTrue(second_task_dir.name.startswith(second_expected))
+            self.assertFalse(first_task_dir.exists())
+        finally:
+            log_dir.cleanup()
 
 
 class TargetUrlProxyTests(unittest.TestCase):
@@ -294,7 +496,9 @@ class TargetUrlProxyTests(unittest.TestCase):
             readable_interactions = []
             while time.time() < deadline:
                 if readable_dir.exists():
-                    readable_interactions = [path for path in readable_dir.iterdir() if path.is_dir()]
+                    readable_interactions = [
+                        path for path in readable_dir.iterdir() if path.is_dir() and path.name != "tasks"
+                    ]
                     if readable_interactions and (readable_interactions[0] / "request.json").exists():
                         break
                 time.sleep(0.05)
@@ -316,7 +520,7 @@ class TargetUrlProxyTests(unittest.TestCase):
                 records = [json.loads(line) for line in file]
             self.assertEqual([record["event"] for record in records], ["request_received", "request_finished"])
 
-            readable_interactions = [path for path in readable_dir.iterdir() if path.is_dir()]
+            readable_interactions = [path for path in readable_dir.iterdir() if path.is_dir() and path.name != "tasks"]
             self.assertEqual(readable_interactions, [readable_path])
             markdown_files = list(readable_path.glob("*.md"))
             self.assertEqual(readable_path.name.split("__")[1], markdown_files[0].name.split("__")[0])
