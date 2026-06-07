@@ -9,6 +9,7 @@ import datetime as dt
 import http.client
 import json
 import os
+import threading
 import time
 import uuid
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
@@ -53,6 +54,18 @@ def utc_now_iso() -> str:
 
 def local_now_for_filename() -> str:
     return dt.datetime.now().astimezone().strftime("%m-%d__%H-%M-%S.%f")[:-3]
+
+
+def local_datetime_for_filename(timestamp: object) -> str:
+    return dt.datetime.fromisoformat(str(timestamp)).astimezone().strftime("%m-%d__%H-%M-%S.%f")[:-3]
+
+
+def local_time_from_timestamp_for_filename(timestamp: object) -> str:
+    return dt.datetime.fromisoformat(str(timestamp)).astimezone().strftime("%H-%M-%S.%f")[:-3]
+
+
+def readable_start_timestamp(record: Mapping[str, object]) -> object:
+    return record.get("started_timestamp", record["timestamp"])
 
 
 def local_time_for_filename() -> str:
@@ -122,6 +135,12 @@ def join_target_path(base_path: str, request_path: str) -> str:
         return request_path
     if not request_path.startswith("/"):
         request_path = f"/{request_path}"
+    if (
+        request_path == base_path
+        or request_path.startswith(f"{base_path}/")
+        or request_path.startswith(f"{base_path}?")
+    ):
+        return request_path
     return f"{base_path}{request_path}"
 
 
@@ -219,6 +238,40 @@ def compact_tool_calls(tool_calls: list[object]) -> list[object]:
     return compacted
 
 
+def compact_response_tool_calls(tool_calls: dict[str, dict[str, object]]) -> list[object]:
+    compacted = []
+    for key in sorted(tool_calls):
+        tool_call = dict(tool_calls[key])
+        arguments = tool_call.get("arguments")
+        if isinstance(arguments, str):
+            try:
+                tool_call["arguments_json"] = json.loads(arguments)
+            except json.JSONDecodeError:
+                pass
+        compacted.append(tool_call)
+    return compacted
+
+
+def compact_response_payload(response: Mapping[str, object]) -> dict[str, object]:
+    keep_keys = (
+        "id",
+        "object",
+        "created_at",
+        "status",
+        "model",
+        "parallel_tool_calls",
+        "previous_response_id",
+    )
+    compacted = {key: response[key] for key in keep_keys if key in response}
+    error = response.get("error")
+    if error:
+        compacted["error"] = error
+    incomplete_details = response.get("incomplete_details")
+    if incomplete_details:
+        compacted["incomplete_details"] = incomplete_details
+    return compacted
+
+
 def compact_sse_json(text: str) -> str | None:
     events = []
     done_seen = False
@@ -242,12 +295,82 @@ def compact_sse_json(text: str) -> str | None:
     content_parts: list[str] = []
     reasoning_parts: list[str] = []
     tool_calls: list[object] = []
+    response_tool_calls: dict[str, dict[str, object]] = {}
     finish_reasons: list[str] = []
     usage: object | None = None
+    response_payload: object | None = None
     other_payloads: list[object] = []
 
     for event in events:
-        if isinstance(event, dict) and event.get("usage"):
+        if not isinstance(event, dict):
+            other_payloads.append(event)
+            continue
+
+        event_type = event.get("type")
+        if isinstance(event_type, str) and event_type.startswith("response."):
+            if event_type == "response.output_text.delta":
+                delta = event.get("delta")
+                if isinstance(delta, str) and delta:
+                    content_parts.append(delta)
+            elif event_type == "response.output_text.done" and not content_parts:
+                value = event.get("text")
+                if isinstance(value, str) and value:
+                    content_parts.append(value)
+            elif event_type in {
+                "response.reasoning_text.delta",
+                "response.reasoning_summary_text.delta",
+            }:
+                delta = event.get("delta")
+                if isinstance(delta, str) and delta:
+                    reasoning_parts.append(delta)
+            elif event_type in {
+                "response.reasoning_text.done",
+                "response.reasoning_summary_text.done",
+            } and not reasoning_parts:
+                value = event.get("text")
+                if isinstance(value, str) and value:
+                    reasoning_parts.append(value)
+            elif event_type == "response.function_call_arguments.delta":
+                item_id = str(event.get("item_id") or event.get("call_id") or event.get("output_index") or "0")
+                tool_call = response_tool_calls.setdefault(item_id, {"arguments": ""})
+                for key in ("item_id", "call_id", "output_index"):
+                    value = event.get(key)
+                    if value is not None:
+                        tool_call[key] = value
+                delta = event.get("delta")
+                if isinstance(delta, str):
+                    tool_call["arguments"] = str(tool_call.get("arguments", "")) + delta
+            elif event_type == "response.function_call_arguments.done":
+                item_id = str(event.get("item_id") or event.get("call_id") or event.get("output_index") or "0")
+                tool_call = response_tool_calls.setdefault(item_id, {})
+                for key in ("item_id", "call_id", "output_index"):
+                    value = event.get(key)
+                    if value is not None:
+                        tool_call[key] = value
+                arguments = event.get("arguments")
+                if isinstance(arguments, str):
+                    tool_call["arguments"] = arguments
+            elif event_type in {"response.completed", "response.incomplete"}:
+                response = event.get("response")
+                if isinstance(response, dict):
+                    compacted_response = compact_response_payload(response)
+                    if compacted_response:
+                        response_payload = {
+                            **response_payload,
+                            **compacted_response,
+                        } if isinstance(response_payload, dict) else compacted_response
+                    if response.get("usage"):
+                        usage = response["usage"]
+                    status = response.get("status")
+                    if status:
+                        finish_reasons.append(str(status))
+            elif event_type == "response.created":
+                response = event.get("response")
+                if isinstance(response, dict) and response_payload is None:
+                    response_payload = compact_response_payload(response)
+            continue
+
+        if event.get("usage"):
             usage = event["usage"]
         choices = event.get("choices") if isinstance(event, dict) else None
         if not isinstance(choices, list):
@@ -290,12 +413,16 @@ def compact_sse_json(text: str) -> str | None:
             stream_summary["reasoning"] = "".join(reasoning_parts)
         if content_parts:
             stream_summary["content"] = "".join(content_parts)
+        if response_tool_calls:
+            stream_summary["response_tool_calls"] = compact_response_tool_calls(response_tool_calls)
         if tool_calls:
             stream_summary["tool_calls"] = compact_tool_calls(tool_calls)
         if finish_reasons:
             stream_summary["finish_reasons"] = finish_reasons
         if usage:
             stream_summary["usage"] = usage
+        if response_payload:
+            stream_summary["response"] = response_payload
         if other_payloads:
             stream_summary["other_payloads"] = other_payloads
     return json.dumps(summary, ensure_ascii=False, indent=2)
@@ -342,21 +469,39 @@ class TrafficLogger:
     def __init__(self, path: Path, readable_dir: Path | None) -> None:
         self.path = path
         self.readable_dir = readable_dir
+        self.lock = threading.Lock()
+        self.readable_paths: dict[str, Path] = {}
         self.path.parent.mkdir(parents=True, exist_ok=True)
         if self.readable_dir:
             self.readable_dir.mkdir(parents=True, exist_ok=True)
 
     def write(self, record: dict[str, object]) -> None:
-        with self.path.open("a", encoding="utf-8") as file:
-            json.dump(record, file, ensure_ascii=False, separators=(",", ":"))
-            file.write("\n")
-        if self.readable_dir:
+        with self.lock:
+            with self.path.open("a", encoding="utf-8") as file:
+                json.dump(record, file, ensure_ascii=False, separators=(",", ":"))
+                file.write("\n")
+            self._write_readable(record)
+
+    def update_readable(self, record: dict[str, object]) -> None:
+        with self.lock:
+            self._write_readable(record)
+
+    def _write_readable(self, record: dict[str, object]) -> None:
+        if not self.readable_dir:
+            return
+        record_id = str(record["id"])
+        readable_path = self.readable_paths.get(record_id)
+        if readable_path is None:
             readable_dir_name = self._readable_dir_name(record)
-            readable_filename = self._readable_filename(record)
             readable_path = self.readable_dir / readable_dir_name
             self._ensure_readable_dir(readable_path)
-            (readable_path / readable_filename).write_text(self._render_markdown(record), encoding="utf-8")
-            self._write_body_json_files(readable_path, record)
+            self.readable_paths[record_id] = readable_path
+        readable_filename = self._readable_filename(record)
+        for existing_markdown in readable_path.glob("*.md"):
+            if existing_markdown.name != readable_filename:
+                existing_markdown.unlink()
+        (readable_path / readable_filename).write_text(self._render_markdown(record), encoding="utf-8")
+        self._write_body_json_files(readable_path, record)
 
     def _ensure_readable_dir(self, path: Path) -> None:
         if path.is_file():
@@ -374,7 +519,7 @@ class TrafficLogger:
 
     def _readable_dir_name(self, record: dict[str, object]) -> str:
         """Return directory name with __ separators, original format."""
-        timestamp = local_now_for_filename()
+        timestamp = local_datetime_for_filename(readable_start_timestamp(record))
         method = str(record["request"]["method"])  # type: ignore[index]
         path = str(record["request"]["path"])  # type: ignore[index]
         safe_path = "".join(ch if ch.isalnum() else "-" for ch in path).strip("-")
@@ -383,14 +528,14 @@ class TrafficLogger:
 
     def _readable_filename(self, record: dict[str, object]) -> str:
         """Return MD filename with only time: {start_time}__{end_time}.md."""
-        start_time = record["timestamp"]  # ISO format
+        start_time = readable_start_timestamp(record)
         duration_ms = record["duration_ms"]
 
         start_dt = dt.datetime.fromisoformat(str(start_time))
         end_dt = start_dt + dt.timedelta(milliseconds=duration_ms)
 
-        start_str = start_dt.strftime("%H-%M-%S.%f")[:-3]
-        end_str = end_dt.strftime("%H-%M-%S.%f")[:-3]
+        start_str = local_time_from_timestamp_for_filename(start_time)
+        end_str = end_dt.astimezone().strftime("%H-%M-%S.%f")[:-3]
 
         return f"{start_str}__{end_str}.md"
 
@@ -406,9 +551,10 @@ class TrafficLogger:
             "## Summary",
             "",
             f"- Time: {record['timestamp']}",
+            f"- Event: {record.get('event', 'interaction')}",
             f"- Duration: {format_duration_hms(record['duration_ms'])} ({record['duration_ms']} ms)",
             f"- Client: {client['host']}:{client['port']}",  # type: ignore[index]
-            f"- Target: {target['host']}:{target['port']}{target['path']}",  # type: ignore[index]
+            f"- Target: {target['scheme']}://{target['host']}:{target['port']}{target['path']}",  # type: ignore[index]
             f"- Request: {request['method']} {request['path']}",  # type: ignore[index]
             f"- Response: {response['status']}",  # type: ignore[index]
         ]
@@ -532,10 +678,6 @@ class ProxyHandler(BaseHTTPRequestHandler):
     def _proxy(self) -> None:
         request_id = uuid.uuid4().hex
         started = time.perf_counter()
-        request_body = self._read_request_body()
-        upstream_request_body, stripped_request_fields = strip_request_json_fields(
-            request_body, self.server_config["strip_request_fields"]  # type: ignore[arg-type]
-        )
         target_scheme = str(self.server_config["target_scheme"])
         target_host = str(self.server_config["target_host"])
         target_port = int(self.server_config["target_port"])
@@ -547,6 +689,74 @@ class ProxyHandler(BaseHTTPRequestHandler):
         response_headers: list[tuple[str, str]] = []
         error: str | None = None
         sent_downstream_headers = False
+        initial_request_record: dict[str, object] = {
+            "method": self.command,
+            "path": self.path,
+            "headers": headers_to_dict(self.headers.items()),
+            "body": bytes_payload(b""),
+            "body_pending": True,
+        }
+        initial_record: dict[str, object] = {
+            "id": request_id,
+            "timestamp": utc_now_iso(),
+            "client": {
+                "host": self.client_address[0],
+                "port": self.client_address[1],
+            },
+            "target": {
+                "scheme": target_scheme,
+                "host": target_host,
+                "port": target_port,
+                "path": target_path,
+            },
+            "request": initial_request_record,
+        }
+        initial_record["started_timestamp"] = initial_record["timestamp"]
+        self.traffic_logger.write(
+            {
+                **initial_record,
+                "event": "request_received",
+                "duration_ms": 0,
+                "response": {
+                    "status": None,
+                    "headers": {},
+                    "body": bytes_payload(b""),
+                },
+            }
+        )
+
+        request_body = self._read_request_body()
+        upstream_request_body, stripped_request_fields = strip_request_json_fields(
+            request_body, self.server_config["strip_request_fields"]  # type: ignore[arg-type]
+        )
+        request_record: dict[str, object] = {
+            "method": self.command,
+            "path": self.path,
+            "headers": headers_to_dict(self.headers.items()),
+            "body": bytes_payload(request_body),
+        }
+        if stripped_request_fields:
+            request_record["stripped_fields"] = stripped_request_fields
+            request_record["upstream_body"] = bytes_payload(upstream_request_body)
+        target_headers = self.server_config["target_headers"]  # type: ignore[assignment]
+        if target_headers:
+            request_record["added_upstream_headers"] = [key for key, _ in target_headers]  # type: ignore[union-attr]
+        base_record = {
+            **initial_record,
+            "request": request_record,
+        }
+        self.traffic_logger.update_readable(
+            {
+                **base_record,
+                "event": "request_pending_response",
+                "duration_ms": round((time.perf_counter() - started) * 1000, 3),
+                "response": {
+                    "status": None,
+                    "headers": {},
+                    "body": bytes_payload(b""),
+                },
+            }
+        )
 
         try:
             conn_class = http.client.HTTPSConnection if target_scheme == "https" else http.client.HTTPConnection
@@ -585,34 +795,11 @@ class ProxyHandler(BaseHTTPRequestHandler):
         finally:
             duration_ms = round((time.perf_counter() - started) * 1000, 3)
             response_body = b"".join(response_body_parts)
-            request_record: dict[str, object] = {
-                "method": self.command,
-                "path": self.path,
-                "headers": headers_to_dict(self.headers.items()),
-                "body": bytes_payload(request_body),
-            }
-            if stripped_request_fields:
-                request_record["stripped_fields"] = stripped_request_fields
-                request_record["upstream_body"] = bytes_payload(upstream_request_body)
-            target_headers = self.server_config["target_headers"]  # type: ignore[assignment]
-            if target_headers:
-                request_record["added_upstream_headers"] = [key for key, _ in target_headers]  # type: ignore[union-attr]
-
             record = {
-                "id": request_id,
+                **base_record,
+                "event": "request_finished",
                 "timestamp": utc_now_iso(),
                 "duration_ms": duration_ms,
-                "client": {
-                    "host": self.client_address[0],
-                    "port": self.client_address[1],
-                },
-                "target": {
-                    "scheme": target_scheme,
-                    "host": target_host,
-                    "port": target_port,
-                    "path": target_path,
-                },
-                "request": request_record,
                 "response": {
                     "status": response_status,
                     "headers": headers_to_dict(response_headers),
