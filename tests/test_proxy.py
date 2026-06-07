@@ -9,7 +9,7 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from types import SimpleNamespace
 
-from proxy import (
+from llm_proxy import (
     ProxyHandler,
     ProxyServer,
     TrafficLogger,
