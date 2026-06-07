@@ -1,4 +1,9 @@
-"""Compaction helpers for OpenAI-compatible streaming responses."""
+"""OpenAI 兼容流式响应的压缩工具。
+
+模型接口常用 SSE（Server-Sent Events）返回流式数据，原始内容会是一堆
+``data: {...}`` 片段。直接读这些片段很费劲，所以这里把它们合并成一个摘要：
+最终文本、推理文本、工具调用参数、用量信息等。
+"""
 
 from __future__ import annotations
 
@@ -6,6 +11,11 @@ import json
 from typing import Mapping
 
 def merge_tool_call_delta(merged: dict[int, dict[str, object]], tool_call: object) -> None:
+    """合并 Chat Completions 流里的工具调用增量。
+
+    流式返回时，工具调用的 arguments 经常被拆成很多小段。
+    这个函数按 ``index`` 找到同一个工具调用，并把 arguments 字符串拼回去。
+    """
     if not isinstance(tool_call, dict):
         return
     raw_index = tool_call.get("index", 0)
@@ -30,6 +40,7 @@ def merge_tool_call_delta(merged: dict[int, dict[str, object]], tool_call: objec
 
 
 def compact_tool_calls(tool_calls: list[object]) -> list[object]:
+    """把多个工具调用增量压缩成完整工具调用列表。"""
     merged: dict[int, dict[str, object]] = {}
     passthrough: list[object] = []
     for item in tool_calls:
@@ -51,6 +62,7 @@ def compact_tool_calls(tool_calls: list[object]) -> list[object]:
         arguments = function.get("arguments")
         if isinstance(arguments, str):
             try:
+                # arguments 通常是 JSON 字符串；能解析时额外放一份对象，阅读更方便。
                 function["arguments_json"] = json.loads(arguments)
             except json.JSONDecodeError:
                 pass
@@ -58,6 +70,7 @@ def compact_tool_calls(tool_calls: list[object]) -> list[object]:
 
 
 def compact_response_tool_calls(tool_calls: dict[str, dict[str, object]]) -> list[object]:
+    """压缩 Responses API 的函数调用参数。"""
     compacted = []
     for key in sorted(tool_calls):
         tool_call = dict(tool_calls[key])
@@ -72,6 +85,11 @@ def compact_response_tool_calls(tool_calls: dict[str, dict[str, object]]) -> lis
 
 
 def compact_response_payload(response: Mapping[str, object]) -> dict[str, object]:
+    """只保留 Responses API 响应里最有用的顶层字段。
+
+    完整 response 对象可能很大，readable 日志只需要能快速判断状态、模型、
+    上下文关系和错误信息。
+    """
     keep_keys = (
         "id",
         "object",
@@ -92,6 +110,10 @@ def compact_response_payload(response: Mapping[str, object]) -> dict[str, object
 
 
 def compact_sse_json(text: str) -> str | None:
+    """把 SSE 文本压缩成 JSON 摘要。
+
+    如果输入不是可识别的 SSE，返回 ``None``，让调用方按普通文本/JSON 处理。
+    """
     events = []
     done_seen = False
     for line in text.splitlines():
@@ -107,6 +129,7 @@ def compact_sse_json(text: str) -> str | None:
         try:
             events.append(json.loads(data))
         except json.JSONDecodeError:
+            # 只要有一个 data 片段不是 JSON，就说明它不是我们能安全压缩的流。
             return None
     if not events:
         return None
@@ -127,6 +150,7 @@ def compact_sse_json(text: str) -> str | None:
 
         event_type = event.get("type")
         if isinstance(event_type, str) and event_type.startswith("response."):
+            # Responses API 的事件类型以 response. 开头，字段结构和 Chat Completions 不同。
             if event_type == "response.output_text.delta":
                 delta = event.get("delta")
                 if isinstance(delta, str) and delta:
@@ -150,6 +174,7 @@ def compact_sse_json(text: str) -> str | None:
                 if isinstance(value, str) and value:
                     reasoning_parts.append(value)
             elif event_type == "response.function_call_arguments.delta":
+                # 函数调用参数也是分片返回的，需要按 item_id/call_id 拼起来。
                 item_id = str(event.get("item_id") or event.get("call_id") or event.get("output_index") or "0")
                 tool_call = response_tool_calls.setdefault(item_id, {"arguments": ""})
                 for key in ("item_id", "call_id", "output_index"):
@@ -195,6 +220,7 @@ def compact_sse_json(text: str) -> str | None:
         if not isinstance(choices, list):
             other_payloads.append(event)
             continue
+        # Chat Completions 的流式内容通常放在 choices[].delta 或 choices[].message 里。
         for choice in choices:
             if not isinstance(choice, dict):
                 continue
@@ -228,6 +254,7 @@ def compact_sse_json(text: str) -> str | None:
     }
     stream_summary = summary["stream_summary"]
     if isinstance(stream_summary, dict):
+        # 只写入实际出现过的信息，避免日志里充满空字段。
         if reasoning_parts:
             stream_summary["reasoning"] = "".join(reasoning_parts)
         if content_parts:
@@ -245,5 +272,4 @@ def compact_sse_json(text: str) -> str | None:
         if other_payloads:
             stream_summary["other_payloads"] = other_payloads
     return json.dumps(summary, ensure_ascii=False, indent=2)
-
 

@@ -1,4 +1,8 @@
-"""HTTP proxy server implementation."""
+"""HTTP 代理服务器实现。
+
+这个模块负责真正接收客户端请求、转发给上游模型服务、把响应再写回客户端。
+同时，它会在请求刚到达和请求结束时写日志，方便排查慢请求或卡住的请求。
+"""
 
 from __future__ import annotations
 
@@ -16,6 +20,12 @@ from .target import join_target_path
 from .time_utils import utc_now_iso
 
 class ProxyHandler(BaseHTTPRequestHandler):
+    """处理单个客户端 HTTP 请求的代理 Handler。
+
+    ``BaseHTTPRequestHandler`` 会根据 HTTP 方法自动调用 ``do_GET``、``do_POST`` 等方法。
+    这里所有方法都交给 ``_proxy``，因为代理逻辑对不同方法基本相同。
+    """
+
     protocol_version = "HTTP/1.1"
 
     def do_GET(self) -> None:
@@ -40,18 +50,29 @@ class ProxyHandler(BaseHTTPRequestHandler):
         self._proxy()
 
     def log_message(self, fmt: str, *args: object) -> None:
+        """控制标准库自带访问日志是否输出到终端。"""
         if self.server_config["access_log"]:
             super().log_message(fmt, *args)
 
     @property
     def server_config(self) -> dict[str, object]:
+        """取服务器启动时保存的配置。
+
+        标准库的 ``self.server`` 类型比较宽泛，所以这里用 type ignore 告诉类型检查器：
+        我们实际传入的是下面定义的 ``ProxyServer``。
+        """
         return self.server.config  # type: ignore[attr-defined]
 
     @property
     def traffic_logger(self) -> TrafficLogger:
+        """取共享的流量日志器。"""
         return self.server.traffic_logger  # type: ignore[attr-defined]
 
     def _read_request_body(self) -> bytes:
+        """读取客户端请求体。
+
+        HTTP 请求体长度由 ``Content-Length`` 指定；如果没有这个头，就认为没有 body。
+        """
         length = self.headers.get("Content-Length")
         if not length:
             return b""
@@ -62,6 +83,11 @@ class ProxyHandler(BaseHTTPRequestHandler):
         return self.rfile.read(body_size) if body_size > 0 else b""
 
     def _forward_headers(self) -> list[tuple[str, str]]:
+        """构造转发给上游的请求头。
+
+        代理不能原样复制所有头：Host 要改成上游地址，hop-by-hop 头要丢弃，
+        同时还会追加 X-Forwarded-*，让上游知道原始客户端信息。
+        """
         forwarded: list[tuple[str, str]] = []
         target_host = str(self.server_config["target_host"])
         target_port = int(self.server_config["target_port"])
@@ -77,11 +103,13 @@ class ProxyHandler(BaseHTTPRequestHandler):
         forwarded.append(("X-Forwarded-Host", self.headers.get("Host", "")))
         override_keys = {key.lower() for key, _ in self.server_config["target_headers"]}  # type: ignore[index]
         if override_keys:
+            # 用户通过 --target-header 指定的头拥有最高优先级，会覆盖客户端原来的同名头。
             forwarded = [(key, value) for key, value in forwarded if key.lower() not in override_keys]
             forwarded.extend(self.server_config["target_headers"])  # type: ignore[arg-type]
         return forwarded
 
     def _upstream_headers(self, body_size: int) -> list[tuple[str, str]]:
+        """生成上游请求头，并根据实际转发 body 长度重写 Content-Length。"""
         headers = self._forward_headers()
         headers = [(key, value) for key, value in headers if key.lower() != "content-length"]
         if body_size > 0 or "Content-Length" in self.headers:
@@ -89,6 +117,14 @@ class ProxyHandler(BaseHTTPRequestHandler):
         return headers
 
     def _proxy(self) -> None:
+        """完整执行一次代理转发。
+
+        流程概览：
+        1. 生成请求 ID，并立刻写一条 request_received 日志。
+        2. 读取请求体，按配置清理后发给上游。
+        3. 收到上游响应后，把响应头和响应体回写给客户端。
+        4. 最后写 request_finished 日志，记录耗时、状态码、响应体和错误。
+        """
         request_id = uuid.uuid4().hex
         started = time.perf_counter()
         target_scheme = str(self.server_config["target_scheme"])
@@ -109,6 +145,7 @@ class ProxyHandler(BaseHTTPRequestHandler):
             "body": bytes_payload(b""),
             "body_pending": True,
         }
+        # 先写“请求已到达”日志，即使客户端 body 很慢或上游卡住，也能看到这次请求。
         initial_record: dict[str, object] = {
             "id": request_id,
             "timestamp": utc_now_iso(),
@@ -142,6 +179,7 @@ class ProxyHandler(BaseHTTPRequestHandler):
         upstream_request_body, stripped_request_fields = strip_request_json_fields(
             request_body, self.server_config["strip_request_fields"]  # type: ignore[arg-type]
         )
+        # 日志保存客户端原始请求体；真正发给上游的 body 可能已经移除了部分字段。
         request_record: dict[str, object] = {
             "method": self.command,
             "path": self.path,
@@ -174,6 +212,7 @@ class ProxyHandler(BaseHTTPRequestHandler):
         try:
             conn_class = http.client.HTTPSConnection if target_scheme == "https" else http.client.HTTPConnection
             conn = conn_class(target_host, target_port, timeout=timeout)
+            # 用 putrequest/putheader 可以精确控制 Host、Content-Length 等代理敏感字段。
             conn.putrequest(self.command, target_path, skip_host=True, skip_accept_encoding=True)
             for key, value in self._upstream_headers(len(upstream_request_body)):
                 conn.putheader(key, value)
@@ -188,6 +227,7 @@ class ProxyHandler(BaseHTTPRequestHandler):
                 if lower_key in HOP_BY_HOP_HEADERS or lower_key == "content-length":
                     continue
                 self.send_header(key, value)
+            # 代理会在本次响应结束后关闭连接，避免连接复用带来的边界问题。
             self.send_header("Connection", "close")
             self.end_headers()
             sent_downstream_headers = True
@@ -198,6 +238,7 @@ class ProxyHandler(BaseHTTPRequestHandler):
                     if not chunk:
                         break
                     response_body_parts.append(chunk)
+                    # 边读边写给客户端，不等完整响应结束，减少流式响应的延迟。
                     self.wfile.write(chunk)
                     self.wfile.flush()
             conn.close()
@@ -206,6 +247,7 @@ class ProxyHandler(BaseHTTPRequestHandler):
             if not sent_downstream_headers and not self.wfile.closed:
                 self.send_error(502, "Bad Gateway", error)
         finally:
+            # 无论成功还是失败，都写最终日志，这样排错时不会丢失异常信息。
             duration_ms = round((time.perf_counter() - started) * 1000, 3)
             response_body = b"".join(response_body_parts)
             record = {
@@ -226,6 +268,11 @@ class ProxyHandler(BaseHTTPRequestHandler):
 
 
 class ProxyServer(ThreadingHTTPServer):
+    """带配置和日志器的多线程 HTTP 服务器。
+
+    ``ThreadingHTTPServer`` 会为每个请求创建线程，适合代理这种可能长时间等待上游的场景。
+    """
+
     daemon_threads = True
 
     def __init__(
@@ -238,5 +285,4 @@ class ProxyServer(ThreadingHTTPServer):
         super().__init__(listen, handler_class)
         self.config = config
         self.traffic_logger = traffic_logger
-
 

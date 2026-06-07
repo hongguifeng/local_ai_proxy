@@ -1,4 +1,8 @@
-"""Command-line interface for the LLM proxy."""
+"""命令行入口。
+
+这里负责解析用户在终端传入的参数，组装代理配置，然后启动 HTTP 服务器。
+真正的代理逻辑在 ``server.py``，日志逻辑在 ``logger.py``。
+"""
 
 from __future__ import annotations
 
@@ -14,6 +18,10 @@ from .server import ProxyHandler, ProxyServer
 from .target import parse_target
 
 def parse_args() -> argparse.Namespace:
+    """定义并解析命令行参数。
+
+    大多数参数也支持环境变量，这样可以在脚本或服务配置中复用。
+    """
     parser = argparse.ArgumentParser(description="Record and proxy LLM HTTP traffic.")
     parser.add_argument("--listen-host", default=os.getenv("LLM_PROXY_HOST", "127.0.0.1"))
     parser.add_argument("--listen-port", type=int, default=int(os.getenv("LLM_PROXY_PORT", "1234")))
@@ -57,6 +65,7 @@ def parse_args() -> argparse.Namespace:
 
 
 def main() -> int:
+    """启动代理服务，并在 Ctrl+C 时优雅关闭。"""
     args = parse_args()
     target = parse_target(args)
     target_headers = parse_header_overrides(args.target_header)
@@ -65,6 +74,7 @@ def main() -> int:
     readable_dir = Path(args.readable_log_dir) if args.readable_log_dir else None
     logger = TrafficLogger(log_file, readable_dir)
     config = {
+        # 这个 config 会挂在 ProxyServer 上，ProxyHandler 处理每个请求时读取它。
         "target_scheme": target["scheme"],
         "target_host": target["host"],
         "target_port": target["port"],
@@ -89,4 +99,3 @@ def main() -> int:
     finally:
         server.server_close()
     return 0
-
