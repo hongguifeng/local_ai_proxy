@@ -161,6 +161,11 @@ class ProxyHandler(BaseHTTPRequestHandler):
             },
             "request": initial_request_record,
         }
+        if self.server_config.get("proxy_pair_id"):
+            initial_record["proxy"] = {
+                "id": self.server_config.get("proxy_pair_id"),
+                "name": self.server_config.get("proxy_pair_name"),
+            }
         initial_record["started_timestamp"] = initial_record["timestamp"]
         self.traffic_logger.write(
             {
@@ -285,4 +290,3 @@ class ProxyServer(ThreadingHTTPServer):
         super().__init__(listen, handler_class)
         self.config = config
         self.traffic_logger = traffic_logger
-
