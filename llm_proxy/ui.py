@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import threading
 from http import HTTPStatus
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
@@ -59,9 +60,14 @@ INDEX_HTML = r"""<!doctype html>
     .logs-view { height: 100%; display: grid; grid-template-columns: 330px 1fr; min-height: 0; }
     .log-list { border-right: 1px solid var(--line); background: var(--panel); min-height: 0; display: grid; grid-template-rows: auto 1fr; }
     .log-list-head { padding: 12px; border-bottom: 1px solid var(--line); display: grid; gap: 8px; }
+    .log-actions { display: flex; align-items: center; gap: 8px; }
+    .log-actions button { flex: 0 0 auto; }
+    .auto-refresh { display: inline-flex; align-items: center; gap: 6px; color: var(--muted); font-size: 12px; }
+    .auto-refresh input { width: auto; }
     .log-items { overflow: auto; }
     .log-group { border-bottom: 1px solid var(--line); }
-    .log-group-head { padding: 9px 12px; background: #f3f6f8; display: grid; gap: 3px; }
+    .log-group-head { width: 100%; border: 0; border-radius: 0; padding: 9px 12px; background: #f3f6f8; display: grid; grid-template-columns: 16px minmax(0, 1fr); gap: 3px 6px; text-align: left; }
+    .log-group-caret { grid-row: 1 / span 2; color: var(--muted); }
     .log-group-title { font-weight: 700; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
     .log-item { width: 100%; text-align: left; border: 0; border-bottom: 1px solid var(--line); border-radius: 0; padding: 10px 12px; background: white; display: grid; gap: 3px; }
     .log-group .log-item { padding-left: 24px; }
@@ -121,7 +127,10 @@ INDEX_HTML = r"""<!doctype html>
         <aside class="log-list">
           <div class="log-list-head">
             <input id="logSearch" placeholder="筛选 path / id / target">
-            <button id="refreshLogs">刷新</button>
+            <div class="log-actions">
+              <button id="refreshLogs">刷新</button>
+              <label class="auto-refresh"><input id="autoRefreshLogs" type="checkbox" checked> 自动刷新</label>
+            </div>
           </div>
           <div id="logItems" class="log-items"></div>
         </aside>
@@ -141,7 +150,7 @@ INDEX_HTML = r"""<!doctype html>
   </div>
   <div id="toast" class="toast"></div>
   <script>
-    const state = { pairs: [], logGroups: [], logs: [], selected: null, raw: { request: null, response: null }, wrap: { request: false, response: false } };
+    const state = { pairs: [], logGroups: [], logs: [], selected: null, raw: { request: null, response: null }, wrap: { request: false, response: false }, tree: { request: true, response: true }, collapsedGroups: {}, logsLoading: false, logsLoadedAt: 0, searchTimer: null, refreshTimer: null };
     const $ = (id) => document.getElementById(id);
     const toast = (text) => { const el = $("toast"); el.textContent = text; el.classList.add("show"); setTimeout(() => el.classList.remove("show"), 2400); };
     const api = async (url, options = {}) => {
@@ -199,21 +208,54 @@ INDEX_HTML = r"""<!doctype html>
       renderPairs();
       toast("配置已保存");
     }
-    async function loadLogs() {
+    function scheduleLogRefresh(delay = 3000) {
+      clearTimeout(state.refreshTimer);
+      if (!$("autoRefreshLogs").checked) return;
+      state.refreshTimer = setTimeout(() => {
+        if (document.hidden || !$("logs").classList.contains("active")) {
+          scheduleLogRefresh(delay);
+          return;
+        }
+        loadLogs({ quiet: true }).catch((e) => toast(e.message));
+      }, delay);
+    }
+    function logGroupsSignature(groups) {
+      return (groups || []).map((group) => [
+        group.id,
+        group.meta,
+        ...(group.logs || []).map((item) => `${item.id}:${item.timestamp}:${item.status}`)
+      ].join("|")).join("\n");
+    }
+    function sameLogGroups(nextGroups) {
+      return logGroupsSignature(state.logGroups) === logGroupsSignature(nextGroups);
+    }
+    async function loadLogs(options = {}) {
+      if (state.logsLoading) return;
+      state.logsLoading = true;
       const q = encodeURIComponent($("logSearch").value.trim());
-      const data = await api(`/api/logs?q=${q}`);
-      state.logGroups = data.groups || [{ id: "logs", title: "历史记录", logs: data.logs || [] }];
-      state.logs = state.logGroups.flatMap((group) => group.logs || []);
-      renderLogs();
+      try {
+        const data = await api(`/api/logs?q=${q}`);
+        const nextGroups = data.groups || [{ id: "logs", title: "历史记录", logs: data.logs || [] }];
+        if (!sameLogGroups(nextGroups)) {
+          state.logGroups = nextGroups;
+          state.logs = state.logGroups.flatMap((group) => group.logs || []);
+          renderLogs();
+        }
+        state.logsLoadedAt = Date.now();
+      } finally {
+        state.logsLoading = false;
+        scheduleLogRefresh();
+      }
     }
     function renderLogs() {
       $("logItems").innerHTML = state.logGroups.map((group) => `
         <section class="log-group">
-          <div class="log-group-head">
+          <button class="log-group-head" data-group-id="${escapeHtml(group.id || "")}">
+            <span class="log-group-caret">${state.collapsedGroups[group.id] ? "▸" : "▾"}</span>
             <span class="log-group-title">${escapeHtml(group.title || group.id || "Task")}</span>
             <span class="log-meta">${escapeHtml(group.meta || "")}</span>
-          </div>
-          ${(group.logs || []).map((item) => `
+          </button>
+          ${state.collapsedGroups[group.id] ? "" : (group.logs || []).map((item) => `
             <button class="log-item ${state.selected === item.id ? "active" : ""}" data-log-id="${escapeHtml(item.id)}">
               <span class="log-title">${escapeHtml(item.method)} ${escapeHtml(item.path)}</span>
               <span class="log-meta">${escapeHtml(item.timestamp || "")} | ${escapeHtml(item.status ?? "pending")} | ${escapeHtml(item.target || "")}</span>
@@ -242,11 +284,19 @@ INDEX_HTML = r"""<!doctype html>
       if (type === "undefined") return `${keyHtml}<span class="json-null">undefined</span>`;
       return `${keyHtml}<span class="json-null">null</span>`;
     }
+    function jsonText(value) {
+      const text = JSON.stringify(value, null, 2);
+      return text === undefined ? "undefined" : text;
+    }
     function renderJsonPane(key) {
       const el = $(key + "Json");
       el.classList.toggle("wrap", state.wrap[key]);
       el.classList.toggle("nowrap", !state.wrap[key]);
-      el.innerHTML = renderJsonValue(state.raw[key], "", true);
+      if (state.tree[key]) {
+        el.innerHTML = renderJsonValue(state.raw[key], "", true);
+      } else {
+        el.textContent = jsonText(state.raw[key]);
+      }
     }
     async function selectLog(id) {
       state.selected = id;
@@ -254,6 +304,8 @@ INDEX_HTML = r"""<!doctype html>
       const data = await api(`/api/logs/${encodeURIComponent(id)}`);
       state.raw.request = data.request;
       state.raw.response = data.response;
+      state.tree.request = true;
+      state.tree.response = true;
       renderJsonPane("request");
       renderJsonPane("response");
     }
@@ -279,8 +331,19 @@ INDEX_HTML = r"""<!doctype html>
       renderPairs();
     });
     $("refreshLogs").addEventListener("click", () => loadLogs().catch((e) => toast(e.message)));
-    $("logSearch").addEventListener("input", () => loadLogs().catch((e) => toast(e.message)));
+    $("autoRefreshLogs").addEventListener("change", () => scheduleLogRefresh(250));
+    $("logSearch").addEventListener("input", () => {
+      clearTimeout(state.searchTimer);
+      state.searchTimer = setTimeout(() => loadLogs().catch((e) => toast(e.message)), 180);
+    });
     $("logItems").addEventListener("click", (event) => {
+      const group = event.target.closest("[data-group-id]");
+      if (group) {
+        const groupId = group.dataset.groupId;
+        state.collapsedGroups[groupId] = !state.collapsedGroups[groupId];
+        renderLogs();
+        return;
+      }
       const item = event.target.closest("[data-log-id]");
       if (item) selectLog(item.dataset.logId).catch((e) => toast(e.message));
     });
@@ -291,6 +354,8 @@ INDEX_HTML = r"""<!doctype html>
     }));
     document.querySelectorAll("[data-expand]").forEach((button) => button.addEventListener("click", () => {
       const key = button.dataset.expand;
+      state.tree[key] = true;
+      renderJsonPane(key);
       $(key + "Json").querySelectorAll("details").forEach((detail) => { detail.open = true; });
     }));
     (() => {
@@ -427,6 +492,115 @@ class AdminHandler(BaseHTTPRequestHandler):
                     records.append(record)
         return records
 
+    def _logs_signature(self) -> tuple[tuple[str, int, int], ...]:
+        signature: list[tuple[str, int, int]] = []
+        for root in self._readable_roots():
+            if not root.exists():
+                signature.append((str(root), 0, 0))
+                continue
+            candidates = [root, root / "tasks"]
+            try:
+                candidates.extend(path for path in root.iterdir() if path.is_dir() and not path.name.startswith("."))
+            except OSError:
+                pass
+            tasks_root = root / "tasks"
+            if tasks_root.exists():
+                try:
+                    for task_path in tasks_root.iterdir():
+                        if not task_path.is_dir() or task_path.name.startswith("."):
+                            continue
+                        candidates.append(task_path)
+                        candidates.extend(path for path in task_path.iterdir() if path.is_dir() and not path.name.startswith("."))
+                except OSError:
+                    pass
+            for path in candidates:
+                try:
+                    stat = path.stat()
+                except OSError:
+                    continue
+                signature.append((str(path), stat.st_mtime_ns, stat.st_size))
+                if path.is_dir():
+                    try:
+                        newest_markdown = max(path.glob("*.md"), key=lambda item: item.stat().st_mtime_ns, default=None)
+                    except OSError:
+                        newest_markdown = None
+                    if newest_markdown is not None:
+                        try:
+                            md_stat = newest_markdown.stat()
+                        except OSError:
+                            continue
+                        signature.append((str(newest_markdown), md_stat.st_mtime_ns, md_stat.st_size))
+        return tuple(sorted(signature))
+
+    def _log_snapshot(self) -> dict[str, Any]:
+        signature = self._logs_signature()
+        with self.server.log_cache_lock:  # type: ignore[attr-defined]
+            if signature == self.server.log_cache_signature:  # type: ignore[attr-defined]
+                return self.server.log_cache  # type: ignore[attr-defined]
+            snapshot = self._build_log_snapshot()
+            self.server.log_cache_signature = signature  # type: ignore[attr-defined]
+            self.server.log_cache = snapshot  # type: ignore[attr-defined]
+            return snapshot
+
+    def _build_log_snapshot(self) -> dict[str, Any]:
+        groups = []
+        ungrouped_records = []
+        task_record_ids: set[str] = set()
+        by_id: dict[str, dict[str, Any]] = {}
+
+        for root in self._readable_roots():
+            if not root.exists():
+                continue
+            tasks_root = root / "tasks"
+            if tasks_root.exists():
+                for task_path in self._iter_dirs(tasks_root):
+                    logs = []
+                    for request_path in self._iter_dirs(task_path):
+                        record = self._read_readable_record(request_path, include_body=False)
+                        if not record:
+                            continue
+                        record["_task_dir"] = task_path.name
+                        item = self._log_item(record)
+                        logs.append(item)
+                        record_id = str(item.get("id"))
+                        task_record_ids.add(record_id)
+                        by_id[record_id] = {"path": request_path, "task_dir": task_path.name}
+                    if not logs:
+                        continue
+                    logs.sort(key=lambda item: str(item.get("_sort_key") or item.get("timestamp") or ""), reverse=True)
+                    groups.append(
+                        {
+                            "id": task_path.name,
+                            "title": task_path.name,
+                            "meta": f"{len(logs)} requests",
+                            "logs": logs,
+                        }
+                    )
+            for path in self._iter_dirs(root):
+                if path.name == "tasks":
+                    continue
+                record = self._read_readable_record(path, include_body=False)
+                if not record:
+                    continue
+                record_id = str(record.get("id"))
+                by_id.setdefault(record_id, {"path": path, "task_dir": None})
+                if record_id not in task_record_ids:
+                    ungrouped_records.append(record)
+
+        groups.sort(
+            key=lambda group: max((str(item.get("_sort_key") or item.get("timestamp") or "") for item in group["logs"]), default=""),
+            reverse=True,
+        )
+        ungrouped = [self._log_item(record) for record in ungrouped_records]
+        ungrouped.sort(key=lambda item: str(item.get("_sort_key") or item.get("timestamp") or ""), reverse=True)
+        return {"groups": groups, "ungrouped": ungrouped, "by_id": by_id}
+
+    def _iter_dirs(self, root: Path) -> list[Path]:
+        try:
+            return [path for path in root.iterdir() if path.is_dir() and not path.name.startswith(".")]
+        except OSError:
+            return []
+
     def _iter_task_groups(self) -> list[dict[str, Any]]:
         groups = []
         for root in self._readable_roots():
@@ -446,7 +620,7 @@ class AdminHandler(BaseHTTPRequestHandler):
                         logs.append(self._log_item(record))
                 if not logs:
                     continue
-                logs.sort(key=lambda item: str(item.get("timestamp") or ""))
+                logs.sort(key=lambda item: str(item.get("_sort_key") or item.get("timestamp") or ""), reverse=True)
                 groups.append(
                     {
                         "id": task_path.name,
@@ -457,12 +631,12 @@ class AdminHandler(BaseHTTPRequestHandler):
                     }
                 )
         groups.sort(
-            key=lambda group: max((str(item.get("timestamp") or "") for item in group["logs"]), default=""),
+            key=lambda group: max((str(item.get("_sort_key") or item.get("timestamp") or "") for item in group["logs"]), default=""),
             reverse=True,
         )
         return groups
 
-    def _read_readable_record(self, path: Path) -> dict[str, Any] | None:
+    def _read_readable_record(self, path: Path, include_body: bool = True) -> dict[str, Any] | None:
         markdown_files = sorted(path.glob("*.md"), key=lambda item: item.stat().st_mtime, reverse=True)
         if not markdown_files:
             return None
@@ -470,22 +644,44 @@ class AdminHandler(BaseHTTPRequestHandler):
         request_text = str(metadata.get("Request") or "")
         request_method, _, request_path = request_text.partition(" ")
         response_status = self._parse_status(metadata.get("Response"))
-        return {
+        dir_timestamp, dir_sort_key = self._timestamp_from_record_dir(path)
+        record: dict[str, Any] = {
             "id": metadata.get("id") or path.name,
-            "timestamp": metadata.get("Time"),
+            "timestamp": dir_timestamp or metadata.get("Time"),
             "event": metadata.get("Event"),
             "request": {
                 "method": request_method,
                 "path": request_path,
-                "body_json": self._read_json_file(path / "request.json"),
             },
             "response": {
                 "status": response_status,
-                "body_json": self._read_json_file(path / "response.json"),
             },
             "_target_text": metadata.get("Target") or "",
             "_readable_path": str(path),
+            "_sort_key": dir_sort_key or dir_timestamp or metadata.get("Time") or "",
         }
+        if include_body:
+            record["request"]["body_json"] = self._read_json_file(path / "request.json")
+            record["response"]["body_json"] = self._read_json_file(path / "response.json")
+        return record
+
+    def _timestamp_from_record_dir(self, path: Path) -> tuple[str | None, str | None]:
+        parts = path.name.split("__")
+        date_part: str | None = None
+        time_part: str | None = None
+        if path.parent.parent.name == "tasks":
+            task_parts = path.parent.name.split("__")
+            if task_parts:
+                date_part = task_parts[0]
+            if len(parts) >= 2:
+                time_part = parts[1]
+        elif len(parts) >= 2:
+            date_part = parts[0]
+            time_part = parts[1]
+        if not date_part or not time_part:
+            return None, None
+        display_time = time_part.replace("-", ":")
+        return f"{date_part} {display_time}", f"{date_part}__{time_part}"
 
     def _markdown_metadata(self, path: Path) -> dict[str, object]:
         metadata: dict[str, object] = {}
@@ -545,6 +741,7 @@ class AdminHandler(BaseHTTPRequestHandler):
         return {
             "id": record.get("id"),
             "timestamp": record.get("timestamp"),
+            "_sort_key": record.get("_sort_key"),
             "method": request.get("method", ""),
             "path": request.get("path", ""),
             "status": response.get("status"),
@@ -553,20 +750,20 @@ class AdminHandler(BaseHTTPRequestHandler):
 
     def _list_logs(self, query: str) -> list[dict[str, Any]]:
         terms = query.lower().split()
-        items = []
-        for record in self._iter_finished_records():
-            if not self._record_matches_terms(record, terms):
-                continue
-            items.append(self._log_item(record))
-        items.sort(key=lambda item: str(item.get("timestamp") or ""), reverse=True)
+        snapshot = self._log_snapshot()
+        items = [
+            item
+            for item in snapshot.get("ungrouped", [])
+            if self._log_item_matches_terms(item, {"id": "ungrouped", "title": "未归组"}, terms)
+        ]
+        items.sort(key=lambda item: str(item.get("_sort_key") or item.get("timestamp") or ""), reverse=True)
         return items[:500]
 
     def _list_log_groups(self, query: str) -> list[dict[str, Any]]:
         terms = query.lower().split()
+        snapshot = self._log_snapshot()
         groups = []
-        task_record_ids: set[str] = set()
-        for group in self._iter_task_groups():
-            task_record_ids.update(str(record_id) for record_id in group.get("_record_ids", []))
+        for group in snapshot.get("groups", []):
             filtered_logs = []
             for item in group["logs"]:
                 if self._log_item_matches_terms(item, group, terms):
@@ -577,13 +774,12 @@ class AdminHandler(BaseHTTPRequestHandler):
                 visible_group["meta"] = f"{len(filtered_logs)} requests"
                 groups.append(visible_group)
 
-        ungrouped = []
-        for record in self._iter_finished_records():
-            if str(record.get("id")) in task_record_ids:
-                continue
-            if self._record_matches_terms(record, terms):
-                ungrouped.append(self._log_item(record))
-        ungrouped.sort(key=lambda item: str(item.get("timestamp") or ""), reverse=True)
+        ungrouped = [
+            item
+            for item in snapshot.get("ungrouped", [])
+            if self._log_item_matches_terms(item, {"id": "ungrouped", "title": "未归组"}, terms)
+        ]
+        ungrouped.sort(key=lambda item: str(item.get("_sort_key") or item.get("timestamp") or ""), reverse=True)
         if ungrouped:
             groups.append({"id": "ungrouped", "title": "未归组", "meta": f"{len(ungrouped)} requests", "logs": ungrouped[:200]})
         return groups[:100]
@@ -606,6 +802,14 @@ class AdminHandler(BaseHTTPRequestHandler):
         return all(term in haystack for term in terms)
 
     def _find_log(self, record_id: str) -> dict[str, Any] | None:
+        snapshot = self._log_snapshot()
+        found = snapshot.get("by_id", {}).get(record_id)
+        if isinstance(found, dict) and isinstance(found.get("path"), Path):
+            record = self._read_readable_record(found["path"], include_body=True)
+            if record and found.get("task_dir"):
+                record["_task_dir"] = found["task_dir"]
+            if record:
+                return record
         for root in self._readable_roots():
             tasks_root = root / "tasks"
             if not tasks_root.exists():
@@ -641,6 +845,9 @@ class AdminServer(ThreadingHTTPServer):
     def __init__(self, listen: tuple[str, int], manager: ProxyManager) -> None:
         super().__init__(listen, AdminHandler)
         self.manager = manager
+        self.log_cache_lock = threading.Lock()
+        self.log_cache_signature: tuple[tuple[str, int, int], ...] | None = None
+        self.log_cache: dict[str, Any] = {"groups": [], "ungrouped": [], "by_id": {}}
 
 
 def serve_admin(host: str, port: int, manager: ProxyManager) -> None:
