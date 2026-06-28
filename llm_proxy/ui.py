@@ -90,6 +90,11 @@ INDEX_HTML = r"""<!doctype html>
     .json-number, .json-boolean { color: #1c5fb8; }
     .json-null { color: #7a6678; }
     .json-muted { color: var(--muted); }
+    .json-str-detail > summary { cursor: pointer; list-style: none; user-select: none; padding: 2px 4px; border-radius: 4px; }
+    .json-str-detail > summary:hover { background: #f3f6f8; }
+    .json-str-detail > summary::-webkit-details-marker { display: none; }
+    .json-str-detail[open] > summary { margin-bottom: 4px; }
+    .json-str-body { margin: 0; padding: 6px 10px; background: #f8faf9; border: 1px solid var(--line); border-radius: 6px; font: 12px/1.5 ui-monospace, SFMono-Regular, Consolas, monospace; white-space: pre-wrap; word-break: break-all; overflow-wrap: anywhere; max-height: 400px; overflow-y: auto; }
     .splitter { background: var(--line); cursor: row-resize; }
     .empty { height: 100%; display: grid; place-items: center; color: var(--muted); }
     .toast { position: fixed; right: 14px; bottom: 14px; background: #18212d; color: white; padding: 9px 12px; border-radius: 8px; opacity: 0; pointer-events: none; transition: .15s; max-width: min(420px, calc(100vw - 28px)); }
@@ -278,7 +283,18 @@ INDEX_HTML = r"""<!doctype html>
         const childrenHtml = `<div class="json-children">${entries.map(([childKey, childValue]) => `<div class="json-row">${renderJsonValue(childValue, String(childKey), false, formatMode)}</div>`).join("")}</div>`;
         return `<details open${root ? ' class="root"' : ''}><summary>${summary}</summary>${childrenHtml}<div class="json-muted">${end}</div></details>`;
       }
-      if (type === "string") { const displayValue = formatMode ? formatString(value) : JSON.stringify(value); return `${keyHtml}<span class="json-string${formatMode ? " format-mode" : ""}">${escapeHtml(displayValue)}</span>`; }
+      if (type === "string") {
+        if (!formatMode) return `${keyHtml}<span class="json-string">${escapeHtml(JSON.stringify(value))}</span>`;
+        const hasRealNewline = typeof value === 'string' && (value.indexOf(String.fromCharCode(10)) !== -1 || value.length > 200);
+        if (!hasRealNewline) return `${keyHtml}<span class="json-string">${escapeHtml(JSON.stringify(value))}</span>`;
+        const displayValue = formatString(value);
+        if (displayValue.indexOf(String.fromCharCode(10)) !== -1 || displayValue.length > 200) {
+          const summary = escapeHtml(displayValue.substring(0, 150) + (displayValue.length > 150 ? "…" : ""));
+          const fullLines = displayValue.split(String.fromCharCode(10)).length;
+          return `${keyHtml}<details class="json-str-detail"><summary>${summary} <span class="json-muted">(${fullLines} lines)</span></summary><pre class="json-str-body">${escapeHtml(displayValue)}</pre></details>`;
+        }
+        return `${keyHtml}<span class="json-string format-mode">${escapeHtml(displayValue)}</span>`;
+      }
       if (type === "number") return `${keyHtml}<span class="json-number">${escapeHtml(String(value))}</span>`;
       if (type === "boolean") return `${keyHtml}<span class="json-boolean">${escapeHtml(String(value))}</span>`;
       if (type === "undefined") return `${keyHtml}<span class="json-null">undefined</span>`;
