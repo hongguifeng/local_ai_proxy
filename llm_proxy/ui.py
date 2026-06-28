@@ -95,6 +95,8 @@ INDEX_HTML = r"""<!doctype html>
     .json-str-detail > summary:hover { background: #f3f6f8; }
     .json-str-detail > summary::-webkit-details-marker { display: none; }
     .json-str-detail[open] > summary { margin-bottom: 4px; }
+    .json-str-full { display: grid; gap: 4px; align-items: start; }
+    .json-str-copy { width: 26px; height: 26px; padding: 0; display: inline-grid; place-items: center; justify-self: start; background: var(--panel); font-size: 12px; }
     .json-str-body { margin: 0; padding: 6px 10px; background: #f8faf9; border: 1px solid var(--line); border-radius: 6px; font: 12px/1.5 ui-monospace, SFMono-Regular, Consolas, monospace; white-space: pre-wrap; word-break: break-all; overflow-wrap: anywhere; max-height: 400px; overflow-y: auto; }
     .splitter { background: var(--line); cursor: row-resize; }
     .log-splitter { background: var(--line); cursor: col-resize; flex-shrink: 0; }
@@ -268,7 +270,7 @@ INDEX_HTML = r"""<!doctype html>
           </button>
           ${!state.collapsedGroups[group.id] ? "" : (group.logs || []).map((item) => `
             <button class="log-item ${state.selected === item.id ? "active" : ""}" data-log-id="${escapeHtml(item.id)}">
-              <span class="log-title">${item.sequence ? `${escapeHtml(item.sequence)} ` : ""}${escapeHtml(item.method)} ${escapeHtml(item.path)}</span>
+              <span class="log-title">${item.sequence ? `${escapeHtml("[" + item.sequence + "]")} ` : ""}${escapeHtml(item.method)} ${escapeHtml(item.path)}</span>
               <span class="log-meta">${escapeHtml(item.timestamp || "")} | ${escapeHtml(item.status ?? "pending")} | ${escapeHtml(item.target || "")}</span>
             </button>`).join("")}
         </section>`).join("") || `<div class="empty">暂无日志</div>`;
@@ -297,7 +299,7 @@ INDEX_HTML = r"""<!doctype html>
         if (displayValue.indexOf(String.fromCharCode(10)) !== -1 || displayValue.length > 200) {
           const summary = escapeHtml(displayValue.substring(0, 150) + (displayValue.length > 150 ? "…" : ""));
           const fullLines = displayValue.split(String.fromCharCode(10)).length;
-          return `${keyHtml}<details class="json-str-detail"><summary>${summary} <span class="json-muted">(${fullLines} lines)</span></summary><pre class="json-str-body">${escapeHtml(displayValue)}</pre></details>`;
+          return `${keyHtml}<details class="json-str-detail"><summary>${summary} <span class="json-muted">(${fullLines} lines)</span></summary><div class="json-str-full"><button class="json-str-copy" data-copy-string title="复制格式化文本">📋</button><pre class="json-str-body">${escapeHtml(displayValue)}</pre></div></details>`;
         }
         return `${keyHtml}<span class="json-string format-mode">${escapeHtml(displayValue)}</span>`;
       }
@@ -406,6 +408,16 @@ INDEX_HTML = r"""<!doctype html>
     }));
     ["request", "response"].forEach((key) => {
       $(key + "Json").addEventListener("toggle", () => updateExpandButton(key), true);
+      $(key + "Json").addEventListener("click", (event) => {
+        const button = event.target.closest("[data-copy-string]");
+        if (!button) return;
+        const body = button.closest(".json-str-full")?.querySelector(".json-str-body");
+        if (!body) return;
+        navigator.clipboard.writeText(body.textContent || "").then(
+          () => toast("已复制格式化文本"),
+          () => toast("复制失败")
+        );
+      });
     });
     document.querySelectorAll("[data-format]").forEach((button) => button.addEventListener("click", () => {
       const key = button.dataset.format;
