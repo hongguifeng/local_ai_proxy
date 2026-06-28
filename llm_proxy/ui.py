@@ -1,0 +1,653 @@
+from __future__ import annotations
+
+import json
+from http import HTTPStatus
+from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+from pathlib import Path
+from typing import Any
+from urllib.parse import parse_qs, urlsplit
+
+from .manager import ProxyManager
+from .payloads import body_json_value
+
+
+INDEX_HTML = r"""<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>LLM Proxy</title>
+  <style>
+    :root { color-scheme: light; --bg: #f6f7f9; --panel: #ffffff; --ink: #17202a; --muted: #657080; --line: #d9dee7; --accent: #1f7a5a; --accent-soft: #dff3eb; --danger: #b42318; }
+    * { box-sizing: border-box; }
+    body { margin: 0; font: 14px/1.45 system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; background: var(--bg); color: var(--ink); }
+    button, input, textarea, select { font: inherit; }
+    button { border: 1px solid var(--line); background: var(--panel); color: var(--ink); border-radius: 6px; padding: 7px 10px; cursor: pointer; }
+    button.primary { background: var(--accent); color: white; border-color: var(--accent); }
+    button.icon { width: 34px; height: 34px; padding: 0; display: inline-grid; place-items: center; }
+    input, textarea { width: 100%; border: 1px solid var(--line); border-radius: 6px; padding: 7px 8px; background: white; color: var(--ink); }
+    textarea { min-height: 64px; resize: vertical; font-family: ui-monospace, SFMono-Regular, Consolas, monospace; font-size: 12px; }
+    .app { height: 100vh; display: grid; grid-template-rows: 52px 1fr; }
+    header { display: flex; align-items: center; justify-content: space-between; padding: 0 18px; border-bottom: 1px solid var(--line); background: var(--panel); }
+    h1 { margin: 0; font-size: 18px; letter-spacing: 0; }
+    .tabs { display: inline-flex; gap: 4px; padding: 3px; border: 1px solid var(--line); border-radius: 8px; background: #eef1f5; }
+    .tab { border: 0; background: transparent; padding: 6px 12px; }
+    .tab.active { background: white; box-shadow: 0 1px 2px rgba(0,0,0,.08); }
+    main { min-height: 0; }
+    .view { height: 100%; display: none; }
+    .view.active { display: block; }
+    .logs-view.active { display: grid; }
+    .proxy-view { padding: 18px; overflow: auto; }
+    .toolbar { display: flex; gap: 8px; align-items: center; justify-content: space-between; margin-bottom: 12px; }
+    .proxy-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(360px, 1fr)); gap: 12px; }
+    .proxy-card { background: var(--panel); border: 1px solid var(--line); border-radius: 8px; padding: 12px; display: grid; gap: 10px; }
+    .proxy-head { display: flex; align-items: center; gap: 8px; justify-content: space-between; }
+    .proxy-title { display: flex; align-items: center; gap: 8px; font-weight: 650; min-width: 0; }
+    .status { width: 10px; height: 10px; border-radius: 50%; background: #a5adba; flex: 0 0 auto; }
+    .status.running { background: var(--accent); }
+    .switch { position: relative; width: 42px; height: 24px; flex: 0 0 auto; }
+    .switch input { opacity: 0; width: 0; height: 0; }
+    .slider { position: absolute; inset: 0; border-radius: 999px; background: #b8c0cc; transition: .15s; }
+    .slider:before { content: ""; position: absolute; width: 18px; height: 18px; left: 3px; top: 3px; border-radius: 50%; background: white; transition: .15s; box-shadow: 0 1px 2px rgba(0,0,0,.25); }
+    .switch input:checked + .slider { background: var(--accent); }
+    .switch input:checked + .slider:before { transform: translateX(18px); }
+    .fields { display: grid; grid-template-columns: 1fr 100px; gap: 8px; }
+    .fields.three { grid-template-columns: 1fr 90px 90px; }
+    label { display: grid; gap: 4px; color: var(--muted); font-size: 12px; }
+    label span { white-space: nowrap; }
+    .row-actions { display: flex; gap: 8px; justify-content: flex-end; }
+    .logs-view { height: 100%; display: grid; grid-template-columns: 330px 1fr; min-height: 0; }
+    .log-list { border-right: 1px solid var(--line); background: var(--panel); min-height: 0; display: grid; grid-template-rows: auto 1fr; }
+    .log-list-head { padding: 12px; border-bottom: 1px solid var(--line); display: grid; gap: 8px; }
+    .log-items { overflow: auto; }
+    .log-group { border-bottom: 1px solid var(--line); }
+    .log-group-head { padding: 9px 12px; background: #f3f6f8; display: grid; gap: 3px; }
+    .log-group-title { font-weight: 700; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .log-item { width: 100%; text-align: left; border: 0; border-bottom: 1px solid var(--line); border-radius: 0; padding: 10px 12px; background: white; display: grid; gap: 3px; }
+    .log-group .log-item { padding-left: 24px; }
+    .log-item.active { background: var(--accent-soft); }
+    .log-meta { color: var(--muted); font-size: 12px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .log-title { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-weight: 600; }
+    .detail { min-width: 0; min-height: 0; display: grid; grid-template-rows: var(--request-fr, 1fr) 8px var(--response-fr, 1fr); }
+    .json-pane { min-height: 0; display: grid; grid-template-rows: 40px 1fr; background: #fbfcfd; }
+    .pane-head { border-bottom: 1px solid var(--line); padding: 0 12px; display: flex; align-items: center; justify-content: space-between; background: var(--panel); }
+    .pane-actions { display: inline-flex; gap: 6px; }
+    .json-view { margin: 0; padding: 12px; overflow: auto; min-height: 0; font: 12px/1.5 ui-monospace, SFMono-Regular, Consolas, monospace; }
+    .json-view.wrap { white-space: pre-wrap; overflow-wrap: anywhere; }
+    .json-view.nowrap { white-space: pre; }
+    .json-view details { margin-left: 16px; }
+    .json-view details.root { margin-left: 0; }
+    .json-view summary { cursor: pointer; list-style-position: outside; }
+    .json-row { min-height: 18px; }
+    .json-key { color: #7a3e00; }
+    .json-string { color: #0b6b4f; }
+    .json-number, .json-boolean { color: #1c5fb8; }
+    .json-null { color: #7a6678; }
+    .json-muted { color: var(--muted); }
+    .splitter { background: var(--line); cursor: row-resize; }
+    .empty { height: 100%; display: grid; place-items: center; color: var(--muted); }
+    .toast { position: fixed; right: 14px; bottom: 14px; background: #18212d; color: white; padding: 9px 12px; border-radius: 8px; opacity: 0; pointer-events: none; transition: .15s; max-width: min(420px, calc(100vw - 28px)); }
+    .toast.show { opacity: 1; }
+    @media (max-width: 760px) {
+      .app { grid-template-rows: auto 1fr; }
+      header { gap: 10px; align-items: stretch; flex-direction: column; padding: 10px 12px; }
+      .logs-view { grid-template-columns: 1fr; grid-template-rows: 260px 1fr; }
+      .log-list { border-right: 0; border-bottom: 1px solid var(--line); }
+      .proxy-grid, .fields, .fields.three { grid-template-columns: 1fr; }
+    }
+  </style>
+</head>
+<body>
+  <div class="app">
+    <header>
+      <h1>LLM Proxy</h1>
+      <div class="tabs" role="tablist">
+        <button class="tab active" data-tab="proxies">监听转发</button>
+        <button class="tab" data-tab="logs">历史日志</button>
+      </div>
+    </header>
+    <main>
+      <section id="proxies" class="view proxy-view active">
+        <div class="toolbar">
+          <strong>地址对</strong>
+          <div>
+            <button id="addProxy" title="添加">+</button>
+            <button id="saveProxies" class="primary">保存配置</button>
+          </div>
+        </div>
+        <div id="proxyGrid" class="proxy-grid"></div>
+      </section>
+      <section id="logs" class="view logs-view">
+        <aside class="log-list">
+          <div class="log-list-head">
+            <input id="logSearch" placeholder="筛选 path / id / target">
+            <button id="refreshLogs">刷新</button>
+          </div>
+          <div id="logItems" class="log-items"></div>
+        </aside>
+        <section id="detail" class="detail">
+          <div class="json-pane">
+            <div class="pane-head"><strong>Request</strong><span class="pane-actions"><button class="icon" data-wrap="request" title="切换自动换行">↵</button><button class="icon" data-expand="request" title="展开 JSON">{}</button></span></div>
+            <div id="requestJson" class="json-view nowrap"></div>
+          </div>
+          <div id="splitter" class="splitter"></div>
+          <div class="json-pane">
+            <div class="pane-head"><strong>Response</strong><span class="pane-actions"><button class="icon" data-wrap="response" title="切换自动换行">↵</button><button class="icon" data-expand="response" title="展开 JSON">{}</button></span></div>
+            <div id="responseJson" class="json-view nowrap"></div>
+          </div>
+        </section>
+      </section>
+    </main>
+  </div>
+  <div id="toast" class="toast"></div>
+  <script>
+    const state = { pairs: [], logGroups: [], logs: [], selected: null, raw: { request: null, response: null }, wrap: { request: false, response: false } };
+    const $ = (id) => document.getElementById(id);
+    const toast = (text) => { const el = $("toast"); el.textContent = text; el.classList.add("show"); setTimeout(() => el.classList.remove("show"), 2400); };
+    const api = async (url, options = {}) => {
+      const res = await fetch(url, { headers: { "Content-Type": "application/json" }, ...options });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(data.error || res.statusText);
+      return data;
+    };
+    const newPair = () => ({ id: `proxy-${Date.now()}`, name: "New proxy", enabled: false, running: false, listen_host: "127.0.0.1", listen_port: 1234, target_url: "http://127.0.0.1:1235", target_headers: [], strip_request_fields: null, timeout: 600, access_log: false });
+    function renderPairs() {
+      $("proxyGrid").innerHTML = state.pairs.map((p, i) => `
+        <article class="proxy-card" data-index="${i}">
+          <div class="proxy-head">
+            <div class="proxy-title"><span class="status ${p.running ? "running" : ""}"></span><input data-field="name" value="${escapeHtml(p.name || "")}"></div>
+            <label class="switch" title="开关"><input type="checkbox" data-toggle ${p.enabled ? "checked" : ""}><span class="slider"></span></label>
+          </div>
+          <div class="fields">
+            <label><span>监听地址</span><input data-field="listen_host" value="${escapeHtml(p.listen_host || "")}"></label>
+            <label><span>端口</span><input type="number" data-field="listen_port" value="${p.listen_port || 0}"></label>
+          </div>
+          <label><span>转发地址</span><input data-field="target_url" value="${escapeHtml(p.target_url || "")}" placeholder="https://api.example.com/v1"></label>
+          <div class="fields">
+            <label><span>超时秒数</span><input type="number" data-field="timeout" value="${p.timeout || 600}"></label>
+            <label><span>可读日志目录</span><input data-field="readable_log_dir" value="${escapeHtml(p.readable_log_dir || "")}"></label>
+          </div>
+          <label><span>上游 Headers，每行一个 Name: value</span><textarea data-field="target_headers">${escapeHtml((p.target_headers || []).join("\n"))}</textarea></label>
+          <label><span>转发前移除的 request 字段，逗号分隔；留空关闭</span><input data-field="strip_request_fields" value="${escapeHtml(p.strip_request_fields ?? "")}"></label>
+          <div class="row-actions"><button data-remove>删除</button></div>
+        </article>`).join("");
+    }
+    function escapeHtml(text) { return String(text).replace(/[&<>"']/g, (ch) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[ch])); }
+    function collectPairs() {
+      document.querySelectorAll(".proxy-card").forEach((card) => {
+        const pair = state.pairs[Number(card.dataset.index)];
+        card.querySelectorAll("[data-field]").forEach((input) => {
+          const field = input.dataset.field;
+          let value = input.value;
+          if (field === "listen_port") value = Number(value);
+          if (field === "timeout") value = Number(value);
+          if (field === "target_headers") value = value.split(/\n/).map((line) => line.trim()).filter(Boolean);
+          if (field === "strip_request_fields" && value === "") value = "";
+          pair[field] = value;
+        });
+      });
+    }
+    async function loadPairs() {
+      const data = await api("/api/pairs");
+      state.pairs = data.pairs;
+      renderPairs();
+    }
+    async function savePairs() {
+      collectPairs();
+      const data = await api("/api/pairs", { method: "PUT", body: JSON.stringify({ pairs: state.pairs }) });
+      state.pairs = data.pairs;
+      renderPairs();
+      toast("配置已保存");
+    }
+    async function loadLogs() {
+      const q = encodeURIComponent($("logSearch").value.trim());
+      const data = await api(`/api/logs?q=${q}`);
+      state.logGroups = data.groups || [{ id: "logs", title: "历史记录", logs: data.logs || [] }];
+      state.logs = state.logGroups.flatMap((group) => group.logs || []);
+      renderLogs();
+    }
+    function renderLogs() {
+      $("logItems").innerHTML = state.logGroups.map((group) => `
+        <section class="log-group">
+          <div class="log-group-head">
+            <span class="log-group-title">${escapeHtml(group.title || group.id || "Task")}</span>
+            <span class="log-meta">${escapeHtml(group.meta || "")}</span>
+          </div>
+          ${(group.logs || []).map((item) => `
+            <button class="log-item ${state.selected === item.id ? "active" : ""}" data-log-id="${escapeHtml(item.id)}">
+              <span class="log-title">${escapeHtml(item.method)} ${escapeHtml(item.path)}</span>
+              <span class="log-meta">${escapeHtml(item.timestamp || "")} | ${escapeHtml(item.status ?? "pending")} | ${escapeHtml(item.target || "")}</span>
+            </button>`).join("")}
+        </section>`).join("") || `<div class="empty">暂无日志</div>`;
+    }
+    function jsonType(value) {
+      if (value === null) return "null";
+      if (Array.isArray(value)) return "array";
+      return typeof value;
+    }
+    function renderJsonValue(value, key = "", root = false) {
+      const type = jsonType(value);
+      const keyHtml = key === "" ? "" : `<span class="json-key">${escapeHtml(JSON.stringify(key))}</span>: `;
+      if (type === "array" || type === "object") {
+        const entries = type === "array" ? value.map((item, index) => [index, item]) : Object.entries(value);
+        const start = type === "array" ? "[" : "{";
+        const end = type === "array" ? "]" : "}";
+        const summary = `${keyHtml}${start}<span class="json-muted">${entries.length ? ` ${entries.length} items ` : ""}</span>${end}`;
+        const children = entries.map(([childKey, childValue]) => `<div class="json-row">${renderJsonValue(childValue, String(childKey))}</div>`).join("");
+        return `<details open class="${root ? "root" : ""}"><summary>${summary}</summary>${children}<div class="json-muted">${end}</div></details>`;
+      }
+      if (type === "string") return `${keyHtml}<span class="json-string">${escapeHtml(JSON.stringify(value))}</span>`;
+      if (type === "number") return `${keyHtml}<span class="json-number">${escapeHtml(String(value))}</span>`;
+      if (type === "boolean") return `${keyHtml}<span class="json-boolean">${escapeHtml(String(value))}</span>`;
+      if (type === "undefined") return `${keyHtml}<span class="json-null">undefined</span>`;
+      return `${keyHtml}<span class="json-null">null</span>`;
+    }
+    function renderJsonPane(key) {
+      const el = $(key + "Json");
+      el.classList.toggle("wrap", state.wrap[key]);
+      el.classList.toggle("nowrap", !state.wrap[key]);
+      el.innerHTML = renderJsonValue(state.raw[key], "", true);
+    }
+    async function selectLog(id) {
+      state.selected = id;
+      renderLogs();
+      const data = await api(`/api/logs/${encodeURIComponent(id)}`);
+      state.raw.request = data.request;
+      state.raw.response = data.response;
+      renderJsonPane("request");
+      renderJsonPane("response");
+    }
+    document.querySelectorAll(".tab").forEach((tab) => tab.addEventListener("click", () => {
+      document.querySelectorAll(".tab, .view").forEach((el) => el.classList.remove("active"));
+      tab.classList.add("active"); $(tab.dataset.tab).classList.add("active");
+      if (tab.dataset.tab === "logs") loadLogs().catch((e) => toast(e.message));
+    }));
+    $("addProxy").addEventListener("click", () => { state.pairs.push(newPair()); renderPairs(); });
+    $("saveProxies").addEventListener("click", () => savePairs().catch((e) => toast(e.message)));
+    $("proxyGrid").addEventListener("click", (event) => {
+      const card = event.target.closest(".proxy-card");
+      if (!card) return;
+      if (event.target.matches("[data-remove]")) { state.pairs.splice(Number(card.dataset.index), 1); renderPairs(); }
+    });
+    $("proxyGrid").addEventListener("change", async (event) => {
+      if (!event.target.matches("[data-toggle]")) return;
+      collectPairs();
+      await savePairs();
+      const pair = state.pairs[Number(event.target.closest(".proxy-card").dataset.index)];
+      const data = await api(`/api/pairs/${encodeURIComponent(pair.id)}/enabled`, { method: "POST", body: JSON.stringify({ enabled: event.target.checked }) });
+      Object.assign(pair, data.pair);
+      renderPairs();
+    });
+    $("refreshLogs").addEventListener("click", () => loadLogs().catch((e) => toast(e.message)));
+    $("logSearch").addEventListener("input", () => loadLogs().catch((e) => toast(e.message)));
+    $("logItems").addEventListener("click", (event) => {
+      const item = event.target.closest("[data-log-id]");
+      if (item) selectLog(item.dataset.logId).catch((e) => toast(e.message));
+    });
+    document.querySelectorAll("[data-wrap]").forEach((button) => button.addEventListener("click", () => {
+      const key = button.dataset.wrap;
+      state.wrap[key] = !state.wrap[key];
+      renderJsonPane(key);
+    }));
+    document.querySelectorAll("[data-expand]").forEach((button) => button.addEventListener("click", () => {
+      const key = button.dataset.expand;
+      $(key + "Json").querySelectorAll("details").forEach((detail) => { detail.open = true; });
+    }));
+    (() => {
+      const detail = $("detail"), splitter = $("splitter");
+      let dragging = false;
+      splitter.addEventListener("pointerdown", (e) => { dragging = true; splitter.setPointerCapture(e.pointerId); });
+      splitter.addEventListener("pointermove", (e) => {
+        if (!dragging) return;
+        const rect = detail.getBoundingClientRect();
+        const top = Math.max(120, Math.min(rect.height - 120, e.clientY - rect.top));
+        detail.style.setProperty("--request-fr", `${top}px`);
+        detail.style.setProperty("--response-fr", `${rect.height - top - 8}px`);
+      });
+      splitter.addEventListener("pointerup", () => { dragging = false; });
+    })();
+    loadPairs().catch((e) => toast(e.message));
+  </script>
+</body>
+</html>"""
+
+
+class AdminHandler(BaseHTTPRequestHandler):
+    protocol_version = "HTTP/1.1"
+
+    @property
+    def manager(self) -> ProxyManager:
+        return self.server.manager  # type: ignore[attr-defined]
+
+    def do_GET(self) -> None:
+        parsed = urlsplit(self.path)
+        if parsed.path == "/":
+            self._send_html(INDEX_HTML)
+            return
+        if parsed.path == "/api/pairs":
+            self._send_json({"pairs": self.manager.list_pairs()})
+            return
+        if parsed.path == "/api/logs":
+            query = parse_qs(parsed.query).get("q", [""])[0]
+            self._send_json({"groups": self._list_log_groups(query), "logs": self._list_logs(query)})
+            return
+        if parsed.path.startswith("/api/logs/"):
+            record_id = parsed.path.rsplit("/", 1)[-1]
+            record = self._find_log(record_id)
+            if not record:
+                self._send_json({"error": "Log record not found."}, HTTPStatus.NOT_FOUND)
+                return
+            self._send_json(self._record_detail(record))
+            return
+        self._send_json({"error": "Not found."}, HTTPStatus.NOT_FOUND)
+
+    def do_PUT(self) -> None:
+        if urlsplit(self.path).path != "/api/pairs":
+            self._send_json({"error": "Not found."}, HTTPStatus.NOT_FOUND)
+            return
+        payload = self._read_json()
+        pairs = payload.get("pairs")
+        if not isinstance(pairs, list):
+            self._send_json({"error": "Expected pairs list."}, HTTPStatus.BAD_REQUEST)
+            return
+        try:
+            updated = self.manager.replace_pairs([pair for pair in pairs if isinstance(pair, dict)])
+        except Exception as exc:  # noqa: BLE001
+            self._send_json({"error": str(exc)}, HTTPStatus.BAD_REQUEST)
+            return
+        self._send_json({"pairs": updated})
+
+    def do_POST(self) -> None:
+        parsed = urlsplit(self.path)
+        if parsed.path.startswith("/api/pairs/") and parsed.path.endswith("/enabled"):
+            pair_id = parsed.path.split("/")[-2]
+            payload = self._read_json()
+            try:
+                pair = self.manager.set_enabled(pair_id, bool(payload.get("enabled")))
+            except Exception as exc:  # noqa: BLE001
+                self._send_json({"error": str(exc)}, HTTPStatus.BAD_REQUEST)
+                return
+            self._send_json({"pair": pair})
+            return
+        self._send_json({"error": "Not found."}, HTTPStatus.NOT_FOUND)
+
+    def log_message(self, fmt: str, *args: object) -> None:
+        return
+
+    def _read_json(self) -> dict[str, Any]:
+        length = int(self.headers.get("Content-Length", "0") or "0")
+        if length <= 0:
+            return {}
+        try:
+            loaded = json.loads(self.rfile.read(length).decode("utf-8"))
+        except json.JSONDecodeError:
+            return {}
+        return loaded if isinstance(loaded, dict) else {}
+
+    def _send_html(self, html: str) -> None:
+        data = html.encode("utf-8")
+        self.send_response(200)
+        self.send_header("Content-Type", "text/html; charset=utf-8")
+        self.send_header("Content-Length", str(len(data)))
+        self.send_header("Connection", "close")
+        self.end_headers()
+        self.wfile.write(data)
+        self.close_connection = True
+
+    def _send_json(self, payload: object, status: HTTPStatus = HTTPStatus.OK) -> None:
+        data = json.dumps(payload, ensure_ascii=False).encode("utf-8")
+        self.send_response(int(status))
+        self.send_header("Content-Type", "application/json; charset=utf-8")
+        self.send_header("Content-Length", str(len(data)))
+        self.send_header("Connection", "close")
+        self.end_headers()
+        self.wfile.write(data)
+        self.close_connection = True
+
+    def _readable_roots(self) -> list[Path]:
+        paths = []
+        if self.manager.readable_log_dir:
+            paths.append(self.manager.readable_log_dir)
+        for pair in self.manager.list_pairs():
+            raw_path = pair.get("readable_log_dir")
+            if raw_path:
+                paths.append(Path(str(raw_path)))
+        return list(dict.fromkeys(paths))
+
+    def _iter_finished_records(self) -> list[dict[str, Any]]:
+        records = []
+        for root in self._readable_roots():
+            if not root.exists():
+                continue
+            for path in root.iterdir():
+                if not path.is_dir() or path.name == "tasks" or path.name.startswith("."):
+                    continue
+                record = self._read_readable_record(path)
+                if record:
+                    records.append(record)
+        return records
+
+    def _iter_task_groups(self) -> list[dict[str, Any]]:
+        groups = []
+        for root in self._readable_roots():
+            tasks_root = root / "tasks"
+            if not tasks_root.exists():
+                continue
+            for task_path in tasks_root.iterdir():
+                if not task_path.is_dir() or task_path.name.startswith("."):
+                    continue
+                logs = []
+                for request_path in task_path.iterdir():
+                    if not request_path.is_dir() or request_path.name.startswith("."):
+                        continue
+                    record = self._read_readable_record(request_path)
+                    if record:
+                        record["_task_dir"] = task_path.name
+                        logs.append(self._log_item(record))
+                if not logs:
+                    continue
+                logs.sort(key=lambda item: str(item.get("timestamp") or ""))
+                groups.append(
+                    {
+                        "id": task_path.name,
+                        "title": task_path.name,
+                        "meta": f"{len(logs)} requests",
+                        "_record_ids": [str(item.get("id")) for item in logs],
+                        "logs": logs,
+                    }
+                )
+        groups.sort(
+            key=lambda group: max((str(item.get("timestamp") or "") for item in group["logs"]), default=""),
+            reverse=True,
+        )
+        return groups
+
+    def _read_readable_record(self, path: Path) -> dict[str, Any] | None:
+        markdown_files = sorted(path.glob("*.md"), key=lambda item: item.stat().st_mtime, reverse=True)
+        if not markdown_files:
+            return None
+        metadata = self._markdown_metadata(markdown_files[0])
+        request_text = str(metadata.get("Request") or "")
+        request_method, _, request_path = request_text.partition(" ")
+        response_status = self._parse_status(metadata.get("Response"))
+        return {
+            "id": metadata.get("id") or path.name,
+            "timestamp": metadata.get("Time"),
+            "event": metadata.get("Event"),
+            "request": {
+                "method": request_method,
+                "path": request_path,
+                "body_json": self._read_json_file(path / "request.json"),
+            },
+            "response": {
+                "status": response_status,
+                "body_json": self._read_json_file(path / "response.json"),
+            },
+            "_target_text": metadata.get("Target") or "",
+            "_readable_path": str(path),
+        }
+
+    def _markdown_metadata(self, path: Path) -> dict[str, object]:
+        metadata: dict[str, object] = {}
+        try:
+            lines = path.read_text(encoding="utf-8").splitlines()
+        except OSError:
+            return metadata
+        for line in lines:
+            if line.startswith("# LLM Interaction "):
+                metadata["id"] = line.removeprefix("# LLM Interaction ").strip()
+            if not line.startswith("- "):
+                continue
+            key, separator, value = line[2:].partition(": ")
+            if separator:
+                metadata[key] = value
+        return metadata
+
+    def _read_json_file(self, path: Path) -> object:
+        try:
+            return json.loads(path.read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError):
+            return None
+
+    def _parse_status(self, value: object) -> object:
+        if value in {None, "", "None"}:
+            return None
+        try:
+            return int(str(value))
+        except ValueError:
+            return value
+
+    def _record_matches_terms(self, record: dict[str, Any], terms: list[str]) -> bool:
+        if not terms:
+            return True
+        request = record.get("request") if isinstance(record.get("request"), dict) else {}
+        response = record.get("response") if isinstance(record.get("response"), dict) else {}
+        target = record.get("target") if isinstance(record.get("target"), dict) else {}
+        target_text = str(record.get("_target_text") or f"{target.get('scheme')}://{target.get('host')}:{target.get('port')}{target.get('path')}")
+        haystack = " ".join(
+            str(value).lower()
+            for value in [
+                record.get("id"),
+                record.get("_task_dir"),
+                request.get("method"),
+                request.get("path"),
+                response.get("status"),
+                target_text,
+            ]
+        )
+        return all(term in haystack for term in terms)
+
+    def _log_item(self, record: dict[str, Any]) -> dict[str, Any]:
+        request = record.get("request") if isinstance(record.get("request"), dict) else {}
+        response = record.get("response") if isinstance(record.get("response"), dict) else {}
+        target = record.get("target") if isinstance(record.get("target"), dict) else {}
+        target_text = str(record.get("_target_text") or f"{target.get('scheme')}://{target.get('host')}:{target.get('port')}{target.get('path')}")
+        return {
+            "id": record.get("id"),
+            "timestamp": record.get("timestamp"),
+            "method": request.get("method", ""),
+            "path": request.get("path", ""),
+            "status": response.get("status"),
+            "target": target_text,
+        }
+
+    def _list_logs(self, query: str) -> list[dict[str, Any]]:
+        terms = query.lower().split()
+        items = []
+        for record in self._iter_finished_records():
+            if not self._record_matches_terms(record, terms):
+                continue
+            items.append(self._log_item(record))
+        items.sort(key=lambda item: str(item.get("timestamp") or ""), reverse=True)
+        return items[:500]
+
+    def _list_log_groups(self, query: str) -> list[dict[str, Any]]:
+        terms = query.lower().split()
+        groups = []
+        task_record_ids: set[str] = set()
+        for group in self._iter_task_groups():
+            task_record_ids.update(str(record_id) for record_id in group.get("_record_ids", []))
+            filtered_logs = []
+            for item in group["logs"]:
+                if self._log_item_matches_terms(item, group, terms):
+                    filtered_logs.append(item)
+            if filtered_logs:
+                visible_group = {key: value for key, value in group.items() if not key.startswith("_")}
+                visible_group["logs"] = filtered_logs[:200]
+                visible_group["meta"] = f"{len(filtered_logs)} requests"
+                groups.append(visible_group)
+
+        ungrouped = []
+        for record in self._iter_finished_records():
+            if str(record.get("id")) in task_record_ids:
+                continue
+            if self._record_matches_terms(record, terms):
+                ungrouped.append(self._log_item(record))
+        ungrouped.sort(key=lambda item: str(item.get("timestamp") or ""), reverse=True)
+        if ungrouped:
+            groups.append({"id": "ungrouped", "title": "未归组", "meta": f"{len(ungrouped)} requests", "logs": ungrouped[:200]})
+        return groups[:100]
+
+    def _log_item_matches_terms(self, item: dict[str, Any], group: dict[str, Any], terms: list[str]) -> bool:
+        if not terms:
+            return True
+        haystack = " ".join(
+            str(value).lower()
+            for value in [
+                group.get("id"),
+                group.get("title"),
+                item.get("id"),
+                item.get("method"),
+                item.get("path"),
+                item.get("status"),
+                item.get("target"),
+            ]
+        )
+        return all(term in haystack for term in terms)
+
+    def _find_log(self, record_id: str) -> dict[str, Any] | None:
+        for root in self._readable_roots():
+            tasks_root = root / "tasks"
+            if not tasks_root.exists():
+                continue
+            for task_path in tasks_root.iterdir():
+                if not task_path.is_dir() or task_path.name.startswith("."):
+                    continue
+                for request_path in task_path.iterdir():
+                    if not request_path.is_dir() or request_path.name.startswith("."):
+                        continue
+                    record = self._read_readable_record(request_path)
+                    if record and str(record.get("id")) == record_id:
+                        record["_task_dir"] = task_path.name
+                        return record
+        for record in self._iter_finished_records():
+            if str(record.get("id")) == record_id:
+                return record
+        return None
+
+    def _record_detail(self, record: dict[str, Any]) -> dict[str, Any]:
+        request = dict(record.get("request") or {})
+        response = dict(record.get("response") or {})
+        if "body_json" not in request and isinstance(request.get("body"), dict):
+            request["body_json"] = body_json_value(request["body"])
+        if "body_json" not in response and isinstance(response.get("body"), dict):
+            response["body_json"] = body_json_value(response["body"])
+        return {"id": record.get("id"), "request": request, "response": response, "record": record}
+
+
+class AdminServer(ThreadingHTTPServer):
+    daemon_threads = True
+
+    def __init__(self, listen: tuple[str, int], manager: ProxyManager) -> None:
+        super().__init__(listen, AdminHandler)
+        self.manager = manager
+
+
+def serve_admin(host: str, port: int, manager: ProxyManager) -> None:
+    manager.start_enabled()
+    server = AdminServer((host, port), manager)
+    try:
+        server.serve_forever()
+    finally:
+        manager.stop_all()
+        server.server_close()

@@ -9,6 +9,7 @@ from __future__ import annotations
 from .cli import main, parse_args
 from .http_utils import parse_header_overrides
 from .logger import TrafficLogger
+from .manager import ProxyManager
 from .payloads import body_json_value, bytes_payload, render_body, render_headers, try_pretty_json
 from .sanitize import parse_strip_request_fields, strip_request_json_fields
 from .server import ProxyHandler, ProxyServer
@@ -19,6 +20,7 @@ from .time_utils import local_datetime_for_filename, local_time_from_timestamp_f
 __all__ = [
     # __all__ 控制 ``from llm_proxy import *`` 会导出哪些名字。
     "ProxyHandler",
+    "ProxyManager",
     "ProxyServer",
     "TrafficLogger",
     "body_json_value",

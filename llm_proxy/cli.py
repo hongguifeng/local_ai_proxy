@@ -13,9 +13,11 @@ from pathlib import Path
 from .constants import DEFAULT_STRIP_REQUEST_FIELDS
 from .http_utils import parse_header_overrides
 from .logger import TrafficLogger
+from .manager import DEFAULT_CONFIG_PATH, ProxyManager
 from .sanitize import parse_strip_request_fields
 from .server import ProxyHandler, ProxyServer
 from .target import parse_target
+from .ui import serve_admin
 
 def parse_args() -> argparse.Namespace:
     """定义并解析命令行参数。
@@ -39,7 +41,11 @@ def parse_args() -> argparse.Namespace:
         default=None,
         help="Header to add or override when forwarding upstream. Can be repeated. Format: 'Name: value'.",
     )
-    parser.add_argument("--log-file", default=os.getenv("LLM_PROXY_LOG_FILE", "logs/interactions.jsonl"))
+    parser.add_argument(
+        "--log-file",
+        default=os.getenv("LLM_PROXY_LOG_FILE", "logs/interactions.jsonl"),
+        help="Deprecated: JSONL interaction logs are no longer written.",
+    )
     parser.add_argument(
         "--readable-log-dir",
         default=os.getenv("LLM_PROXY_READABLE_LOG_DIR", "logs/readable"),
@@ -61,12 +67,30 @@ def parse_args() -> argparse.Namespace:
         help="Deprecated: logs always keep complete body data.",
     )
     parser.add_argument("--access-log", action="store_true", default=os.getenv("LLM_PROXY_ACCESS_LOG") == "1")
+    parser.add_argument("--ui", action="store_true", default=os.getenv("LLM_PROXY_UI") == "1")
+    parser.add_argument("--ui-host", default=os.getenv("LLM_PROXY_UI_HOST", "127.0.0.1"))
+    parser.add_argument("--ui-port", type=int, default=int(os.getenv("LLM_PROXY_UI_PORT", "8088")))
+    parser.add_argument("--config-file", default=os.getenv("LLM_PROXY_CONFIG_FILE", str(DEFAULT_CONFIG_PATH)))
     return parser.parse_args()
 
 
 def main() -> int:
     """启动代理服务，并在 Ctrl+C 时优雅关闭。"""
     args = parse_args()
+    if args.ui:
+        log_file = Path(args.log_file)
+        readable_dir = Path(args.readable_log_dir) if args.readable_log_dir else None
+        manager = ProxyManager(Path(args.config_file), log_file, readable_dir)
+        print(f"LLM proxy UI listening on http://{args.ui_host}:{args.ui_port}", flush=True)
+        print(f"Proxy pair config: {Path(args.config_file).resolve()}", flush=True)
+        if readable_dir:
+            print(f"Readable logs directory: {readable_dir.resolve()}", flush=True)
+        try:
+            serve_admin(args.ui_host, args.ui_port, manager)
+        except KeyboardInterrupt:
+            print("\nShutting down.", flush=True)
+        return 0
+
     target = parse_target(args)
     target_headers = parse_header_overrides(args.target_header)
     strip_request_fields = parse_strip_request_fields(args.strip_request_fields)
@@ -83,13 +107,14 @@ def main() -> int:
         "strip_request_fields": strip_request_fields,
         "timeout": args.timeout,
         "access_log": args.access_log,
+        "proxy_pair_id": "cli",
+        "proxy_pair_name": "CLI proxy",
     }
     server = ProxyServer((args.listen_host, args.listen_port), ProxyHandler, config, logger)
     listen_url = f"http://{args.listen_host}:{args.listen_port}"
     target_url = str(target["display_url"])
     print(f"LLM proxy listening on {listen_url}", flush=True)
     print(f"Forwarding to {target_url}", flush=True)
-    print(f"Writing JSONL logs to {log_file.resolve()}", flush=True)
     if readable_dir:
         print(f"Writing readable logs to {readable_dir.resolve()}", flush=True)
     try:

@@ -1,8 +1,6 @@
 """流量日志记录器。
 
-本项目同时写两种日志：
-1. ``interactions.jsonl``：机器友好的 JSONL，每一行是一条事件记录。
-2. ``logs/readable``：人类友好的 Markdown/JSON 文件，方便直接打开查看请求和响应。
+本项目只写 ``logs/readable``：人类友好的 Markdown/JSON 文件，方便直接打开查看请求和响应。
 
 另外，日志器会尝试把同一个 LLM 任务中的多次请求归到同一个 ``tasks`` 目录。
 """
@@ -51,24 +49,17 @@ class TrafficLogger:
         # 下次写日志时可以继续把相关请求放进同一个任务目录。
         self.task_index_path = readable_dir / ".task-index.json" if readable_dir else None
         self.task_index = self._load_task_index()
-        self.path.parent.mkdir(parents=True, exist_ok=True)
         if self.readable_dir:
             self.readable_dir.mkdir(parents=True, exist_ok=True)
 
     def write(self, record: dict[str, object]) -> None:
-        """写一条完整日志记录。
-
-        这个方法会同时写 JSONL 和 readable 日志。代理结束请求时主要调用它。
-        """
+        """写一条完整 readable 日志记录。"""
         with self.lock:
             self._prepare_task(record)
-            with self.path.open("a", encoding="utf-8") as file:
-                json.dump(record, file, ensure_ascii=False, separators=(",", ":"))
-                file.write("\n")
             self._write_readable(record)
 
     def update_readable(self, record: dict[str, object]) -> None:
-        """只更新 readable 日志，不追加 JSONL。
+        """更新 readable 日志。
 
         请求体读完但响应还没回来时会调用它，用来让 Markdown/JSON 文件先出现。
         """
@@ -612,4 +603,3 @@ class TrafficLogger:
         """预留接口：未来可以在 readable 根目录生成总索引。"""
         if not self.readable_dir:
             return
-

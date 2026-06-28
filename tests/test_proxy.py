@@ -19,6 +19,8 @@ from llm_proxy import (
     local_time_from_timestamp_for_filename,
     parse_target,
 )
+from llm_proxy.manager import ProxyManager
+from llm_proxy.ui import AdminServer
 
 
 class JoinTargetPathTests(unittest.TestCase):
@@ -310,7 +312,9 @@ class TargetUrlProxyTests(unittest.TestCase):
                     target_port=1235,
                 )
             )
-            logger = TrafficLogger(Path(log_dir.name) / "interactions.jsonl", None)
+            log_root = Path(log_dir.name)
+            readable_dir = log_root / "readable"
+            logger = TrafficLogger(log_root / "interactions.jsonl", readable_dir)
             proxy = ProxyServer(
                 ("127.0.0.1", 0),
                 ProxyHandler,
@@ -343,13 +347,17 @@ class TargetUrlProxyTests(unittest.TestCase):
 
             self.assertEqual(upstream_seen["path"], "/v1/chat/completions")
             self.assertEqual(upstream_seen["body"], '{"messages":[]}')
-            with (Path(log_dir.name) / "interactions.jsonl").open(encoding="utf-8") as file:
-                records = [json.loads(line) for line in file]
-            self.assertEqual([record["event"] for record in records], ["request_received", "request_finished"])
-            self.assertEqual(records[0]["target"]["port"], upstream_port)
-            self.assertEqual(records[0]["target"]["path"], "/v1/chat/completions")
-            self.assertIsNone(records[0]["response"]["status"])
-            self.assertEqual(records[1]["response"]["status"], 200)
+            readable_interactions = [path for path in readable_dir.iterdir() if path.is_dir() and path.name != "tasks"]
+            self.assertEqual(len(readable_interactions), 1)
+            readable_path = readable_interactions[0]
+            self.assertFalse((log_root / "interactions.jsonl").exists())
+            with (readable_path / "request.json").open(encoding="utf-8") as file:
+                self.assertEqual(json.load(file), {"messages": []})
+            with (readable_path / "response.json").open(encoding="utf-8") as file:
+                self.assertEqual(json.load(file), {"ok": True})
+            markdown = next(readable_path.glob("*.md")).read_text(encoding="utf-8")
+            self.assertIn(f"http://127.0.0.1:{upstream_port}/v1/chat/completions", markdown)
+            self.assertIn("- Event: request_finished", markdown)
         finally:
             if proxy is not None:
                 proxy.shutdown()
@@ -379,7 +387,9 @@ class TargetUrlProxyTests(unittest.TestCase):
         sock = None
         try:
             upstream_port = upstream.server_address[1]
-            logger = TrafficLogger(Path(log_dir.name) / "interactions.jsonl", None)
+            log_root = Path(log_dir.name)
+            readable_dir = log_root / "readable"
+            logger = TrafficLogger(log_root / "interactions.jsonl", readable_dir)
             proxy = ProxyServer(
                 ("127.0.0.1", 0),
                 ProxyHandler,
@@ -408,31 +418,37 @@ class TargetUrlProxyTests(unittest.TestCase):
                 b"\r\n"
             )
 
-            log_path = Path(log_dir.name) / "interactions.jsonl"
             deadline = time.time() + 2
-            records = []
+            readable_path = None
             while time.time() < deadline:
-                if log_path.exists():
-                    with log_path.open(encoding="utf-8") as file:
-                        records = [json.loads(line) for line in file]
-                    if records:
+                if readable_dir.exists():
+                    readable_interactions = [
+                        path for path in readable_dir.iterdir() if path.is_dir() and path.name != "tasks"
+                    ]
+                    if readable_interactions:
+                        readable_path = readable_interactions[0]
                         break
                 time.sleep(0.05)
 
-            self.assertEqual(records[0]["event"], "request_received")
-            self.assertTrue(records[0]["request"]["body_pending"])
-            self.assertEqual(records[0]["request"]["body"]["size_bytes"], 0)
-            self.assertIsNone(records[0]["response"]["status"])
+            self.assertIsNotNone(readable_path)
+            assert readable_path is not None
+            with (readable_path / "request.json").open(encoding="utf-8") as file:
+                self.assertIsNone(json.load(file))
+            with (readable_path / "response.json").open(encoding="utf-8") as file:
+                self.assertIsNone(json.load(file))
+            markdown = next(readable_path.glob("*.md")).read_text(encoding="utf-8")
+            self.assertIn("- Event: request_received", markdown)
+            self.assertFalse((log_root / "interactions.jsonl").exists())
 
             sock.close()
             sock = None
             deadline = time.time() + 2
             while time.time() < deadline:
-                with log_path.open(encoding="utf-8") as file:
-                    records = [json.loads(line) for line in file]
-                if len(records) >= 2:
+                markdown = next(readable_path.glob("*.md")).read_text(encoding="utf-8")
+                if "- Event: request_finished" in markdown:
                     break
                 time.sleep(0.05)
+            self.assertFalse((log_root / "interactions.jsonl").exists())
         finally:
             if sock is not None:
                 sock.close()
@@ -531,9 +547,7 @@ class TargetUrlProxyTests(unittest.TestCase):
             self.assertEqual(response_holder["status"], 200)
             self.assertEqual(response_holder["body"], b'{"ok":true}')
 
-            with (log_root / "interactions.jsonl").open(encoding="utf-8") as file:
-                records = [json.loads(line) for line in file]
-            self.assertEqual([record["event"] for record in records], ["request_received", "request_finished"])
+            self.assertFalse((log_root / "interactions.jsonl").exists())
 
             readable_interactions = [path for path in readable_dir.iterdir() if path.is_dir() and path.name != "tasks"]
             self.assertEqual(readable_interactions, [readable_path])
@@ -550,6 +564,157 @@ class TargetUrlProxyTests(unittest.TestCase):
             upstream.shutdown()
             upstream.server_close()
             log_dir.cleanup()
+
+
+class AdminUiTests(unittest.TestCase):
+    def test_proxy_pairs_can_be_saved_and_listed(self) -> None:
+        temp_dir = tempfile.TemporaryDirectory()
+        server = None
+        try:
+            root = Path(temp_dir.name)
+            manager = ProxyManager(root / "proxies.json", root / "interactions.jsonl", root / "readable")
+            server = AdminServer(("127.0.0.1", 0), manager)
+            thread = threading.Thread(target=server.serve_forever, daemon=True)
+            thread.start()
+
+            body = json.dumps(
+                {
+                    "pairs": [
+                        {
+                            "id": "one",
+                            "name": "One",
+                            "enabled": False,
+                            "listen_host": "127.0.0.1",
+                            "listen_port": 1234,
+                            "target_url": "http://127.0.0.1:1235/v1",
+                            "target_headers": ["X-Test: yes"],
+                        },
+                        {
+                            "id": "two",
+                            "name": "Two",
+                            "enabled": False,
+                            "listen_host": "127.0.0.1",
+                            "listen_port": 1236,
+                            "target_url": "http://127.0.0.1:1237",
+                        },
+                    ]
+                }
+            )
+            conn = http.client.HTTPConnection("127.0.0.1", server.server_address[1], timeout=5)
+            conn.request("PUT", "/api/pairs", body=body, headers={"Content-Type": "application/json"})
+            response = conn.getresponse()
+            self.assertEqual(response.status, 200)
+            saved = json.loads(response.read())
+            conn.close()
+
+            self.assertEqual([pair["id"] for pair in saved["pairs"]], ["one", "two"])
+            with (root / "proxies.json").open(encoding="utf-8") as file:
+                on_disk = json.load(file)
+            self.assertEqual([pair["id"] for pair in on_disk["pairs"]], ["one", "two"])
+        finally:
+            if server is not None:
+                server.shutdown()
+                server.server_close()
+            temp_dir.cleanup()
+
+    def test_log_detail_returns_request_and_response_json(self) -> None:
+        temp_dir = tempfile.TemporaryDirectory()
+        server = None
+        try:
+            root = Path(temp_dir.name)
+            log_path = root / "interactions.jsonl"
+            readable_path = root / "readable" / "2026-06-07__08-00-00.000__post__v1-responses__req_1"
+            readable_path.mkdir(parents=True)
+            (readable_path / "08-00-00.000__08-00-00.010.md").write_text(
+                "\n".join(
+                    [
+                        "# LLM Interaction req_1",
+                        "",
+                        "## Summary",
+                        "",
+                        "- Time: 2026-06-07T08:00:00.000+00:00",
+                        "- Event: request_finished",
+                        "- Target: http://127.0.0.1:1235/v1/responses",
+                        "- Request: POST /v1/responses",
+                        "- Response: 200",
+                    ]
+                ),
+                encoding="utf-8",
+            )
+            (readable_path / "request.json").write_text(json.dumps({"a": 1}), encoding="utf-8")
+            (readable_path / "response.json").write_text(json.dumps({"ok": True}), encoding="utf-8")
+            manager = ProxyManager(root / "proxies.json", log_path, root / "readable")
+            server = AdminServer(("127.0.0.1", 0), manager)
+            thread = threading.Thread(target=server.serve_forever, daemon=True)
+            thread.start()
+
+            conn = http.client.HTTPConnection("127.0.0.1", server.server_address[1], timeout=5)
+            conn.request("GET", "/api/logs/req_1")
+            response = conn.getresponse()
+            self.assertEqual(response.status, 200)
+            detail = json.loads(response.read())
+            conn.close()
+
+            self.assertEqual(detail["request"]["body_json"], {"a": 1})
+            self.assertEqual(detail["response"]["body_json"], {"ok": True})
+        finally:
+            if server is not None:
+                server.shutdown()
+                server.server_close()
+            temp_dir.cleanup()
+
+    def test_log_list_groups_task_directories(self) -> None:
+        temp_dir = tempfile.TemporaryDirectory()
+        server = None
+        try:
+            root = Path(temp_dir.name)
+            log_path = root / "interactions.jsonl"
+            task_request_path = (
+                root
+                / "readable"
+                / "tasks"
+                / "2026-06-07__08-00-00.000__08-00-00.010__responses__fp-demo"
+                / "001__08-00-00.000__v1-responses__req_1"
+            )
+            task_request_path.mkdir(parents=True)
+            (task_request_path / "08-00-00.000__08-00-00.010.md").write_text(
+                "\n".join(
+                    [
+                        "# LLM Interaction req_1",
+                        "",
+                        "## Summary",
+                        "",
+                        "- Time: 2026-06-07T08:00:00.000+00:00",
+                        "- Event: request_finished",
+                        "- Target: http://127.0.0.1:1235/v1/responses",
+                        "- Request: POST /v1/responses",
+                        "- Response: 200",
+                    ]
+                ),
+                encoding="utf-8",
+            )
+            (task_request_path / "request.json").write_text(json.dumps({"a": 1}), encoding="utf-8")
+            (task_request_path / "response.json").write_text(json.dumps({"ok": True}), encoding="utf-8")
+            manager = ProxyManager(root / "proxies.json", log_path, root / "readable")
+            server = AdminServer(("127.0.0.1", 0), manager)
+            thread = threading.Thread(target=server.serve_forever, daemon=True)
+            thread.start()
+
+            conn = http.client.HTTPConnection("127.0.0.1", server.server_address[1], timeout=5)
+            conn.request("GET", "/api/logs")
+            response = conn.getresponse()
+            self.assertEqual(response.status, 200)
+            payload = json.loads(response.read())
+            conn.close()
+
+            self.assertEqual(len(payload["groups"]), 1)
+            self.assertEqual(payload["groups"][0]["id"], "2026-06-07__08-00-00.000__08-00-00.010__responses__fp-demo")
+            self.assertEqual(payload["groups"][0]["logs"][0]["id"], "req_1")
+        finally:
+            if server is not None:
+                server.shutdown()
+                server.server_close()
+            temp_dir.cleanup()
 
 
 if __name__ == "__main__":
