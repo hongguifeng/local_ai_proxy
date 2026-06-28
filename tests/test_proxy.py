@@ -207,6 +207,152 @@ class TrafficLoggerTaskGroupingTests(unittest.TestCase):
         finally:
             log_dir.cleanup()
 
+    def test_does_not_group_responses_by_environment_context_only(self) -> None:
+        log_dir = tempfile.TemporaryDirectory()
+        try:
+            root = Path(log_dir.name)
+            logger = TrafficLogger(root / "interactions.jsonl", root / "readable")
+
+            def input_items(user_text: str) -> list[object]:
+                return [
+                    {
+                        "type": "message",
+                        "role": "user",
+                        "content": [{"type": "input_text", "text": "<environment_context>\n  <cwd>C:\\repo</cwd>\n</environment_context>"}],
+                    },
+                    {"type": "message", "role": "user", "content": [{"type": "input_text", "text": user_text}]},
+                ]
+
+            def record(request_id: str, timestamp: str, user_text: str, response_id: str) -> dict[str, object]:
+                return {
+                    "id": request_id,
+                    "timestamp": timestamp,
+                    "started_timestamp": timestamp,
+                    "event": "request_finished",
+                    "duration_ms": 100,
+                    "client": {"host": "127.0.0.1", "port": 1000},
+                    "target": {"scheme": "http", "host": "127.0.0.1", "port": 1235, "path": "/v1/responses"},
+                    "request": {
+                        "method": "POST",
+                        "path": "/v1/responses",
+                        "headers": {},
+                        "body": {
+                            "size_bytes": 0,
+                            "base64": "",
+                            "text": json.dumps({"model": "gpt-5.5", "input": input_items(user_text)}),
+                        },
+                    },
+                    "response": {
+                        "status": 200,
+                        "headers": {},
+                        "body": {"size_bytes": 0, "base64": "", "text": json.dumps({"id": response_id})},
+                    },
+                }
+
+            logger.write(record("req_1", "2026-06-07T08:00:00.000+00:00", "fix proxy logging", "resp_1"))
+            logger.write(record("req_2", "2026-06-07T08:00:10.000+00:00", "change UI defaults", "resp_2"))
+
+            with (root / ".task-index.json").open(encoding="utf-8") as file:
+                index = json.load(file)
+            self.assertEqual(len(index["tasks"]), 2)
+        finally:
+            log_dir.cleanup()
+
+    def test_does_not_group_chat_by_environment_context_only(self) -> None:
+        log_dir = tempfile.TemporaryDirectory()
+        try:
+            root = Path(log_dir.name)
+            logger = TrafficLogger(root / "interactions.jsonl", root / "readable")
+
+            def record(request_id: str, timestamp: str, user_text: str) -> dict[str, object]:
+                return {
+                    "id": request_id,
+                    "timestamp": timestamp,
+                    "started_timestamp": timestamp,
+                    "event": "request_finished",
+                    "duration_ms": 100,
+                    "client": {"host": "127.0.0.1", "port": 1000},
+                    "target": {"scheme": "http", "host": "127.0.0.1", "port": 1235, "path": "/v1/chat/completions"},
+                    "request": {
+                        "method": "POST",
+                        "path": "/v1/chat/completions",
+                        "headers": {},
+                        "body": {
+                            "size_bytes": 0,
+                            "base64": "",
+                            "text": json.dumps(
+                                {
+                                    "model": "gpt-5.5",
+                                    "messages": [
+                                        {"role": "user", "content": "<environment_context>\n  <cwd>C:\\repo</cwd>\n</environment_context>"},
+                                        {"role": "user", "content": user_text},
+                                    ],
+                                }
+                            ),
+                        },
+                    },
+                    "response": {
+                        "status": 200,
+                        "headers": {},
+                        "body": {"size_bytes": 0, "base64": "", "text": json.dumps({"id": f"chatcmpl_{request_id}"})},
+                    },
+                }
+
+            logger.write(record("req_1", "2026-06-07T08:00:00.000+00:00", "fix proxy logging"))
+            logger.write(record("req_2", "2026-06-07T08:00:10.000+00:00", "change UI defaults"))
+
+            with (root / ".task-index.json").open(encoding="utf-8") as file:
+                index = json.load(file)
+            self.assertEqual(len(index["tasks"]), 2)
+        finally:
+            log_dir.cleanup()
+
+    def test_model_change_starts_new_responses_task(self) -> None:
+        log_dir = tempfile.TemporaryDirectory()
+        try:
+            root = Path(log_dir.name)
+            logger = TrafficLogger(root / "interactions.jsonl", root / "readable")
+
+            def record(request_id: str, timestamp: str, model: str, response_id: str) -> dict[str, object]:
+                return {
+                    "id": request_id,
+                    "timestamp": timestamp,
+                    "started_timestamp": timestamp,
+                    "event": "request_finished",
+                    "duration_ms": 100,
+                    "client": {"host": "127.0.0.1", "port": 1000},
+                    "target": {"scheme": "http", "host": "127.0.0.1", "port": 1235, "path": "/v1/responses"},
+                    "request": {
+                        "method": "POST",
+                        "path": "/v1/responses",
+                        "headers": {},
+                        "body": {
+                            "size_bytes": 0,
+                            "base64": "",
+                            "text": json.dumps(
+                                {
+                                    "model": model,
+                                    "input": [{"type": "message", "role": "user", "content": [{"type": "input_text", "text": "same task text"}]}],
+                                }
+                            ),
+                        },
+                    },
+                    "response": {
+                        "status": 200,
+                        "headers": {},
+                        "body": {"size_bytes": 0, "base64": "", "text": json.dumps({"id": response_id})},
+                    },
+                }
+
+            logger.write(record("req_1", "2026-06-07T08:00:00.000+00:00", "gpt-5.5", "resp_1"))
+            logger.write(record("req_2", "2026-06-07T08:00:10.000+00:00", "qwen3.6", "resp_2"))
+
+            with (root / ".task-index.json").open(encoding="utf-8") as file:
+                index = json.load(file)
+            self.assertEqual(len(index["tasks"]), 2)
+        finally:
+            log_dir.cleanup()
+
     def test_updates_task_dir_with_latest_response_time(self) -> None:
         log_dir = tempfile.TemporaryDirectory()
         try:
