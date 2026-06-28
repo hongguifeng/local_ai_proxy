@@ -2,74 +2,160 @@
 
 English | [中文](README.cn.md)
 
-LLM Proxy is a local HTTP proxy that forwards and records the complete interaction between an Agent and an OpenAI-compatible LLM API. The upstream target can be a local `llama.cpp` server, OpenRouter, an OpenAI-compatible gateway, or another remote API. A built-in web UI provides multi-proxy management, log browsing, and search.
+LLM Proxy is a local web console for managing OpenAI-compatible LLM proxy traffic. It lets you create one or more local proxy endpoints, forward each endpoint to a different upstream API, and inspect the full request/response history from a browser.
 
-## Features
+The command line is now mainly the launcher and compatibility layer. Day-to-day use is centered on the built-in UI: enable proxy pairs, edit upstream settings, search logs, and review complete interaction payloads without digging through terminal output.
 
-- Listens on a local address, defaulting to `127.0.0.1:1234`.
-- Forwards requests to an upstream LLM API, defaulting to `http://127.0.0.1:1235`.
-- Supports `GET`, `POST`, `PUT`, `PATCH`, `DELETE`, `OPTIONS`, and `HEAD`.
-- Records request and response headers, bodies, status codes, durations, client addresses, and target addresses.
-- Writes human-readable Markdown/JSON logs.
-- Groups multi-turn requests by task, making it easier to review a single Agent workflow.
-- Generates compact summaries for OpenAI-compatible SSE streaming responses while preserving the complete original stream data.
-- Can remove selected top-level sampling parameters before forwarding, such as `temperature`, `top_p`, and `seed`.
-- Built-in web UI at `http://127.0.0.1:8088` for managing multiple proxy pairs and browsing logs.
+## What It Does
 
-## Project Structure
-
-```text
-llm_proxy/
-  __init__.py       # Package exports for commonly used APIs
-  __main__.py       # Entry point for python -m llm_proxy
-  cli.py            # Command-line arguments and service startup
-  constants.py      # Shared constants
-  http_utils.py     # HTTP header helpers
-  logger.py         # Readable log writer
-  manager.py        # Multi-proxy pair management and config persistence
-  payloads.py       # Body encoding, parsing, and rendering
-  records.py        # Request/response record analysis and task fingerprints
-  sanitize.py       # Request field sanitization
-  server.py         # HTTP proxy server and handler
-  streams.py        # Compact summaries for SSE streaming responses
-  target.py         # Upstream address parsing and path joining
-  time_utils.py     # Time formatting helpers for logs
-  ui.py             # Admin web UI (proxy management + log browser)
-tests/
-  test_proxy.py     # Unit tests
-examples/
-  responses_client.py
-proxy.py            # Backward-compatible entry script
-pyproject.toml      # Python project metadata and console script
-```
+- Manage multiple local proxy pairs from one web interface.
+- Forward OpenAI-compatible requests to local or remote upstreams such as `llama.cpp`, OpenRouter, or another compatible gateway.
+- Record complete request and response data, including headers, bodies, status codes, durations, client addresses, target addresses, and streaming summaries.
+- Browse logs in the UI with search across path, method, status, target, record id, and task grouping.
+- Group related multi-turn Agent requests into task folders for easier review.
+- Inspect request and response JSON side by side, with wrapping, expansion, formatting, and copy controls.
+- Optionally remove or inject top-level JSON request fields before forwarding.
+- Persist proxy configuration in `logs/proxies.json` by default.
 
 ## Quick Start
 
-Proxy a local `llama.cpp` server:
-
-```powershell
-python -m llm_proxy
-```
-
-The legacy entry point is still available:
-
-```powershell
-python proxy.py
-```
-
-Start with the built-in web UI for multi-proxy management:
+Start the web console:
 
 ```powershell
 python -m llm_proxy --ui
 ```
 
-Proxy a remote OpenAI-compatible API:
+Or on Windows, run:
+
+```powershell
+.\run.bat
+```
+
+The browser opens automatically at:
+
+```text
+http://127.0.0.1:8088
+```
+
+In the UI:
+
+1. Open the **Proxy** tab.
+2. Add or edit a proxy pair.
+3. Set the local listen address, for example `127.0.0.1:1234`.
+4. Set the upstream target URL, for example `http://127.0.0.1:1235` or `https://openrouter.ai/api/v1`.
+5. Enable the proxy pair.
+6. Point your Agent or SDK base URL to the local proxy address.
+
+For the default proxy pair, client requests should go to:
+
+```text
+http://127.0.0.1:1234
+```
+
+## Web Console
+
+The UI is served at `http://127.0.0.1:8088` by default. Use `--ui-host` and `--ui-port` if you need a different admin address.
+
+### Proxy Management
+
+The **Proxy** tab is the main control surface. Each proxy pair includes:
+
+- Name and enabled/running status.
+- Listen host and port.
+- Upstream target URL.
+- Timeout.
+- Readable log directory.
+- Upstream headers, one `Name: value` entry per line.
+- Request fields to strip before forwarding.
+- Request fields to inject before forwarding as a JSON object.
+
+Proxy pairs are saved to `logs/proxies.json` unless `--config-file` is provided.
+
+![Proxy Management UI](doc/ui_proxy_en.png)
+
+### History And Logs
+
+The **History** tab lets you review captured traffic without opening log files manually. It supports:
+
+- Automatic refresh.
+- Search by method, path, status, target URL, task id, and record id.
+- Task grouping for related Agent workflows.
+- Side-by-side request and response detail panes.
+- JSON expansion/collapse, line wrapping, string formatting, and copy actions.
+
+![History Logs UI](doc/ui_logs_en.png)
+
+## Typical Workflows
+
+### Inspect A Local Model Server
+
+1. Start your local upstream server, for example `llama.cpp`, on `http://127.0.0.1:1235`.
+2. Start LLM Proxy with `python -m llm_proxy --ui`.
+3. In the UI, enable a proxy pair from `127.0.0.1:1234` to `http://127.0.0.1:1235`.
+4. Configure your client base URL as `http://127.0.0.1:1234`.
+5. Open **History** to inspect the captured interaction.
+
+### Inspect A Remote Gateway
+
+1. Create a proxy pair with target URL `https://openrouter.ai/api/v1` or another OpenAI-compatible endpoint.
+2. Add required upstream headers in the proxy card, such as `Authorization: Bearer ...`.
+3. Enable the proxy pair.
+4. Point your local client at the proxy listen address.
+
+### Normalize Request Parameters
+
+Some upstreams reject or ignore sampling fields from another client. In a proxy pair, use **Request fields to remove before forwarding** to strip top-level JSON fields such as:
+
+```text
+temperature, top_p, top_k, min_p, typical_p, repeat_penalty,
+presence_penalty, frequency_penalty, seed
+```
+
+Use **Request fields to inject before forwarding** to add or override top-level JSON fields with a JSON object, for example:
+
+```json
+{"metadata":{"source":"llm-proxy"},"stream":true}
+```
+
+When a request is changed, the logs record `request.stripped_fields`, `request.injected_fields`, and `request.upstream_body`.
+
+## Logs On Disk
+
+Default paths:
+
+- Proxy configuration: `logs/proxies.json`
+- Readable interaction logs: `logs/readable/`
+- Task-grouped logs: `logs/readable/tasks/`
+
+Each captured interaction is written to its own directory with:
+
+- A Markdown summary.
+- `request.json`.
+- `response.json`.
+
+For OpenAI-compatible SSE responses, `response.json` includes an aggregated `stream_summary` while preserving the original stream data. The summary can include `content`, `reasoning`, `tool_calls`, `finish_reasons`, and `usage`.
+
+## Command-Line Compatibility
+
+The direct single-proxy mode is still available for scripts and existing workflows:
+
+```powershell
+python -m llm_proxy
+```
+
+Legacy entry point:
+
+```powershell
+python proxy.py
+```
+
+Remote target example:
 
 ```powershell
 python -m llm_proxy --target-url https://openrouter.ai/api/v1
 ```
 
-Inject fixed upstream headers:
+Header injection example:
 
 ```powershell
 python -m llm_proxy `
@@ -79,88 +165,22 @@ python -m llm_proxy `
   --target-header "X-Title: LLM Proxy"
 ```
 
-Point your client or Agent base URL to:
-
-```text
-http://127.0.0.1:1234
-```
-
-## Web UI
-
-When started with `--ui`, the proxy serves an admin web interface at `http://127.0.0.1:8088` (configurable via `--ui-host` and `--ui-port`). The UI supports:
-
-- **Proxy management**: add, edit, enable/disable, and remove multiple listen/target pairs, persisted in a JSON config file (`logs/proxies.json` by default).
-- **Log browser**: browse all recorded interactions with search across method, path, status code, target URL, and task ID. Logs are grouped into tasks automatically when detected.
-- **Request/response detail view**: inspect full request/response bodies, headers, and streaming summaries inline.
-
-### Screenshots
-
-Proxy management interface:
-
-![Proxy Management UI](doc/ui_proxy.png)
-
-Log browser with history and search:
-
-![History Logs UI](doc/ui_history_logs.png)
-
-## Logs
-
-Default log locations:
-
-- Readable logs: `logs/readable/`
-- Proxy config: `logs/proxies.json`
-
-Each readable interaction is written to its own directory and includes:
-
-- A Markdown summary
-- `request.json`
-- `response.json`
-
-Requests recognized as part of the same task are also archived under:
-
-```text
-logs/readable/tasks/
-```
-
-If the response is an SSE stream, `response.json` shows the aggregated `stream_summary`, including fields such as `content`, `reasoning`, `tool_calls`, `finish_reasons`, and `usage`.
-
-## Request Sanitization
-
-Request sanitization is disabled unless fields are configured. The proxy can remove selected top-level JSON fields and inject custom top-level JSON fields before forwarding. The web UI shows these suggested fields to remove as the placeholder for new proxy configurations:
-
-```text
-temperature, top_p, top_k, min_p, typical_p, repeat_penalty,
-presence_penalty, frequency_penalty, seed
-```
-
-Enable request sanitization from the CLI:
+CLI request rewriting is also available:
 
 ```powershell
 python -m llm_proxy --strip-request-fields "temperature,top_p"
-```
-
-Inject custom request fields from the CLI by passing a JSON object:
-
-```powershell
 python -m llm_proxy --inject-request-fields '{"metadata":{"source":"proxy"},"stream":true}'
 ```
 
-Leave unset, pass an empty string, or clear the UI field to keep request sanitization disabled:
+## Configuration Reference
 
-```powershell
-python -m llm_proxy --strip-request-fields ""
-```
+Common launcher options and environment variables:
 
-When sanitization occurs, the logs record:
-
-- `request.stripped_fields`
-- `request.injected_fields`
-- `request.upstream_body`
-
-## Configuration
-
-Command-line arguments and environment variables:
-
+- `--ui` / `LLM_PROXY_UI=1`
+- `--ui-host` / `LLM_PROXY_UI_HOST`, default `127.0.0.1`
+- `--ui-port` / `LLM_PROXY_UI_PORT`, default `8088`
+- `--config-file` / `LLM_PROXY_CONFIG_FILE`, default `logs/proxies.json`
+- `--readable-log-dir` / `LLM_PROXY_READABLE_LOG_DIR`, default `logs/readable`
 - `--listen-host` / `LLM_PROXY_HOST`
 - `--listen-port` / `LLM_PROXY_PORT`
 - `--target-url` / `LLM_PROXY_TARGET_URL`
@@ -168,18 +188,37 @@ Command-line arguments and environment variables:
 - `--target-host` / `LLM_PROXY_TARGET_HOST`
 - `--target-port` / `LLM_PROXY_TARGET_PORT`
 - `--target-header`
-- `--log-file` / `LLM_PROXY_LOG_FILE` (deprecated; JSONL logs are no longer written)
-- `--readable-log-dir` / `LLM_PROXY_READABLE_LOG_DIR`
 - `--timeout` / `LLM_PROXY_TIMEOUT`
 - `--strip-request-fields` / `LLM_PROXY_STRIP_REQUEST_FIELDS`
 - `--inject-request-fields` / `LLM_PROXY_INJECT_REQUEST_FIELDS`
 - `--access-log` / `LLM_PROXY_ACCESS_LOG=1`
-- `--ui` / `LLM_PROXY_UI=1` (enable built-in web admin UI)
-- `--ui-host` / `LLM_PROXY_UI_HOST` (default: `127.0.0.1`)
-- `--ui-port` / `LLM_PROXY_UI_PORT` (default: `8088`)
-- `--config-file` / `LLM_PROXY_CONFIG_FILE` (proxy pair config file path, default: `logs/proxies.json`)
 
-`--target-url` takes precedence over `--target-scheme`, `--target-host`, and `--target-port`.
+`--target-url` takes precedence over `--target-scheme`, `--target-host`, and `--target-port` in single-proxy CLI mode.
+
+## Project Structure
+
+```text
+llm_proxy/
+  __main__.py       # python -m llm_proxy entry point
+  cli.py            # launcher, UI startup, and compatibility CLI mode
+  ui.py             # built-in web console and admin API
+  manager.py        # multi-proxy management and config persistence
+  server.py         # HTTP proxy server and handler
+  logger.py         # readable Markdown/JSON log writer
+  records.py        # request/response analysis and task fingerprints
+  streams.py        # SSE stream summaries
+  sanitize.py       # request field stripping/injection
+  target.py         # upstream URL parsing and path joining
+  payloads.py       # body encoding, parsing, and rendering helpers
+tests/
+  test_proxy.py
+doc/
+  ui_proxy_en.png
+  ui_logs_en.png
+proxy.py            # legacy entry script
+run.bat             # Windows UI launcher
+pyproject.toml
+```
 
 ## Tests
 
