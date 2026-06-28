@@ -325,6 +325,14 @@ INDEX_HTML = r"""<!doctype html>
       } else {
         el.textContent = jsonText(state.raw[key]);
       }
+      updateExpandButton(key);
+    }
+    function updateExpandButton(key) {
+      const button = document.querySelector(`[data-expand="${key}"]`);
+      if (!button) return;
+      const details = Array.from($(key + "Json").querySelectorAll("details"));
+      const allOpen = details.length > 0 && details.every((detail) => detail.open);
+      button.title = allOpen ? "折叠 JSON" : "展开 JSON";
     }
     async function selectLog(id) {
       state.selected = id;
@@ -383,9 +391,18 @@ INDEX_HTML = r"""<!doctype html>
     document.querySelectorAll("[data-expand]").forEach((button) => button.addEventListener("click", () => {
       const key = button.dataset.expand;
       state.tree[key] = true;
-      renderJsonPane(key);
-      $(key + "Json").querySelectorAll("details").forEach((detail) => { detail.open = true; });
+      if ($(key + "Json").querySelectorAll("details").length === 0) renderJsonPane(key);
+      const details = Array.from($(key + "Json").querySelectorAll("details"));
+      const shouldOpen = !details.length || details.some((detail) => !detail.open);
+      details.forEach((detail) => {
+        const parentDetail = detail.parentElement ? detail.parentElement.closest("details") : null;
+        detail.open = shouldOpen || detail.classList.contains("root") || parentDetail?.classList.contains("root");
+      });
+      updateExpandButton(key);
     }));
+    ["request", "response"].forEach((key) => {
+      $(key + "Json").addEventListener("toggle", () => updateExpandButton(key), true);
+    });
     document.querySelectorAll("[data-format]").forEach((button) => button.addEventListener("click", () => {
       const key = button.dataset.format;
       state.formatStrings[key] = !state.formatStrings[key];
