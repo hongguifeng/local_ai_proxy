@@ -93,6 +93,16 @@ When started with `--ui`, the proxy serves an admin web interface at `http://127
 - **Log browser**: browse all recorded interactions with search across method, path, status code, target URL, and task ID. Logs are grouped into tasks automatically when detected.
 - **Request/response detail view**: inspect full request/response bodies, headers, and streaming summaries inline.
 
+### Screenshots
+
+Proxy management interface:
+
+![Proxy Management UI](doc/ui_proxy.png)
+
+Log browser with history and search:
+
+![History Logs UI](doc/ui_history_logs.png)
+
 ## Logs
 
 Default log locations:

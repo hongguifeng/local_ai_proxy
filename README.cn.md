@@ -93,6 +93,16 @@ http://127.0.0.1:1234
 - **日志浏览器**：浏览所有记录的交互，支持按方法、路径、状态码、目标 URL、任务 ID 搜索。日志在检测到同一任务时会自动分组。
 - **请求/响应详情查看**：内联查看完整的请求/响应 body、headers 和流式摘要。
 
+### 界面截图
+
+监听转发管理界面：
+
+![Proxy Management UI](doc/ui_proxy.png)
+
+历史记录与日志浏览：
+
+![History Logs UI](doc/ui_history_logs.png)
+
 ## 日志
 
 默认日志位置：
