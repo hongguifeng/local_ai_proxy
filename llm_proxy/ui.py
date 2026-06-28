@@ -143,12 +143,12 @@ INDEX_HTML = r"""<!doctype html>
         <div id="logSplitter" class="log-splitter"></div>
         <section id="detail" class="detail">
           <div class="json-pane">
-            <div class="pane-head"><strong>Request</strong><span class="pane-actions"><button class="icon" data-wrap="request" title="切换自动换行">↵</button><button class="icon" data-expand="request" title="展开 JSON">{}</button><button class="icon" data-format="request" title="格式化字符串内容">📝</button></span></div>
+            <div class="pane-head"><strong>Request</strong><span class="pane-actions"><button class="icon" data-wrap="request" title="切换自动换行">↵</button><button class="icon" data-expand="request" title="展开 JSON">{}</button><button class="icon" data-format="request" title="格式化字符串内容">📝</button><button class="icon" data-copy="request" title="复制 JSON">📋</button></span></div>
             <div id="requestJson" class="json-view nowrap"></div>
           </div>
           <div id="splitter" class="splitter"></div>
           <div class="json-pane">
-            <div class="pane-head"><strong>Response</strong><span class="pane-actions"><button class="icon" data-wrap="response" title="切换自动换行">↵</button><button class="icon" data-expand="response" title="展开 JSON">{}</button><button class="icon" data-format="response" title="格式化字符串内容">📝</button></span></div>
+            <div class="pane-head"><strong>Response</strong><span class="pane-actions"><button class="icon" data-wrap="response" title="切换自动换行">↵</button><button class="icon" data-expand="response" title="展开 JSON">{}</button><button class="icon" data-format="response" title="格式化字符串内容">📝</button><button class="icon" data-copy="response" title="复制 JSON">📋</button></span></div>
             <div id="responseJson" class="json-view nowrap"></div>
           </div>
         </section>
@@ -390,6 +390,15 @@ INDEX_HTML = r"""<!doctype html>
       const key = button.dataset.format;
       state.formatStrings[key] = !state.formatStrings[key];
       renderJsonPane(key);
+    }));
+    document.querySelectorAll("[data-copy]").forEach((button) => button.addEventListener("click", () => {
+      const key = button.dataset.copy;
+      if (key && state.raw[key] !== null) {
+        navigator.clipboard.writeText(JSON.stringify(state.raw[key], null, 2)).then(
+          () => toast("已复制 JSON"),
+          () => toast("复制失败")
+        );
+      }
     }));
     (() => {
       const detail = $("detail"), splitter = $("splitter");
