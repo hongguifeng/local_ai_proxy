@@ -36,6 +36,9 @@ from .time_utils import (
     utc_now_iso,
 )
 
+TASK_MATCH_STRATEGY_VERSION = 2
+
+
 class TrafficLogger:
     """线程安全的流量日志写入器。
 
@@ -93,13 +96,14 @@ class TrafficLogger:
     def _load_task_index(self) -> dict[str, object]:
         """读取任务索引；文件不存在或损坏时返回空索引。"""
         if not self.task_index_path or not self.task_index_path.exists():
-            return {"tasks": {}, "request_to_task": {}, "response_to_task": {}, "context_to_task": {}}
+            return {"task_match_strategy_version": TASK_MATCH_STRATEGY_VERSION, "tasks": {}, "request_to_task": {}, "response_to_task": {}, "context_to_task": {}}
         try:
             loaded = json.loads(self.task_index_path.read_text(encoding="utf-8"))
         except (OSError, json.JSONDecodeError):
-            return {"tasks": {}, "request_to_task": {}, "response_to_task": {}, "context_to_task": {}}
+            return {"task_match_strategy_version": TASK_MATCH_STRATEGY_VERSION, "tasks": {}, "request_to_task": {}, "response_to_task": {}, "context_to_task": {}}
         if not isinstance(loaded, dict):
-            return {"tasks": {}, "request_to_task": {}, "response_to_task": {}, "context_to_task": {}}
+            return {"task_match_strategy_version": TASK_MATCH_STRATEGY_VERSION, "tasks": {}, "request_to_task": {}, "response_to_task": {}, "context_to_task": {}}
+        loaded.setdefault("task_match_strategy_version", TASK_MATCH_STRATEGY_VERSION)
         loaded.setdefault("tasks", {})
         loaded.setdefault("request_to_task", {})
         loaded.setdefault("response_to_task", {})
@@ -110,6 +114,7 @@ class TrafficLogger:
         """把任务索引写回磁盘。"""
         if not self.task_index_path:
             return
+        self.task_index["task_match_strategy_version"] = TASK_MATCH_STRATEGY_VERSION
         self.task_index_path.write_text(json.dumps(self.task_index, ensure_ascii=False, indent=2), encoding="utf-8")
 
     def _prepare_task(self, record: dict[str, object]) -> None:
@@ -246,14 +251,14 @@ class TrafficLogger:
             previous_response_id = payload.get("previous_response_id")
             if kind == "responses" and isinstance(response_to_task, dict) and isinstance(previous_response_id, str):
                 task_id = response_to_task.get(previous_response_id)
-                if isinstance(task_id, str) and self._task_matches_static_boundaries(task_id, record, kind, payload):
+                if isinstance(task_id, str) and self._task_matches_static_boundaries(task_id, record, kind, payload, include_user_boundary=False):
                     return task_id
 
             context_to_task = self.task_index.get("context_to_task")
             if isinstance(context_to_task, dict):
                 for context_key in self._context_keys(payload):
                     task_id = context_to_task.get(context_key)
-                    if isinstance(task_id, str) and self._task_matches_static_boundaries(task_id, record, kind, payload):
+                    if isinstance(task_id, str) and self._task_matches_static_boundaries(task_id, record, kind, payload, include_user_boundary=False):
                         return task_id
 
         return self._best_heuristic_task(record, kind, payload)
@@ -264,13 +269,14 @@ class TrafficLogger:
         record: Mapping[str, object],
         kind: str,
         payload: Mapping[str, object],
+        include_user_boundary: bool = True,
     ) -> bool:
         """Return False when fields that define a task identity changed."""
         tasks = self.task_index.get("tasks")
         task = tasks.get(task_id) if isinstance(tasks, dict) else None
         if not isinstance(task, dict):
             return True
-        return self._task_static_boundaries_match(task, record, kind, payload)
+        return self._task_static_boundaries_match(task, record, kind, payload, include_user_boundary=include_user_boundary)
 
     def _task_static_boundaries_match(
         self,
@@ -278,6 +284,7 @@ class TrafficLogger:
         record: Mapping[str, object],
         kind: str,
         payload: Mapping[str, object],
+        include_user_boundary: bool = True,
     ) -> bool:
         if task.get("kind") != kind:
             return False
@@ -286,12 +293,33 @@ class TrafficLogger:
             return False
         if payload.get("model") != task.get("model"):
             return False
-        return self._task_boundary_fingerprints(task, kind) == request_boundary_fingerprints(kind, payload)
+        task_fingerprints = self._task_boundary_fingerprints(task, kind, include_user_boundary=include_user_boundary)
+        request_fingerprints = self._request_boundary_fingerprints(kind, payload, include_user_boundary=include_user_boundary)
+        return task_fingerprints == request_fingerprints
 
-    def _task_boundary_fingerprints(self, task: Mapping[str, object], kind: str) -> dict[str, object]:
+    def _request_boundary_fingerprints(
+        self,
+        kind: str,
+        payload: Mapping[str, object],
+        include_user_boundary: bool = True,
+    ) -> dict[str, object]:
+        fingerprints = request_boundary_fingerprints(kind, payload)
+        if not include_user_boundary:
+            fingerprints.pop("first_user", None)
+        return fingerprints
+
+    def _task_boundary_fingerprints(
+        self,
+        task: Mapping[str, object],
+        kind: str,
+        include_user_boundary: bool = True,
+    ) -> dict[str, object]:
         boundary_fingerprints = task.get("boundary_fingerprints")
         if isinstance(boundary_fingerprints, dict):
-            return dict(boundary_fingerprints)
+            result = dict(boundary_fingerprints)
+            if not include_user_boundary:
+                result.pop("first_user", None)
+            return result
 
         fingerprints = task.get("fingerprints")
         if not isinstance(fingerprints, dict):
@@ -304,6 +332,8 @@ class TrafficLogger:
             boundary_keys = {"prompt"}
         else:
             boundary_keys = set()
+        if not include_user_boundary:
+            boundary_keys.discard("first_user")
         return {key: value for key, value in fingerprints.items() if key in boundary_keys}
 
     def _find_task_for_request_id(self, request_id: str) -> str | None:
@@ -357,6 +387,8 @@ class TrafficLogger:
             if kind in {"chat", "responses"} and not self._task_user_messages_are_contained(task, current_user_messages):
                 # 对对话类接口来说，上一轮 user 序列必须仍在当前请求中，避免只凭模型和时间误判。
                 continue
+            if kind in {"chat", "responses"} and not self._task_has_continuation_evidence(task, kind, payload, current_user_messages):
+                continue
             if best_age_seconds is None or age_seconds < best_age_seconds:
                 best_age_seconds = age_seconds
                 best_id = str(task_id)
@@ -378,18 +410,34 @@ class TrafficLogger:
             return False
         if not previous_user_messages or not current_user_messages:
             return False
-        return self._ordered_sequence_contains(current_user_messages, previous_user_messages)
+        return self._sequence_starts_with(current_user_messages, previous_user_messages)
 
-    def _ordered_sequence_contains(self, haystack: list[object], needle: list[object]) -> bool:
-        if len(needle) > len(haystack):
+    def _task_has_continuation_evidence(
+        self,
+        task: Mapping[str, object],
+        kind: str,
+        payload: Mapping[str, object],
+        current_user_messages: list[object],
+    ) -> bool:
+        previous_user_messages = task.get("last_user_messages")
+        if isinstance(previous_user_messages, list) and len(current_user_messages) > len(previous_user_messages):
+            return True
+        previous_fingerprints = task.get("fingerprints")
+        if not isinstance(previous_fingerprints, dict):
             return False
-        position = 0
-        for item in haystack:
-            if item == needle[position]:
-                position += 1
-                if position == len(needle):
-                    return True
-        return False
+        current_fingerprints = request_fingerprints(kind, payload)
+        evidence_keys = ("input", "messages")
+        return any(
+            isinstance(previous_fingerprints.get(key), str)
+            and isinstance(current_fingerprints.get(key), str)
+            and previous_fingerprints.get(key) != current_fingerprints.get(key)
+            for key in evidence_keys
+        )
+
+    def _sequence_starts_with(self, sequence: list[object], prefix: list[object]) -> bool:
+        if len(prefix) > len(sequence):
+            return False
+        return sequence[: len(prefix)] == prefix
 
     def _new_task(self, record: Mapping[str, object], kind: str, payload: object) -> dict[str, object]:
         """创建新的任务元数据。"""
@@ -402,6 +450,7 @@ class TrafficLogger:
             "started_at": record.get("started_timestamp", record.get("timestamp")),
             "last_seen_at": record.get("timestamp"),
             "endpoint": request_path(record),
+            "match_strategy_version": TASK_MATCH_STRATEGY_VERSION,
             "fingerprints": request_fingerprints(kind, payload),
             "boundary_fingerprints": request_boundary_fingerprints(kind, payload),
             "last_user_messages": request_user_messages(kind, payload),
