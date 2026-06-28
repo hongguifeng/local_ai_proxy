@@ -1,4 +1,4 @@
-﻿from __future__ import annotations
+from __future__ import annotations
 
 import json
 import threading
@@ -57,8 +57,8 @@ INDEX_HTML = r"""<!doctype html>
     label { display: grid; gap: 4px; color: var(--muted); font-size: 12px; }
     label span { white-space: nowrap; }
     .row-actions { display: flex; gap: 8px; justify-content: flex-end; }
-    .logs-view { height: 100%; display: grid; grid-template-columns: 330px 1fr; min-height: 0; }
-    .log-list { border-right: 1px solid var(--line); background: var(--panel); min-height: 0; display: grid; grid-template-rows: auto 1fr; }
+    .logs-view { height: 100%; display: grid; grid-template-columns: var(--sidebar-w, 330px) 6px 1fr; min-height: 0; }
+    .log-list { border-right: 0; background: var(--panel); min-height: 0; display: grid; grid-template-rows: auto 1fr; }
     .log-list-head { padding: 12px; border-bottom: 1px solid var(--line); display: grid; gap: 8px; }
     .log-actions { display: flex; align-items: center; gap: 8px; }
     .log-actions button { flex: 0 0 auto; }
@@ -96,6 +96,7 @@ INDEX_HTML = r"""<!doctype html>
     .json-str-detail[open] > summary { margin-bottom: 4px; }
     .json-str-body { margin: 0; padding: 6px 10px; background: #f8faf9; border: 1px solid var(--line); border-radius: 6px; font: 12px/1.5 ui-monospace, SFMono-Regular, Consolas, monospace; white-space: pre-wrap; word-break: break-all; overflow-wrap: anywhere; max-height: 400px; overflow-y: auto; }
     .splitter { background: var(--line); cursor: row-resize; }
+    .log-splitter { background: var(--line); cursor: col-resize; flex-shrink: 0; }
     .empty { height: 100%; display: grid; place-items: center; color: var(--muted); }
     .toast { position: fixed; right: 14px; bottom: 14px; background: #18212d; color: white; padding: 9px 12px; border-radius: 8px; opacity: 0; pointer-events: none; transition: .15s; max-width: min(420px, calc(100vw - 28px)); }
     .toast.show { opacity: 1; }
@@ -139,6 +140,7 @@ INDEX_HTML = r"""<!doctype html>
           </div>
           <div id="logItems" class="log-items"></div>
         </aside>
+        <div id="logSplitter" class="log-splitter"></div>
         <section id="detail" class="detail">
           <div class="json-pane">
             <div class="pane-head"><strong>Request</strong><span class="pane-actions"><button class="icon" data-wrap="request" title="切换自动换行">↵</button><button class="icon" data-expand="request" title="展开 JSON">{}</button><button class="icon" data-format="request" title="格式化字符串内容">📝</button></span></div>
@@ -256,11 +258,11 @@ INDEX_HTML = r"""<!doctype html>
       $("logItems").innerHTML = state.logGroups.map((group) => `
         <section class="log-group">
           <button class="log-group-head" data-group-id="${escapeHtml(group.id || "")}">
-            <span class="log-group-caret">${state.collapsedGroups[group.id] ? "▸" : "▾"}</span>
+            <span class="log-group-caret">${!state.collapsedGroups[group.id] ? "▸" : "▾"}</span>
             <span class="log-group-title">${escapeHtml(group.title || group.id || "Task")}</span>
             <span class="log-meta">${escapeHtml(group.meta || "")}</span>
           </button>
-          ${state.collapsedGroups[group.id] ? "" : (group.logs || []).map((item) => `
+          ${!state.collapsedGroups[group.id] ? "" : (group.logs || []).map((item) => `
             <button class="log-item ${state.selected === item.id ? "active" : ""}" data-log-id="${escapeHtml(item.id)}">
               <span class="log-title">${escapeHtml(item.method)} ${escapeHtml(item.path)}</span>
               <span class="log-meta">${escapeHtml(item.timestamp || "")} | ${escapeHtml(item.status ?? "pending")} | ${escapeHtml(item.target || "")}</span>
@@ -401,6 +403,19 @@ INDEX_HTML = r"""<!doctype html>
         detail.style.setProperty("--response-fr", `${rect.height - top - 8}px`);
       });
       splitter.addEventListener("pointerup", () => { dragging = false; });
+    })();
+    (() => {
+      const logsView = $("logs"), logSplitter = $("logSplitter");
+      let dragging = false;
+      logSplitter.addEventListener("pointerdown", (e) => { dragging = true; logSplitter.setPointerCapture(e.pointerId); });
+      logSplitter.addEventListener("pointermove", (e) => {
+        if (!dragging) return;
+        const rect = logsView.getBoundingClientRect();
+        const minW = 200, maxW = rect.width * 0.8;
+        const w = Math.max(minW, Math.min(maxW, e.clientX - rect.left));
+        logsView.style.setProperty("--sidebar-w", `${w}px`);
+      });
+      logSplitter.addEventListener("pointerup", () => { dragging = false; });
     })();
     loadPairs().catch((e) => toast(e.message));
   </script>
