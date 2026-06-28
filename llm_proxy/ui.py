@@ -8,7 +8,7 @@ from pathlib import Path
 from typing import Any
 from urllib.parse import parse_qs, urlsplit
 
-from .manager import ProxyManager
+from .manager import ProxyManager, SUGGESTED_STRIP_REQUEST_FIELDS_TEXT
 from .payloads import body_json_value
 
 
@@ -166,7 +166,8 @@ INDEX_HTML = r"""<!doctype html>
       if (!res.ok) throw new Error(data.error || res.statusText);
       return data;
     };
-    const newPair = () => ({ id: `proxy-${Date.now()}`, name: "New proxy", enabled: false, running: false, listen_host: "127.0.0.1", listen_port: 1234, target_url: "http://127.0.0.1:1235", target_headers: [], strip_request_fields: null, timeout: 600, access_log: false });
+    const suggestedStripRequestFields = __SUGGESTED_STRIP_REQUEST_FIELDS__;
+    const newPair = () => ({ id: `proxy-${Date.now()}`, name: "New proxy", enabled: false, running: false, listen_host: "127.0.0.1", listen_port: 1234, target_url: "http://127.0.0.1:1235", target_headers: [], strip_request_fields: suggestedStripRequestFields, timeout: 600, access_log: false });
     function renderPairs() {
       $("proxyGrid").innerHTML = state.pairs.map((p, i) => `
         <article class="proxy-card" data-index="${i}">
@@ -446,7 +447,10 @@ INDEX_HTML = r"""<!doctype html>
     loadPairs().catch((e) => toast(e.message));
   </script>
 </body>
-</html>"""
+</html>""".replace(
+    "__SUGGESTED_STRIP_REQUEST_FIELDS__",
+    json.dumps(SUGGESTED_STRIP_REQUEST_FIELDS_TEXT),
+)
 
 
 class AdminHandler(BaseHTTPRequestHandler):

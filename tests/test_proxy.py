@@ -18,9 +18,10 @@ from llm_proxy import (
     local_datetime_for_filename,
     local_time_from_timestamp_for_filename,
     parse_target,
+    parse_strip_request_fields,
 )
-from llm_proxy.manager import ProxyManager
-from llm_proxy.ui import AdminServer
+from llm_proxy.manager import ProxyManager, SUGGESTED_STRIP_REQUEST_FIELDS_TEXT
+from llm_proxy.ui import AdminServer, INDEX_HTML
 
 
 class JoinTargetPathTests(unittest.TestCase):
@@ -72,6 +73,24 @@ class StreamSummaryTests(unittest.TestCase):
                 }
             },
         )
+
+
+class RequestSanitizationConfigTests(unittest.TestCase):
+    def test_unset_strip_request_fields_removes_nothing(self) -> None:
+        self.assertEqual(parse_strip_request_fields(None), set())
+
+    def test_default_proxy_pair_prefills_suggested_strip_fields(self) -> None:
+        temp_dir = tempfile.TemporaryDirectory()
+        try:
+            root = Path(temp_dir.name)
+            manager = ProxyManager(root / "proxies.json", root / "interactions.jsonl", root / "readable")
+            pairs = manager.list_pairs()
+            self.assertEqual(pairs[0]["strip_request_fields"], SUGGESTED_STRIP_REQUEST_FIELDS_TEXT)
+        finally:
+            temp_dir.cleanup()
+
+    def test_admin_html_prefills_new_proxy_strip_fields(self) -> None:
+        self.assertIn(json.dumps(SUGGESTED_STRIP_REQUEST_FIELDS_TEXT), INDEX_HTML)
 
 
 class TrafficLoggerTaskGroupingTests(unittest.TestCase):

@@ -66,7 +66,7 @@ def parse_args() -> argparse.Namespace:
         default=os.getenv("LLM_PROXY_STRIP_REQUEST_FIELDS"),
         help=(
             "Comma-separated top-level JSON request fields to remove before forwarding. "
-            f"Default: {','.join(DEFAULT_STRIP_REQUEST_FIELDS)}. Use empty string to disable."
+            f"Default: none. Suggested fields: {','.join(DEFAULT_STRIP_REQUEST_FIELDS)}."
         ),
     )
     parser.add_argument(
