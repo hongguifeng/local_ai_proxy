@@ -256,6 +256,53 @@ def responses_first_user_message(payload: Mapping[str, object]) -> object | None
     return None
 
 
+def responses_user_messages(payload: Mapping[str, object]) -> list[object]:
+    """Return non-fixed user messages from a Responses API payload."""
+    user_messages = []
+    for item in responses_input_items(payload):
+        if not isinstance(item, Mapping) or item.get("role") != "user":
+            continue
+        if is_task_context_message(item):
+            continue
+        user_messages.append(responses_input_item_summary(item))
+    return user_messages
+
+
+def chat_user_messages(payload: Mapping[str, object]) -> list[object]:
+    """Return non-fixed user messages from a Chat Completions payload."""
+    messages = payload.get("messages")
+    if not isinstance(messages, list):
+        return []
+    user_messages = []
+    for message in messages:
+        if not isinstance(message, Mapping) or message.get("role") != "user":
+            continue
+        if is_task_context_message(message):
+            continue
+        user_messages.append(
+            {
+                "role": message.get("role"),
+                "content": message_text(message.get("content")),
+                "name": message.get("name"),
+            }
+        )
+    return user_messages
+
+
+def request_user_messages(kind: str, payload: object) -> list[object]:
+    """Extract the user-message sequence used to decide task continuation."""
+    if not isinstance(payload, Mapping):
+        return []
+    if kind == "responses":
+        return responses_user_messages(payload)
+    if kind == "chat":
+        return chat_user_messages(payload)
+    if kind == "completions":
+        prompt = payload.get("prompt")
+        return [message_text(prompt)] if prompt else []
+    return []
+
+
 def request_fingerprints(kind: str, payload: object) -> dict[str, str]:
     """为不同接口类型生成请求指纹。
 
@@ -300,6 +347,20 @@ def request_fingerprints(kind: str, payload: object) -> dict[str, str]:
         if prompt:
             fingerprints["prompt"] = stable_hash(prompt)
     return fingerprints
+
+
+def request_boundary_fingerprints(kind: str, payload: object) -> dict[str, str]:
+    """Fingerprints that must not change within one task."""
+    fingerprints = request_fingerprints(kind, payload)
+    if kind == "responses":
+        boundary_keys = {"instructions", "tools", "first_user"}
+    elif kind == "chat":
+        boundary_keys = {"system", "tools", "first_user"}
+    elif kind == "completions":
+        boundary_keys = {"prompt"}
+    else:
+        boundary_keys = set()
+    return {key: value for key, value in fingerprints.items() if key in boundary_keys}
 
 
 def response_ids_from_body(body: object) -> list[str]:
