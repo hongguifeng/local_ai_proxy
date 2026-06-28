@@ -188,7 +188,7 @@ INDEX_HTML = r"""<!doctype html>
             <label><span>可读日志目录</span><input data-field="readable_log_dir" value="${escapeHtml(p.readable_log_dir || "")}"></label>
           </div>
           <label><span>上游 Headers，每行一个 Name: value</span><textarea data-field="target_headers">${escapeHtml((p.target_headers || []).join("\n"))}</textarea></label>
-          <label><span>转发前移除的 request 字段，逗号分隔；留空关闭</span><input data-field="strip_request_fields" value="${escapeHtml(p.strip_request_fields ?? "")}"></label>
+          <label><span>转发前移除的 request 字段，逗号分隔；留空关闭</span><textarea data-field="strip_request_fields">${escapeHtml(p.strip_request_fields ?? "")}</textarea></label>
           <label><span>转发前注入的 request 字段，JSON object；留空关闭</span><textarea data-field="inject_request_fields" placeholder='{"metadata":{"source":"proxy"}}'>${escapeHtml(p.inject_request_fields ?? "")}</textarea></label>
           <div class="row-actions"><button data-remove>删除</button></div>
         </article>`).join("");
