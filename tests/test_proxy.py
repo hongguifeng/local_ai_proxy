@@ -354,7 +354,7 @@ class TrafficLoggerTaskGroupingTests(unittest.TestCase):
             log_dir.cleanup()
 
     def test_responses_static_boundary_change_starts_new_task(self) -> None:
-        for changed_field in ("instructions", "tools", "first_user"):
+        for changed_field in ("instructions", "first_user"):
             with self.subTest(changed_field=changed_field):
                 log_dir = tempfile.TemporaryDirectory()
                 try:
@@ -401,8 +401,6 @@ class TrafficLoggerTaskGroupingTests(unittest.TestCase):
                     second = dict(first)
                     if changed_field == "instructions":
                         second["instructions"] = "system B"
-                    elif changed_field == "tools":
-                        second["tools"] = [{"type": "function", "name": "browser"}]
                     else:
                         second["first_user"] = "different first user"
 
@@ -412,6 +410,102 @@ class TrafficLoggerTaskGroupingTests(unittest.TestCase):
                     with (root / ".task-index.json").open(encoding="utf-8") as file:
                         index = json.load(file)
                     self.assertEqual(len(index["tasks"]), 2)
+                finally:
+                    log_dir.cleanup()
+
+    def test_responses_prompt_cache_key_links_compaction_without_tools(self) -> None:
+        log_dir = tempfile.TemporaryDirectory()
+        try:
+            root = Path(log_dir.name)
+            logger = TrafficLogger(root / "interactions.jsonl", root / "readable")
+
+            def record(request_id: str, timestamp: str, input_text: str, tools: list[object] | None) -> dict[str, object]:
+                payload: dict[str, object] = {
+                    "model": "gpt-5.5",
+                    "instructions": "same instructions",
+                    "input": [{"type": "message", "role": "user", "content": [{"type": "input_text", "text": input_text}]}],
+                }
+                if tools is not None:
+                    payload["tools"] = tools
+                return {
+                    "id": request_id,
+                    "timestamp": timestamp,
+                    "started_timestamp": timestamp,
+                    "event": "request_finished",
+                    "duration_ms": 100,
+                    "prompt_cache_key": "cache-thread-1",
+                    "client": {"host": "127.0.0.1", "port": 1000},
+                    "target": {"scheme": "http", "host": "127.0.0.1", "port": 1235, "path": "/v1/responses"},
+                    "request": {
+                        "method": "POST",
+                        "path": "/v1/responses",
+                        "headers": {},
+                        "body": {"size_bytes": 0, "base64": "", "text": json.dumps(payload)},
+                    },
+                    "response": {
+                        "status": 200,
+                        "headers": {},
+                        "body": {"size_bytes": 0, "base64": "", "text": json.dumps({"id": f"resp_{request_id}"})},
+                    },
+                }
+
+            logger.write(record("req_1", "2026-06-07T08:00:00.000+00:00", "original request", [{"type": "function", "name": "shell"}]))
+            logger.write(record("req_2", "2026-06-07T08:00:10.000+00:00", "compressed request", None))
+
+            with (root / ".task-index.json").open(encoding="utf-8") as file:
+                index = json.load(file)
+            self.assertEqual(len(index["tasks"]), 1)
+            only_task = next(iter(index["tasks"].values()))
+            self.assertEqual(only_task["request_count"], 2)
+        finally:
+            log_dir.cleanup()
+
+    def test_responses_client_metadata_links_compaction_without_tools(self) -> None:
+        for metadata_field in ("thread_id", "session_id"):
+            with self.subTest(metadata_field=metadata_field):
+                log_dir = tempfile.TemporaryDirectory()
+                try:
+                    root = Path(log_dir.name)
+                    logger = TrafficLogger(root / "interactions.jsonl", root / "readable")
+
+                    def record(request_id: str, timestamp: str, input_text: str, tools: list[object] | None) -> dict[str, object]:
+                        payload: dict[str, object] = {
+                            "model": "gpt-5.5",
+                            "instructions": "same instructions",
+                            "input": [{"type": "message", "role": "user", "content": [{"type": "input_text", "text": input_text}]}],
+                        }
+                        if tools is not None:
+                            payload["tools"] = tools
+                        return {
+                            "id": request_id,
+                            "timestamp": timestamp,
+                            "started_timestamp": timestamp,
+                            "event": "request_finished",
+                            "duration_ms": 100,
+                            "client_metadata": {metadata_field: "client-thread-1"},
+                            "client": {"host": "127.0.0.1", "port": 1000},
+                            "target": {"scheme": "http", "host": "127.0.0.1", "port": 1235, "path": "/v1/responses"},
+                            "request": {
+                                "method": "POST",
+                                "path": "/v1/responses",
+                                "headers": {},
+                                "body": {"size_bytes": 0, "base64": "", "text": json.dumps(payload)},
+                            },
+                            "response": {
+                                "status": 200,
+                                "headers": {},
+                                "body": {"size_bytes": 0, "base64": "", "text": json.dumps({"id": f"resp_{request_id}"})},
+                            },
+                        }
+
+                    logger.write(record("req_1", "2026-06-07T08:00:00.000+00:00", "original request", [{"type": "function", "name": "shell"}]))
+                    logger.write(record("req_2", "2026-06-07T08:00:10.000+00:00", "compressed request", None))
+
+                    with (root / ".task-index.json").open(encoding="utf-8") as file:
+                        index = json.load(file)
+                    self.assertEqual(len(index["tasks"]), 1)
+                    only_task = next(iter(index["tasks"].values()))
+                    self.assertEqual(only_task["request_count"], 2)
                 finally:
                     log_dir.cleanup()
 
@@ -653,7 +747,7 @@ class TrafficLoggerTaskGroupingTests(unittest.TestCase):
             log_dir.cleanup()
 
     def test_chat_static_boundary_change_starts_new_task(self) -> None:
-        for changed_field in ("system", "tools", "first_user"):
+        for changed_field in ("system", "first_user"):
             with self.subTest(changed_field=changed_field):
                 log_dir = tempfile.TemporaryDirectory()
                 try:
@@ -700,8 +794,6 @@ class TrafficLoggerTaskGroupingTests(unittest.TestCase):
                     second = dict(first)
                     if changed_field == "system":
                         second["system"] = "system B"
-                    elif changed_field == "tools":
-                        second["tools"] = [{"type": "function", "function": {"name": "browser"}}]
                     else:
                         second["first_user"] = "different first user"
 

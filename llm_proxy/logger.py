@@ -36,7 +36,7 @@ from .time_utils import (
     utc_now_iso,
 )
 
-TASK_MATCH_STRATEGY_VERSION = 2
+TASK_MATCH_STRATEGY_VERSION = 3
 
 
 class TrafficLogger:
@@ -187,7 +187,7 @@ class TrafficLogger:
                 response_to_task = self.task_index.setdefault("response_to_task", {})
                 if isinstance(response_to_task, dict):
                     response_to_task.setdefault(previous_response_id, task_id)
-            for context_key in self._context_keys(payload):
+            for context_key in self._context_keys(payload, record):
                 # 某些客户端会传 conversation_id/thread_id/session_id，也可以作为归组线索。
                 context_to_task = self.task_index.setdefault("context_to_task", {})
                 if isinstance(context_to_task, dict):
@@ -256,7 +256,7 @@ class TrafficLogger:
 
             context_to_task = self.task_index.get("context_to_task")
             if isinstance(context_to_task, dict):
-                for context_key in self._context_keys(payload):
+                for context_key in self._context_keys(payload, record):
                     task_id = context_to_task.get(context_key)
                     if isinstance(task_id, str) and self._task_matches_static_boundaries(task_id, record, kind, payload, include_user_boundary=False):
                         return task_id
@@ -317,6 +317,7 @@ class TrafficLogger:
         boundary_fingerprints = task.get("boundary_fingerprints")
         if isinstance(boundary_fingerprints, dict):
             result = dict(boundary_fingerprints)
+            result.pop("tools", None)
             if not include_user_boundary:
                 result.pop("first_user", None)
             return result
@@ -325,9 +326,9 @@ class TrafficLogger:
         if not isinstance(fingerprints, dict):
             return {}
         if kind == "responses":
-            boundary_keys = {"instructions", "tools", "first_user"}
+            boundary_keys = {"instructions", "first_user"}
         elif kind == "chat":
-            boundary_keys = {"system", "tools", "first_user"}
+            boundary_keys = {"system", "first_user"}
         elif kind == "completions":
             boundary_keys = {"prompt"}
         else:
@@ -478,9 +479,17 @@ class TrafficLogger:
             return f"fp-{fingerprints[first_key]}"
         return f"req-{str(record['id'])[:12]}"
 
-    def _context_keys(self, payload: Mapping[str, object]) -> list[str]:
+    def _context_keys(self, payload: Mapping[str, object], record: Mapping[str, object] | None = None) -> list[str]:
         """从请求 payload 中提取可能代表同一会话的上下文键。"""
         keys: list[str] = []
+        seen: set[str] = set()
+
+        def add_key(prefix: str, value: object) -> None:
+            if isinstance(value, str) and value.strip():
+                key = f"{prefix}:{value.strip()}"
+                if key not in seen:
+                    seen.add(key)
+                    keys.append(key)
         conversation = payload.get("conversation")
         conversation_id = first_string(
             conversation,
@@ -492,7 +501,12 @@ class TrafficLogger:
             get_nested_value(payload, ("metadata", "session_id")),
         )
         if conversation_id:
-            keys.append(f"conversation:{conversation_id}")
+            add_key("conversation", conversation_id)
+        add_key("prompt_cache", payload.get("prompt_cache_key"))
+        if record is not None:
+            add_key("prompt_cache", record.get("prompt_cache_key"))
+            add_key("client_thread", get_nested_value(record, ("client_metadata", "thread_id")))
+            add_key("client_session", get_nested_value(record, ("client_metadata", "session_id")))
         return keys
 
     def _task_request_dir_name(self, record: Mapping[str, object], sequence: int) -> str:
