@@ -16,7 +16,7 @@ from .constants import DEFAULT_STRIP_REQUEST_FIELDS
 from .http_utils import parse_header_overrides
 from .logger import TrafficLogger
 from .manager import DEFAULT_CONFIG_PATH, ProxyManager
-from .sanitize import parse_strip_request_fields
+from .sanitize import parse_inject_request_fields, parse_strip_request_fields
 from .server import ProxyHandler, ProxyServer
 from .target import parse_target
 from .ui import serve_admin
@@ -70,6 +70,14 @@ def parse_args() -> argparse.Namespace:
         ),
     )
     parser.add_argument(
+        "--inject-request-fields",
+        default=os.getenv("LLM_PROXY_INJECT_REQUEST_FIELDS"),
+        help=(
+            "JSON object of top-level request fields to add or override before forwarding. "
+            'Example: \'{"metadata":{"source":"proxy"}}\'.'
+        ),
+    )
+    parser.add_argument(
         "--text-limit",
         type=int,
         default=int(os.getenv("LLM_PROXY_TEXT_LIMIT", "0")),
@@ -105,6 +113,7 @@ def main() -> int:
     target = parse_target(args)
     target_headers = parse_header_overrides(args.target_header)
     strip_request_fields = parse_strip_request_fields(args.strip_request_fields)
+    inject_request_fields = parse_inject_request_fields(args.inject_request_fields)
     log_file = Path(args.log_file)
     readable_dir = Path(args.readable_log_dir) if args.readable_log_dir else None
     logger = TrafficLogger(log_file, readable_dir)
@@ -116,6 +125,7 @@ def main() -> int:
         "target_base_path": target["base_path"],
         "target_headers": target_headers,
         "strip_request_fields": strip_request_fields,
+        "inject_request_fields": inject_request_fields,
         "timeout": args.timeout,
         "access_log": args.access_log,
         "proxy_pair_id": "cli",

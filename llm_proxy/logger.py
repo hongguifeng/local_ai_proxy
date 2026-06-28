@@ -654,7 +654,8 @@ class TrafficLogger:
         """在 readable 目录里写 request.json 和 response.json。"""
         request = record["request"]  # type: ignore[assignment]
         response = record["response"]  # type: ignore[assignment]
-        self._write_json_file(path / "request.json", body_json_value(request["body"]))  # type: ignore[index]
+        request_body = request.get("upstream_body", request["body"])  # type: ignore[index]
+        self._write_json_file(path / "request.json", body_json_value(request_body))
         self._write_json_file(path / "response.json", body_json_value(response["body"]))  # type: ignore[index]
 
     def _readable_dir_name(self, record: dict[str, object]) -> str:
@@ -704,6 +705,9 @@ class TrafficLogger:
         stripped_fields = request.get("stripped_fields") if isinstance(request, dict) else None
         if stripped_fields:
             parts.append(f"- Stripped request fields: {', '.join(str(field) for field in stripped_fields)}")
+        injected_fields = request.get("injected_fields") if isinstance(request, dict) else None
+        if injected_fields:
+            parts.append(f"- Injected request fields: {', '.join(str(field) for field in injected_fields)}")
         added_headers = request.get("added_upstream_headers") if isinstance(request, dict) else None
         if added_headers:
             parts.append(f"- Added upstream headers: {', '.join(str(field) for field in added_headers)}")

@@ -17,8 +17,10 @@ from llm_proxy import (
     join_target_path,
     local_datetime_for_filename,
     local_time_from_timestamp_for_filename,
+    parse_inject_request_fields,
     parse_target,
     parse_strip_request_fields,
+    transform_request_json_fields,
 )
 from llm_proxy.manager import ProxyManager, SUGGESTED_STRIP_REQUEST_FIELDS_TEXT
 from llm_proxy.ui import AdminServer, INDEX_HTML
@@ -79,6 +81,41 @@ class RequestSanitizationConfigTests(unittest.TestCase):
     def test_unset_strip_request_fields_removes_nothing(self) -> None:
         self.assertEqual(parse_strip_request_fields(None), set())
 
+    def test_unset_inject_request_fields_adds_nothing(self) -> None:
+        self.assertEqual(parse_inject_request_fields(None), {})
+        self.assertEqual(parse_inject_request_fields(""), {})
+
+    def test_parse_inject_request_fields_requires_json_object(self) -> None:
+        self.assertEqual(parse_inject_request_fields({"stream": True}), {"stream": True})
+        self.assertEqual(
+            parse_inject_request_fields('{"metadata":{"source":"proxy"},"stream":true}'),
+            {"metadata": {"source": "proxy"}, "stream": True},
+        )
+        with self.assertRaises(ValueError):
+            parse_inject_request_fields("[1, 2]")
+        with self.assertRaises(ValueError):
+            parse_inject_request_fields(123)
+
+    def test_transform_request_json_fields_strips_then_injects(self) -> None:
+        body, stripped, injected = transform_request_json_fields(
+            b'{"temperature":0.8,"model":"demo","metadata":{"source":"client"}}',
+            {"temperature", "metadata"},
+            {"metadata": {"source": "proxy"}, "stream": True},
+        )
+        self.assertEqual(json.loads(body), {"model": "demo", "metadata": {"source": "proxy"}, "stream": True})
+        self.assertEqual(stripped, ["metadata", "temperature"])
+        self.assertEqual(injected, ["metadata", "stream"])
+
+    def test_transform_request_json_fields_ignores_non_object_json(self) -> None:
+        body, stripped, injected = transform_request_json_fields(
+            b'["not","object"]',
+            {"temperature"},
+            {"stream": True},
+        )
+        self.assertEqual(body, b'["not","object"]')
+        self.assertEqual(stripped, [])
+        self.assertEqual(injected, [])
+
     def test_default_proxy_pair_prefills_suggested_strip_fields(self) -> None:
         temp_dir = tempfile.TemporaryDirectory()
         try:
@@ -86,11 +123,13 @@ class RequestSanitizationConfigTests(unittest.TestCase):
             manager = ProxyManager(root / "proxies.json", root / "interactions.jsonl", root / "readable")
             pairs = manager.list_pairs()
             self.assertEqual(pairs[0]["strip_request_fields"], SUGGESTED_STRIP_REQUEST_FIELDS_TEXT)
+            self.assertEqual(pairs[0]["inject_request_fields"], "")
         finally:
             temp_dir.cleanup()
 
     def test_admin_html_prefills_new_proxy_strip_fields(self) -> None:
         self.assertIn(json.dumps(SUGGESTED_STRIP_REQUEST_FIELDS_TEXT), INDEX_HTML)
+        self.assertIn("inject_request_fields", INDEX_HTML)
 
 
 class TrafficLoggerTaskGroupingTests(unittest.TestCase):
@@ -943,6 +982,7 @@ class TargetUrlProxyTests(unittest.TestCase):
                     "target_base_path": target["base_path"],
                     "target_headers": [],
                     "strip_request_fields": set(),
+                    "inject_request_fields": {},
                     "timeout": 5,
                     "access_log": False,
                 },
@@ -976,6 +1016,84 @@ class TargetUrlProxyTests(unittest.TestCase):
             markdown = next(readable_path.glob("*.md")).read_text(encoding="utf-8")
             self.assertIn(f"http://127.0.0.1:{upstream_port}/v1/chat/completions", markdown)
             self.assertIn("- Event: request_finished", markdown)
+        finally:
+            if proxy is not None:
+                proxy.shutdown()
+                proxy.server_close()
+            upstream.shutdown()
+            upstream.server_close()
+            log_dir.cleanup()
+
+    def test_injects_configured_request_fields_before_forwarding(self) -> None:
+        upstream_seen: dict[str, object] = {}
+
+        class UpstreamHandler(BaseHTTPRequestHandler):
+            def do_POST(self) -> None:
+                length = int(self.headers.get("Content-Length", "0"))
+                upstream_seen["body"] = self.rfile.read(length).decode("utf-8")
+                body = b'{"ok":true}'
+                self.send_response(200)
+                self.send_header("Content-Type", "application/json")
+                self.send_header("Content-Length", str(len(body)))
+                self.end_headers()
+                self.wfile.write(body)
+
+            def log_message(self, fmt: str, *args: object) -> None:
+                return
+
+        upstream = ThreadingHTTPServer(("127.0.0.1", 0), UpstreamHandler)
+        upstream_thread = threading.Thread(target=upstream.serve_forever, daemon=True)
+        upstream_thread.start()
+        log_dir = tempfile.TemporaryDirectory()
+        proxy = None
+        try:
+            log_root = Path(log_dir.name)
+            readable_dir = log_root / "readable"
+            logger = TrafficLogger(log_root / "interactions.jsonl", readable_dir)
+            proxy = ProxyServer(
+                ("127.0.0.1", 0),
+                ProxyHandler,
+                {
+                    "target_scheme": "http",
+                    "target_host": "127.0.0.1",
+                    "target_port": upstream.server_address[1],
+                    "target_base_path": "/v1",
+                    "target_headers": [],
+                    "strip_request_fields": {"temperature"},
+                    "inject_request_fields": {"metadata": {"source": "proxy"}, "stream": True},
+                    "timeout": 5,
+                    "access_log": False,
+                },
+                logger,
+            )
+            proxy_thread = threading.Thread(target=proxy.serve_forever, daemon=True)
+            proxy_thread.start()
+
+            conn = http.client.HTTPConnection("127.0.0.1", proxy.server_address[1], timeout=5)
+            conn.request(
+                "POST",
+                "/v1/responses",
+                body=b'{"model":"demo","temperature":0.8}',
+                headers={"Content-Type": "application/json"},
+            )
+            response = conn.getresponse()
+            self.assertEqual(response.status, 200)
+            self.assertEqual(response.read(), b'{"ok":true}')
+            conn.close()
+
+            self.assertEqual(
+                json.loads(str(upstream_seen["body"])),
+                {"model": "demo", "metadata": {"source": "proxy"}, "stream": True},
+            )
+            readable_path = next(path for path in readable_dir.iterdir() if path.is_dir() and path.name != "tasks")
+            with (readable_path / "request.json").open(encoding="utf-8") as file:
+                self.assertEqual(
+                    json.load(file),
+                    {"model": "demo", "metadata": {"source": "proxy"}, "stream": True},
+                )
+            markdown = next(readable_path.glob("*.md")).read_text(encoding="utf-8")
+            self.assertIn("- Stripped request fields: temperature", markdown)
+            self.assertIn("- Injected request fields: metadata, stream", markdown)
         finally:
             if proxy is not None:
                 proxy.shutdown()
@@ -1018,6 +1136,7 @@ class TargetUrlProxyTests(unittest.TestCase):
                     "target_base_path": "/v1",
                     "target_headers": [],
                     "strip_request_fields": set(),
+                    "inject_request_fields": {},
                     "timeout": 1,
                     "access_log": False,
                 },
@@ -1115,6 +1234,7 @@ class TargetUrlProxyTests(unittest.TestCase):
                     "target_base_path": "/v1",
                     "target_headers": [],
                     "strip_request_fields": set(),
+                    "inject_request_fields": {},
                     "timeout": 5,
                     "access_log": False,
                 },
