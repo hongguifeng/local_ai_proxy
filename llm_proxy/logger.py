@@ -19,9 +19,11 @@ from .records import (
     endpoint_kind,
     first_string,
     get_nested_value,
+    request_boundary_fingerprints,
     request_body_json,
     request_fingerprints,
     request_path,
+    request_user_messages,
     response_body_json,
     response_ids_from_body,
     safe_filename_part,
@@ -167,6 +169,9 @@ class TrafficLogger:
         model = payload.get("model") if isinstance(payload, dict) else None
         if model:
             task["model"] = model
+        task["fingerprints"] = request_fingerprints(kind, payload)
+        task["boundary_fingerprints"] = request_boundary_fingerprints(kind, payload)
+        task["last_user_messages"] = request_user_messages(kind, payload)
         self._sync_task_dir_name(task)
 
         task_id = str(task["id"])
@@ -241,29 +246,65 @@ class TrafficLogger:
             previous_response_id = payload.get("previous_response_id")
             if kind == "responses" and isinstance(response_to_task, dict) and isinstance(previous_response_id, str):
                 task_id = response_to_task.get(previous_response_id)
-                if isinstance(task_id, str) and self._task_model_matches(task_id, payload):
+                if isinstance(task_id, str) and self._task_matches_static_boundaries(task_id, record, kind, payload):
                     return task_id
 
             context_to_task = self.task_index.get("context_to_task")
             if isinstance(context_to_task, dict):
                 for context_key in self._context_keys(payload):
                     task_id = context_to_task.get(context_key)
-                    if isinstance(task_id, str) and self._task_model_matches(task_id, payload):
+                    if isinstance(task_id, str) and self._task_matches_static_boundaries(task_id, record, kind, payload):
                         return task_id
 
         return self._best_heuristic_task(record, kind, payload)
 
-    def _task_model_matches(self, task_id: str, payload: Mapping[str, object]) -> bool:
-        """Return False when an existing task has a different model."""
-        model = payload.get("model")
-        if not model:
-            return True
+    def _task_matches_static_boundaries(
+        self,
+        task_id: str,
+        record: Mapping[str, object],
+        kind: str,
+        payload: Mapping[str, object],
+    ) -> bool:
+        """Return False when fields that define a task identity changed."""
         tasks = self.task_index.get("tasks")
         task = tasks.get(task_id) if isinstance(tasks, dict) else None
         if not isinstance(task, dict):
             return True
-        task_model = task.get("model")
-        return not task_model or task_model == model
+        return self._task_static_boundaries_match(task, record, kind, payload)
+
+    def _task_static_boundaries_match(
+        self,
+        task: Mapping[str, object],
+        record: Mapping[str, object],
+        kind: str,
+        payload: Mapping[str, object],
+    ) -> bool:
+        if task.get("kind") != kind:
+            return False
+        endpoint = task.get("endpoint")
+        if endpoint and endpoint != request_path(record):
+            return False
+        if payload.get("model") != task.get("model"):
+            return False
+        return self._task_boundary_fingerprints(task, kind) == request_boundary_fingerprints(kind, payload)
+
+    def _task_boundary_fingerprints(self, task: Mapping[str, object], kind: str) -> dict[str, object]:
+        boundary_fingerprints = task.get("boundary_fingerprints")
+        if isinstance(boundary_fingerprints, dict):
+            return dict(boundary_fingerprints)
+
+        fingerprints = task.get("fingerprints")
+        if not isinstance(fingerprints, dict):
+            return {}
+        if kind == "responses":
+            boundary_keys = {"instructions", "tools", "first_user"}
+        elif kind == "chat":
+            boundary_keys = {"system", "tools", "first_user"}
+        elif kind == "completions":
+            boundary_keys = {"prompt"}
+        else:
+            boundary_keys = set()
+        return {key: value for key, value in fingerprints.items() if key in boundary_keys}
 
     def _find_task_for_request_id(self, request_id: str) -> str | None:
         """在任务列表里反查请求 ID，并顺手修复 request_to_task 索引。"""
@@ -282,27 +323,21 @@ class TrafficLogger:
         return None
 
     def _best_heuristic_task(self, record: Mapping[str, object], kind: str, payload: object) -> str | None:
-        """用启发式评分匹配任务。
-
-        这个方法用于没有明确上下文 ID 的情况。它会比较 endpoint、model、
-        请求内容指纹和时间距离。为了避免误归组，阈值设置得比较保守。
-        """
+        """在没有明确上下文 ID 时，用保守规则匹配任务。"""
         if not isinstance(payload, dict):
             return None
         tasks = self.task_index.get("tasks")
         if not isinstance(tasks, dict):
             return None
-        path = request_path(record)
-        model = payload.get("model")
-        fingerprints = request_fingerprints(kind, payload)
         now = dt.datetime.fromisoformat(str(record.get("timestamp", utc_now_iso())))
         best_id: str | None = None
-        best_score = 0
+        best_age_seconds: float | None = None
+        current_user_messages = request_user_messages(kind, payload)
 
         for task_id, task in tasks.items():
-            if not isinstance(task, dict) or task.get("kind") != kind:
+            if not isinstance(task, dict):
                 continue
-            if model and task.get("model") and task.get("model") != model:
+            if not self._task_static_boundaries_match(task, record, kind, payload):
                 continue
             last_seen_raw = task.get("last_seen_at", task.get("started_at"))
             started_raw = task.get("started_at", last_seen_raw)
@@ -319,40 +354,42 @@ class TrafficLogger:
                 # 间隔超过 30 分钟的请求通常不应被认为是同一轮任务。
                 continue
 
-            score = 0
-            content_match = False
-            if task.get("endpoint") == path:
-                score += 20
-            if model and task.get("model") == model:
-                score += 30
-            task_fingerprints = task.get("fingerprints")
-            if isinstance(task_fingerprints, dict):
-                for key, value in fingerprints.items():
-                    if task_fingerprints.get(key) == value:
-                        if key in {"messages_prefix", "first_user", "prompt", "input_prefix"}:
-                            content_match = True
-                            score += 50
-                        else:
-                            score += 35
-            if age_seconds <= 2 * 60:
-                score += 30
-            elif age_seconds <= 10 * 60:
-                score += 15
-
-            if kind in {"chat", "responses"} and not content_match:
-                # 对对话类接口来说，必须有内容指纹匹配，否则只凭模型和时间太容易误判。
+            if kind in {"chat", "responses"} and not self._task_user_messages_are_contained(task, current_user_messages):
+                # 对对话类接口来说，上一轮 user 序列必须仍在当前请求中，避免只凭模型和时间误判。
                 continue
-            if score > best_score:
-                best_score = score
+            if best_age_seconds is None or age_seconds < best_age_seconds:
+                best_age_seconds = age_seconds
                 best_id = str(task_id)
 
-        threshold = 80 if kind == "chat" else 100 if kind == "responses" else 90
-        if best_id and best_score >= threshold:
+        if best_id:
             task = tasks.get(best_id)
             if isinstance(task, dict):
-                task["last_match_confidence"] = round(min(best_score / 120, 0.99), 2)
+                task["last_match_confidence"] = 0.95
             return best_id
         return None
+
+    def _task_user_messages_are_contained(
+        self,
+        task: Mapping[str, object],
+        current_user_messages: list[object],
+    ) -> bool:
+        previous_user_messages = task.get("last_user_messages")
+        if not isinstance(previous_user_messages, list):
+            return False
+        if not previous_user_messages or not current_user_messages:
+            return False
+        return self._ordered_sequence_contains(current_user_messages, previous_user_messages)
+
+    def _ordered_sequence_contains(self, haystack: list[object], needle: list[object]) -> bool:
+        if len(needle) > len(haystack):
+            return False
+        position = 0
+        for item in haystack:
+            if item == needle[position]:
+                position += 1
+                if position == len(needle):
+                    return True
+        return False
 
     def _new_task(self, record: Mapping[str, object], kind: str, payload: object) -> dict[str, object]:
         """创建新的任务元数据。"""
@@ -366,6 +403,8 @@ class TrafficLogger:
             "last_seen_at": record.get("timestamp"),
             "endpoint": request_path(record),
             "fingerprints": request_fingerprints(kind, payload),
+            "boundary_fingerprints": request_boundary_fingerprints(kind, payload),
+            "last_user_messages": request_user_messages(kind, payload),
             "requests": {},
             "request_count": 0,
             "last_match_confidence": 1.0,
