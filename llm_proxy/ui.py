@@ -553,12 +553,12 @@ class AdminHandler(BaseHTTPRequestHandler):
             if not root.exists():
                 signature.append((str(root), 0, 0))
                 continue
-            candidates = [root, root / "tasks"]
+            candidates = [root, root.parent / "tasks"]
             try:
                 candidates.extend(path for path in root.iterdir() if path.is_dir() and not path.name.startswith("."))
             except OSError:
                 pass
-            tasks_root = root / "tasks"
+            tasks_root = root.parent / "tasks"
             if tasks_root.exists():
                 try:
                     for task_path in tasks_root.iterdir():
@@ -608,7 +608,7 @@ class AdminHandler(BaseHTTPRequestHandler):
         result: dict[str, dict[str, Any]] = {}
 
         # 1) Try reading from .task-index.json first (most accurate).
-        index_path = root / ".task-index.json"
+        index_path = root.parent / ".task-index.json"
         if index_path.exists():
             try:
                 data = json.loads(index_path.read_text(encoding="utf-8"))
@@ -627,7 +627,7 @@ class AdminHandler(BaseHTTPRequestHandler):
                     }
 
         # 2) Also scan actual dirs on disk and parse model from name if possible.
-        tasks_root = root / "tasks"
+        tasks_root = root.parent / "tasks"
         if tasks_root.exists():
             for task_path in self._iter_dirs(tasks_root):
                 parts = task_path.name.split("__")
@@ -649,7 +649,7 @@ class AdminHandler(BaseHTTPRequestHandler):
         for root in self._readable_roots():
             if not root.exists():
                 continue
-            tasks_root = root / "tasks"
+            tasks_root = root.parent / "tasks"
             if tasks_root.exists():
                 for task_path in self._iter_dirs(tasks_root):
                     logs = []
@@ -704,10 +704,10 @@ class AdminHandler(BaseHTTPRequestHandler):
         for root in self._readable_roots():
             # Load model/kind metadata from .task-index.json once per readable root.
             task_meta_map_itg: dict[str, dict[str, Any]] = {}
-            tasks_root_check = root / "tasks"
+            tasks_root_check = root.parent / "tasks"
             if tasks_root_check.exists():
                 task_meta_map_itg = self._load_task_meta_map(root)
-            tasks_root = root / "tasks"
+            tasks_root = root.parent / "tasks"
             if not tasks_root.exists():
                 continue
             for task_path in tasks_root.iterdir():
@@ -933,7 +933,7 @@ class AdminHandler(BaseHTTPRequestHandler):
             if record:
                 return record
         for root in self._readable_roots():
-            tasks_root = root / "tasks"
+            tasks_root = root.parent / "tasks"
             if not tasks_root.exists():
                 continue
             for task_path in tasks_root.iterdir():
