@@ -1,4 +1,4 @@
-from __future__ import annotations
+﻿from __future__ import annotations
 
 import json
 import threading
@@ -81,8 +81,7 @@ INDEX_HTML = r"""<!doctype html>
     .json-view { margin: 0; padding: 12px; overflow: auto; min-height: 0; font: 12px/1.5 ui-monospace, SFMono-Regular, Consolas, monospace; }
     .json-view.wrap { white-space: pre-wrap; overflow-wrap: anywhere; }
     .json-view.nowrap { white-space: pre; }
-    .json-view details { margin-left: 16px; }
-    .json-view details.root { margin-left: 0; }
+    .json-view .json-children { margin-left: 16px; }
     .json-view summary { cursor: pointer; list-style-position: outside; }
     .json-row { min-height: 18px; }
     .json-key { color: #7a3e00; }
@@ -275,8 +274,8 @@ INDEX_HTML = r"""<!doctype html>
         const start = type === "array" ? "[" : "{";
         const end = type === "array" ? "]" : "}";
         const summary = `${keyHtml}${start}<span class="json-muted">${entries.length ? ` ${entries.length} items ` : ""}</span>${end}`;
-        const children = entries.map(([childKey, childValue]) => `<div class="json-row">${renderJsonValue(childValue, String(childKey))}</div>`).join("");
-        return `<details open class="${root ? "root" : ""}"><summary>${summary}</summary>${children}<div class="json-muted">${end}</div></details>`;
+        const childrenHtml = `<div class="json-children">${entries.map(([childKey, childValue]) => `<div class="json-row">${renderJsonValue(childValue, String(childKey))}</div>`).join("")}</div>`;
+        return `<details open${root ? ' class="root"' : ''}><summary>${summary}</summary>${childrenHtml}<div class="json-muted">${end}</div></details>`;
       }
       if (type === "string") return `${keyHtml}<span class="json-string">${escapeHtml(JSON.stringify(value))}</span>`;
       if (type === "number") return `${keyHtml}<span class="json-number">${escapeHtml(String(value))}</span>`;
