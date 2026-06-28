@@ -378,9 +378,9 @@ def request_boundary_fingerprints(kind: str, payload: object) -> dict[str, str]:
     """Fingerprints that must not change within one task."""
     fingerprints = request_fingerprints(kind, payload)
     if kind == "responses":
-        boundary_keys = {"instructions", "tools", "first_user"}
+        boundary_keys = {"instructions", "first_user"}
     elif kind == "chat":
-        boundary_keys = {"system", "tools", "first_user"}
+        boundary_keys = {"system", "first_user"}
     elif kind == "completions":
         boundary_keys = {"prompt"}
     else:
