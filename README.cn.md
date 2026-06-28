@@ -126,7 +126,7 @@ logs/readable/tasks/
 
 ## 请求清洗
 
-未配置字段时，请求清洗默认关闭。Web UI 创建新的代理配置时会预填这些建议移除的顶层 JSON 字段，由用户决定保留还是清空：
+未配置字段时，请求清洗默认关闭。Web UI 创建新的代理配置时会在 placeholder 中提示这些建议移除的顶层 JSON 字段：
 
 ```text
 temperature, top_p, top_k, min_p, typical_p, repeat_penalty,

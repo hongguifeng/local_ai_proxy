@@ -52,7 +52,7 @@ class ProxyManager:
                         "listen_port": 1234,
                         "target_url": "http://127.0.0.1:1235",
                         "target_headers": [],
-                        "strip_request_fields": SUGGESTED_STRIP_REQUEST_FIELDS_TEXT,
+                        "strip_request_fields": "",
                         "inject_request_fields": "",
                         "timeout": 600,
                         "access_log": False,

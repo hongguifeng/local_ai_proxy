@@ -297,7 +297,7 @@ INDEX_HTML = r"""<!doctype html>
       return status === undefined || status === null || status === "pending" ? t("pending") : String(status);
     }
     const suggestedStripRequestFields = __SUGGESTED_STRIP_REQUEST_FIELDS__;
-    const newPair = () => ({ id: `proxy-${Date.now()}`, name: t("newProxy"), enabled: false, running: false, listen_host: "127.0.0.1", listen_port: 1234, target_url: "http://127.0.0.1:1235", target_headers: [], strip_request_fields: suggestedStripRequestFields, inject_request_fields: "", timeout: 600, access_log: false });
+    const newPair = () => ({ id: `proxy-${Date.now()}`, name: t("newProxy"), enabled: false, running: false, listen_host: "127.0.0.1", listen_port: 1234, target_url: "http://127.0.0.1:1235", target_headers: [], strip_request_fields: "", inject_request_fields: "", timeout: 600, access_log: false });
     function renderPairs() {
       $("proxyGrid").innerHTML = state.pairs.map((p, i) => `
         <article class="proxy-card" data-index="${i}">
@@ -315,7 +315,7 @@ INDEX_HTML = r"""<!doctype html>
             <label><span>${escapeHtml(t("readableLogDir"))}</span><input data-field="readable_log_dir" value="${escapeHtml(p.readable_log_dir || "")}"></label>
           </div>
           <label><span>${escapeHtml(t("upstreamHeaders"))}</span><textarea data-field="target_headers">${escapeHtml((p.target_headers || []).join("\n"))}</textarea></label>
-          <label><span>${escapeHtml(t("stripFields"))}</span><textarea data-field="strip_request_fields">${escapeHtml(p.strip_request_fields ?? "")}</textarea></label>
+          <label><span>${escapeHtml(t("stripFields"))}</span><textarea data-field="strip_request_fields" placeholder="${escapeHtml(suggestedStripRequestFields)}">${escapeHtml(p.strip_request_fields ?? "")}</textarea></label>
           <label><span>${escapeHtml(t("injectFields"))}</span><textarea data-field="inject_request_fields" placeholder='{"metadata":{"source":"proxy"}}'>${escapeHtml(p.inject_request_fields ?? "")}</textarea></label>
           <div class="row-actions"><button data-remove>${escapeHtml(t("delete"))}</button></div>
         </article>`).join("");
