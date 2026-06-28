@@ -13,7 +13,7 @@ LLM Proxy is a local HTTP proxy that forwards and records the complete interacti
 - Writes human-readable Markdown/JSON logs.
 - Groups multi-turn requests by task, making it easier to review a single Agent workflow.
 - Generates compact summaries for OpenAI-compatible SSE streaming responses while preserving the complete original stream data.
-- Removes selected top-level sampling parameters before forwarding by default, such as `temperature`, `top_p`, and `seed`.
+- Can remove selected top-level sampling parameters before forwarding, such as `temperature`, `top_p`, and `seed`.
 - Built-in web UI at `http://127.0.0.1:8088` for managing multiple proxy pairs and browsing logs.
 
 ## Project Structure
@@ -126,20 +126,20 @@ If the response is an SSE stream, `response.json` shows the aggregated `stream_s
 
 ## Request Sanitization
 
-By default, these top-level JSON fields are removed before a request is forwarded upstream:
+Request sanitization is disabled unless fields are configured. The web UI pre-fills new proxy configurations with these suggested top-level JSON fields so you can decide whether to keep or clear them:
 
 ```text
 temperature, top_p, top_k, min_p, typical_p, repeat_penalty,
 presence_penalty, frequency_penalty, seed
 ```
 
-Customize the fields to remove:
+Enable request sanitization from the CLI:
 
 ```powershell
 python -m llm_proxy --strip-request-fields "temperature,top_p"
 ```
 
-Disable request sanitization:
+Leave unset, pass an empty string, or clear the UI field to keep request sanitization disabled:
 
 ```powershell
 python -m llm_proxy --strip-request-fields ""

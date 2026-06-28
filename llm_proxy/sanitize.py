@@ -8,17 +8,16 @@ from __future__ import annotations
 
 import json
 
-from .constants import DEFAULT_STRIP_REQUEST_FIELDS
 
 def parse_strip_request_fields(raw_fields: str | None) -> set[str]:
     """解析需要移除的字段名。
 
-    - ``None`` 表示用户没有配置，使用默认字段。
+    - ``None`` 表示用户没有配置，不移除任何字段。
     - 空字符串表示用户明确想禁用移除逻辑，返回空集合。
     - 逗号分隔字符串会被拆成字段集合。
     """
     if raw_fields is None:
-        return set(DEFAULT_STRIP_REQUEST_FIELDS)
+        return set()
     return {field.strip() for field in raw_fields.split(",") if field.strip()}
 
 
@@ -44,4 +43,3 @@ def strip_request_json_fields(body: bytes, fields: set[str]) -> tuple[bytes, lis
         payload.pop(field, None)
     stripped_body = json.dumps(payload, ensure_ascii=False, separators=(",", ":")).encode("utf-8")
     return stripped_body, sorted(removed)
-

@@ -7,6 +7,7 @@ from pathlib import Path
 from types import SimpleNamespace
 from typing import Any
 
+from .constants import DEFAULT_STRIP_REQUEST_FIELDS
 from .http_utils import parse_header_overrides
 from .logger import TrafficLogger
 from .sanitize import parse_strip_request_fields
@@ -15,6 +16,7 @@ from .target import parse_target
 
 
 DEFAULT_CONFIG_PATH = Path("logs/proxies.json")
+SUGGESTED_STRIP_REQUEST_FIELDS_TEXT = ",".join(DEFAULT_STRIP_REQUEST_FIELDS)
 
 
 @dataclass
@@ -50,7 +52,7 @@ class ProxyManager:
                         "listen_port": 1234,
                         "target_url": "http://127.0.0.1:1235",
                         "target_headers": [],
-                        "strip_request_fields": None,
+                        "strip_request_fields": SUGGESTED_STRIP_REQUEST_FIELDS_TEXT,
                         "timeout": 600,
                         "access_log": False,
                     }

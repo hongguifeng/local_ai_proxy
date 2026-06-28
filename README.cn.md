@@ -13,7 +13,7 @@ LLM Proxy 是一个本地 HTTP 代理，用于转发并记录 Agent 与 OpenAI-c
 - 写入人工可读 Markdown/JSON 日志。
 - 按任务聚合多轮请求，方便回看同一次 Agent 工作流。
 - 对 OpenAI-compatible SSE 流式响应生成紧凑摘要，同时保留原始完整流数据。
-- 默认在转发前移除部分顶层采样参数，例如 `temperature`、`top_p`、`seed` 等。
+- 可在转发前移除部分顶层采样参数，例如 `temperature`、`top_p`、`seed` 等。
 - 内置 Web UI（默认 `http://127.0.0.1:8088`），支持多代理管理和日志浏览。
 
 ## 工程结构
@@ -126,20 +126,20 @@ logs/readable/tasks/
 
 ## 请求清洗
 
-默认会在转发给上游前移除这些顶层 JSON 字段：
+未配置字段时，请求清洗默认关闭。Web UI 创建新的代理配置时会预填这些建议移除的顶层 JSON 字段，由用户决定保留还是清空：
 
 ```text
 temperature, top_p, top_k, min_p, typical_p, repeat_penalty,
 presence_penalty, frequency_penalty, seed
 ```
 
-自定义要移除的字段：
+通过 CLI 启用请求清洗：
 
 ```powershell
 python -m llm_proxy --strip-request-fields "temperature,top_p"
 ```
 
-关闭请求清洗：
+不设置该参数、传入空字符串，或在 UI 中清空字段，都会保持请求清洗关闭：
 
 ```powershell
 python -m llm_proxy --strip-request-fields ""
