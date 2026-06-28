@@ -78,6 +78,7 @@ INDEX_HTML = r"""<!doctype html>
     .json-pane { min-height: 0; display: grid; grid-template-rows: 40px 1fr; background: #fbfcfd; }
     .pane-head { border-bottom: 1px solid var(--line); padding: 0 12px; display: flex; align-items: center; justify-content: space-between; background: var(--panel); }
     .pane-actions { display: inline-flex; gap: 6px; }
+    .json-string.format-mode { white-space: pre-wrap; word-break: break-all; overflow-wrap: anywhere; background: #f0faf6; padding: 4px 8px; border-radius: 4px; margin: 2px 0; display: block; width: calc(100% - 16px); }
     .json-view { margin: 0; padding: 12px; overflow: auto; min-height: 0; font: 12px/1.5 ui-monospace, SFMono-Regular, Consolas, monospace; }
     .json-view.wrap { white-space: pre-wrap; overflow-wrap: anywhere; }
     .json-view.nowrap { white-space: pre; }
@@ -135,12 +136,12 @@ INDEX_HTML = r"""<!doctype html>
         </aside>
         <section id="detail" class="detail">
           <div class="json-pane">
-            <div class="pane-head"><strong>Request</strong><span class="pane-actions"><button class="icon" data-wrap="request" title="切换自动换行">↵</button><button class="icon" data-expand="request" title="展开 JSON">{}</button></span></div>
+            <div class="pane-head"><strong>Request</strong><span class="pane-actions"><button class="icon" data-wrap="request" title="切换自动换行">↵</button><button class="icon" data-expand="request" title="展开 JSON">{}</button><button class="icon" data-format="request" title="格式化字符串内容">📝</button></span></div>
             <div id="requestJson" class="json-view nowrap"></div>
           </div>
           <div id="splitter" class="splitter"></div>
           <div class="json-pane">
-            <div class="pane-head"><strong>Response</strong><span class="pane-actions"><button class="icon" data-wrap="response" title="切换自动换行">↵</button><button class="icon" data-expand="response" title="展开 JSON">{}</button></span></div>
+            <div class="pane-head"><strong>Response</strong><span class="pane-actions"><button class="icon" data-wrap="response" title="切换自动换行">↵</button><button class="icon" data-expand="response" title="展开 JSON">{}</button><button class="icon" data-format="response" title="格式化字符串内容">📝</button></span></div>
             <div id="responseJson" class="json-view nowrap"></div>
           </div>
         </section>
@@ -149,7 +150,7 @@ INDEX_HTML = r"""<!doctype html>
   </div>
   <div id="toast" class="toast"></div>
   <script>
-    const state = { pairs: [], logGroups: [], logs: [], selected: null, raw: { request: null, response: null }, wrap: { request: false, response: false }, tree: { request: true, response: true }, collapsedGroups: {}, logsLoading: false, logsLoadedAt: 0, searchTimer: null, refreshTimer: null };
+    const state = { pairs: [], logGroups: [], logs: [], selected: null, raw: { request: null, response: null }, wrap: { request: false, response: false }, formatStrings: { request: false, response: false }, tree: { request: true, response: true }, collapsedGroups: {}, logsLoading: false, logsLoadedAt: 0, searchTimer: null, refreshTimer: null };
     const $ = (id) => document.getElementById(id);
     const toast = (text) => { const el = $("toast"); el.textContent = text; el.classList.add("show"); setTimeout(() => el.classList.remove("show"), 2400); };
     const api = async (url, options = {}) => {
@@ -266,7 +267,7 @@ INDEX_HTML = r"""<!doctype html>
       if (Array.isArray(value)) return "array";
       return typeof value;
     }
-    function renderJsonValue(value, key = "", root = false) {
+    function renderJsonValue(value, key = "", root = false, formatMode = false) {
       const type = jsonType(value);
       const keyHtml = key === "" ? "" : `<span class="json-key">${escapeHtml(JSON.stringify(key))}</span>: `;
       if (type === "array" || type === "object") {
@@ -274,14 +275,24 @@ INDEX_HTML = r"""<!doctype html>
         const start = type === "array" ? "[" : "{";
         const end = type === "array" ? "]" : "}";
         const summary = `${keyHtml}${start}<span class="json-muted">${entries.length ? ` ${entries.length} items ` : ""}</span>${end}`;
-        const childrenHtml = `<div class="json-children">${entries.map(([childKey, childValue]) => `<div class="json-row">${renderJsonValue(childValue, String(childKey))}</div>`).join("")}</div>`;
+        const childrenHtml = `<div class="json-children">${entries.map(([childKey, childValue]) => `<div class="json-row">${renderJsonValue(childValue, String(childKey), false, formatMode)}</div>`).join("")}</div>`;
         return `<details open${root ? ' class="root"' : ''}><summary>${summary}</summary>${childrenHtml}<div class="json-muted">${end}</div></details>`;
       }
-      if (type === "string") return `${keyHtml}<span class="json-string">${escapeHtml(JSON.stringify(value))}</span>`;
+      if (type === "string") { const displayValue = formatMode ? formatString(value) : JSON.stringify(value); return `${keyHtml}<span class="json-string${formatMode ? " format-mode" : ""}">${escapeHtml(displayValue)}</span>`; }
       if (type === "number") return `${keyHtml}<span class="json-number">${escapeHtml(String(value))}</span>`;
       if (type === "boolean") return `${keyHtml}<span class="json-boolean">${escapeHtml(String(value))}</span>`;
       if (type === "undefined") return `${keyHtml}<span class="json-null">undefined</span>`;
       return `${keyHtml}<span class="json-null">null</span>`;
+    }
+    function formatString(value) {
+      if (typeof value !== "string") return value;
+      return value.replace(/\\n/g, String.fromCharCode(10))
+                  .replace(/\\r/g, String.fromCharCode(13))
+                  .replace(/\\t/g, '    ')
+                  .replace(/\\b/g, '\b')
+                  .replace(/\\f/g, '\f')
+                  .replace(/\\"/g, '"')
+                  .replace(/\\u([0-9a-fA-F]{4})/g, (_, hex) => String.fromCharCode(parseInt(hex, 16)));
     }
     function jsonText(value) {
       const text = JSON.stringify(value, null, 2);
@@ -292,7 +303,7 @@ INDEX_HTML = r"""<!doctype html>
       el.classList.toggle("wrap", state.wrap[key]);
       el.classList.toggle("nowrap", !state.wrap[key]);
       if (state.tree[key]) {
-        el.innerHTML = renderJsonValue(state.raw[key], "", true);
+        el.innerHTML = renderJsonValue(state.raw[key], "", true, state.formatStrings[key]);
       } else {
         el.textContent = jsonText(state.raw[key]);
       }
@@ -356,6 +367,11 @@ INDEX_HTML = r"""<!doctype html>
       state.tree[key] = true;
       renderJsonPane(key);
       $(key + "Json").querySelectorAll("details").forEach((detail) => { detail.open = true; });
+    }));
+    document.querySelectorAll("[data-format]").forEach((button) => button.addEventListener("click", () => {
+      const key = button.dataset.format;
+      state.formatStrings[key] = !state.formatStrings[key];
+      renderJsonPane(key);
     }));
     (() => {
       const detail = $("detail"), splitter = $("splitter");
