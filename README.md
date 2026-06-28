@@ -126,7 +126,7 @@ If the response is an SSE stream, `response.json` shows the aggregated `stream_s
 
 ## Request Sanitization
 
-Request sanitization is disabled unless fields are configured. The web UI pre-fills new proxy configurations with these suggested top-level JSON fields so you can decide whether to keep or clear them:
+Request sanitization is disabled unless fields are configured. The proxy can remove selected top-level JSON fields and inject custom top-level JSON fields before forwarding. The web UI pre-fills new proxy configurations with these suggested fields to remove so you can decide whether to keep or clear them:
 
 ```text
 temperature, top_p, top_k, min_p, typical_p, repeat_penalty,
@@ -139,6 +139,12 @@ Enable request sanitization from the CLI:
 python -m llm_proxy --strip-request-fields "temperature,top_p"
 ```
 
+Inject custom request fields from the CLI by passing a JSON object:
+
+```powershell
+python -m llm_proxy --inject-request-fields '{"metadata":{"source":"proxy"},"stream":true}'
+```
+
 Leave unset, pass an empty string, or clear the UI field to keep request sanitization disabled:
 
 ```powershell
@@ -148,6 +154,7 @@ python -m llm_proxy --strip-request-fields ""
 When sanitization occurs, the logs record:
 
 - `request.stripped_fields`
+- `request.injected_fields`
 - `request.upstream_body`
 
 ## Configuration
@@ -165,6 +172,7 @@ Command-line arguments and environment variables:
 - `--readable-log-dir` / `LLM_PROXY_READABLE_LOG_DIR`
 - `--timeout` / `LLM_PROXY_TIMEOUT`
 - `--strip-request-fields` / `LLM_PROXY_STRIP_REQUEST_FIELDS`
+- `--inject-request-fields` / `LLM_PROXY_INJECT_REQUEST_FIELDS`
 - `--access-log` / `LLM_PROXY_ACCESS_LOG=1`
 - `--ui` / `LLM_PROXY_UI=1` (enable built-in web admin UI)
 - `--ui-host` / `LLM_PROXY_UI_HOST` (default: `127.0.0.1`)

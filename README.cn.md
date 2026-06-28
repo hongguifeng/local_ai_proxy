@@ -139,6 +139,12 @@ presence_penalty, frequency_penalty, seed
 python -m llm_proxy --strip-request-fields "temperature,top_p"
 ```
 
+也可以注入自定义顶层 request 字段，参数值必须是 JSON object：
+
+```powershell
+python -m llm_proxy --inject-request-fields '{"metadata":{"source":"proxy"},"stream":true}'
+```
+
 不设置该参数、传入空字符串，或在 UI 中清空字段，都会保持请求清洗关闭：
 
 ```powershell
@@ -148,6 +154,7 @@ python -m llm_proxy --strip-request-fields ""
 如果发生清洗，日志会记录：
 
 - `request.stripped_fields`
+- `request.injected_fields`
 - `request.upstream_body`
 
 ## 常用配置
@@ -165,6 +172,7 @@ python -m llm_proxy --strip-request-fields ""
 - `--readable-log-dir` / `LLM_PROXY_READABLE_LOG_DIR`
 - `--timeout` / `LLM_PROXY_TIMEOUT`
 - `--strip-request-fields` / `LLM_PROXY_STRIP_REQUEST_FIELDS`
+- `--inject-request-fields` / `LLM_PROXY_INJECT_REQUEST_FIELDS`
 - `--access-log` / `LLM_PROXY_ACCESS_LOG=1`
 - `--ui` / `LLM_PROXY_UI=1`（启用内置 Web 管理界面）
 - `--ui-host` / `LLM_PROXY_UI_HOST`（默认：`127.0.0.1`）

@@ -15,7 +15,7 @@ from .constants import DEFAULT_PORTS, HOP_BY_HOP_HEADERS
 from .http_utils import headers_to_dict
 from .logger import TrafficLogger
 from .payloads import bytes_payload
-from .sanitize import strip_request_json_fields
+from .sanitize import transform_request_json_fields
 from .target import join_target_path
 from .time_utils import utc_now_iso
 
@@ -181,8 +181,10 @@ class ProxyHandler(BaseHTTPRequestHandler):
         )
 
         request_body = self._read_request_body()
-        upstream_request_body, stripped_request_fields = strip_request_json_fields(
-            request_body, self.server_config["strip_request_fields"]  # type: ignore[arg-type]
+        upstream_request_body, stripped_request_fields, injected_request_fields = transform_request_json_fields(
+            request_body,
+            self.server_config["strip_request_fields"],  # type: ignore[arg-type]
+            self.server_config.get("inject_request_fields", {}),  # type: ignore[arg-type]
         )
         # 日志保存客户端原始请求体；真正发给上游的 body 可能已经移除了部分字段。
         request_record: dict[str, object] = {
@@ -193,6 +195,9 @@ class ProxyHandler(BaseHTTPRequestHandler):
         }
         if stripped_request_fields:
             request_record["stripped_fields"] = stripped_request_fields
+        if injected_request_fields:
+            request_record["injected_fields"] = injected_request_fields
+        if stripped_request_fields or injected_request_fields:
             request_record["upstream_body"] = bytes_payload(upstream_request_body)
         target_headers = self.server_config["target_headers"]  # type: ignore[assignment]
         if target_headers:

@@ -10,7 +10,7 @@ from typing import Any
 from .constants import DEFAULT_STRIP_REQUEST_FIELDS
 from .http_utils import parse_header_overrides
 from .logger import TrafficLogger
-from .sanitize import parse_strip_request_fields
+from .sanitize import parse_inject_request_fields, parse_strip_request_fields
 from .server import ProxyHandler, ProxyServer
 from .target import parse_target
 
@@ -53,6 +53,7 @@ class ProxyManager:
                         "target_url": "http://127.0.0.1:1235",
                         "target_headers": [],
                         "strip_request_fields": SUGGESTED_STRIP_REQUEST_FIELDS_TEXT,
+                        "inject_request_fields": "",
                         "timeout": 600,
                         "access_log": False,
                     }
@@ -156,6 +157,7 @@ class ProxyManager:
             "target_base_path": target["base_path"],
             "target_headers": parse_header_overrides(list(pair.get("target_headers") or [])),
             "strip_request_fields": parse_strip_request_fields(pair.get("strip_request_fields")),
+            "inject_request_fields": parse_inject_request_fields(pair.get("inject_request_fields")),
             "timeout": float(pair.get("timeout", 600)),
             "access_log": bool(pair.get("access_log", False)),
             "proxy_pair_id": pair_id,
@@ -190,6 +192,11 @@ class ProxyManager:
     def _normalize_pair(self, pair: dict[str, Any]) -> dict[str, Any]:
         pair_id = str(pair.get("id") or f"proxy-{len(pair)}").strip()
         target_url = str(pair.get("target_url") or "").strip()
+        inject_request_fields = pair.get("inject_request_fields")
+        if isinstance(inject_request_fields, dict):
+            inject_request_fields = json.dumps(inject_request_fields, ensure_ascii=False, separators=(",", ":"))
+        elif inject_request_fields is None:
+            inject_request_fields = ""
         normalized = {
             "id": pair_id,
             "name": str(pair.get("name") or pair_id),
@@ -202,6 +209,7 @@ class ProxyManager:
             "target_port": int(pair.get("target_port") or 1235),
             "target_headers": list(pair.get("target_headers") or []),
             "strip_request_fields": pair.get("strip_request_fields"),
+            "inject_request_fields": str(inject_request_fields),
             "timeout": float(pair.get("timeout") or 600),
             "access_log": bool(pair.get("access_log", False)),
             "log_file": str(pair.get("log_file") or self.log_file),
