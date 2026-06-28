@@ -1504,6 +1504,7 @@ class AdminUiTests(unittest.TestCase):
 
             logs = payload["groups"][0]["logs"]
             self.assertEqual([item["id"] for item in logs], ["req_2", "req_1"])
+            self.assertEqual([item["sequence"] for item in logs], ["002", "001"])
             self.assertEqual(logs[0]["timestamp"], "2026-06-07 08:00:20.000")
             self.assertEqual(logs[1]["timestamp"], "2026-06-07 08:00:00.000")
         finally:

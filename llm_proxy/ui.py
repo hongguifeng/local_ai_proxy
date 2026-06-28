@@ -21,6 +21,7 @@ INDEX_HTML = r"""<!doctype html>
   <style>
     :root { color-scheme: light; --bg: #f6f7f9; --panel: #ffffff; --ink: #17202a; --muted: #657080; --line: #d9dee7; --accent: #1f7a5a; --accent-soft: #dff3eb; --danger: #b42318; }
     * { box-sizing: border-box; }
+    html, body { height: 100%; overflow: hidden; }
     body { margin: 0; font: 14px/1.45 system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; background: var(--bg); color: var(--ink); }
     button, input, textarea, select { font: inherit; }
     button { border: 1px solid var(--line); background: var(--panel); color: var(--ink); border-radius: 6px; padding: 7px 10px; cursor: pointer; }
@@ -34,7 +35,7 @@ INDEX_HTML = r"""<!doctype html>
     .tabs { display: inline-flex; gap: 4px; padding: 3px; border: 1px solid var(--line); border-radius: 8px; background: #eef1f5; }
     .tab { border: 0; background: transparent; padding: 6px 12px; }
     .tab.active { background: white; box-shadow: 0 1px 2px rgba(0,0,0,.08); }
-    main { min-height: 0; }
+    main { min-height: 0; overflow: hidden; }
     .view { height: 100%; display: none; }
     .view.active { display: block; }
     .logs-view.active { display: grid; }
@@ -57,7 +58,7 @@ INDEX_HTML = r"""<!doctype html>
     label { display: grid; gap: 4px; color: var(--muted); font-size: 12px; }
     label span { white-space: nowrap; }
     .row-actions { display: flex; gap: 8px; justify-content: flex-end; }
-    .logs-view { height: 100%; display: grid; grid-template-columns: var(--sidebar-w, 330px) 6px 1fr; min-height: 0; }
+    .logs-view { height: 100%; grid-template-columns: var(--sidebar-w, 330px) 6px 1fr; min-height: 0; }
     .log-list { border-right: 0; background: var(--panel); min-height: 0; display: grid; grid-template-rows: auto 1fr; }
     .log-list-head { padding: 12px; border-bottom: 1px solid var(--line); display: grid; gap: 8px; }
     .log-actions { display: flex; align-items: center; gap: 8px; }
@@ -66,14 +67,14 @@ INDEX_HTML = r"""<!doctype html>
     .auto-refresh input { width: auto; }
     .log-items { overflow: auto; }
     .log-group { border-bottom: 1px solid var(--line); }
-    .log-group-head { width: 100%; border: 0; border-radius: 0; padding: 9px 12px; background: #f3f6f8; display: grid; grid-template-columns: 16px minmax(0, 1fr); gap: 3px 6px; text-align: left; }
+    .log-group-head { width: 100%; border: 0; border-radius: 0; padding: 9px 12px; background: #e8edf3; display: grid; grid-template-columns: 16px minmax(0, 1fr); gap: 3px 6px; text-align: left; }
     .log-group-caret { grid-row: 1 / span 2; color: var(--muted); }
     .log-group-title { font-weight: 700; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
     .log-item { width: 100%; text-align: left; border: 0; border-bottom: 1px solid var(--line); border-radius: 0; padding: 10px 12px; background: white; display: grid; gap: 3px; }
     .log-group .log-item { padding-left: 24px; }
     .log-item.active { background: var(--accent-soft); }
     .log-meta { color: var(--muted); font-size: 12px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-    .log-title { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-weight: 600; }
+    .log-title { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-weight: 400; }
     .detail { min-width: 0; min-height: 0; display: grid; grid-template-rows: var(--request-fr, 1fr) 8px var(--response-fr, 1fr); }
     .json-pane { min-height: 0; display: grid; grid-template-rows: 40px 1fr; background: #fbfcfd; }
     .pane-head { border-bottom: 1px solid var(--line); padding: 0 12px; display: flex; align-items: center; justify-content: space-between; background: var(--panel); }
@@ -267,7 +268,7 @@ INDEX_HTML = r"""<!doctype html>
           </button>
           ${!state.collapsedGroups[group.id] ? "" : (group.logs || []).map((item) => `
             <button class="log-item ${state.selected === item.id ? "active" : ""}" data-log-id="${escapeHtml(item.id)}">
-              <span class="log-title">${escapeHtml(item.method)} ${escapeHtml(item.path)}</span>
+              <span class="log-title">${item.sequence ? `${escapeHtml(item.sequence)} ` : ""}${escapeHtml(item.method)} ${escapeHtml(item.path)}</span>
               <span class="log-meta">${escapeHtml(item.timestamp || "")} | ${escapeHtml(item.status ?? "pending")} | ${escapeHtml(item.target || "")}</span>
             </button>`).join("")}
         </section>`).join("") || `<div class="empty">暂无日志</div>`;
@@ -290,8 +291,8 @@ INDEX_HTML = r"""<!doctype html>
       }
       if (type === "string") {
         if (!formatMode) return `${keyHtml}<span class="json-string">${escapeHtml(JSON.stringify(value))}</span>`;
-        const hasRealNewline = typeof value === 'string' && (value.indexOf(String.fromCharCode(10)) !== -1 || value.length > 200);
-        if (!hasRealNewline) return `${keyHtml}<span class="json-string">${escapeHtml(JSON.stringify(value))}</span>`;
+        const shouldFormat = typeof value === 'string' && (value.indexOf(String.fromCharCode(10)) !== -1 || value.indexOf("\\") !== -1 || value.length > 200);
+        if (!shouldFormat) return `${keyHtml}<span class="json-string">${escapeHtml(JSON.stringify(value))}</span>`;
         const displayValue = formatString(value);
         if (displayValue.indexOf(String.fromCharCode(10)) !== -1 || displayValue.length > 200) {
           const summary = escapeHtml(displayValue.substring(0, 150) + (displayValue.length > 150 ? "…" : ""));
@@ -790,12 +791,19 @@ class AdminHandler(BaseHTTPRequestHandler):
             },
             "_target_text": metadata.get("Target") or "",
             "_readable_path": str(path),
+            "_dir_sequence": self._record_dir_sequence(path),
             "_sort_key": dir_sort_key or dir_timestamp or metadata.get("Time") or "",
         }
         if include_body:
             record["request"]["body_json"] = self._read_json_file(path / "request.json")
             record["response"]["body_json"] = self._read_json_file(path / "response.json")
         return record
+
+    def _record_dir_sequence(self, path: Path) -> str:
+        if path.parent.parent.name != "tasks":
+            return ""
+        sequence, _, _ = path.name.partition("__")
+        return sequence if sequence.isdigit() else ""
 
     def _timestamp_from_record_dir(self, path: Path) -> tuple[str | None, str | None]:
         parts = path.name.split("__")
@@ -874,6 +882,7 @@ class AdminHandler(BaseHTTPRequestHandler):
             "id": record.get("id"),
             "timestamp": record.get("timestamp"),
             "_sort_key": record.get("_sort_key"),
+            "sequence": record.get("_dir_sequence", ""),
             "method": request.get("method", ""),
             "path": request.get("path", ""),
             "status": response.get("status"),
