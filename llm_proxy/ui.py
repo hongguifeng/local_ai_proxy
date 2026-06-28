@@ -27,24 +27,27 @@ INDEX_HTML = r"""<!doctype html>
     button { border: 1px solid var(--line); background: var(--panel); color: var(--ink); border-radius: 6px; padding: 7px 10px; cursor: pointer; }
     button.primary { background: var(--accent); color: white; border-color: var(--accent); }
     button.icon { width: 34px; height: 34px; padding: 0; display: inline-grid; place-items: center; }
-    input, textarea { width: 100%; border: 1px solid var(--line); border-radius: 6px; padding: 7px 8px; background: white; color: var(--ink); }
+    input, textarea { width: 100%; min-width: 0; border: 1px solid var(--line); border-radius: 6px; padding: 7px 8px; background: white; color: var(--ink); }
     textarea { min-height: 64px; resize: vertical; font-family: ui-monospace, SFMono-Regular, Consolas, monospace; font-size: 12px; }
     .app { height: 100vh; display: grid; grid-template-rows: 52px 1fr; }
     header { display: flex; align-items: center; justify-content: space-between; padding: 0 18px; border-bottom: 1px solid var(--line); background: var(--panel); }
     h1 { margin: 0; font-size: 18px; letter-spacing: 0; }
+    .header-actions { display: flex; align-items: center; gap: 10px; }
     .tabs { display: inline-flex; gap: 4px; padding: 3px; border: 1px solid var(--line); border-radius: 8px; background: #eef1f5; }
     .tab { border: 0; background: transparent; padding: 6px 12px; }
     .tab.active { background: white; box-shadow: 0 1px 2px rgba(0,0,0,.08); }
+    .language-toggle { width: auto; min-width: 112px; border: 1px solid var(--line); border-radius: 6px; padding: 6px 8px; background: white; color: var(--ink); }
     main { min-height: 0; overflow: hidden; }
     .view { height: 100%; display: none; }
     .view.active { display: block; }
     .logs-view.active { display: grid; }
     .proxy-view { padding: 18px; overflow: auto; }
     .toolbar { display: flex; gap: 8px; align-items: center; justify-content: space-between; margin-bottom: 12px; }
-    .proxy-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(360px, 1fr)); gap: 12px; }
-    .proxy-card { background: var(--panel); border: 1px solid var(--line); border-radius: 8px; padding: 12px; display: grid; gap: 10px; }
+    .proxy-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(100%, 360px), 1fr)); gap: 12px; }
+    .proxy-card { min-width: 0; background: var(--panel); border: 1px solid var(--line); border-radius: 8px; padding: 12px; display: grid; gap: 10px; }
     .proxy-head { display: flex; align-items: center; gap: 8px; justify-content: space-between; }
     .proxy-title { display: flex; align-items: center; gap: 8px; font-weight: 650; min-width: 0; }
+    .proxy-title input { min-width: 0; }
     .status { width: 10px; height: 10px; border-radius: 50%; background: #a5adba; flex: 0 0 auto; }
     .status.running { background: var(--accent); }
     .switch { position: relative; width: 42px; height: 24px; flex: 0 0 auto; }
@@ -53,10 +56,11 @@ INDEX_HTML = r"""<!doctype html>
     .slider:before { content: ""; position: absolute; width: 18px; height: 18px; left: 3px; top: 3px; border-radius: 50%; background: white; transition: .15s; box-shadow: 0 1px 2px rgba(0,0,0,.25); }
     .switch input:checked + .slider { background: var(--accent); }
     .switch input:checked + .slider:before { transform: translateX(18px); }
-    .fields { display: grid; grid-template-columns: 1fr 100px; gap: 8px; }
-    .fields.three { grid-template-columns: 1fr 90px 90px; }
-    label { display: grid; gap: 4px; color: var(--muted); font-size: 12px; }
-    label span { white-space: nowrap; }
+    .fields { min-width: 0; display: grid; grid-template-columns: minmax(0, 1fr) 100px; gap: 8px; }
+    .fields.three { grid-template-columns: minmax(0, 1fr) 90px 90px; }
+    .fields label { min-width: 0; }
+    label { min-width: 0; display: grid; gap: 4px; color: var(--muted); font-size: 12px; }
+    label span { min-width: 0; white-space: normal; overflow-wrap: anywhere; line-height: 1.35; }
     .row-actions { display: flex; gap: 8px; justify-content: flex-end; }
     .logs-view { height: 100%; grid-template-columns: var(--sidebar-w, 330px) 6px 1fr; min-height: 0; }
     .log-list { border-right: 0; background: var(--panel); min-height: 0; display: grid; grid-template-rows: auto 1fr; }
@@ -106,6 +110,7 @@ INDEX_HTML = r"""<!doctype html>
     @media (max-width: 760px) {
       .app { grid-template-rows: auto 1fr; }
       header { gap: 10px; align-items: stretch; flex-direction: column; padding: 10px 12px; }
+      .header-actions { justify-content: space-between; }
       .logs-view { grid-template-columns: 1fr; grid-template-rows: 260px 1fr; }
       .log-list { border-right: 0; border-bottom: 1px solid var(--line); }
       .proxy-grid, .fields, .fields.three { grid-template-columns: 1fr; }
@@ -116,18 +121,24 @@ INDEX_HTML = r"""<!doctype html>
   <div class="app">
     <header>
       <h1>LLM Proxy</h1>
-      <div class="tabs" role="tablist">
-        <button class="tab active" data-tab="proxies">监听转发</button>
-        <button class="tab" data-tab="logs">历史日志</button>
+      <div class="header-actions">
+        <div class="tabs" role="tablist">
+          <button class="tab active" data-tab="proxies" data-i18n="tabProxies">监听转发</button>
+          <button class="tab" data-tab="logs" data-i18n="tabLogs">历史日志</button>
+        </div>
+        <select id="languageSelect" class="language-toggle" data-i18n-title="language">
+          <option value="zh">🇨🇳 中文</option>
+          <option value="en">🇺🇸 English</option>
+        </select>
       </div>
     </header>
     <main>
       <section id="proxies" class="view proxy-view active">
         <div class="toolbar">
-          <strong>地址对</strong>
+          <strong data-i18n="proxyPairs">地址对</strong>
           <div>
-            <button id="addProxy" title="添加">+</button>
-            <button id="saveProxies" class="primary">保存配置</button>
+            <button id="addProxy" data-i18n-title="add" title="添加">+</button>
+            <button id="saveProxies" class="primary" data-i18n="saveConfig">保存配置</button>
           </div>
         </div>
         <div id="proxyGrid" class="proxy-grid"></div>
@@ -135,10 +146,10 @@ INDEX_HTML = r"""<!doctype html>
       <section id="logs" class="view logs-view">
         <aside class="log-list">
           <div class="log-list-head">
-            <input id="logSearch" placeholder="筛选 path / id / target">
+            <input id="logSearch" data-i18n-placeholder="filterPlaceholder" placeholder="筛选 path / id / target">
             <div class="log-actions">
-              <button id="refreshLogs">刷新</button>
-              <label class="auto-refresh"><input id="autoRefreshLogs" type="checkbox" checked> 自动刷新</label>
+              <button id="refreshLogs" data-i18n="refresh">刷新</button>
+              <label class="auto-refresh"><input id="autoRefreshLogs" type="checkbox" checked> <span data-i18n="autoRefresh">自动刷新</span></label>
             </div>
           </div>
           <div id="logItems" class="log-items"></div>
@@ -146,12 +157,12 @@ INDEX_HTML = r"""<!doctype html>
         <div id="logSplitter" class="log-splitter"></div>
         <section id="detail" class="detail">
           <div class="json-pane">
-            <div class="pane-head"><strong>Request</strong><span class="pane-actions"><button class="icon" data-wrap="request" title="切换自动换行">↵</button><button class="icon" data-expand="request" title="展开 JSON">{}</button><button class="icon" data-format="request" title="格式化字符串内容">📝</button><button class="icon" data-copy="request" title="复制 JSON">📋</button></span></div>
+            <div class="pane-head"><strong data-i18n="request">Request</strong><span class="pane-actions"><button class="icon" data-wrap="request" data-i18n-title="toggleWrap" title="切换自动换行">↵</button><button class="icon" data-expand="request" title="展开 JSON">{}</button><button class="icon" data-format="request" data-i18n-title="formatStringContent" title="格式化字符串内容">📝</button><button class="icon" data-copy="request" data-i18n-title="copyJson" title="复制 JSON">📋</button></span></div>
             <div id="requestJson" class="json-view nowrap"></div>
           </div>
           <div id="splitter" class="splitter"></div>
           <div class="json-pane">
-            <div class="pane-head"><strong>Response</strong><span class="pane-actions"><button class="icon" data-wrap="response" title="切换自动换行">↵</button><button class="icon" data-expand="response" title="展开 JSON">{}</button><button class="icon" data-format="response" title="格式化字符串内容">📝</button><button class="icon" data-copy="response" title="复制 JSON">📋</button></span></div>
+            <div class="pane-head"><strong data-i18n="response">Response</strong><span class="pane-actions"><button class="icon" data-wrap="response" data-i18n-title="toggleWrap" title="切换自动换行">↵</button><button class="icon" data-expand="response" title="展开 JSON">{}</button><button class="icon" data-format="response" data-i18n-title="formatStringContent" title="格式化字符串内容">📝</button><button class="icon" data-copy="response" data-i18n-title="copyJson" title="复制 JSON">📋</button></span></div>
             <div id="responseJson" class="json-view nowrap"></div>
           </div>
         </section>
@@ -160,8 +171,97 @@ INDEX_HTML = r"""<!doctype html>
   </div>
   <div id="toast" class="toast"></div>
   <script>
-    const state = { pairs: [], logGroups: [], logs: [], selected: null, raw: { request: null, response: null }, wrap: { request: false, response: false }, formatStrings: { request: false, response: false }, tree: { request: true, response: true }, collapsedGroups: {}, logsLoading: false, logsLoadedAt: 0, searchTimer: null, refreshTimer: null };
+    const translations = {
+      zh: {
+        language: "语言",
+        tabProxies: "监听转发",
+        tabLogs: "历史日志",
+        request: "请求",
+        response: "响应",
+        proxyPairs: "地址对",
+        add: "添加",
+        saveConfig: "保存配置",
+        filterPlaceholder: "筛选 path / id / target",
+        refresh: "刷新",
+        autoRefresh: "自动刷新",
+        toggleWrap: "切换自动换行",
+        expandJson: "展开 JSON",
+        collapseJson: "折叠 JSON",
+        formatStringContent: "格式化字符串内容",
+        copyJson: "复制 JSON",
+        copiedJson: "已复制 JSON",
+        copiedText: "已复制格式化文本",
+        copyFailed: "复制失败",
+        savedConfig: "配置已保存",
+        newProxy: "新代理",
+        switch: "开关",
+        listenHost: "监听地址",
+        port: "端口",
+        targetUrl: "转发地址",
+        timeoutSeconds: "超时秒数",
+        readableLogDir: "可读日志目录",
+        upstreamHeaders: "上游 Headers，每行一个 Name: value",
+        stripFields: "转发前移除的 request 字段，逗号分隔；留空关闭",
+        injectFields: "转发前注入的 request 字段，JSON object；留空关闭",
+        delete: "删除",
+        history: "历史记录",
+        task: "任务",
+        pending: "等待中",
+        noLogs: "暂无日志",
+        ungrouped: "未归组",
+        requests: "个请求",
+        items: "项",
+        lines: "行",
+        copyFormattedText: "复制格式化文本"
+      },
+      en: {
+        language: "Language",
+        tabProxies: "Proxy",
+        tabLogs: "History",
+        request: "Request",
+        response: "Response",
+        proxyPairs: "Proxy pairs",
+        add: "Add",
+        saveConfig: "Save config",
+        filterPlaceholder: "Filter path / id / target",
+        refresh: "Refresh",
+        autoRefresh: "Auto refresh",
+        toggleWrap: "Toggle line wrap",
+        expandJson: "Expand JSON",
+        collapseJson: "Collapse JSON",
+        formatStringContent: "Format string content",
+        copyJson: "Copy JSON",
+        copiedJson: "Copied JSON",
+        copiedText: "Copied formatted text",
+        copyFailed: "Copy failed",
+        savedConfig: "Config saved",
+        newProxy: "New proxy",
+        switch: "Enable or disable",
+        listenHost: "Listen host",
+        port: "Port",
+        targetUrl: "Target URL",
+        timeoutSeconds: "Timeout seconds",
+        readableLogDir: "Readable log directory",
+        upstreamHeaders: "Upstream headers, one Name: value per line",
+        stripFields: "Request fields to remove before forwarding, comma-separated; leave blank to disable",
+        injectFields: "Request fields to inject before forwarding, JSON object; leave blank to disable",
+        delete: "Delete",
+        history: "History",
+        task: "Task",
+        pending: "pending",
+        noLogs: "No logs",
+        ungrouped: "Ungrouped",
+        requests: "requests",
+        items: "items",
+        lines: "lines",
+        copyFormattedText: "Copy formatted text"
+      }
+    };
+    const savedLanguage = localStorage.getItem("llmProxyLanguage");
+    const initialLanguage = savedLanguage || ((navigator.language || "").toLowerCase().startsWith("zh") ? "zh" : "en");
+    const state = { language: translations[initialLanguage] ? initialLanguage : "en", pairs: [], logGroups: [], logs: [], selected: null, raw: { request: null, response: null }, wrap: { request: false, response: false }, formatStrings: { request: false, response: false }, tree: { request: true, response: true }, collapsedGroups: {}, logsLoading: false, logsLoadedAt: 0, searchTimer: null, refreshTimer: null };
     const $ = (id) => document.getElementById(id);
+    const t = (key) => (translations[state.language] && translations[state.language][key]) || translations.en[key] || key;
     const toast = (text) => { const el = $("toast"); el.textContent = text; el.classList.add("show"); setTimeout(() => el.classList.remove("show"), 2400); };
     const api = async (url, options = {}) => {
       const res = await fetch(url, { headers: { "Content-Type": "application/json" }, ...options });
@@ -169,28 +269,55 @@ INDEX_HTML = r"""<!doctype html>
       if (!res.ok) throw new Error(data.error || res.statusText);
       return data;
     };
+    function applyLanguage() {
+      document.documentElement.lang = state.language === "zh" ? "zh-CN" : "en";
+      $("languageSelect").value = state.language;
+      document.querySelectorAll("[data-i18n]").forEach((el) => { el.textContent = t(el.dataset.i18n); });
+      document.querySelectorAll("[data-i18n-title]").forEach((el) => { el.title = t(el.dataset.i18nTitle); });
+      document.querySelectorAll("[data-i18n-placeholder]").forEach((el) => { el.placeholder = t(el.dataset.i18nPlaceholder); });
+      updateExpandButton("request");
+      updateExpandButton("response");
+    }
+    function setLanguage(language) {
+      if (!translations[language]) return;
+      if (document.querySelector(".proxy-card")) collectPairs();
+      state.language = language;
+      localStorage.setItem("llmProxyLanguage", language);
+      applyLanguage();
+      renderPairs();
+      renderLogs();
+      renderJsonPane("request");
+      renderJsonPane("response");
+    }
+    function formatLogMeta(meta) {
+      const text = String(meta || "");
+      return text.replace(/(\d+)\s+requests/g, (_, count) => `${count} ${t("requests")}`);
+    }
+    function formatStatus(status) {
+      return status === undefined || status === null || status === "pending" ? t("pending") : String(status);
+    }
     const suggestedStripRequestFields = __SUGGESTED_STRIP_REQUEST_FIELDS__;
-    const newPair = () => ({ id: `proxy-${Date.now()}`, name: "New proxy", enabled: false, running: false, listen_host: "127.0.0.1", listen_port: 1234, target_url: "http://127.0.0.1:1235", target_headers: [], strip_request_fields: suggestedStripRequestFields, inject_request_fields: "", timeout: 600, access_log: false });
+    const newPair = () => ({ id: `proxy-${Date.now()}`, name: t("newProxy"), enabled: false, running: false, listen_host: "127.0.0.1", listen_port: 1234, target_url: "http://127.0.0.1:1235", target_headers: [], strip_request_fields: suggestedStripRequestFields, inject_request_fields: "", timeout: 600, access_log: false });
     function renderPairs() {
       $("proxyGrid").innerHTML = state.pairs.map((p, i) => `
         <article class="proxy-card" data-index="${i}">
           <div class="proxy-head">
             <div class="proxy-title"><span class="status ${p.running ? "running" : ""}"></span><input data-field="name" value="${escapeHtml(p.name || "")}"></div>
-            <label class="switch" title="开关"><input type="checkbox" data-toggle ${p.enabled ? "checked" : ""}><span class="slider"></span></label>
+            <label class="switch" title="${escapeHtml(t("switch"))}"><input type="checkbox" data-toggle ${p.enabled ? "checked" : ""}><span class="slider"></span></label>
           </div>
           <div class="fields">
-            <label><span>监听地址</span><input data-field="listen_host" value="${escapeHtml(p.listen_host || "")}"></label>
-            <label><span>端口</span><input type="number" data-field="listen_port" value="${p.listen_port || 0}"></label>
+            <label><span>${escapeHtml(t("listenHost"))}</span><input data-field="listen_host" value="${escapeHtml(p.listen_host || "")}"></label>
+            <label><span>${escapeHtml(t("port"))}</span><input type="number" data-field="listen_port" value="${p.listen_port || 0}"></label>
           </div>
-          <label><span>转发地址</span><input data-field="target_url" value="${escapeHtml(p.target_url || "")}" placeholder="https://api.example.com/v1"></label>
+          <label><span>${escapeHtml(t("targetUrl"))}</span><input data-field="target_url" value="${escapeHtml(p.target_url || "")}" placeholder="https://api.example.com/v1"></label>
           <div class="fields">
-            <label><span>超时秒数</span><input type="number" data-field="timeout" value="${p.timeout || 600}"></label>
-            <label><span>可读日志目录</span><input data-field="readable_log_dir" value="${escapeHtml(p.readable_log_dir || "")}"></label>
+            <label><span>${escapeHtml(t("timeoutSeconds"))}</span><input type="number" data-field="timeout" value="${p.timeout || 600}"></label>
+            <label><span>${escapeHtml(t("readableLogDir"))}</span><input data-field="readable_log_dir" value="${escapeHtml(p.readable_log_dir || "")}"></label>
           </div>
-          <label><span>上游 Headers，每行一个 Name: value</span><textarea data-field="target_headers">${escapeHtml((p.target_headers || []).join("\n"))}</textarea></label>
-          <label><span>转发前移除的 request 字段，逗号分隔；留空关闭</span><textarea data-field="strip_request_fields">${escapeHtml(p.strip_request_fields ?? "")}</textarea></label>
-          <label><span>转发前注入的 request 字段，JSON object；留空关闭</span><textarea data-field="inject_request_fields" placeholder='{"metadata":{"source":"proxy"}}'>${escapeHtml(p.inject_request_fields ?? "")}</textarea></label>
-          <div class="row-actions"><button data-remove>删除</button></div>
+          <label><span>${escapeHtml(t("upstreamHeaders"))}</span><textarea data-field="target_headers">${escapeHtml((p.target_headers || []).join("\n"))}</textarea></label>
+          <label><span>${escapeHtml(t("stripFields"))}</span><textarea data-field="strip_request_fields">${escapeHtml(p.strip_request_fields ?? "")}</textarea></label>
+          <label><span>${escapeHtml(t("injectFields"))}</span><textarea data-field="inject_request_fields" placeholder='{"metadata":{"source":"proxy"}}'>${escapeHtml(p.inject_request_fields ?? "")}</textarea></label>
+          <div class="row-actions"><button data-remove>${escapeHtml(t("delete"))}</button></div>
         </article>`).join("");
     }
     function escapeHtml(text) { return String(text).replace(/[&<>"']/g, (ch) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[ch])); }
@@ -219,7 +346,7 @@ INDEX_HTML = r"""<!doctype html>
       const data = await api("/api/pairs", { method: "PUT", body: JSON.stringify({ pairs: state.pairs }) });
       state.pairs = data.pairs;
       renderPairs();
-      toast("配置已保存");
+      toast(t("savedConfig"));
     }
     function scheduleLogRefresh(delay = 3000) {
       clearTimeout(state.refreshTimer);
@@ -248,7 +375,7 @@ INDEX_HTML = r"""<!doctype html>
       const q = encodeURIComponent($("logSearch").value.trim());
       try {
         const data = await api(`/api/logs?q=${q}`);
-        const nextGroups = data.groups || [{ id: "logs", title: "历史记录", logs: data.logs || [] }];
+        const nextGroups = data.groups || [{ id: "logs", title: t("history"), logs: data.logs || [] }];
         if (!sameLogGroups(nextGroups)) {
           state.logGroups = nextGroups;
           state.logs = state.logGroups.flatMap((group) => group.logs || []);
@@ -265,15 +392,15 @@ INDEX_HTML = r"""<!doctype html>
         <section class="log-group">
           <button class="log-group-head" data-group-id="${escapeHtml(group.id || "")}">
             <span class="log-group-caret">${!state.collapsedGroups[group.id] ? "▸" : "▾"}</span>
-            <span class="log-group-title">${escapeHtml(group.title || group.id || "Task")}</span>
-            <span class="log-meta">${escapeHtml(group.meta || "")}</span>
+            <span class="log-group-title">${escapeHtml(group.title === "未归组" ? t("ungrouped") : (group.title || group.id || t("task")))}</span>
+            <span class="log-meta">${escapeHtml(formatLogMeta(group.meta || ""))}</span>
           </button>
           ${!state.collapsedGroups[group.id] ? "" : (group.logs || []).map((item) => `
             <button class="log-item ${state.selected === item.id ? "active" : ""}" data-log-id="${escapeHtml(item.id)}">
               <span class="log-title">${item.sequence ? `${escapeHtml("[" + item.sequence + "]")} ` : ""}${escapeHtml(item.method)} ${escapeHtml(item.path)}</span>
-              <span class="log-meta">${escapeHtml(item.timestamp || "")} | ${escapeHtml(item.status ?? "pending")} | ${escapeHtml(item.target || "")}</span>
+              <span class="log-meta">${escapeHtml(item.timestamp || "")} | ${escapeHtml(formatStatus(item.status))} | ${escapeHtml(item.target || "")}</span>
             </button>`).join("")}
-        </section>`).join("") || `<div class="empty">暂无日志</div>`;
+        </section>`).join("") || `<div class="empty">${escapeHtml(t("noLogs"))}</div>`;
     }
     function jsonType(value) {
       if (value === null) return "null";
@@ -287,7 +414,7 @@ INDEX_HTML = r"""<!doctype html>
         const entries = type === "array" ? value.map((item, index) => [index, item]) : Object.entries(value);
         const start = type === "array" ? "[" : "{";
         const end = type === "array" ? "]" : "}";
-        const summary = `${keyHtml}${start}<span class="json-muted">${entries.length ? ` ${entries.length} items ` : ""}</span>${end}`;
+        const summary = `${keyHtml}${start}<span class="json-muted">${entries.length ? ` ${entries.length} ${t("items")} ` : ""}</span>${end}`;
         const childrenHtml = `<div class="json-children">${entries.map(([childKey, childValue]) => `<div class="json-row">${renderJsonValue(childValue, String(childKey), false, formatMode)}</div>`).join("")}</div>`;
         return `<details open${root ? ' class="root"' : ''}><summary>${summary}</summary>${childrenHtml}<div class="json-muted">${end}</div></details>`;
       }
@@ -299,7 +426,7 @@ INDEX_HTML = r"""<!doctype html>
         if (displayValue.indexOf(String.fromCharCode(10)) !== -1 || displayValue.length > 200) {
           const summary = escapeHtml(displayValue.substring(0, 150) + (displayValue.length > 150 ? "…" : ""));
           const fullLines = displayValue.split(String.fromCharCode(10)).length;
-          return `${keyHtml}<details class="json-str-detail"><summary>${summary} <span class="json-muted">(${fullLines} lines)</span></summary><div class="json-str-full"><button class="json-str-copy" data-copy-string title="复制格式化文本">📋</button><pre class="json-str-body">${escapeHtml(displayValue)}</pre></div></details>`;
+          return `${keyHtml}<details class="json-str-detail"><summary>${summary} <span class="json-muted">(${fullLines} ${t("lines")})</span></summary><div class="json-str-full"><button class="json-str-copy" data-copy-string title="${escapeHtml(t("copyFormattedText"))}">📋</button><pre class="json-str-body">${escapeHtml(displayValue)}</pre></div></details>`;
         }
         return `${keyHtml}<span class="json-string format-mode">${escapeHtml(displayValue)}</span>`;
       }
@@ -338,7 +465,7 @@ INDEX_HTML = r"""<!doctype html>
       if (!button) return;
       const details = Array.from($(key + "Json").querySelectorAll("details"));
       const allOpen = details.length > 0 && details.every((detail) => detail.open);
-      button.title = allOpen ? "折叠 JSON" : "展开 JSON";
+      button.title = allOpen ? t("collapseJson") : t("expandJson");
     }
     async function selectLog(id) {
       state.selected = id;
@@ -356,6 +483,7 @@ INDEX_HTML = r"""<!doctype html>
       tab.classList.add("active"); $(tab.dataset.tab).classList.add("active");
       if (tab.dataset.tab === "logs") loadLogs().catch((e) => toast(e.message));
     }));
+    $("languageSelect").addEventListener("change", (event) => setLanguage(event.target.value));
     $("addProxy").addEventListener("click", () => { state.pairs.push(newPair()); renderPairs(); });
     $("saveProxies").addEventListener("click", () => savePairs().catch((e) => toast(e.message)));
     $("proxyGrid").addEventListener("click", (event) => {
@@ -414,8 +542,8 @@ INDEX_HTML = r"""<!doctype html>
         const body = button.closest(".json-str-full")?.querySelector(".json-str-body");
         if (!body) return;
         navigator.clipboard.writeText(body.textContent || "").then(
-          () => toast("已复制格式化文本"),
-          () => toast("复制失败")
+          () => toast(t("copiedText")),
+          () => toast(t("copyFailed"))
         );
       });
     });
@@ -428,8 +556,8 @@ INDEX_HTML = r"""<!doctype html>
       const key = button.dataset.copy;
       if (key && state.raw[key] !== null) {
         navigator.clipboard.writeText(JSON.stringify(state.raw[key], null, 2)).then(
-          () => toast("已复制 JSON"),
-          () => toast("复制失败")
+          () => toast(t("copiedJson")),
+          () => toast(t("copyFailed"))
         );
       }
     }));
@@ -459,6 +587,7 @@ INDEX_HTML = r"""<!doctype html>
       });
       logSplitter.addEventListener("pointerup", () => { dragging = false; });
     })();
+    applyLanguage();
     loadPairs().catch((e) => toast(e.message));
   </script>
 </body>
