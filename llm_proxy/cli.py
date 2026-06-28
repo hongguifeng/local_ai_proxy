@@ -8,6 +8,8 @@ from __future__ import annotations
 
 import argparse
 import os
+import threading
+import webbrowser
 from pathlib import Path
 
 from .constants import DEFAULT_STRIP_REQUEST_FIELDS
@@ -18,6 +20,13 @@ from .sanitize import parse_strip_request_fields
 from .server import ProxyHandler, ProxyServer
 from .target import parse_target
 from .ui import serve_admin
+
+
+def open_browser_later(url: str) -> None:
+    timer = threading.Timer(0.5, lambda: webbrowser.open(url))
+    timer.daemon = True
+    timer.start()
+
 
 def parse_args() -> argparse.Namespace:
     """定义并解析命令行参数。
@@ -81,10 +90,12 @@ def main() -> int:
         log_file = Path(args.log_file)
         readable_dir = Path(args.readable_log_dir) if args.readable_log_dir else None
         manager = ProxyManager(Path(args.config_file), log_file, readable_dir)
-        print(f"LLM proxy UI listening on http://{args.ui_host}:{args.ui_port}", flush=True)
+        ui_url = f"http://{args.ui_host}:{args.ui_port}"
+        print(f"LLM proxy UI listening on {ui_url}", flush=True)
         print(f"Proxy pair config: {Path(args.config_file).resolve()}", flush=True)
         if readable_dir:
             print(f"Readable logs directory: {readable_dir.resolve()}", flush=True)
+        open_browser_later(ui_url)
         try:
             serve_admin(args.ui_host, args.ui_port, manager)
         except KeyboardInterrupt:

@@ -716,6 +716,64 @@ class AdminUiTests(unittest.TestCase):
                 server.server_close()
             temp_dir.cleanup()
 
+    def test_log_list_uses_directory_time_and_sorts_descending(self) -> None:
+        temp_dir = tempfile.TemporaryDirectory()
+        server = None
+        try:
+            root = Path(temp_dir.name)
+            log_path = root / "interactions.jsonl"
+            task_path = (
+                root
+                / "readable"
+                / "tasks"
+                / "2026-06-07__08-00-00.000__08-00-20.000__responses__fp-demo"
+            )
+
+            def write_record(dir_name: str, record_id: str, md_time: str) -> None:
+                request_path = task_path / dir_name
+                request_path.mkdir(parents=True)
+                (request_path / "summary.md").write_text(
+                    "\n".join(
+                        [
+                            f"# LLM Interaction {record_id}",
+                            "",
+                            "## Summary",
+                            "",
+                            f"- Time: {md_time}",
+                            "- Event: request_finished",
+                            "- Target: http://127.0.0.1:1235/v1/responses",
+                            "- Request: POST /v1/responses",
+                            "- Response: 200",
+                        ]
+                    ),
+                    encoding="utf-8",
+                )
+
+            write_record("001__08-00-00.000__v1-responses__req_1", "req_1", "2099-01-01T00:00:00.000+00:00")
+            write_record("002__08-00-20.000__v1-responses__req_2", "req_2", "2000-01-01T00:00:00.000+00:00")
+
+            manager = ProxyManager(root / "proxies.json", log_path, root / "readable")
+            server = AdminServer(("127.0.0.1", 0), manager)
+            thread = threading.Thread(target=server.serve_forever, daemon=True)
+            thread.start()
+
+            conn = http.client.HTTPConnection("127.0.0.1", server.server_address[1], timeout=5)
+            conn.request("GET", "/api/logs")
+            response = conn.getresponse()
+            self.assertEqual(response.status, 200)
+            payload = json.loads(response.read())
+            conn.close()
+
+            logs = payload["groups"][0]["logs"]
+            self.assertEqual([item["id"] for item in logs], ["req_2", "req_1"])
+            self.assertEqual(logs[0]["timestamp"], "2026-06-07 08:00:20.000")
+            self.assertEqual(logs[1]["timestamp"], "2026-06-07 08:00:00.000")
+        finally:
+            if server is not None:
+                server.shutdown()
+                server.server_close()
+            temp_dir.cleanup()
+
 
 if __name__ == "__main__":
     unittest.main()
