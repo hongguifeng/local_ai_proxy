@@ -405,6 +405,26 @@ class TrafficLogger:
             return parts[-1]
         return None
 
+    def _model_name_for_dir_name(self, task: Mapping[str, object]) -> str:
+        """Extract model name for directory naming.
+
+        Takes basename if path-like; truncates to 32 UTF-8 bytes.
+        Preserves dots, hyphens, underscores common in model names.
+        """
+        raw = task.get("model") or ""
+        if not isinstance(raw, str):
+            raw = str(raw)
+        # path format: take basename only (handle both / and \ separators)
+        name = raw.rsplit("/", 1)[-1].rsplit("\\", 1)[-1]
+        # byte-level truncation to 32 bytes (UTF-8)
+        encoded = name.encode("utf-8")[:32]
+        truncated = encoded.decode("utf-8", errors="ignore")
+        # preserve dots, hyphens, underscores; only replace truly unsafe chars
+        safe = "".join(
+            ch if ch.isalnum() or ch in "-_.~" else "-" for ch in truncated
+        ).strip("-_")
+        return safe or "unknown"
+
     def _task_dir_name(self, task: Mapping[str, object]) -> str:
         """生成任务目录名。
 
@@ -415,12 +435,13 @@ class TrafficLogger:
         last_response_at = task.get("last_response_at") or started_at
         start_part = local_datetime_for_filename(started_at)
         end_part = local_time_from_timestamp_for_filename(last_response_at)
+        model_name = self._model_name_for_dir_name(task)
         kind = safe_filename_part(task.get("kind"), "task")
         anchor = safe_filename_part(
             task.get("anchor") or self._task_anchor_from_dir_name(str(task.get("dir_name") or "")),
             "task",
         )
-        return f"{start_part}__{end_part}__{kind}__{anchor}"
+        return f"{start_part}__{end_part}__{model_name}__{kind}__{anchor}"
 
     def _sync_task_dir_name(self, task: dict[str, object]) -> None:
         """如果任务目录名需要更新，就在磁盘上重命名目录。"""

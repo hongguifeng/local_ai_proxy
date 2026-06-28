@@ -251,7 +251,7 @@ class TrafficLoggerTaskGroupingTests(unittest.TestCase):
             logger.write(first)
             first_expected = (
                 f"{local_datetime_for_filename(first['started_timestamp'])}"
-                f"__{local_time_from_timestamp_for_filename(first['timestamp'])}__responses__"
+                f"__{local_time_from_timestamp_for_filename(first['timestamp'])}__gpt-5.5__responses__"
             )
             tasks_root = root / "readable" / "tasks"
             task_dirs = [path for path in tasks_root.iterdir() if path.is_dir()]
@@ -262,7 +262,7 @@ class TrafficLoggerTaskGroupingTests(unittest.TestCase):
             logger.write(second)
             second_expected = (
                 f"{local_datetime_for_filename(first['started_timestamp'])}"
-                f"__{local_time_from_timestamp_for_filename(second['timestamp'])}__responses__"
+                f"__{local_time_from_timestamp_for_filename(second['timestamp'])}__gpt-5.5__responses__"
             )
             task_dirs = [path for path in tasks_root.iterdir() if path.is_dir()]
             self.assertEqual(len(task_dirs), 1)
