@@ -805,6 +805,27 @@ class AdminHandler(BaseHTTPRequestHandler):
 
         return result
 
+    def _task_group_title(self, dir_name: str) -> str:
+        parts = dir_name.split("__")
+        if len(parts) < 3:
+            return dir_name
+        date_part, start_time, end_time = parts[:3]
+        if not self._looks_like_log_date(date_part) or not self._looks_like_log_time(start_time) or not self._looks_like_log_time(end_time):
+            return dir_name
+        return f"{date_part} {self._display_log_time(start_time)} - {self._display_log_time(end_time)}"
+
+    def _looks_like_log_date(self, value: str) -> bool:
+        parts = value.split("-")
+        return len(parts) in {2, 3} and all(part.isdigit() and len(part) in {2, 4} for part in parts)
+
+    def _looks_like_log_time(self, value: str) -> bool:
+        time_part, dot, milliseconds = value.partition(".")
+        parts = time_part.split("-")
+        return len(parts) == 3 and all(part.isdigit() and len(part) == 2 for part in parts) and (not dot or milliseconds.isdigit())
+
+    def _display_log_time(self, value: str) -> str:
+        return value.replace("-", ":")
+
     def _build_log_snapshot(self) -> dict[str, Any]:
         groups = []
         ungrouped_records = []
@@ -834,7 +855,7 @@ class AdminHandler(BaseHTTPRequestHandler):
                     groups.append(
                         {
                             "id": task_path.name,
-                            "title": task_path.name,
+                            "title": self._task_group_title(task_path.name),
                             "meta": f"{len(logs)} requests",
                             "logs": logs,
                         }
@@ -898,7 +919,7 @@ class AdminHandler(BaseHTTPRequestHandler):
                 groups.append(
                     {
                         "id": task_path.name,
-                        "title": task_path.name,
+                        "title": self._task_group_title(task_path.name),
                         "meta": " | ".join(meta_parts_itg),
                         "_record_ids": [str(item.get("id")) for item in logs],
                         "logs": logs,

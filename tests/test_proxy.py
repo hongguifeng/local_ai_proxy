@@ -1449,6 +1449,7 @@ class AdminUiTests(unittest.TestCase):
 
             self.assertEqual(len(payload["groups"]), 1)
             self.assertEqual(payload["groups"][0]["id"], "2026-06-07__08-00-00.000__08-00-00.010__responses__fp-demo")
+            self.assertEqual(payload["groups"][0]["title"], "2026-06-07 08:00:00.000 - 08:00:00.010")
             self.assertEqual(payload["groups"][0]["logs"][0]["id"], "req_1")
         finally:
             if server is not None:
