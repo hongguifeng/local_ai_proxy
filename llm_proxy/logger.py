@@ -47,7 +47,7 @@ class TrafficLogger:
         self.readable_paths: dict[str, Path] = {}
         # .task-index.json 保存“请求 ID/响应 ID/上下文 ID -> 任务”的索引，
         # 下次写日志时可以继续把相关请求放进同一个任务目录。
-        self.task_index_path = readable_dir / ".task-index.json" if readable_dir else None
+        self.task_index_path = readable_dir.parent / ".task-index.json" if readable_dir else None
         self.task_index = self._load_task_index()
         if self.readable_dir:
             self.readable_dir.mkdir(parents=True, exist_ok=True)
@@ -450,8 +450,8 @@ class TrafficLogger:
         if new_dir_name == old_dir_name:
             return
         if self.readable_dir and old_dir_name:
-            old_task_path = self.readable_dir / "tasks" / old_dir_name
-            new_task_path = self.readable_dir / "tasks" / new_dir_name
+            old_task_path = self.readable_dir.parent / "tasks" / old_dir_name
+            new_task_path = self.readable_dir.parent / "tasks" / new_dir_name
             if old_task_path.exists() and not new_task_path.exists():
                 old_task_path.rename(new_task_path)
         task["dir_name"] = new_dir_name
@@ -474,7 +474,7 @@ class TrafficLogger:
         if not isinstance(request_info, dict):
             return
 
-        task_path = self.readable_dir / "tasks" / str(task_dir_name)
+        task_path = self.readable_dir.parent / "tasks" / str(task_dir_name)
         request_path_in_task = task_path / str(request_info["dir_name"])
         self._ensure_readable_dir(request_path_in_task)
         for existing_markdown in request_path_in_task.glob("*.md"):

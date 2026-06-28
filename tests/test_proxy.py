@@ -135,7 +135,7 @@ class TrafficLoggerTaskGroupingTests(unittest.TestCase):
                 }
             )
 
-            with (root / "readable" / ".task-index.json").open(encoding="utf-8") as file:
+            with (root / ".task-index.json").open(encoding="utf-8") as file:
                 index = json.load(file)
             self.assertEqual(len(index["tasks"]), 1)
             only_task = next(iter(index["tasks"].values()))
@@ -198,7 +198,7 @@ class TrafficLoggerTaskGroupingTests(unittest.TestCase):
             logger.write(record("req_1", "2026-06-07T08:00:00.000+00:00", first_input, "resp_1"))
             logger.write(record("req_2", "2026-06-07T08:00:10.000+00:00", second_input, "resp_2"))
 
-            with (root / "readable" / ".task-index.json").open(encoding="utf-8") as file:
+            with (root / ".task-index.json").open(encoding="utf-8") as file:
                 index = json.load(file)
             self.assertEqual(len(index["tasks"]), 1)
             only_task = next(iter(index["tasks"].values()))
@@ -253,7 +253,7 @@ class TrafficLoggerTaskGroupingTests(unittest.TestCase):
                 f"{local_datetime_for_filename(first['started_timestamp'])}"
                 f"__{local_time_from_timestamp_for_filename(first['timestamp'])}__gpt-5.5__responses__"
             )
-            tasks_root = root / "readable" / "tasks"
+            tasks_root = root / "tasks"
             task_dirs = [path for path in tasks_root.iterdir() if path.is_dir()]
             self.assertEqual(len(task_dirs), 1)
             first_task_dir = task_dirs[0]
@@ -671,12 +671,12 @@ class AdminUiTests(unittest.TestCase):
             log_path = root / "interactions.jsonl"
             task_request_path = (
                 root
-                / "readable"
                 / "tasks"
                 / "2026-06-07__08-00-00.000__08-00-00.010__responses__fp-demo"
                 / "001__08-00-00.000__v1-responses__req_1"
             )
             task_request_path.mkdir(parents=True)
+            (root / "readable").mkdir(exist_ok=True)
             (task_request_path / "08-00-00.000__08-00-00.010.md").write_text(
                 "\n".join(
                     [
@@ -724,7 +724,6 @@ class AdminUiTests(unittest.TestCase):
             log_path = root / "interactions.jsonl"
             task_path = (
                 root
-                / "readable"
                 / "tasks"
                 / "2026-06-07__08-00-00.000__08-00-20.000__responses__fp-demo"
             )
@@ -752,6 +751,7 @@ class AdminUiTests(unittest.TestCase):
             write_record("001__08-00-00.000__v1-responses__req_1", "req_1", "2099-01-01T00:00:00.000+00:00")
             write_record("002__08-00-20.000__v1-responses__req_2", "req_2", "2000-01-01T00:00:00.000+00:00")
 
+            (root / "readable").mkdir(exist_ok=True)
             manager = ProxyManager(root / "proxies.json", log_path, root / "readable")
             server = AdminServer(("127.0.0.1", 0), manager)
             thread = threading.Thread(target=server.serve_forever, daemon=True)
