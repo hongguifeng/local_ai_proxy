@@ -1,75 +1,161 @@
 # LLM Proxy
 
-English | [中文](README.cn.md)
+[English](README.md) | 中文
 
-LLM Proxy 是一个本地 HTTP 代理，用于转发并记录 Agent 与 OpenAI-compatible LLM API 之间的完整交互。上游可以是本地 `llama.cpp` server，也可以是 OpenRouter、OpenAI-compatible 网关等远程 API。内置 Web UI 支持多代理管理、日志浏览和搜索。
+LLM Proxy 是一个以 Web 控制台为核心的本地 LLM 代理管理工具。它可以创建一个或多个本地代理入口，把请求转发到不同的 OpenAI-compatible 上游 API，并在浏览器中查看完整的请求、响应和任务历史。
 
-## 主要功能
+当前项目的主要使用方式已经从命令行参数切换到 UI 界面。命令行主要负责启动服务和兼容旧脚本；日常配置、启停代理、查看日志、搜索历史、检查请求响应内容，都推荐在内置 Web UI 中完成。
 
-- 监听本地端口，默认 `127.0.0.1:1234`。
-- 转发到上游 LLM API，默认 `http://127.0.0.1:1235`。
-- 支持 `GET`、`POST`、`PUT`、`PATCH`、`DELETE`、`OPTIONS`、`HEAD`。
-- 记录请求和响应的 headers、body、状态码、耗时、客户端地址和目标地址。
-- 写入人工可读 Markdown/JSON 日志。
-- 按任务聚合多轮请求，方便回看同一次 Agent 工作流。
-- 对 OpenAI-compatible SSE 流式响应生成紧凑摘要，同时保留原始完整流数据。
-- 可在转发前移除部分顶层采样参数，例如 `temperature`、`top_p`、`seed` 等。
-- 内置 Web UI（默认 `http://127.0.0.1:8088`），支持多代理管理和日志浏览。
+## 核心功能
 
-## 工程结构
-
-```text
-llm_proxy/
-  __init__.py       # 包导出，保留常用 API
-  __main__.py       # python -m llm_proxy 入口
-  cli.py            # 命令行参数和服务启动
-  constants.py      # 共享常量
-  http_utils.py     # HTTP header 辅助函数
-  logger.py         # 可读日志写入
-  manager.py        # 多代理对管理和配置持久化
-  payloads.py       # body 编码、解析和渲染
-  records.py        # 请求/响应记录分析和任务指纹
-  sanitize.py       # 请求字段清洗
-  server.py         # HTTP proxy server 和 handler
-  streams.py        # SSE 流式响应压缩摘要
-  target.py         # 上游地址解析和路径拼接
-  time_utils.py     # 日志时间格式化工具
-  ui.py             # Admin Web UI（代理管理 + 日志浏览器）
-tests/
-  test_proxy.py     # 单元测试
-examples/
-  responses_client.py
-proxy.py            # 兼容旧用法的入口脚本
-pyproject.toml      # Python 项目元数据和 console script
-```
+- 在一个 Web 界面中管理多个本地代理地址对。
+- 将 OpenAI-compatible 请求转发到本地或远程上游，例如 `llama.cpp`、OpenRouter 或其他兼容网关。
+- 记录完整请求和响应，包括 headers、body、状态码、耗时、客户端地址、目标地址和流式响应摘要。
+- 在 UI 中浏览历史日志，并按 path、method、status、target、record id、task id 搜索。
+- 自动把相关的多轮 Agent 请求归并为任务，方便回看一次完整工作流。
+- 以左右分栏查看 request/response JSON，支持换行、展开折叠、字符串格式化和复制。
+- 可在转发前移除或注入顶层 JSON request 字段。
+- 默认将代理配置持久化到 `logs/proxies.json`。
 
 ## 快速开始
 
-代理本地 `llama.cpp`：
-
-```powershell
-python -m llm_proxy
-```
-
-旧入口依然可用：
-
-```powershell
-python proxy.py
-```
-
-启动内置 Web UI，支持多代理管理：
+启动 Web 控制台：
 
 ```powershell
 python -m llm_proxy --ui
 ```
 
-代理远程 OpenAI-compatible API：
+Windows 下也可以直接运行：
+
+```powershell
+.\run.bat
+```
+
+服务启动后会自动打开浏览器：
+
+```text
+http://127.0.0.1:8088
+```
+
+在 UI 中：
+
+1. 打开 **监听转发** 页面。
+2. 新增或编辑一个代理地址对。
+3. 设置本地监听地址，例如 `127.0.0.1:1234`。
+4. 设置上游转发地址，例如 `http://127.0.0.1:1235` 或 `https://openrouter.ai/api/v1`。
+5. 打开代理开关。
+6. 将 Agent 或 SDK 的 base URL 指向本地代理地址。
+
+默认代理地址为：
+
+```text
+http://127.0.0.1:1234
+```
+
+## Web 控制台
+
+管理界面默认运行在 `http://127.0.0.1:8088`。如需修改管理界面的监听地址，可使用 `--ui-host` 和 `--ui-port`。
+
+### 监听转发
+
+**监听转发** 页面是主要操作入口。每个代理地址对包含：
+
+- 名称、启用状态和运行状态。
+- 监听 host 和端口。
+- 上游目标 URL。
+- 超时时间。
+- 可读日志目录。
+- 上游 headers，每行一个 `Name: value`。
+- 转发前需要移除的 request 字段。
+- 转发前需要注入的 request 字段，格式为 JSON object。
+
+代理地址对默认保存到 `logs/proxies.json`，也可以通过 `--config-file` 指定其他配置文件。
+
+![监听转发界面](doc/ui_proxy_cn.png)
+
+### 历史日志
+
+**历史日志** 页面用于查看已经捕获的流量，不需要手动打开日志文件。它支持：
+
+- 自动刷新。
+- 按 method、path、status、target URL、task id、record id 搜索。
+- 对相关 Agent 工作流进行任务分组。
+- 左右分栏查看 request 和 response 详情。
+- JSON 展开/折叠、自动换行、字符串内容格式化和复制。
+
+![历史日志界面](doc/ui_logs_cn.png)
+
+## 常见使用流程
+
+### 查看本地模型服务请求
+
+1. 启动本地上游服务，例如运行在 `http://127.0.0.1:1235` 的 `llama.cpp` server。
+2. 运行 `python -m llm_proxy --ui`。
+3. 在 UI 中启用一个从 `127.0.0.1:1234` 到 `http://127.0.0.1:1235` 的代理地址对。
+4. 将客户端 base URL 设置为 `http://127.0.0.1:1234`。
+5. 打开 **历史日志** 查看捕获到的交互。
+
+### 查看远程网关请求
+
+1. 创建代理地址对，将 target URL 设置为 `https://openrouter.ai/api/v1` 或其他 OpenAI-compatible 地址。
+2. 在代理卡片中填写必要的上游 headers，例如 `Authorization: Bearer ...`。
+3. 启用代理地址对。
+4. 将本地客户端指向该代理的监听地址。
+
+### 统一或修正请求参数
+
+不同上游对采样参数的支持可能不同。可以在代理地址对中使用 **转发前移除的 request 字段** 删除顶层 JSON 字段，例如：
+
+```text
+temperature, top_p, top_k, min_p, typical_p, repeat_penalty,
+presence_penalty, frequency_penalty, seed
+```
+
+也可以使用 **转发前注入的 request 字段** 增加或覆盖顶层 JSON 字段，例如：
+
+```json
+{"metadata":{"source":"llm-proxy"},"stream":true}
+```
+
+当请求被改写时，日志会记录 `request.stripped_fields`、`request.injected_fields` 和 `request.upstream_body`。
+
+## 磁盘日志
+
+默认路径：
+
+- 代理配置：`logs/proxies.json`
+- 可读交互日志：`logs/readable/`
+- 按任务归档的日志：`logs/readable/tasks/`
+
+每次捕获到的交互都会写入独立目录，包含：
+
+- Markdown 摘要。
+- `request.json`。
+- `response.json`。
+
+对于 OpenAI-compatible SSE 流式响应，`response.json` 会在保留原始流数据的同时写入聚合后的 `stream_summary`，其中可能包含 `content`、`reasoning`、`tool_calls`、`finish_reasons`、`usage` 等字段。
+
+## 命令行兼容模式
+
+如果已有脚本依赖单代理命令行模式，仍然可以继续使用：
+
+```powershell
+python -m llm_proxy
+```
+
+旧入口也仍然保留：
+
+```powershell
+python proxy.py
+```
+
+指定远程上游：
 
 ```powershell
 python -m llm_proxy --target-url https://openrouter.ai/api/v1
 ```
 
-如需固定注入上游 header：
+注入固定上游 headers：
 
 ```powershell
 python -m llm_proxy `
@@ -79,88 +165,22 @@ python -m llm_proxy `
   --target-header "X-Title: LLM Proxy"
 ```
 
-客户端或 Agent 的 base URL 指向：
-
-```text
-http://127.0.0.1:1234
-```
-
-## Web UI
-
-使用 `--ui` 启动时，代理会提供一个管理界面（默认 `http://127.0.0.1:8088`，可通过 `--ui-host` 和 `--ui-port` 配置）。UI 支持以下功能：
-
-- **代理管理**：添加、编辑、启用/禁用、删除多个 listen/target 对，配置持久化到 JSON 文件（默认 `logs/proxies.json`）。
-- **日志浏览器**：浏览所有记录的交互，支持按方法、路径、状态码、目标 URL、任务 ID 搜索。日志在检测到同一任务时会自动分组。
-- **请求/响应详情查看**：内联查看完整的请求/响应 body、headers 和流式摘要。
-
-### 界面截图
-
-监听转发管理界面：
-
-![Proxy Management UI](doc/ui_proxy.png)
-
-历史记录与日志浏览：
-
-![History Logs UI](doc/ui_history_logs.png)
-
-## 日志
-
-默认日志位置：
-
-- 可读日志：`logs/readable/`
-- 代理配置：`logs/proxies.json`
-
-每次请求会生成一个独立目录，包含：
-
-- Markdown 摘要
-- `request.json`
-- `response.json`
-
-可识别为同一任务的请求还会额外归档到：
-
-```text
-logs/readable/tasks/
-```
-
-如果响应是 SSE 流，`response.json` 会显示聚合后的 `stream_summary`，包括 `content`、`reasoning`、`tool_calls`、`finish_reasons`、`usage` 等字段。
-
-## 请求清洗
-
-未配置字段时，请求清洗默认关闭。Web UI 创建新的代理配置时会在 placeholder 中提示这些建议移除的顶层 JSON 字段：
-
-```text
-temperature, top_p, top_k, min_p, typical_p, repeat_penalty,
-presence_penalty, frequency_penalty, seed
-```
-
-通过 CLI 启用请求清洗：
+命令行模式也支持请求改写：
 
 ```powershell
 python -m llm_proxy --strip-request-fields "temperature,top_p"
-```
-
-也可以注入自定义顶层 request 字段，参数值必须是 JSON object：
-
-```powershell
 python -m llm_proxy --inject-request-fields '{"metadata":{"source":"proxy"},"stream":true}'
 ```
 
-不设置该参数、传入空字符串，或在 UI 中清空字段，都会保持请求清洗关闭：
+## 配置参考
 
-```powershell
-python -m llm_proxy --strip-request-fields ""
-```
+常用启动参数和环境变量：
 
-如果发生清洗，日志会记录：
-
-- `request.stripped_fields`
-- `request.injected_fields`
-- `request.upstream_body`
-
-## 常用配置
-
-命令行参数和环境变量：
-
+- `--ui` / `LLM_PROXY_UI=1`
+- `--ui-host` / `LLM_PROXY_UI_HOST`，默认 `127.0.0.1`
+- `--ui-port` / `LLM_PROXY_UI_PORT`，默认 `8088`
+- `--config-file` / `LLM_PROXY_CONFIG_FILE`，默认 `logs/proxies.json`
+- `--readable-log-dir` / `LLM_PROXY_READABLE_LOG_DIR`，默认 `logs/readable`
 - `--listen-host` / `LLM_PROXY_HOST`
 - `--listen-port` / `LLM_PROXY_PORT`
 - `--target-url` / `LLM_PROXY_TARGET_URL`
@@ -168,18 +188,37 @@ python -m llm_proxy --strip-request-fields ""
 - `--target-host` / `LLM_PROXY_TARGET_HOST`
 - `--target-port` / `LLM_PROXY_TARGET_PORT`
 - `--target-header`
-- `--log-file` / `LLM_PROXY_LOG_FILE`（已废弃，不再写入 JSONL 日志）
-- `--readable-log-dir` / `LLM_PROXY_READABLE_LOG_DIR`
 - `--timeout` / `LLM_PROXY_TIMEOUT`
 - `--strip-request-fields` / `LLM_PROXY_STRIP_REQUEST_FIELDS`
 - `--inject-request-fields` / `LLM_PROXY_INJECT_REQUEST_FIELDS`
 - `--access-log` / `LLM_PROXY_ACCESS_LOG=1`
-- `--ui` / `LLM_PROXY_UI=1`（启用内置 Web 管理界面）
-- `--ui-host` / `LLM_PROXY_UI_HOST`（默认：`127.0.0.1`）
-- `--ui-port` / `LLM_PROXY_UI_PORT`（默认：`8088`）
-- `--config-file` / `LLM_PROXY_CONFIG_FILE`（代理对配置文件路径，默认：`logs/proxies.json`）
 
-`--target-url` 的优先级高于 `--target-scheme`、`--target-host` 和 `--target-port`。
+在单代理命令行模式下，`--target-url` 的优先级高于 `--target-scheme`、`--target-host` 和 `--target-port`。
+
+## 工程结构
+
+```text
+llm_proxy/
+  __main__.py       # python -m llm_proxy 入口
+  cli.py            # 启动器、UI 启动和兼容 CLI 模式
+  ui.py             # 内置 Web 控制台和管理 API
+  manager.py        # 多代理管理和配置持久化
+  server.py         # HTTP 代理服务和 handler
+  logger.py         # Markdown/JSON 可读日志写入
+  records.py        # 请求/响应分析和任务指纹
+  streams.py        # SSE 流式响应摘要
+  sanitize.py       # request 字段移除/注入
+  target.py         # 上游 URL 解析和路径拼接
+  payloads.py       # body 编码、解析和渲染辅助
+tests/
+  test_proxy.py
+doc/
+  ui_proxy_cn.png
+  ui_logs_cn.png
+proxy.py            # 旧入口脚本
+run.bat             # Windows UI 启动脚本
+pyproject.toml
+```
 
 ## 测试
 
