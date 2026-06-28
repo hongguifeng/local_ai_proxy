@@ -169,6 +169,28 @@ def chat_prefix_messages(payload: Mapping[str, object], limit: int = 4) -> list[
     return compacted
 
 
+def chat_content_messages(payload: Mapping[str, object]) -> list[object]:
+    """Return non-fixed chat messages used as whole-request context evidence."""
+    messages = payload.get("messages")
+    if not isinstance(messages, list):
+        return []
+    compacted = []
+    for message in messages:
+        if not isinstance(message, Mapping):
+            continue
+        if is_task_context_message(message):
+            continue
+        compacted.append(
+            {
+                "role": message.get("role"),
+                "content": message_text(message.get("content")),
+                "name": message.get("name"),
+                "tool_call_id": message.get("tool_call_id"),
+            }
+        )
+    return compacted
+
+
 def chat_first_user_message(payload: Mapping[str, object]) -> object | None:
     """提取 Chat Completions 里的第一条用户消息。"""
     messages = payload.get("messages")
@@ -336,6 +358,9 @@ def request_fingerprints(kind: str, payload: object) -> dict[str, str]:
         prefix_messages = chat_prefix_messages(payload)
         if prefix_messages:
             fingerprints["messages_prefix"] = stable_hash(prefix_messages)
+        content_messages = chat_content_messages(payload)
+        if content_messages:
+            fingerprints["messages"] = stable_hash(content_messages)
         first_user = chat_first_user_message(payload)
         if first_user:
             fingerprints["first_user"] = stable_hash(first_user)

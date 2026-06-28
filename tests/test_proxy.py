@@ -505,6 +505,153 @@ class TrafficLoggerTaskGroupingTests(unittest.TestCase):
         finally:
             log_dir.cleanup()
 
+    def test_responses_heuristic_does_not_group_identical_initial_requests(self) -> None:
+        log_dir = tempfile.TemporaryDirectory()
+        try:
+            root = Path(log_dir.name)
+            logger = TrafficLogger(root / "interactions.jsonl", root / "readable")
+
+            def record(request_id: str, timestamp: str, response_id: str) -> dict[str, object]:
+                return {
+                    "id": request_id,
+                    "timestamp": timestamp,
+                    "started_timestamp": timestamp,
+                    "event": "request_finished",
+                    "duration_ms": 100,
+                    "client": {"host": "127.0.0.1", "port": 1000},
+                    "target": {"scheme": "http", "host": "127.0.0.1", "port": 1235, "path": "/v1/responses"},
+                    "request": {
+                        "method": "POST",
+                        "path": "/v1/responses",
+                        "headers": {},
+                        "body": {
+                            "size_bytes": 0,
+                            "base64": "",
+                            "text": json.dumps(
+                                {
+                                    "model": "gpt-5.5",
+                                    "instructions": "same",
+                                    "input": [{"type": "message", "role": "user", "content": [{"type": "input_text", "text": "same initial task"}]}],
+                                }
+                            ),
+                        },
+                    },
+                    "response": {
+                        "status": 200,
+                        "headers": {},
+                        "body": {"size_bytes": 0, "base64": "", "text": json.dumps({"id": response_id})},
+                    },
+                }
+
+            logger.write(record("req_1", "2026-06-07T08:00:00.000+00:00", "resp_1"))
+            logger.write(record("req_2", "2026-06-07T08:00:10.000+00:00", "resp_2"))
+
+            with (root / ".task-index.json").open(encoding="utf-8") as file:
+                index = json.load(file)
+            self.assertEqual(len(index["tasks"]), 2)
+        finally:
+            log_dir.cleanup()
+
+    def test_responses_heuristic_requires_user_messages_prefix(self) -> None:
+        log_dir = tempfile.TemporaryDirectory()
+        try:
+            root = Path(log_dir.name)
+            logger = TrafficLogger(root / "interactions.jsonl", root / "readable")
+
+            def message(text: str) -> dict[str, object]:
+                return {"type": "message", "role": "user", "content": [{"type": "input_text", "text": text}]}
+
+            def record(request_id: str, timestamp: str, input_items: list[object], response_id: str) -> dict[str, object]:
+                return {
+                    "id": request_id,
+                    "timestamp": timestamp,
+                    "started_timestamp": timestamp,
+                    "event": "request_finished",
+                    "duration_ms": 100,
+                    "client": {"host": "127.0.0.1", "port": 1000},
+                    "target": {"scheme": "http", "host": "127.0.0.1", "port": 1235, "path": "/v1/responses"},
+                    "request": {
+                        "method": "POST",
+                        "path": "/v1/responses",
+                        "headers": {},
+                        "body": {
+                            "size_bytes": 0,
+                            "base64": "",
+                            "text": json.dumps({"model": "gpt-5.5", "instructions": "same", "input": input_items}),
+                        },
+                    },
+                    "response": {
+                        "status": 200,
+                        "headers": {},
+                        "body": {"size_bytes": 0, "base64": "", "text": json.dumps({"id": response_id})},
+                    },
+                }
+
+            logger.write(record("req_1", "2026-06-07T08:00:00.000+00:00", [message("start"), message("detail A")], "resp_1"))
+            logger.write(record("req_2", "2026-06-07T08:00:10.000+00:00", [message("start"), message("inserted"), message("detail A"), message("next")], "resp_2"))
+
+            with (root / ".task-index.json").open(encoding="utf-8") as file:
+                index = json.load(file)
+            self.assertEqual(len(index["tasks"]), 2)
+        finally:
+            log_dir.cleanup()
+
+    def test_responses_previous_response_id_groups_even_when_first_user_changes(self) -> None:
+        log_dir = tempfile.TemporaryDirectory()
+        try:
+            root = Path(log_dir.name)
+            logger = TrafficLogger(root / "interactions.jsonl", root / "readable")
+
+            def message(text: str) -> dict[str, object]:
+                return {"type": "message", "role": "user", "content": [{"type": "input_text", "text": text}]}
+
+            def record(
+                request_id: str,
+                timestamp: str,
+                input_items: list[object],
+                response_id: str,
+                previous_response_id: str | None = None,
+            ) -> dict[str, object]:
+                payload: dict[str, object] = {
+                    "model": "gpt-5.5",
+                    "instructions": "same",
+                    "tools": [{"type": "function", "name": "shell"}],
+                    "input": input_items,
+                }
+                if previous_response_id:
+                    payload["previous_response_id"] = previous_response_id
+                return {
+                    "id": request_id,
+                    "timestamp": timestamp,
+                    "started_timestamp": timestamp,
+                    "event": "request_finished",
+                    "duration_ms": 100,
+                    "client": {"host": "127.0.0.1", "port": 1000},
+                    "target": {"scheme": "http", "host": "127.0.0.1", "port": 1235, "path": "/v1/responses"},
+                    "request": {
+                        "method": "POST",
+                        "path": "/v1/responses",
+                        "headers": {},
+                        "body": {"size_bytes": 0, "base64": "", "text": json.dumps(payload)},
+                    },
+                    "response": {
+                        "status": 200,
+                        "headers": {},
+                        "body": {"size_bytes": 0, "base64": "", "text": json.dumps({"id": response_id})},
+                    },
+                }
+
+            logger.write(record("req_1", "2026-06-07T08:00:00.000+00:00", [message("original first user")], "resp_1"))
+            logger.write(record("req_2", "2026-06-07T08:00:10.000+00:00", [message("compressed follow up")], "resp_2", previous_response_id="resp_1"))
+
+            with (root / ".task-index.json").open(encoding="utf-8") as file:
+                index = json.load(file)
+            self.assertEqual(len(index["tasks"]), 1)
+            only_task = next(iter(index["tasks"].values()))
+            self.assertEqual(only_task["request_count"], 2)
+        finally:
+            log_dir.cleanup()
+
     def test_chat_static_boundary_change_starts_new_task(self) -> None:
         for changed_field in ("system", "tools", "first_user"):
             with self.subTest(changed_field=changed_field):
