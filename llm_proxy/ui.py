@@ -542,6 +542,49 @@ class AdminHandler(BaseHTTPRequestHandler):
             self.server.log_cache = snapshot  # type: ignore[attr-defined]
             return snapshot
 
+    def _load_task_meta_map(self, root: Path) -> dict[str, dict[str, Any]]:
+        """Load task model/kind from .task-index.json for a readable root.
+
+        Falls back to parsing the directory name when index entry is missing
+        or does not match actual disk dirs (e.g. after dir renames).
+        New format: ``{date}__{start_time}__{end_time}__{model}__{kind}__fp-hash``.
+        """
+        import json
+        result: dict[str, dict[str, Any]] = {}
+
+        # 1) Try reading from .task-index.json first (most accurate).
+        index_path = root / ".task-index.json"
+        if index_path.exists():
+            try:
+                data = json.loads(index_path.read_text(encoding="utf-8"))
+            except (OSError, ValueError):
+                pass
+            else:
+                tasks = data.get("tasks", {}) or {}
+                for task_id, task in tasks.items():
+                    if not isinstance(task, dict):
+                        continue
+                    dir_name = str(task.get("dir_name") or "")
+                    # Index may still hold an old dir_name; record anyway.
+                    result[dir_name] = {
+                        "model": task.get("model"),
+                        "kind": task.get("kind"),
+                    }
+
+        # 2) Also scan actual dirs on disk and parse model from name if possible.
+        tasks_root = root / "tasks"
+        if tasks_root.exists():
+            for task_path in self._iter_dirs(tasks_root):
+                parts = task_path.name.split("__")
+                # New format: date, start_time, end_time, model, kind, fp-hash (6 parts)
+                if len(parts) >= 6 and not result.get(task_path.name):
+                    model_candidate = parts[3]
+                    if model_candidate and "/" not in model_candidate and chr(92) not in model_candidate:
+                        # Looks like a model name, not another time segment.
+                        result[task_path.name] = {"model": model_candidate, "kind": parts[4]}
+
+        return result
+
     def _build_log_snapshot(self) -> dict[str, Any]:
         groups = []
         ungrouped_records = []
@@ -604,6 +647,11 @@ class AdminHandler(BaseHTTPRequestHandler):
     def _iter_task_groups(self) -> list[dict[str, Any]]:
         groups = []
         for root in self._readable_roots():
+            # Load model/kind metadata from .task-index.json once per readable root.
+            task_meta_map_itg: dict[str, dict[str, Any]] = {}
+            tasks_root_check = root / "tasks"
+            if tasks_root_check.exists():
+                task_meta_map_itg = self._load_task_meta_map(root)
             tasks_root = root / "tasks"
             if not tasks_root.exists():
                 continue
@@ -621,11 +669,17 @@ class AdminHandler(BaseHTTPRequestHandler):
                 if not logs:
                     continue
                 logs.sort(key=lambda item: str(item.get("_sort_key") or item.get("timestamp") or ""), reverse=True)
+                meta_parts_itg = [f"{len(logs)} requests"]
+                task_meta_itg = task_meta_map_itg.get(task_path.name) or {}
+                model_name_itg = task_meta_itg.get("model")
+                if isinstance(model_name_itg, str) and model_name_itg.strip():
+                    display_model_itg = model_name_itg.rsplit("/", 1)[-1].rsplit(chr(92), 1)[-1]
+                    meta_parts_itg.insert(0, display_model_itg)
                 groups.append(
                     {
                         "id": task_path.name,
                         "title": task_path.name,
-                        "meta": f"{len(logs)} requests",
+                        "meta": " | ".join(meta_parts_itg),
                         "_record_ids": [str(item.get("id")) for item in logs],
                         "logs": logs,
                     }
@@ -762,6 +816,13 @@ class AdminHandler(BaseHTTPRequestHandler):
     def _list_log_groups(self, query: str) -> list[dict[str, Any]]:
         terms = query.lower().split()
         snapshot = self._log_snapshot()
+        # Build model lookup from .task-index.json once for all groups.
+        task_meta_map_list: dict[str, dict[str, Any]] = {}
+        for root in self._readable_roots():
+            if not root.exists():
+                continue
+            loaded = self._load_task_meta_map(root)
+            task_meta_map_list.update(loaded)
         groups = []
         for group in snapshot.get("groups", []):
             filtered_logs = []
@@ -771,7 +832,13 @@ class AdminHandler(BaseHTTPRequestHandler):
             if filtered_logs:
                 visible_group = {key: value for key, value in group.items() if not key.startswith("_")}
                 visible_group["logs"] = filtered_logs[:200]
-                visible_group["meta"] = f"{len(filtered_logs)} requests"
+                filter_parts = [f"{len(filtered_logs)} requests"]
+                vis_task_meta = task_meta_map_list.get(group.get("id", "")) or {}
+                vis_model = vis_task_meta.get("model")
+                if isinstance(vis_model, str) and vis_model.strip():
+                    display_v = vis_model.rsplit("/", 1)[-1].rsplit(chr(92), 1)[-1]
+                    filter_parts.insert(0, display_v)
+                visible_group["meta"] = " | ".join(filter_parts)
                 groups.append(visible_group)
 
         ungrouped = [
