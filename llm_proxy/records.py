@@ -99,6 +99,39 @@ def message_text(value: object) -> object:
     return value
 
 
+def _content_text(value: object) -> str:
+    if isinstance(value, str):
+        return value
+    if isinstance(value, list):
+        parts: list[str] = []
+        for item in value:
+            if isinstance(item, Mapping):
+                text = item.get("text")
+                if isinstance(text, str):
+                    parts.append(text)
+            elif isinstance(item, str):
+                parts.append(item)
+        return "\n".join(parts)
+    if isinstance(value, Mapping):
+        text = value.get("text")
+        if isinstance(text, str):
+            return text
+    return ""
+
+
+def is_task_context_message(item: object) -> bool:
+    if not isinstance(item, Mapping):
+        return False
+    text = _content_text(item.get("content")).lstrip()
+    fixed_prefixes = (
+        "<environment_context>",
+        "<permissions instructions>",
+        "<app-context>",
+        "# Codex desktop context",
+    )
+    return any(text.startswith(prefix) for prefix in fixed_prefixes)
+
+
 def chat_system_messages(payload: Mapping[str, object]) -> list[object]:
     """提取 Chat Completions 请求里的 system/developer 消息。"""
     messages = payload.get("messages")
@@ -118,8 +151,10 @@ def chat_prefix_messages(payload: Mapping[str, object], limit: int = 4) -> list[
     if not isinstance(messages, list):
         return []
     compacted = []
-    for message in messages[:limit]:
+    for message in messages:
         if not isinstance(message, Mapping):
+            continue
+        if is_task_context_message(message):
             continue
         compacted.append(
             {
@@ -129,6 +164,8 @@ def chat_prefix_messages(payload: Mapping[str, object], limit: int = 4) -> list[
                 "tool_call_id": message.get("tool_call_id"),
             }
         )
+        if len(compacted) >= limit:
+            break
     return compacted
 
 
@@ -138,7 +175,7 @@ def chat_first_user_message(payload: Mapping[str, object]) -> object | None:
     if not isinstance(messages, list):
         return None
     for message in messages:
-        if isinstance(message, Mapping) and message.get("role") == "user":
+        if isinstance(message, Mapping) and message.get("role") == "user" and not is_task_context_message(message):
             return message_text(message.get("content"))
     return None
 
@@ -193,13 +230,16 @@ def responses_input_item_summary(item: object) -> object:
 
 def responses_input_prefix(payload: Mapping[str, object], limit: int = 6) -> list[object]:
     """提取 Responses API 前几个 input 项作为内容指纹。"""
-    return [responses_input_item_summary(item) for item in responses_input_items(payload)[:limit]]
+    content_items = [item for item in responses_input_items(payload) if not is_task_context_message(item)]
+    return [responses_input_item_summary(item) for item in content_items[:limit]]
 
 
 def responses_first_user_message(payload: Mapping[str, object]) -> object | None:
     """提取 Responses API input 中第一条用户文本。"""
     for item in responses_input_items(payload):
         if not isinstance(item, Mapping) or item.get("role") != "user":
+            continue
+        if is_task_context_message(item):
             continue
         content = item.get("content")
         if isinstance(content, list):
@@ -275,4 +315,3 @@ def response_ids_from_body(body: object) -> list[str]:
             if isinstance(nested_id, str) and nested_id:
                 ids.append(nested_id)
     return list(dict.fromkeys(ids))
-

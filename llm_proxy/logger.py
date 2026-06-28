@@ -241,17 +241,29 @@ class TrafficLogger:
             previous_response_id = payload.get("previous_response_id")
             if kind == "responses" and isinstance(response_to_task, dict) and isinstance(previous_response_id, str):
                 task_id = response_to_task.get(previous_response_id)
-                if isinstance(task_id, str):
+                if isinstance(task_id, str) and self._task_model_matches(task_id, payload):
                     return task_id
 
             context_to_task = self.task_index.get("context_to_task")
             if isinstance(context_to_task, dict):
                 for context_key in self._context_keys(payload):
                     task_id = context_to_task.get(context_key)
-                    if isinstance(task_id, str):
+                    if isinstance(task_id, str) and self._task_model_matches(task_id, payload):
                         return task_id
 
         return self._best_heuristic_task(record, kind, payload)
+
+    def _task_model_matches(self, task_id: str, payload: Mapping[str, object]) -> bool:
+        """Return False when an existing task has a different model."""
+        model = payload.get("model")
+        if not model:
+            return True
+        tasks = self.task_index.get("tasks")
+        task = tasks.get(task_id) if isinstance(tasks, dict) else None
+        if not isinstance(task, dict):
+            return True
+        task_model = task.get("model")
+        return not task_model or task_model == model
 
     def _find_task_for_request_id(self, request_id: str) -> str | None:
         """在任务列表里反查请求 ID，并顺手修复 request_to_task 索引。"""
@@ -290,12 +302,19 @@ class TrafficLogger:
         for task_id, task in tasks.items():
             if not isinstance(task, dict) or task.get("kind") != kind:
                 continue
+            if model and task.get("model") and task.get("model") != model:
+                continue
             last_seen_raw = task.get("last_seen_at", task.get("started_at"))
+            started_raw = task.get("started_at", last_seen_raw)
             try:
                 last_seen = dt.datetime.fromisoformat(str(last_seen_raw))
+                started_at = dt.datetime.fromisoformat(str(started_raw))
             except ValueError:
                 continue
             age_seconds = abs((now - last_seen).total_seconds())
+            task_span_seconds = abs((now - started_at).total_seconds())
+            if task_span_seconds > 30 * 60:
+                continue
             if age_seconds > 30 * 60:
                 # 间隔超过 30 分钟的请求通常不应被认为是同一轮任务。
                 continue
