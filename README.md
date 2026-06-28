@@ -126,7 +126,7 @@ If the response is an SSE stream, `response.json` shows the aggregated `stream_s
 
 ## Request Sanitization
 
-Request sanitization is disabled unless fields are configured. The proxy can remove selected top-level JSON fields and inject custom top-level JSON fields before forwarding. The web UI pre-fills new proxy configurations with these suggested fields to remove so you can decide whether to keep or clear them:
+Request sanitization is disabled unless fields are configured. The proxy can remove selected top-level JSON fields and inject custom top-level JSON fields before forwarding. The web UI shows these suggested fields to remove as the placeholder for new proxy configurations:
 
 ```text
 temperature, top_p, top_k, min_p, typical_p, repeat_penalty,

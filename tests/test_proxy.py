@@ -116,19 +116,21 @@ class RequestSanitizationConfigTests(unittest.TestCase):
         self.assertEqual(stripped, [])
         self.assertEqual(injected, [])
 
-    def test_default_proxy_pair_prefills_suggested_strip_fields(self) -> None:
+    def test_default_proxy_pair_leaves_strip_fields_empty(self) -> None:
         temp_dir = tempfile.TemporaryDirectory()
         try:
             root = Path(temp_dir.name)
             manager = ProxyManager(root / "proxies.json", root / "interactions.jsonl", root / "readable")
             pairs = manager.list_pairs()
-            self.assertEqual(pairs[0]["strip_request_fields"], SUGGESTED_STRIP_REQUEST_FIELDS_TEXT)
+            self.assertEqual(pairs[0]["strip_request_fields"], "")
             self.assertEqual(pairs[0]["inject_request_fields"], "")
         finally:
             temp_dir.cleanup()
 
-    def test_admin_html_prefills_new_proxy_strip_fields(self) -> None:
+    def test_admin_html_uses_suggested_strip_fields_as_placeholder(self) -> None:
         self.assertIn(json.dumps(SUGGESTED_STRIP_REQUEST_FIELDS_TEXT), INDEX_HTML)
+        self.assertIn('strip_request_fields: ""', INDEX_HTML)
+        self.assertIn('placeholder="${escapeHtml(suggestedStripRequestFields)}"', INDEX_HTML)
         self.assertIn("inject_request_fields", INDEX_HTML)
 
 
