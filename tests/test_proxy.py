@@ -1255,6 +1255,73 @@ class TargetUrlProxyTests(unittest.TestCase):
             upstream.server_close()
             log_dir.cleanup()
 
+    def test_target_api_key_overrides_authorization_header(self) -> None:
+        upstream_seen: dict[str, object] = {}
+
+        class UpstreamHandler(BaseHTTPRequestHandler):
+            def do_POST(self) -> None:
+                length = int(self.headers.get("Content-Length", "0"))
+                self.rfile.read(length)
+                upstream_seen["authorization"] = self.headers.get("Authorization")
+                body = b'{"ok":true}'
+                self.send_response(200)
+                self.send_header("Content-Type", "application/json")
+                self.send_header("Content-Length", str(len(body)))
+                self.end_headers()
+                self.wfile.write(body)
+
+            def log_message(self, fmt: str, *args: object) -> None:
+                return
+
+        upstream = ThreadingHTTPServer(("127.0.0.1", 0), UpstreamHandler)
+        upstream_thread = threading.Thread(target=upstream.serve_forever, daemon=True)
+        upstream_thread.start()
+        log_dir = tempfile.TemporaryDirectory()
+        proxy = None
+        try:
+            log_root = Path(log_dir.name)
+            logger = TrafficLogger(log_root / "interactions.jsonl", log_root / "readable")
+            proxy = ProxyServer(
+                ("127.0.0.1", 0),
+                ProxyHandler,
+                {
+                    "target_scheme": "http",
+                    "target_host": "127.0.0.1",
+                    "target_port": upstream.server_address[1],
+                    "target_base_path": "/v1",
+                    "target_api_key": "sk-target",
+                    "target_headers": [("Authorization", "Bearer sk-header")],
+                    "strip_request_fields": set(),
+                    "inject_request_fields": {},
+                    "timeout": 5,
+                    "access_log": False,
+                },
+                logger,
+            )
+            proxy_thread = threading.Thread(target=proxy.serve_forever, daemon=True)
+            proxy_thread.start()
+
+            conn = http.client.HTTPConnection("127.0.0.1", proxy.server_address[1], timeout=5)
+            conn.request(
+                "POST",
+                "/v1/responses",
+                body=b'{}',
+                headers={"Authorization": "Bearer sk-client", "Content-Type": "application/json"},
+            )
+            response = conn.getresponse()
+            self.assertEqual(response.status, 200)
+            self.assertEqual(response.read(), b'{"ok":true}')
+            conn.close()
+
+            self.assertEqual(upstream_seen["authorization"], "Bearer sk-target")
+        finally:
+            if proxy is not None:
+                proxy.shutdown()
+                proxy.server_close()
+            upstream.shutdown()
+            upstream.server_close()
+            log_dir.cleanup()
+
     def test_injects_configured_request_fields_before_forwarding(self) -> None:
         upstream_seen: dict[str, object] = {}
 

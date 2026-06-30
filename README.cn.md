@@ -102,6 +102,7 @@ http://127.0.0.1:1234
 
 - 启用状态。默认转发地址始终可用；非默认地址可以关闭。
 - 上游目标 URL。
+- API Key；如果设置，会添加或替换转发请求中的 `Authorization: Bearer ...`。
 - 模型映射，每行一个。格式为 `监听模型 => 转发模型`；如果省略 `=> 转发模型`，则保持同名转发。
 - 超时时间。
 - 日志目录，默认 `logs`。
@@ -109,7 +110,7 @@ http://127.0.0.1:1234
 - 转发前需要移除的 request 字段。
 - 转发前需要注入的 request 字段，格式为 JSON object。
 
-默认情况下，每个转发地址只显示 URL 和模型映射。点击转发地址块里的 **更多配置** 可展开超时、日志目录、headers 和 request 字段改写选项。
+默认情况下，每个转发地址显示 URL、API Key 和模型映射。点击转发地址块里的 **更多配置** 可展开超时、日志目录、headers 和 request 字段改写选项。
 
 代理地址对默认保存到 `logs/proxies.json`，也可以通过 `--config-file` 指定其他配置文件。
 
@@ -164,7 +165,7 @@ fallback-model
 ### 查看远程网关请求
 
 1. 创建代理地址对，将 target URL 设置为 `https://openrouter.ai/api/v1` 或其他 OpenAI-compatible 地址。
-2. 在转发地址块的 **更多配置** 中填写必要的上游 headers，例如 `Authorization: Bearer ...`。
+2. 在转发地址块的 **API Key** 中填写上游 key，例如 `sk-or-...`。
 3. 启用代理地址对。
 4. 将本地客户端指向该代理的监听地址。
 
@@ -226,7 +227,7 @@ python -m llm_proxy --target-url https://openrouter.ai/api/v1
 ```powershell
 python -m llm_proxy `
   --target-url https://openrouter.ai/api/v1 `
-  --target-header "Authorization: Bearer sk-or-..." `
+  --target-api-key "sk-or-..." `
   --target-header "HTTP-Referer: http://localhost" `
   --target-header "X-Title: LLM Proxy"
 ```
@@ -253,6 +254,7 @@ python -m llm_proxy --inject-request-fields '{"metadata":{"source":"proxy"},"str
 - `--target-scheme` / `LLM_PROXY_TARGET_SCHEME`
 - `--target-host` / `LLM_PROXY_TARGET_HOST`
 - `--target-port` / `LLM_PROXY_TARGET_PORT`
+- `--target-api-key` / `LLM_PROXY_TARGET_API_KEY`
 - `--target-header`
 - `--timeout` / `LLM_PROXY_TIMEOUT`
 - `--strip-request-fields` / `LLM_PROXY_STRIP_REQUEST_FIELDS`
