@@ -7,6 +7,7 @@
 from __future__ import annotations
 
 import http.client
+import json
 import time
 import uuid
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
@@ -82,16 +83,16 @@ class ProxyHandler(BaseHTTPRequestHandler):
             return b""
         return self.rfile.read(body_size) if body_size > 0 else b""
 
-    def _forward_headers(self) -> list[tuple[str, str]]:
+    def _forward_headers(self, target: dict[str, object]) -> list[tuple[str, str]]:
         """构造转发给上游的请求头。
 
         代理不能原样复制所有头：Host 要改成上游地址，hop-by-hop 头要丢弃，
         同时还会追加 X-Forwarded-*，让上游知道原始客户端信息。
         """
         forwarded: list[tuple[str, str]] = []
-        target_host = str(self.server_config["target_host"])
-        target_port = int(self.server_config["target_port"])
-        target_scheme = str(self.server_config["target_scheme"])
+        target_host = str(target["target_host"])
+        target_port = int(target["target_port"])
+        target_scheme = str(target["target_scheme"])
         default_port = DEFAULT_PORTS[target_scheme]
         for key, value in self.headers.items():
             if key.lower() in HOP_BY_HOP_HEADERS or key.lower() == "host":
@@ -101,20 +102,83 @@ class ProxyHandler(BaseHTTPRequestHandler):
         forwarded.append(("Host", host_header))
         forwarded.append(("X-Forwarded-For", self.client_address[0]))
         forwarded.append(("X-Forwarded-Host", self.headers.get("Host", "")))
-        override_keys = {key.lower() for key, _ in self.server_config["target_headers"]}  # type: ignore[index]
+        override_keys = {key.lower() for key, _ in target["target_headers"]}  # type: ignore[index]
         if override_keys:
             # 用户通过 --target-header 指定的头拥有最高优先级，会覆盖客户端原来的同名头。
             forwarded = [(key, value) for key, value in forwarded if key.lower() not in override_keys]
-            forwarded.extend(self.server_config["target_headers"])  # type: ignore[arg-type]
+            forwarded.extend(target["target_headers"])  # type: ignore[arg-type]
         return forwarded
 
-    def _upstream_headers(self, body_size: int) -> list[tuple[str, str]]:
+    def _upstream_headers(self, target: dict[str, object], body_size: int) -> list[tuple[str, str]]:
         """生成上游请求头，并根据实际转发 body 长度重写 Content-Length。"""
-        headers = self._forward_headers()
+        headers = self._forward_headers(target)
         headers = [(key, value) for key, value in headers if key.lower() != "content-length"]
         if body_size > 0 or "Content-Length" in self.headers:
             headers.append(("Content-Length", str(body_size)))
         return headers
+
+    def _targets(self) -> list[dict[str, object]]:
+        """返回当前服务器可用的上游配置，兼容旧的单 target config。"""
+        targets = self.server_config.get("targets")
+        if isinstance(targets, list) and targets:
+            return [target for target in targets if isinstance(target, dict)]
+        return [
+            {
+                "id": "default",
+                "name": "Default target",
+                "target_scheme": self.server_config["target_scheme"],
+                "target_host": self.server_config["target_host"],
+                "target_port": self.server_config["target_port"],
+                "target_base_path": self.server_config["target_base_path"],
+                "target_headers": self.server_config["target_headers"],
+                "strip_request_fields": self.server_config["strip_request_fields"],
+                "inject_request_fields": self.server_config.get("inject_request_fields", {}),
+                "timeout": self.server_config["timeout"],
+                "model_mappings": [],
+            }
+        ]
+
+    def _request_model(self, request_body: bytes) -> str | None:
+        try:
+            loaded = json.loads(request_body.decode("utf-8"))
+        except (UnicodeDecodeError, json.JSONDecodeError):
+            return None
+        if not isinstance(loaded, dict):
+            return None
+        model = loaded.get("model")
+        return model if isinstance(model, str) else None
+
+    def _select_target(self, request_body: bytes) -> tuple[dict[str, object], str | None, str | None]:
+        """按请求 model 选择上游，并返回可能需要改写成的上游 model。"""
+        targets = self._targets()
+        default_target_id = str(self.server_config.get("default_target_id") or "")
+        default_target = next((target for target in targets if str(target.get("id")) == default_target_id), targets[0])
+        request_model = self._request_model(request_body)
+        if request_model:
+            for target in targets:
+                mappings = target.get("model_mappings")
+                if not isinstance(mappings, list):
+                    continue
+                for mapping in mappings:
+                    if not isinstance(mapping, dict):
+                        continue
+                    listen_model = mapping.get("listen")
+                    if listen_model == request_model:
+                        upstream_model = mapping.get("upstream")
+                        return target, request_model, upstream_model if isinstance(upstream_model, str) and upstream_model else None
+        return default_target, request_model, None
+
+    def _rewrite_request_model(self, request_body: bytes, upstream_model: str | None) -> bytes:
+        if not upstream_model:
+            return request_body
+        try:
+            loaded = json.loads(request_body.decode("utf-8"))
+        except (UnicodeDecodeError, json.JSONDecodeError):
+            return request_body
+        if not isinstance(loaded, dict):
+            return request_body
+        loaded["model"] = upstream_model
+        return json.dumps(loaded, ensure_ascii=False, separators=(",", ":")).encode("utf-8")
 
     def _proxy(self) -> None:
         """完整执行一次代理转发。
@@ -127,12 +191,14 @@ class ProxyHandler(BaseHTTPRequestHandler):
         """
         request_id = uuid.uuid4().hex
         started = time.perf_counter()
-        target_scheme = str(self.server_config["target_scheme"])
-        target_host = str(self.server_config["target_host"])
-        target_port = int(self.server_config["target_port"])
-        target_base_path = str(self.server_config["target_base_path"])
+        targets = self._targets()
+        early_log_before_body = len(targets) == 1
+        early_target = targets[0]
+        target_scheme = str(early_target["target_scheme"])
+        target_host = str(early_target["target_host"])
+        target_port = int(early_target["target_port"])
+        target_base_path = str(early_target["target_base_path"])
         target_path = join_target_path(target_base_path, self.path)
-        timeout = float(self.server_config["timeout"])
         response_body_parts: list[bytes] = []
         response_status = 502
         response_headers: list[tuple[str, str]] = []
@@ -167,24 +233,36 @@ class ProxyHandler(BaseHTTPRequestHandler):
                 "name": self.server_config.get("proxy_pair_name"),
             }
         initial_record["started_timestamp"] = initial_record["timestamp"]
-        self.traffic_logger.write(
-            {
-                **initial_record,
-                "event": "request_received",
-                "duration_ms": 0,
-                "response": {
-                    "status": None,
-                    "headers": {},
-                    "body": bytes_payload(b""),
-                },
-            }
-        )
+        if early_log_before_body:
+            self.traffic_logger.write(
+                {
+                    **initial_record,
+                    "event": "request_received",
+                    "duration_ms": 0,
+                    "response": {
+                        "status": None,
+                        "headers": {},
+                        "body": bytes_payload(b""),
+                    },
+                }
+            )
 
         request_body = self._read_request_body()
+        selected_target, request_model, upstream_model = self._select_target(request_body)
+        active_logger = selected_target.get("traffic_logger")
+        if not isinstance(active_logger, TrafficLogger):
+            active_logger = self.traffic_logger
+        target_scheme = str(selected_target["target_scheme"])
+        target_host = str(selected_target["target_host"])
+        target_port = int(selected_target["target_port"])
+        target_base_path = str(selected_target["target_base_path"])
+        target_path = join_target_path(target_base_path, self.path)
+        timeout = float(selected_target["timeout"])
+        model_rewritten_body = self._rewrite_request_model(request_body, upstream_model)
         upstream_request_body, stripped_request_fields, injected_request_fields = transform_request_json_fields(
-            request_body,
-            self.server_config["strip_request_fields"],  # type: ignore[arg-type]
-            self.server_config.get("inject_request_fields", {}),  # type: ignore[arg-type]
+            model_rewritten_body,
+            selected_target["strip_request_fields"],  # type: ignore[arg-type]
+            selected_target.get("inject_request_fields", {}),  # type: ignore[arg-type]
         )
         # 日志保存客户端原始请求体；真正发给上游的 body 可能已经移除了部分字段。
         request_record: dict[str, object] = {
@@ -197,16 +275,50 @@ class ProxyHandler(BaseHTTPRequestHandler):
             request_record["stripped_fields"] = stripped_request_fields
         if injected_request_fields:
             request_record["injected_fields"] = injected_request_fields
-        if stripped_request_fields or injected_request_fields:
+        if upstream_model:
+            request_record["model_route"] = {
+                "requested_model": request_model,
+                "upstream_model": upstream_model,
+                "target_id": selected_target.get("id"),
+                "target_name": selected_target.get("name"),
+            }
+        elif request_model:
+            request_record["model_route"] = {
+                "requested_model": request_model,
+                "target_id": selected_target.get("id"),
+                "target_name": selected_target.get("name"),
+            }
+        if stripped_request_fields or injected_request_fields or upstream_model:
             request_record["upstream_body"] = bytes_payload(upstream_request_body)
-        target_headers = self.server_config["target_headers"]  # type: ignore[assignment]
+        target_headers = selected_target["target_headers"]  # type: ignore[assignment]
         if target_headers:
             request_record["added_upstream_headers"] = [key for key, _ in target_headers]  # type: ignore[union-attr]
         base_record = {
             **initial_record,
+            "target": {
+                "scheme": target_scheme,
+                "host": target_host,
+                "port": target_port,
+                "path": target_path,
+                "id": selected_target.get("id"),
+                "name": selected_target.get("name"),
+            },
             "request": request_record,
         }
-        self.traffic_logger.update_readable(
+        if not early_log_before_body:
+            active_logger.write(
+                {
+                    **base_record,
+                    "event": "request_received",
+                    "duration_ms": round((time.perf_counter() - started) * 1000, 3),
+                    "response": {
+                        "status": None,
+                        "headers": {},
+                        "body": bytes_payload(b""),
+                    },
+                }
+            )
+        active_logger.update_readable(
             {
                 **base_record,
                 "event": "request_pending_response",
@@ -224,7 +336,7 @@ class ProxyHandler(BaseHTTPRequestHandler):
             conn = conn_class(target_host, target_port, timeout=timeout)
             # 用 putrequest/putheader 可以精确控制 Host、Content-Length 等代理敏感字段。
             conn.putrequest(self.command, target_path, skip_host=True, skip_accept_encoding=True)
-            for key, value in self._upstream_headers(len(upstream_request_body)):
+            for key, value in self._upstream_headers(selected_target, len(upstream_request_body)):
                 conn.putheader(key, value)
             conn.endheaders(upstream_request_body)
 
@@ -273,7 +385,7 @@ class ProxyHandler(BaseHTTPRequestHandler):
             }
             if error:
                 record["error"] = error
-            self.traffic_logger.write(record)
+            active_logger.write(record)
             self.close_connection = True
 
 
