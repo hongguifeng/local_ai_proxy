@@ -16,7 +16,21 @@ from .target import parse_target
 
 
 DEFAULT_CONFIG_PATH = Path("logs/proxies.json")
+DEFAULT_LOG_ROOT = Path("logs")
 SUGGESTED_STRIP_REQUEST_FIELDS_TEXT = ",".join(DEFAULT_STRIP_REQUEST_FIELDS)
+
+
+def log_root_from_setting(value: str | Path | None) -> Path | None:
+    if value is None:
+        return None
+    return Path(value)
+
+
+def readable_dir_from_log_root(value: str | Path | None) -> Path | None:
+    root = log_root_from_setting(value)
+    if root is None:
+        return None
+    return root / "readable"
 
 
 @dataclass
@@ -31,11 +45,11 @@ class ProxyManager:
         self,
         config_path: Path = DEFAULT_CONFIG_PATH,
         log_file: Path = Path("logs/interactions.jsonl"),
-        readable_log_dir: Path | None = Path("logs/readable"),
+        readable_log_dir: Path | None = DEFAULT_LOG_ROOT,
     ) -> None:
         self.config_path = config_path
         self.log_file = log_file
-        self.readable_log_dir = readable_log_dir
+        self.readable_log_dir = log_root_from_setting(readable_log_dir)
         self.lock = threading.RLock()
         self.pairs: list[dict[str, Any]] = self._load_pairs()
         self.runtimes: dict[str, ProxyRuntime] = {}
@@ -173,8 +187,8 @@ class ProxyManager:
         if raw_value == "":
             return None
         if raw_value:
-            return Path(str(raw_value))
-        return self.readable_log_dir
+            return readable_dir_from_log_root(str(raw_value))
+        return readable_dir_from_log_root(self.readable_log_dir)
 
     def _runtime_target(self, target_pair: dict[str, Any], pair: dict[str, Any]) -> dict[str, Any]:
         target = parse_target(
@@ -246,7 +260,7 @@ class ProxyManager:
             "timeout": float(pair.get("timeout") or 600),
             "access_log": bool(pair.get("access_log", False)),
             "log_file": str(pair.get("log_file") or self.log_file),
-            "readable_log_dir": "" if pair.get("readable_log_dir") == "" else str(pair.get("readable_log_dir") or self.readable_log_dir or ""),
+            "readable_log_dir": "" if pair.get("readable_log_dir") == "" else str(log_root_from_setting(pair.get("readable_log_dir") or self.readable_log_dir) or ""),
             "targets": normalized_targets,
             "default_target_id": str(pair.get("default_target_id") or normalized_targets[0]["id"]),
         }
@@ -270,7 +284,7 @@ class ProxyManager:
             "strip_request_fields": target.get("strip_request_fields") or "",
             "inject_request_fields": str(inject_request_fields),
             "timeout": float(target.get("timeout") or 600),
-            "readable_log_dir": "" if target.get("readable_log_dir") == "" else str(target.get("readable_log_dir") or self.readable_log_dir or ""),
+            "readable_log_dir": "" if target.get("readable_log_dir") == "" else str(log_root_from_setting(target.get("readable_log_dir") or self.readable_log_dir) or ""),
             "model_mappings": self._normalize_model_mappings(target.get("model_mappings") or target.get("models") or []),
             "enabled": bool(target.get("enabled", True)),
         }

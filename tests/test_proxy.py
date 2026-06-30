@@ -120,10 +120,22 @@ class RequestSanitizationConfigTests(unittest.TestCase):
         temp_dir = tempfile.TemporaryDirectory()
         try:
             root = Path(temp_dir.name)
-            manager = ProxyManager(root / "proxies.json", root / "interactions.jsonl", root / "readable")
+            manager = ProxyManager(root / "proxies.json", root / "interactions.jsonl", root)
             pairs = manager.list_pairs()
             self.assertEqual(pairs[0]["strip_request_fields"], "")
             self.assertEqual(pairs[0]["inject_request_fields"], "")
+        finally:
+            temp_dir.cleanup()
+
+    def test_proxy_manager_treats_log_setting_as_root_directory(self) -> None:
+        temp_dir = tempfile.TemporaryDirectory()
+        try:
+            root = Path(temp_dir.name)
+            manager = ProxyManager(root / "proxies.json", root / "interactions.jsonl", root / "logs")
+
+            self.assertEqual(manager.list_pairs()[0]["readable_log_dir"], str(root / "logs"))
+            self.assertEqual(manager._readable_dir_for({"readable_log_dir": str(root / "custom")}), root / "custom" / "readable")
+            self.assertEqual(manager._readable_dir_for({}), root / "logs" / "readable")
         finally:
             temp_dir.cleanup()
 
@@ -1529,7 +1541,7 @@ class AdminUiTests(unittest.TestCase):
         server = None
         try:
             root = Path(temp_dir.name)
-            manager = ProxyManager(root / "proxies.json", root / "interactions.jsonl", root / "readable")
+            manager = ProxyManager(root / "proxies.json", root / "interactions.jsonl", root)
             server = AdminServer(("127.0.0.1", 0), manager)
             thread = threading.Thread(target=server.serve_forever, daemon=True)
             thread.start()
@@ -1600,7 +1612,7 @@ class AdminUiTests(unittest.TestCase):
             )
             (readable_path / "request.json").write_text(json.dumps({"a": 1}), encoding="utf-8")
             (readable_path / "response.json").write_text(json.dumps({"ok": True}), encoding="utf-8")
-            manager = ProxyManager(root / "proxies.json", log_path, root / "readable")
+            manager = ProxyManager(root / "proxies.json", log_path, root)
             server = AdminServer(("127.0.0.1", 0), manager)
             thread = threading.Thread(target=server.serve_forever, daemon=True)
             thread.start()
@@ -1652,7 +1664,7 @@ class AdminUiTests(unittest.TestCase):
             )
             (task_request_path / "request.json").write_text(json.dumps({"a": 1}), encoding="utf-8")
             (task_request_path / "response.json").write_text(json.dumps({"ok": True}), encoding="utf-8")
-            manager = ProxyManager(root / "proxies.json", log_path, root / "readable")
+            manager = ProxyManager(root / "proxies.json", log_path, root)
             server = AdminServer(("127.0.0.1", 0), manager)
             thread = threading.Thread(target=server.serve_forever, daemon=True)
             thread.start()
@@ -1710,7 +1722,7 @@ class AdminUiTests(unittest.TestCase):
             write_record("002__08-00-20.000__v1-responses__req_2", "req_2", "2000-01-01T00:00:00.000+00:00")
 
             (root / "readable").mkdir(exist_ok=True)
-            manager = ProxyManager(root / "proxies.json", log_path, root / "readable")
+            manager = ProxyManager(root / "proxies.json", log_path, root)
             server = AdminServer(("127.0.0.1", 0), manager)
             thread = threading.Thread(target=server.serve_forever, daemon=True)
             thread.start()
@@ -1727,6 +1739,85 @@ class AdminUiTests(unittest.TestCase):
             self.assertEqual([item["sequence"] for item in logs], ["002", "001"])
             self.assertEqual(logs[0]["timestamp"], "2026-06-07 08:00:20.000")
             self.assertEqual(logs[1]["timestamp"], "2026-06-07 08:00:00.000")
+        finally:
+            if server is not None:
+                server.shutdown()
+                server.server_close()
+            temp_dir.cleanup()
+
+    def test_log_list_reads_all_target_log_directories(self) -> None:
+        temp_dir = tempfile.TemporaryDirectory()
+        server = None
+        try:
+            root = Path(temp_dir.name)
+            log_path = root / "interactions.jsonl"
+
+            def write_readable(log_root: Path, record_id: str, target: str) -> None:
+                readable_path = log_root / "readable" / f"2026-06-07__08-00-00.000__post__v1-responses__{record_id}"
+                readable_path.mkdir(parents=True)
+                (readable_path / "08-00-00.000__08-00-00.010.md").write_text(
+                    "\n".join(
+                        [
+                            f"# LLM Interaction {record_id}",
+                            "",
+                            "## Summary",
+                            "",
+                            "- Time: 2026-06-07T08:00:00.000+00:00",
+                            "- Event: request_finished",
+                            f"- Target: {target}",
+                            "- Request: POST /v1/responses",
+                            "- Response: 200",
+                        ]
+                    ),
+                    encoding="utf-8",
+                )
+                (readable_path / "request.json").write_text(json.dumps({"id": record_id}), encoding="utf-8")
+                (readable_path / "response.json").write_text(json.dumps({"ok": True}), encoding="utf-8")
+
+            first_root = root / "first-logs"
+            second_root = root / "second-logs"
+            write_readable(first_root, "req_first", "http://127.0.0.1:1235/v1/responses")
+            write_readable(second_root, "req_second", "http://127.0.0.1:1236/v1/responses")
+
+            manager = ProxyManager(root / "proxies.json", log_path, root / "default-logs")
+            manager.replace_pairs(
+                [
+                    {
+                        "id": "one",
+                        "name": "One",
+                        "enabled": False,
+                        "listen_host": "127.0.0.1",
+                        "listen_port": 1234,
+                        "targets": [
+                            {
+                                "id": "first",
+                                "name": "First",
+                                "target_url": "http://127.0.0.1:1235/v1",
+                                "readable_log_dir": str(first_root),
+                            },
+                            {
+                                "id": "second",
+                                "name": "Second",
+                                "target_url": "http://127.0.0.1:1236/v1",
+                                "readable_log_dir": str(second_root),
+                            },
+                        ],
+                    }
+                ]
+            )
+            server = AdminServer(("127.0.0.1", 0), manager)
+            thread = threading.Thread(target=server.serve_forever, daemon=True)
+            thread.start()
+
+            conn = http.client.HTTPConnection("127.0.0.1", server.server_address[1], timeout=5)
+            conn.request("GET", "/api/logs")
+            response = conn.getresponse()
+            self.assertEqual(response.status, 200)
+            payload = json.loads(response.read())
+            conn.close()
+
+            ids = {item["id"] for group in payload["groups"] for item in group["logs"]}
+            self.assertEqual(ids, {"req_first", "req_second"})
         finally:
             if server is not None:
                 server.shutdown()

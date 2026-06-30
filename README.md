@@ -78,7 +78,7 @@ Each upstream target includes:
 - Upstream target URL.
 - Model mappings, one per line. Use `local-model => upstream-model`; omit `=> upstream-model` to keep the same model name.
 - Timeout.
-- Readable log directory, default `logs\readable`.
+- Log directory, default `logs`.
 - Upstream headers, one `Name: value` entry per line.
 - Request fields to strip before forwarding.
 - Request fields to inject before forwarding as a JSON object.
@@ -164,8 +164,8 @@ When a request is changed, the logs record `request.stripped_fields`, `request.i
 Default paths:
 
 - Proxy configuration: `logs/proxies.json`
-- Readable interaction logs: `logs/readable/` by default, configurable per upstream target.
-- Task-grouped logs: `logs/readable/tasks/`
+- Readable interaction logs: `logs/readable/` by default, configurable per upstream target by setting the log root.
+- Task-grouped logs: `logs/tasks/`
 
 Each captured interaction is written to its own directory with:
 
@@ -220,7 +220,7 @@ Common launcher options and environment variables:
 - `--ui-host` / `LLM_PROXY_UI_HOST`, default `127.0.0.1`
 - `--ui-port` / `LLM_PROXY_UI_PORT`, default `8088`
 - `--config-file` / `LLM_PROXY_CONFIG_FILE`, default `logs/proxies.json`
-- `--readable-log-dir` / `LLM_PROXY_READABLE_LOG_DIR`, default `logs/readable`
+- `--readable-log-dir` / `LLM_PROXY_READABLE_LOG_DIR`, default `logs`
 - `--listen-host` / `LLM_PROXY_HOST`
 - `--listen-port` / `LLM_PROXY_PORT`
 - `--target-url` / `LLM_PROXY_TARGET_URL`

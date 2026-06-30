@@ -8,7 +8,7 @@ from pathlib import Path
 from typing import Any
 from urllib.parse import parse_qs, urlsplit
 
-from .manager import ProxyManager, SUGGESTED_STRIP_REQUEST_FIELDS_TEXT
+from .manager import ProxyManager, SUGGESTED_STRIP_REQUEST_FIELDS_TEXT, readable_dir_from_log_root
 from .payloads import body_json_value
 
 
@@ -226,7 +226,7 @@ INDEX_HTML = r"""<!doctype html>
         port: "端口",
         targetUrl: "转发地址",
         timeoutSeconds: "超时秒数",
-        readableLogDir: "可读日志目录",
+        readableLogDir: "日志目录",
         upstreamHeaders: "上游 Headers，每行一个 Name: value",
         stripFields: "转发前移除的 request 字段，逗号分隔；留空关闭",
         injectFields: "转发前注入的 request 字段，JSON object；留空关闭",
@@ -276,7 +276,7 @@ INDEX_HTML = r"""<!doctype html>
         port: "Port",
         targetUrl: "Target URL",
         timeoutSeconds: "Timeout seconds",
-        readableLogDir: "Readable log directory",
+        readableLogDir: "Log directory",
         upstreamHeaders: "Upstream headers, one Name: value per line",
         stripFields: "Request fields to remove before forwarding, comma-separated; leave blank to disable",
         injectFields: "Request fields to inject before forwarding, JSON object; leave blank to disable",
@@ -340,11 +340,11 @@ INDEX_HTML = r"""<!doctype html>
       return status === undefined || status === null || status === "pending" ? t("pending") : String(status);
     }
     const suggestedStripRequestFields = __SUGGESTED_STRIP_REQUEST_FIELDS__;
-    const newTarget = () => ({ id: `target-${Date.now()}-${Math.random().toString(16).slice(2)}`, name: "Target", enabled: true, target_url: "http://127.0.0.1:1235", target_headers: [], strip_request_fields: "", inject_request_fields: "", timeout: 600, readable_log_dir: "logs\\readable", model_mappings: [], expanded: false });
+    const newTarget = () => ({ id: `target-${Date.now()}-${Math.random().toString(16).slice(2)}`, name: "Target", enabled: true, target_url: "http://127.0.0.1:1235", target_headers: [], strip_request_fields: "", inject_request_fields: "", timeout: 600, readable_log_dir: "logs", model_mappings: [], expanded: false });
     const newPair = () => { const target = newTarget(); return { id: `proxy-${Date.now()}`, name: t("newProxy"), enabled: false, running: false, listen_host: "127.0.0.1", listen_port: 1234, access_log: false, targets: [target], default_target_id: target.id }; };
     function pairTargets(pair) {
       if (Array.isArray(pair.targets) && pair.targets.length) return pair.targets;
-      const target = { id: "target-1", name: "Target", enabled: true, target_url: pair.target_url || "http://127.0.0.1:1235", target_headers: pair.target_headers || [], strip_request_fields: pair.strip_request_fields || "", inject_request_fields: pair.inject_request_fields || "", timeout: pair.timeout || 600, readable_log_dir: pair.readable_log_dir || "logs\\readable", model_mappings: pair.model_mappings || [], expanded: false };
+      const target = { id: "target-1", name: "Target", enabled: true, target_url: pair.target_url || "http://127.0.0.1:1235", target_headers: pair.target_headers || [], strip_request_fields: pair.strip_request_fields || "", inject_request_fields: pair.inject_request_fields || "", timeout: pair.timeout || 600, readable_log_dir: pair.readable_log_dir || "logs", model_mappings: pair.model_mappings || [], expanded: false };
       pair.targets = [target];
       pair.default_target_id = pair.default_target_id || target.id;
       return pair.targets;
@@ -373,7 +373,7 @@ INDEX_HTML = r"""<!doctype html>
           <div class="target-options" ${expanded ? "" : "hidden"}>
             <div class="fields">
               <label><span>${escapeHtml(t("timeoutSeconds"))}</span><input type="number" data-target-field="timeout" value="${target.timeout || 600}"></label>
-              <label><span>${escapeHtml(t("readableLogDir"))}</span><input data-target-field="readable_log_dir" value="${escapeHtml(target.readable_log_dir || "logs\\readable")}"></label>
+              <label><span>${escapeHtml(t("readableLogDir"))}</span><input data-target-field="readable_log_dir" value="${escapeHtml(target.readable_log_dir || "logs")}"></label>
             </div>
             <label><span>${escapeHtml(t("upstreamHeaders"))}</span><textarea data-target-field="target_headers">${escapeHtml((target.target_headers || []).join("\n"))}</textarea></label>
             <label><span>${escapeHtml(t("stripFields"))}</span><textarea data-target-field="strip_request_fields" placeholder="${escapeHtml(suggestedStripRequestFields)}">${escapeHtml(target.strip_request_fields ?? "")}</textarea></label>
@@ -843,12 +843,24 @@ class AdminHandler(BaseHTTPRequestHandler):
 
     def _readable_roots(self) -> list[Path]:
         paths = []
-        if self.manager.readable_log_dir:
-            paths.append(self.manager.readable_log_dir)
+
+        def add_log_root(raw_path: object) -> None:
+            if not raw_path:
+                return
+            readable_root = readable_dir_from_log_root(str(raw_path))
+            if readable_root:
+                paths.append(readable_root)
+
         for pair in self.manager.list_pairs():
-            raw_path = pair.get("readable_log_dir")
-            if raw_path:
-                paths.append(Path(str(raw_path)))
+            targets = pair.get("targets")
+            if isinstance(targets, list):
+                for target in targets:
+                    if isinstance(target, dict):
+                        add_log_root(target.get("readable_log_dir"))
+            else:
+                add_log_root(pair.get("readable_log_dir"))
+        if not paths:
+            add_log_root(self.manager.readable_log_dir)
         return list(dict.fromkeys(paths))
 
     def _iter_finished_records(self) -> list[dict[str, Any]]:

@@ -15,7 +15,7 @@ from pathlib import Path
 from .constants import DEFAULT_STRIP_REQUEST_FIELDS
 from .http_utils import parse_header_overrides
 from .logger import TrafficLogger
-from .manager import DEFAULT_CONFIG_PATH, ProxyManager
+from .manager import DEFAULT_CONFIG_PATH, ProxyManager, readable_dir_from_log_root
 from .sanitize import parse_inject_request_fields, parse_strip_request_fields
 from .server import ProxyHandler, ProxyServer
 from .target import parse_target
@@ -57,8 +57,8 @@ def parse_args() -> argparse.Namespace:
     )
     parser.add_argument(
         "--readable-log-dir",
-        default=os.getenv("LLM_PROXY_READABLE_LOG_DIR", "logs/readable"),
-        help="Write one human-readable Markdown file per interaction. Use empty string to disable.",
+        default=os.getenv("LLM_PROXY_READABLE_LOG_DIR", "logs"),
+        help="Log root directory. Readable logs go under readable/ and task logs go under tasks/. Use empty string to disable.",
     )
     parser.add_argument("--timeout", type=float, default=float(os.getenv("LLM_PROXY_TIMEOUT", "600")))
     parser.add_argument(
@@ -96,13 +96,13 @@ def main() -> int:
     args = parse_args()
     if args.ui:
         log_file = Path(args.log_file)
-        readable_dir = Path(args.readable_log_dir) if args.readable_log_dir else None
-        manager = ProxyManager(Path(args.config_file), log_file, readable_dir)
+        log_root = Path(args.readable_log_dir) if args.readable_log_dir else None
+        manager = ProxyManager(Path(args.config_file), log_file, log_root)
         ui_url = f"http://{args.ui_host}:{args.ui_port}"
         print(f"LLM proxy UI listening on {ui_url}", flush=True)
         print(f"Proxy pair config: {Path(args.config_file).resolve()}", flush=True)
-        if readable_dir:
-            print(f"Readable logs directory: {readable_dir.resolve()}", flush=True)
+        if log_root:
+            print(f"Logs directory: {log_root.resolve()}", flush=True)
         open_browser_later(ui_url)
         try:
             serve_admin(args.ui_host, args.ui_port, manager)
@@ -115,7 +115,8 @@ def main() -> int:
     strip_request_fields = parse_strip_request_fields(args.strip_request_fields)
     inject_request_fields = parse_inject_request_fields(args.inject_request_fields)
     log_file = Path(args.log_file)
-    readable_dir = Path(args.readable_log_dir) if args.readable_log_dir else None
+    log_root = Path(args.readable_log_dir) if args.readable_log_dir else None
+    readable_dir = readable_dir_from_log_root(log_root)
     logger = TrafficLogger(log_file, readable_dir)
     config = {
         # 这个 config 会挂在 ProxyServer 上，ProxyHandler 处理每个请求时读取它。
