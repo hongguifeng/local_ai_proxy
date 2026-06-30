@@ -6,6 +6,34 @@ LLM Proxy 是一个以 Web 控制台为核心的本地 LLM 代理管理工具。
 
 当前项目的主要使用方式已经从命令行参数切换到 UI 界面。命令行主要负责启动服务和兼容旧脚本；日常配置、启停代理、查看日志、搜索历史、检查请求响应内容，都推荐在内置 Web UI 中完成。
 
+## 代理和路由示意
+
+一个 Web 控制台可以管理多个本地监听入口。每个监听入口既可以作为普通的一对一代理，也可以根据请求模型路由到多个不同上游。
+
+```mermaid
+flowchart LR
+  UI["Web 控制台<br/>http://127.0.0.1:8088"] --> P1["代理配置 A<br/>监听 127.0.0.1:1234"]
+  UI --> P2["代理配置 B<br/>监听 127.0.0.1:2234"]
+  P1 --> A1["上游 A<br/>https://provider-a.example/v1"]
+  P2 --> B1["本地模型服务<br/>http://127.0.0.1:1235"]
+```
+
+在同一个监听入口内部，代理会读取顶层 JSON `model` 字段来选择转发地址。命中的转发地址可以在发给上游前改写模型名；没有匹配到的请求会走默认转发地址。
+
+```mermaid
+flowchart LR
+  Client["Agent / SDK<br/>base_url=http://127.0.0.1:1234"] --> Proxy["LLM Proxy<br/>读取 request.model"]
+  Proxy --> MatchA{"model = A-gpt-5.5?"}
+  MatchA -- 是 --> RewriteA["改写 model<br/>A-gpt-5.5 -> gpt-5.5"]
+  RewriteA --> UpstreamA["转发地址 A<br/>https://provider-a.example/v1"]
+  MatchA -- 否 --> MatchB{"model = B-qwen?"}
+  MatchB -- 是 --> RewriteB["改写 model<br/>B-qwen -> qwen3"]
+  RewriteB --> UpstreamB["转发地址 B<br/>https://provider-b.example/v1"]
+  MatchB -- 否 --> Default["默认转发地址<br/>兜底上游"]
+```
+
+每个转发地址都有自己的超时、可读日志目录、上游 headers 和 request 字段改写规则。非默认转发地址可以临时关闭，关闭后不会参与模型匹配。
+
 ## 核心功能
 
 - 在一个 Web 界面中管理多个本地代理配置。
