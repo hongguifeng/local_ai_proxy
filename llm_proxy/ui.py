@@ -29,6 +29,7 @@ INDEX_HTML = r"""<!doctype html>
     button.primary { background: var(--accent); color: white; border-color: var(--accent); }
     button.primary:hover { background: #19684c; }
     button.icon { width: 34px; height: 34px; padding: 0; display: inline-grid; place-items: center; }
+    button.icon.active { background: #d0e1f5; color: #1a5cb5; }
     input, textarea { width: 100%; min-width: 0; border: 1px solid #c8d2df; border-radius: 6px; padding: 7px 8px; background: var(--control); color: var(--ink); }
     input:focus, textarea:focus { outline: 2px solid #b8d9cd; border-color: var(--accent); background: #ffffff; }
     textarea { min-height: 64px; resize: vertical; font-family: ui-monospace, SFMono-Regular, Consolas, monospace; font-size: 12px; }
@@ -115,9 +116,10 @@ INDEX_HTML = r"""<!doctype html>
     .json-number, .json-boolean { color: #1c5fb8; }
     .json-null { color: #7a6678; }
     .json-muted { color: var(--muted); }
-    .json-str-detail > summary { cursor: pointer; list-style: none; user-select: none; padding: 2px 4px; border-radius: 4px; }
+    .json-str-detail > summary { cursor: pointer; list-style: none; user-select: none; padding: 2px 4px; border-radius: 4px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
     .json-str-detail > summary:hover { background: #f3f6f8; }
     .json-str-detail > summary::-webkit-details-marker { display: none; }
+    .json-str-detail:not([open]) > summary { background: #eef5ff; border: 1px dashed #c0d4e8; }
     .json-str-detail[open] > summary { margin-bottom: 4px; }
     .json-str-full { display: grid; gap: 4px; align-items: start; }
     .json-str-copy { width: 26px; height: 26px; padding: 0; display: inline-grid; place-items: center; justify-self: start; background: var(--panel); font-size: 12px; }
@@ -529,9 +531,11 @@ INDEX_HTML = r"""<!doctype html>
         if (!shouldFormat) return `${keyHtml}<span class="json-string">${escapeHtml(JSON.stringify(value))}</span>`;
         const displayValue = formatString(value);
         if (displayValue.indexOf(String.fromCharCode(10)) !== -1 || displayValue.length > 200) {
-          const summary = escapeHtml(displayValue.substring(0, 150) + (displayValue.length > 150 ? "…" : ""));
+          const summaryRaw = displayValue.substring(0, 150);
+          const summarySingleLine = escapeHtml(summaryRaw.replace(/\r\n/g, '↵').replace(/\n/g, '↵'));
+          const summaryText = summarySingleLine + (displayValue.length > 150 ? "…" : "");
           const fullLines = displayValue.split(String.fromCharCode(10)).length;
-          return `${keyHtml}<details class="json-str-detail"><summary>${summary} <span class="json-muted">(${fullLines} ${t("lines")})</span></summary><div class="json-str-full"><button class="json-str-copy" data-copy-string title="${escapeHtml(t("copyFormattedText"))}">📋</button><pre class="json-str-body">${escapeHtml(displayValue)}</pre></div></details>`;
+          return `${keyHtml}<details class="json-str-detail"><summary>${summaryText} <span class="json-muted">(${fullLines} ${t("lines")})</span></summary><div class="json-str-full"><button class="json-str-copy" data-copy-string title="${escapeHtml(t("copyFormattedText"))}">📋</button><pre class="json-str-body">${escapeHtml(displayValue)}</pre></div></details>`;
         }
         return `${keyHtml}<span class="json-string format-mode">${escapeHtml(displayValue)}</span>`;
       }
@@ -564,6 +568,17 @@ INDEX_HTML = r"""<!doctype html>
         el.textContent = jsonText(state.raw[key]);
       }
       updateExpandButton(key);
+      updatePaneButtons(key);
+    }
+    function updatePaneButtons(key) {
+      document.querySelector(`[data-wrap="${key}"]`).classList.toggle("active", state.wrap[key]);
+      document.querySelector(`[data-format="${key}"]`).classList.toggle("active", state.formatStrings[key]);
+      const expandBtn = document.querySelector(`[data-expand="${key}"]`);
+      if (expandBtn) {
+        const details = Array.from($(key + "Json").querySelectorAll("details"));
+        const allOpen = details.length > 0 && details.every((detail) => detail.open);
+        expandBtn.classList.toggle("active", !allOpen);
+      }
     }
     function updateExpandButton(key) {
       const button = document.querySelector(`[data-expand="${key}"]`);
@@ -580,6 +595,8 @@ INDEX_HTML = r"""<!doctype html>
       state.raw.response = data.response;
       state.tree.request = true;
       state.tree.response = true;
+      state.formatStrings.request = true;
+      state.formatStrings.response = true;
       renderJsonPane("request");
       renderJsonPane("response");
     }
@@ -667,9 +684,10 @@ INDEX_HTML = r"""<!doctype html>
         detail.open = shouldOpen || detail.classList.contains("root") || parentDetail?.classList.contains("root");
       });
       updateExpandButton(key);
+      updatePaneButtons(key);
     }));
     ["request", "response"].forEach((key) => {
-      $(key + "Json").addEventListener("toggle", () => updateExpandButton(key), true);
+      $(key + "Json").addEventListener("toggle", () => { updateExpandButton(key); updatePaneButtons(key); }, true);
       $(key + "Json").addEventListener("click", (event) => {
         const button = event.target.closest("[data-copy-string]");
         if (!button) return;
