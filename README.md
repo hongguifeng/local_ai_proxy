@@ -6,6 +6,34 @@ LLM Proxy is a local web console for managing OpenAI-compatible LLM proxy traffi
 
 The command line is now mainly the launcher and compatibility layer. Day-to-day use is centered on the built-in UI: enable proxy pairs, edit upstream settings, search logs, and review complete interaction payloads without digging through terminal output.
 
+## How Routing Works
+
+One UI can manage multiple local proxy listeners. Each listener can either behave like a simple one-to-one proxy or route different request models to different upstreams.
+
+```mermaid
+flowchart LR
+  UI["Web Console<br/>http://127.0.0.1:8088"] --> P1["Proxy A<br/>listen 127.0.0.1:1234"]
+  UI --> P2["Proxy B<br/>listen 127.0.0.1:2234"]
+  P1 --> A1["Provider A<br/>https://provider-a.example/v1"]
+  P2 --> B1["Local model server<br/>http://127.0.0.1:1235"]
+```
+
+Inside one proxy listener, routing is based on the top-level JSON `model` field. Matching targets may rewrite the model name before forwarding; unmatched requests go to the configured default target.
+
+```mermaid
+flowchart LR
+  Client["Agent / SDK<br/>base_url=http://127.0.0.1:1234"] --> Proxy["LLM Proxy<br/>read request.model"]
+  Proxy --> MatchA{"model = A-gpt-5.5?"}
+  MatchA -- yes --> RewriteA["rewrite model<br/>A-gpt-5.5 -> gpt-5.5"]
+  RewriteA --> UpstreamA["Target A<br/>https://provider-a.example/v1"]
+  MatchA -- no --> MatchB{"model = B-qwen?"}
+  MatchB -- yes --> RewriteB["rewrite model<br/>B-qwen -> qwen3"]
+  RewriteB --> UpstreamB["Target B<br/>https://provider-b.example/v1"]
+  MatchB -- no --> Default["Default target<br/>fallback upstream"]
+```
+
+Each upstream target keeps its own timeout, readable log directory, upstream headers, and request-field rewrite rules. Non-default targets can be disabled temporarily; disabled targets are skipped during model matching.
+
 ## What It Does
 
 - Manage multiple local proxy pairs from one web interface.
