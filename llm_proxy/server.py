@@ -135,6 +135,7 @@ class ProxyHandler(BaseHTTPRequestHandler):
                 "inject_request_fields": self.server_config.get("inject_request_fields", {}),
                 "timeout": self.server_config["timeout"],
                 "model_mappings": [],
+                "enabled": True,
             }
         ]
 
@@ -156,6 +157,8 @@ class ProxyHandler(BaseHTTPRequestHandler):
         request_model = self._request_model(request_body)
         if request_model:
             for target in targets:
+                if target is not default_target and not bool(target.get("enabled", True)):
+                    continue
                 mappings = target.get("model_mappings")
                 if not isinstance(mappings, list):
                     continue

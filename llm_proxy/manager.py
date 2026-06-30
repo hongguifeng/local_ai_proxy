@@ -197,6 +197,7 @@ class ProxyManager:
             "inject_request_fields": parse_inject_request_fields(target_pair.get("inject_request_fields")),
             "timeout": float(target_pair.get("timeout", 600)),
             "model_mappings": list(target_pair.get("model_mappings") or []),
+            "enabled": bool(target_pair.get("enabled", True)),
         }
         runtime_target["traffic_logger"] = TrafficLogger(
             Path(target_pair.get("log_file") or pair.get("log_file") or self.log_file),
@@ -271,6 +272,7 @@ class ProxyManager:
             "timeout": float(target.get("timeout") or 600),
             "readable_log_dir": "" if target.get("readable_log_dir") == "" else str(target.get("readable_log_dir") or self.readable_log_dir or ""),
             "model_mappings": self._normalize_model_mappings(target.get("model_mappings") or target.get("models") or []),
+            "enabled": bool(target.get("enabled", True)),
         }
 
     def _normalize_model_mappings(self, mappings: Any) -> list[dict[str, str]]:
