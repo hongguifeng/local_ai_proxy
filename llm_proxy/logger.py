@@ -371,18 +371,13 @@ class TrafficLogger:
             if not self._task_static_boundaries_match(task, record, kind, payload):
                 continue
             last_seen_raw = task.get("last_seen_at", task.get("started_at"))
-            started_raw = task.get("started_at", last_seen_raw)
             try:
                 last_seen = dt.datetime.fromisoformat(str(last_seen_raw))
-                started_at = dt.datetime.fromisoformat(str(started_raw))
             except ValueError:
                 continue
             age_seconds = abs((now - last_seen).total_seconds())
-            task_span_seconds = abs((now - started_at).total_seconds())
-            if task_span_seconds > 30 * 60:
-                continue
-            if age_seconds > 30 * 60:
-                # 间隔超过 30 分钟的请求通常不应被认为是同一轮任务。
+            if age_seconds > 24 * 60 * 60:
+                # 间隔超过 24 小时的请求通常不应被认为是同一轮任务。
                 continue
 
             if kind in {"chat", "responses"} and not self._task_user_messages_are_contained(task, current_user_messages):
