@@ -19,15 +19,18 @@ INDEX_HTML = r"""<!doctype html>
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>LLM Proxy</title>
   <style>
-    :root { color-scheme: light; --bg: #f6f7f9; --panel: #ffffff; --ink: #17202a; --muted: #657080; --line: #d9dee7; --accent: #1f7a5a; --accent-soft: #dff3eb; --danger: #b42318; }
+    :root { color-scheme: light; --bg: #f3f5f8; --panel: #ffffff; --control: #f9fbfd; --button: #f1f5f9; --ink: #17202a; --muted: #657080; --line: #d5dde7; --accent: #1f7a5a; --accent-soft: #dff3eb; --danger: #b42318; }
     * { box-sizing: border-box; }
     html, body { height: 100%; overflow: hidden; }
     body { margin: 0; font: 14px/1.45 system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; background: var(--bg); color: var(--ink); }
     button, input, textarea, select { font: inherit; }
-    button { border: 1px solid var(--line); background: var(--panel); color: var(--ink); border-radius: 6px; padding: 7px 10px; cursor: pointer; }
+    button { border: 1px solid #c8d2df; background: var(--button); color: var(--ink); border-radius: 6px; padding: 7px 10px; cursor: pointer; }
+    button:hover { background: #e9eef5; }
     button.primary { background: var(--accent); color: white; border-color: var(--accent); }
+    button.primary:hover { background: #19684c; }
     button.icon { width: 34px; height: 34px; padding: 0; display: inline-grid; place-items: center; }
-    input, textarea { width: 100%; min-width: 0; border: 1px solid var(--line); border-radius: 6px; padding: 7px 8px; background: white; color: var(--ink); }
+    input, textarea { width: 100%; min-width: 0; border: 1px solid #c8d2df; border-radius: 6px; padding: 7px 8px; background: var(--control); color: var(--ink); }
+    input:focus, textarea:focus { outline: 2px solid #b8d9cd; border-color: var(--accent); background: #ffffff; }
     textarea { min-height: 64px; resize: vertical; font-family: ui-monospace, SFMono-Regular, Consolas, monospace; font-size: 12px; }
     .app { height: 100vh; display: grid; grid-template-rows: 52px 1fr; }
     header { display: flex; align-items: center; justify-content: space-between; padding: 0 18px; border-bottom: 1px solid var(--line); background: var(--panel); }
@@ -43,13 +46,18 @@ INDEX_HTML = r"""<!doctype html>
     .logs-view.active { display: grid; }
     .proxy-view { padding: 18px; overflow: auto; }
     .toolbar { display: flex; gap: 8px; align-items: center; justify-content: space-between; margin-bottom: 12px; }
-    .proxy-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(100%, 360px), 1fr)); gap: 12px; }
-    .proxy-card { min-width: 0; background: var(--panel); border: 1px solid var(--line); border-radius: 8px; padding: 12px; display: grid; gap: 10px; }
-    .target-card { min-width: 0; border: 1px solid var(--line); border-radius: 8px; padding: 10px; display: grid; gap: 8px; background: #fbfcfd; }
+    .proxy-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(100%, 360px), 1fr)); gap: 12px; align-items: start; }
+    .proxy-card { min-width: 0; background: var(--panel); border: 1px solid #d1dae5; border-radius: 8px; padding: 12px; display: grid; gap: 10px; box-shadow: 0 1px 2px rgba(23,32,42,.04); }
+    .target-card { min-width: 0; border: 1px solid #b8c5d3; border-radius: 8px; padding: 10px; display: grid; gap: 8px; background: #e6edf4; }
+    .target-card input, .target-card textarea { background: #ffffff; border-color: #b8c5d3; }
+    .target-card button { background: #dce6f0; border-color: #adbdcc; }
+    .target-card button:hover { background: #d2deea; }
     .target-head { display: flex; gap: 8px; align-items: center; justify-content: space-between; }
     .target-title { min-width: 0; display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: center; gap: 8px; font-weight: 650; }
     .default-target { display: inline-flex; width: auto; align-items: center; gap: 5px; color: var(--muted); font-size: 12px; }
     .default-target input { width: auto; }
+    .target-options { display: grid; gap: 8px; padding: 8px; border: 1px solid #c9d4df; border-radius: 6px; background: #f2f6fa; }
+    .target-options[hidden] { display: none; }
     .proxy-head { display: flex; align-items: center; gap: 8px; justify-content: space-between; }
     .proxy-title { display: flex; align-items: center; gap: 8px; font-weight: 650; min-width: 0; }
     .proxy-title input { min-width: 0; }
@@ -213,6 +221,8 @@ INDEX_HTML = r"""<!doctype html>
         targetName: "名称",
         defaultTarget: "默认",
         modelMappings: "模型映射，每行一个 监听模型 => 转发模型；省略 => 时保持同名",
+        moreTargetOptions: "更多配置",
+        lessTargetOptions: "收起配置",
         delete: "删除",
         history: "历史记录",
         task: "任务",
@@ -260,6 +270,8 @@ INDEX_HTML = r"""<!doctype html>
         targetName: "Name",
         defaultTarget: "Default",
         modelMappings: "Model mapping, one per line: listened model => upstream model; omit => to keep the same name",
+        moreTargetOptions: "More settings",
+        lessTargetOptions: "Collapse settings",
         delete: "Delete",
         history: "History",
         task: "Task",
@@ -312,11 +324,11 @@ INDEX_HTML = r"""<!doctype html>
       return status === undefined || status === null || status === "pending" ? t("pending") : String(status);
     }
     const suggestedStripRequestFields = __SUGGESTED_STRIP_REQUEST_FIELDS__;
-    const newTarget = () => ({ id: `target-${Date.now()}-${Math.random().toString(16).slice(2)}`, name: "Target", target_url: "http://127.0.0.1:1235", target_headers: [], strip_request_fields: "", inject_request_fields: "", timeout: 600, readable_log_dir: "", model_mappings: [] });
+    const newTarget = () => ({ id: `target-${Date.now()}-${Math.random().toString(16).slice(2)}`, name: "Target", target_url: "http://127.0.0.1:1235", target_headers: [], strip_request_fields: "", inject_request_fields: "", timeout: 600, readable_log_dir: "logs\\readable", model_mappings: [], expanded: false });
     const newPair = () => { const target = newTarget(); return { id: `proxy-${Date.now()}`, name: t("newProxy"), enabled: false, running: false, listen_host: "127.0.0.1", listen_port: 1234, access_log: false, targets: [target], default_target_id: target.id }; };
     function pairTargets(pair) {
       if (Array.isArray(pair.targets) && pair.targets.length) return pair.targets;
-      const target = { id: "target-1", name: "Target", target_url: pair.target_url || "http://127.0.0.1:1235", target_headers: pair.target_headers || [], strip_request_fields: pair.strip_request_fields || "", inject_request_fields: pair.inject_request_fields || "", timeout: pair.timeout || 600, readable_log_dir: pair.readable_log_dir || "", model_mappings: pair.model_mappings || [] };
+      const target = { id: "target-1", name: "Target", target_url: pair.target_url || "http://127.0.0.1:1235", target_headers: pair.target_headers || [], strip_request_fields: pair.strip_request_fields || "", inject_request_fields: pair.inject_request_fields || "", timeout: pair.timeout || 600, readable_log_dir: pair.readable_log_dir || "logs\\readable", model_mappings: pair.model_mappings || [], expanded: false };
       pair.targets = [target];
       pair.default_target_id = pair.default_target_id || target.id;
       return pair.targets;
@@ -325,6 +337,7 @@ INDEX_HTML = r"""<!doctype html>
       return (mappings || []).map((item) => item.upstream && item.upstream !== item.listen ? `${item.listen} => ${item.upstream}` : item.listen).join("\n");
     }
     function renderTarget(target, pair, pairIndex, targetIndex) {
+      const expanded = Boolean(target.expanded);
       return `
         <section class="target-card" data-target-index="${targetIndex}">
           <div class="target-head">
@@ -336,13 +349,16 @@ INDEX_HTML = r"""<!doctype html>
           </div>
           <label><span>${escapeHtml(t("targetUrl"))}</span><input data-target-field="target_url" value="${escapeHtml(target.target_url || "")}" placeholder="https://api.example.com/v1"></label>
           <label><span>${escapeHtml(t("modelMappings"))}</span><textarea data-target-field="model_mappings" placeholder="A-gpt-5.5 => gpt-5.5">${escapeHtml(mappingsText(target.model_mappings))}</textarea></label>
-          <div class="fields">
-            <label><span>${escapeHtml(t("timeoutSeconds"))}</span><input type="number" data-target-field="timeout" value="${target.timeout || 600}"></label>
-            <label><span>${escapeHtml(t("readableLogDir"))}</span><input data-target-field="readable_log_dir" value="${escapeHtml(target.readable_log_dir || "")}"></label>
+          <button data-toggle-target-options>${escapeHtml(t(expanded ? "lessTargetOptions" : "moreTargetOptions"))}</button>
+          <div class="target-options" ${expanded ? "" : "hidden"}>
+            <div class="fields">
+              <label><span>${escapeHtml(t("timeoutSeconds"))}</span><input type="number" data-target-field="timeout" value="${target.timeout || 600}"></label>
+              <label><span>${escapeHtml(t("readableLogDir"))}</span><input data-target-field="readable_log_dir" value="${escapeHtml(target.readable_log_dir || "logs\\readable")}"></label>
+            </div>
+            <label><span>${escapeHtml(t("upstreamHeaders"))}</span><textarea data-target-field="target_headers">${escapeHtml((target.target_headers || []).join("\n"))}</textarea></label>
+            <label><span>${escapeHtml(t("stripFields"))}</span><textarea data-target-field="strip_request_fields" placeholder="${escapeHtml(suggestedStripRequestFields)}">${escapeHtml(target.strip_request_fields ?? "")}</textarea></label>
+            <label><span>${escapeHtml(t("injectFields"))}</span><textarea data-target-field="inject_request_fields" placeholder='{"metadata":{"source":"proxy"}}'>${escapeHtml(target.inject_request_fields ?? "")}</textarea></label>
           </div>
-          <label><span>${escapeHtml(t("upstreamHeaders"))}</span><textarea data-target-field="target_headers">${escapeHtml((target.target_headers || []).join("\n"))}</textarea></label>
-          <label><span>${escapeHtml(t("stripFields"))}</span><textarea data-target-field="strip_request_fields" placeholder="${escapeHtml(suggestedStripRequestFields)}">${escapeHtml(target.strip_request_fields ?? "")}</textarea></label>
-          <label><span>${escapeHtml(t("injectFields"))}</span><textarea data-target-field="inject_request_fields" placeholder='{"metadata":{"source":"proxy"}}'>${escapeHtml(target.inject_request_fields ?? "")}</textarea></label>
         </section>`;
     }
     function renderPairs() {
@@ -556,6 +572,15 @@ INDEX_HTML = r"""<!doctype html>
         pairTargets(pair).push(target);
         pair.default_target_id = pair.default_target_id || target.id;
         renderPairs();
+        return;
+      }
+      if (event.target.matches("[data-toggle-target-options]")) {
+        collectPairs();
+        const targetCard = event.target.closest(".target-card");
+        const target = pairTargets(pair)[Number(targetCard.dataset.targetIndex)];
+        target.expanded = !target.expanded;
+        renderPairs();
+        return;
       }
       if (event.target.matches("[data-remove-target]")) {
         collectPairs();
@@ -565,6 +590,7 @@ INDEX_HTML = r"""<!doctype html>
         const removed = targets.splice(Number(targetCard.dataset.targetIndex), 1)[0];
         if (pair.default_target_id === removed.id) pair.default_target_id = targets[0].id;
         renderPairs();
+        return;
       }
       if (event.target.matches("[data-remove]")) { state.pairs.splice(Number(card.dataset.index), 1); renderPairs(); }
     });
