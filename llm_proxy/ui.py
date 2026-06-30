@@ -45,6 +45,11 @@ INDEX_HTML = r"""<!doctype html>
     .toolbar { display: flex; gap: 8px; align-items: center; justify-content: space-between; margin-bottom: 12px; }
     .proxy-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(100%, 360px), 1fr)); gap: 12px; }
     .proxy-card { min-width: 0; background: var(--panel); border: 1px solid var(--line); border-radius: 8px; padding: 12px; display: grid; gap: 10px; }
+    .target-card { min-width: 0; border: 1px solid var(--line); border-radius: 8px; padding: 10px; display: grid; gap: 8px; background: #fbfcfd; }
+    .target-head { display: flex; gap: 8px; align-items: center; justify-content: space-between; }
+    .target-title { min-width: 0; display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: center; gap: 8px; font-weight: 650; }
+    .default-target { display: inline-flex; width: auto; align-items: center; gap: 5px; color: var(--muted); font-size: 12px; }
+    .default-target input { width: auto; }
     .proxy-head { display: flex; align-items: center; gap: 8px; justify-content: space-between; }
     .proxy-title { display: flex; align-items: center; gap: 8px; font-weight: 650; min-width: 0; }
     .proxy-title input { min-width: 0; }
@@ -203,6 +208,11 @@ INDEX_HTML = r"""<!doctype html>
         upstreamHeaders: "上游 Headers，每行一个 Name: value",
         stripFields: "转发前移除的 request 字段，逗号分隔；留空关闭",
         injectFields: "转发前注入的 request 字段，JSON object；留空关闭",
+        targets: "转发地址",
+        addTarget: "添加转发地址",
+        targetName: "名称",
+        defaultTarget: "默认",
+        modelMappings: "模型映射，每行一个 监听模型 => 转发模型；省略 => 时保持同名",
         delete: "删除",
         history: "历史记录",
         task: "任务",
@@ -245,6 +255,11 @@ INDEX_HTML = r"""<!doctype html>
         upstreamHeaders: "Upstream headers, one Name: value per line",
         stripFields: "Request fields to remove before forwarding, comma-separated; leave blank to disable",
         injectFields: "Request fields to inject before forwarding, JSON object; leave blank to disable",
+        targets: "Targets",
+        addTarget: "Add target",
+        targetName: "Name",
+        defaultTarget: "Default",
+        modelMappings: "Model mapping, one per line: listened model => upstream model; omit => to keep the same name",
         delete: "Delete",
         history: "History",
         task: "Task",
@@ -297,7 +312,39 @@ INDEX_HTML = r"""<!doctype html>
       return status === undefined || status === null || status === "pending" ? t("pending") : String(status);
     }
     const suggestedStripRequestFields = __SUGGESTED_STRIP_REQUEST_FIELDS__;
-    const newPair = () => ({ id: `proxy-${Date.now()}`, name: t("newProxy"), enabled: false, running: false, listen_host: "127.0.0.1", listen_port: 1234, target_url: "http://127.0.0.1:1235", target_headers: [], strip_request_fields: "", inject_request_fields: "", timeout: 600, access_log: false });
+    const newTarget = () => ({ id: `target-${Date.now()}-${Math.random().toString(16).slice(2)}`, name: "Target", target_url: "http://127.0.0.1:1235", target_headers: [], strip_request_fields: "", inject_request_fields: "", timeout: 600, readable_log_dir: "", model_mappings: [] });
+    const newPair = () => { const target = newTarget(); return { id: `proxy-${Date.now()}`, name: t("newProxy"), enabled: false, running: false, listen_host: "127.0.0.1", listen_port: 1234, access_log: false, targets: [target], default_target_id: target.id }; };
+    function pairTargets(pair) {
+      if (Array.isArray(pair.targets) && pair.targets.length) return pair.targets;
+      const target = { id: "target-1", name: "Target", target_url: pair.target_url || "http://127.0.0.1:1235", target_headers: pair.target_headers || [], strip_request_fields: pair.strip_request_fields || "", inject_request_fields: pair.inject_request_fields || "", timeout: pair.timeout || 600, readable_log_dir: pair.readable_log_dir || "", model_mappings: pair.model_mappings || [] };
+      pair.targets = [target];
+      pair.default_target_id = pair.default_target_id || target.id;
+      return pair.targets;
+    }
+    function mappingsText(mappings) {
+      return (mappings || []).map((item) => item.upstream && item.upstream !== item.listen ? `${item.listen} => ${item.upstream}` : item.listen).join("\n");
+    }
+    function renderTarget(target, pair, pairIndex, targetIndex) {
+      return `
+        <section class="target-card" data-target-index="${targetIndex}">
+          <div class="target-head">
+            <div class="target-title">
+              <input data-target-field="name" value="${escapeHtml(target.name || "")}" placeholder="${escapeHtml(t("targetName"))}">
+              <label class="default-target"><input type="radio" name="default-target-${pairIndex}" data-default-target ${pair.default_target_id === target.id ? "checked" : ""}> <span>${escapeHtml(t("defaultTarget"))}</span></label>
+            </div>
+            <button data-remove-target>${escapeHtml(t("delete"))}</button>
+          </div>
+          <label><span>${escapeHtml(t("targetUrl"))}</span><input data-target-field="target_url" value="${escapeHtml(target.target_url || "")}" placeholder="https://api.example.com/v1"></label>
+          <label><span>${escapeHtml(t("modelMappings"))}</span><textarea data-target-field="model_mappings" placeholder="A-gpt-5.5 => gpt-5.5">${escapeHtml(mappingsText(target.model_mappings))}</textarea></label>
+          <div class="fields">
+            <label><span>${escapeHtml(t("timeoutSeconds"))}</span><input type="number" data-target-field="timeout" value="${target.timeout || 600}"></label>
+            <label><span>${escapeHtml(t("readableLogDir"))}</span><input data-target-field="readable_log_dir" value="${escapeHtml(target.readable_log_dir || "")}"></label>
+          </div>
+          <label><span>${escapeHtml(t("upstreamHeaders"))}</span><textarea data-target-field="target_headers">${escapeHtml((target.target_headers || []).join("\n"))}</textarea></label>
+          <label><span>${escapeHtml(t("stripFields"))}</span><textarea data-target-field="strip_request_fields" placeholder="${escapeHtml(suggestedStripRequestFields)}">${escapeHtml(target.strip_request_fields ?? "")}</textarea></label>
+          <label><span>${escapeHtml(t("injectFields"))}</span><textarea data-target-field="inject_request_fields" placeholder='{"metadata":{"source":"proxy"}}'>${escapeHtml(target.inject_request_fields ?? "")}</textarea></label>
+        </section>`;
+    }
     function renderPairs() {
       $("proxyGrid").innerHTML = state.pairs.map((p, i) => `
         <article class="proxy-card" data-index="${i}">
@@ -309,15 +356,9 @@ INDEX_HTML = r"""<!doctype html>
             <label><span>${escapeHtml(t("listenHost"))}</span><input data-field="listen_host" value="${escapeHtml(p.listen_host || "")}"></label>
             <label><span>${escapeHtml(t("port"))}</span><input type="number" data-field="listen_port" value="${p.listen_port || 0}"></label>
           </div>
-          <label><span>${escapeHtml(t("targetUrl"))}</span><input data-field="target_url" value="${escapeHtml(p.target_url || "")}" placeholder="https://api.example.com/v1"></label>
-          <div class="fields">
-            <label><span>${escapeHtml(t("timeoutSeconds"))}</span><input type="number" data-field="timeout" value="${p.timeout || 600}"></label>
-            <label><span>${escapeHtml(t("readableLogDir"))}</span><input data-field="readable_log_dir" value="${escapeHtml(p.readable_log_dir || "")}"></label>
-          </div>
-          <label><span>${escapeHtml(t("upstreamHeaders"))}</span><textarea data-field="target_headers">${escapeHtml((p.target_headers || []).join("\n"))}</textarea></label>
-          <label><span>${escapeHtml(t("stripFields"))}</span><textarea data-field="strip_request_fields" placeholder="${escapeHtml(suggestedStripRequestFields)}">${escapeHtml(p.strip_request_fields ?? "")}</textarea></label>
-          <label><span>${escapeHtml(t("injectFields"))}</span><textarea data-field="inject_request_fields" placeholder='{"metadata":{"source":"proxy"}}'>${escapeHtml(p.inject_request_fields ?? "")}</textarea></label>
-          <div class="row-actions"><button data-remove>${escapeHtml(t("delete"))}</button></div>
+          <strong>${escapeHtml(t("targets"))}</strong>
+          ${pairTargets(p).map((target, targetIndex) => renderTarget(target, p, i, targetIndex)).join("")}
+          <div class="row-actions"><button data-add-target>${escapeHtml(t("addTarget"))}</button><button data-remove>${escapeHtml(t("delete"))}</button></div>
         </article>`).join("");
     }
     function escapeHtml(text) { return String(text).replace(/[&<>"']/g, (ch) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[ch])); }
@@ -333,6 +374,25 @@ INDEX_HTML = r"""<!doctype html>
           if (field === "strip_request_fields" && value === "") value = "";
           if (field === "inject_request_fields" && value === "") value = "";
           pair[field] = value;
+        });
+        card.querySelectorAll(".target-card").forEach((targetCard) => {
+          const target = pairTargets(pair)[Number(targetCard.dataset.targetIndex)];
+          targetCard.querySelectorAll("[data-target-field]").forEach((input) => {
+            const field = input.dataset.targetField;
+            let value = input.value;
+            if (field === "timeout") value = Number(value);
+            if (field === "target_headers") value = value.split(/\n/).map((line) => line.trim()).filter(Boolean);
+            if (field === "model_mappings") {
+              value = value.split(/\n/).map((line) => line.trim()).filter(Boolean).map((line) => {
+                const parts = line.split(/\s*=>\s*/);
+                return { listen: parts[0].trim(), upstream: (parts[1] || parts[0]).trim() };
+              }).filter((item) => item.listen);
+            }
+            if (field === "strip_request_fields" && value === "") value = "";
+            if (field === "inject_request_fields" && value === "") value = "";
+            target[field] = value;
+          });
+          if (targetCard.querySelector("[data-default-target]")?.checked) pair.default_target_id = target.id;
         });
       });
     }
@@ -489,6 +549,23 @@ INDEX_HTML = r"""<!doctype html>
     $("proxyGrid").addEventListener("click", (event) => {
       const card = event.target.closest(".proxy-card");
       if (!card) return;
+      const pair = state.pairs[Number(card.dataset.index)];
+      if (event.target.matches("[data-add-target]")) {
+        collectPairs();
+        const target = newTarget();
+        pairTargets(pair).push(target);
+        pair.default_target_id = pair.default_target_id || target.id;
+        renderPairs();
+      }
+      if (event.target.matches("[data-remove-target]")) {
+        collectPairs();
+        const targetCard = event.target.closest(".target-card");
+        const targets = pairTargets(pair);
+        if (targets.length <= 1) return;
+        const removed = targets.splice(Number(targetCard.dataset.targetIndex), 1)[0];
+        if (pair.default_target_id === removed.id) pair.default_target_id = targets[0].id;
+        renderPairs();
+      }
       if (event.target.matches("[data-remove]")) { state.pairs.splice(Number(card.dataset.index), 1); renderPairs(); }
     });
     $("proxyGrid").addEventListener("change", async (event) => {
