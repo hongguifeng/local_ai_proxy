@@ -22,13 +22,11 @@ Inside one proxy listener, routing is based on the top-level JSON `model` field.
 
 ```mermaid
 flowchart LR
-  Client["Agent / SDK<br/>base_url=http://127.0.0.1:1234"] --> Proxy["LLM Proxy<br/>read request.model"]
-  Proxy --> MatchA{"model = A-gpt-5.5?"}
+  Client["Agent / SDK<br/>base_url=http://127.0.0.1:1234"] --> MatchA{"model = A-gpt-5.5?"}
   MatchA -- yes --> RewriteA["rewrite model<br/>A-gpt-5.5 -> gpt-5.5"]
   RewriteA --> UpstreamA["Target A<br/>https://provider-a.example/v1"]
-  MatchA -- no --> MatchB{"model = B-qwen?"}
-  MatchB -- yes --> RewriteB["rewrite model<br/>B-qwen -> qwen3"]
-  RewriteB --> UpstreamB["Target B<br/>https://provider-b.example/v1"]
+  MatchA -- no --> MatchB{"model = qwen3.6?"}
+  MatchB -- yes --> UpstreamB["Target B<br/>https://provider-b.example/v1"]
   MatchB -- no --> Default["Default target<br/>fallback upstream"]
 ```
 
