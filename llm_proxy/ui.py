@@ -787,6 +787,8 @@ class AdminHandler(BaseHTTPRequestHandler):
                     dir_name = str(task.get("dir_name") or "")
                     # Index may still hold an old dir_name; record anyway.
                     result[dir_name] = {
+                        "id": task_id,
+                        "dir_name": dir_name,
                         "model": task.get("model"),
                         "kind": task.get("kind"),
                     }
@@ -801,7 +803,12 @@ class AdminHandler(BaseHTTPRequestHandler):
                     model_candidate = parts[3]
                     if model_candidate and "/" not in model_candidate and chr(92) not in model_candidate:
                         # Looks like a model name, not another time segment.
-                        result[task_path.name] = {"model": model_candidate, "kind": parts[4]}
+                        result[task_path.name] = {
+                            "id": task_path.name,
+                            "dir_name": task_path.name,
+                            "model": model_candidate,
+                            "kind": parts[4],
+                        }
 
         return result
 
@@ -836,6 +843,7 @@ class AdminHandler(BaseHTTPRequestHandler):
             if not root.exists():
                 continue
             tasks_root = root.parent / "tasks"
+            task_meta_map = self._load_task_meta_map(root) if tasks_root.exists() else {}
             if tasks_root.exists():
                 for task_path in self._iter_dirs(tasks_root):
                     logs = []
@@ -852,9 +860,12 @@ class AdminHandler(BaseHTTPRequestHandler):
                     if not logs:
                         continue
                     logs.sort(key=lambda item: str(item.get("_sort_key") or item.get("timestamp") or ""), reverse=True)
+                    task_meta = task_meta_map.get(task_path.name) or {}
+                    group_id = str(task_meta.get("id") or task_path.name)
                     groups.append(
                         {
-                            "id": task_path.name,
+                            "id": group_id,
+                            "dir": task_path.name,
                             "title": self._task_group_title(task_path.name),
                             "meta": f"{len(logs)} requests",
                             "logs": logs,
@@ -912,13 +923,15 @@ class AdminHandler(BaseHTTPRequestHandler):
                 logs.sort(key=lambda item: str(item.get("_sort_key") or item.get("timestamp") or ""), reverse=True)
                 meta_parts_itg = [f"{len(logs)} requests"]
                 task_meta_itg = task_meta_map_itg.get(task_path.name) or {}
+                group_id_itg = str(task_meta_itg.get("id") or task_path.name)
                 model_name_itg = task_meta_itg.get("model")
                 if isinstance(model_name_itg, str) and model_name_itg.strip():
                     display_model_itg = model_name_itg.rsplit("/", 1)[-1].rsplit(chr(92), 1)[-1]
                     meta_parts_itg.insert(0, display_model_itg)
                 groups.append(
                     {
-                        "id": task_path.name,
+                        "id": group_id_itg,
+                        "dir": task_path.name,
                         "title": self._task_group_title(task_path.name),
                         "meta": " | ".join(meta_parts_itg),
                         "_record_ids": [str(item.get("id")) for item in logs],
@@ -1082,7 +1095,7 @@ class AdminHandler(BaseHTTPRequestHandler):
                 visible_group = {key: value for key, value in group.items() if not key.startswith("_")}
                 visible_group["logs"] = filtered_logs[:200]
                 filter_parts = [f"{len(filtered_logs)} requests"]
-                vis_task_meta = task_meta_map_list.get(group.get("id", "")) or {}
+                vis_task_meta = task_meta_map_list.get(str(group.get("dir") or group.get("id") or "")) or {}
                 vis_model = vis_task_meta.get("model")
                 if isinstance(vis_model, str) and vis_model.strip():
                     display_v = vis_model.rsplit("/", 1)[-1].rsplit(chr(92), 1)[-1]
@@ -1107,6 +1120,7 @@ class AdminHandler(BaseHTTPRequestHandler):
             str(value).lower()
             for value in [
                 group.get("id"),
+                group.get("dir"),
                 group.get("title"),
                 item.get("id"),
                 item.get("method"),
