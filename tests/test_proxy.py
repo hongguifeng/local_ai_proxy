@@ -1050,6 +1050,108 @@ class TargetUrlProxyTests(unittest.TestCase):
             upstream_b.server_close()
             log_dir.cleanup()
 
+    def test_disabled_non_default_target_is_skipped_for_model_routing(self) -> None:
+        seen: dict[str, int] = {"a": 0, "b": 0}
+
+        def make_handler(name: str) -> type[BaseHTTPRequestHandler]:
+            class UpstreamHandler(BaseHTTPRequestHandler):
+                def do_POST(self) -> None:
+                    length = int(self.headers.get("Content-Length", "0"))
+                    self.rfile.read(length)
+                    seen[name] += 1
+                    body = json.dumps({"upstream": name}).encode("utf-8")
+                    self.send_response(200)
+                    self.send_header("Content-Type", "application/json")
+                    self.send_header("Content-Length", str(len(body)))
+                    self.end_headers()
+                    self.wfile.write(body)
+
+                def log_message(self, fmt: str, *args: object) -> None:
+                    return
+
+            return UpstreamHandler
+
+        upstream_a = ThreadingHTTPServer(("127.0.0.1", 0), make_handler("a"))
+        upstream_b = ThreadingHTTPServer(("127.0.0.1", 0), make_handler("b"))
+        threading.Thread(target=upstream_a.serve_forever, daemon=True).start()
+        threading.Thread(target=upstream_b.serve_forever, daemon=True).start()
+        log_dir = tempfile.TemporaryDirectory()
+        proxy = None
+        try:
+            log_root = Path(log_dir.name)
+            logger = TrafficLogger(log_root / "interactions.jsonl", log_root / "readable")
+            proxy = ProxyServer(
+                ("127.0.0.1", 0),
+                ProxyHandler,
+                {
+                    "target_scheme": "http",
+                    "target_host": "127.0.0.1",
+                    "target_port": upstream_a.server_address[1],
+                    "target_base_path": "/v1",
+                    "target_headers": [],
+                    "strip_request_fields": set(),
+                    "inject_request_fields": {},
+                    "timeout": 5,
+                    "access_log": False,
+                    "default_target_id": "b",
+                    "targets": [
+                        {
+                            "id": "a",
+                            "name": "A",
+                            "enabled": False,
+                            "target_scheme": "http",
+                            "target_host": "127.0.0.1",
+                            "target_port": upstream_a.server_address[1],
+                            "target_base_path": "/v1",
+                            "target_headers": [],
+                            "strip_request_fields": set(),
+                            "inject_request_fields": {},
+                            "timeout": 5,
+                            "model_mappings": [{"listen": "A-gpt-5.5", "upstream": "gpt-5.5"}],
+                        },
+                        {
+                            "id": "b",
+                            "name": "B",
+                            "enabled": True,
+                            "target_scheme": "http",
+                            "target_host": "127.0.0.1",
+                            "target_port": upstream_b.server_address[1],
+                            "target_base_path": "/v1",
+                            "target_headers": [],
+                            "strip_request_fields": set(),
+                            "inject_request_fields": {},
+                            "timeout": 5,
+                            "model_mappings": [],
+                        },
+                    ],
+                },
+                logger,
+            )
+            threading.Thread(target=proxy.serve_forever, daemon=True).start()
+
+            conn = http.client.HTTPConnection("127.0.0.1", proxy.server_address[1], timeout=5)
+            conn.request(
+                "POST",
+                "/v1/chat/completions",
+                body=b'{"model":"A-gpt-5.5","messages":[]}',
+                headers={"Content-Type": "application/json"},
+            )
+            response = conn.getresponse()
+            self.assertEqual(response.status, 200)
+            self.assertEqual(json.loads(response.read()), {"upstream": "b"})
+            conn.close()
+
+            self.assertEqual(seen, {"a": 0, "b": 1})
+        finally:
+            if proxy is not None:
+                proxy.shutdown()
+                proxy.server_close()
+            upstream_a.shutdown()
+            upstream_a.server_close()
+            upstream_b.shutdown()
+            upstream_b.server_close()
+            log_dir.cleanup()
+
     def test_target_url_forwards_to_configured_upstream_and_logs_request_first(self) -> None:
         upstream_seen: dict[str, object] = {}
 

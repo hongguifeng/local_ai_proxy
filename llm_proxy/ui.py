@@ -46,9 +46,10 @@ INDEX_HTML = r"""<!doctype html>
     .logs-view.active { display: grid; }
     .proxy-view { padding: 18px; overflow: auto; }
     .toolbar { display: flex; gap: 8px; align-items: center; justify-content: space-between; margin-bottom: 12px; }
-    .proxy-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(100%, 360px), 1fr)); gap: 12px; align-items: start; }
+    .proxy-grid { display: grid; grid-template-columns: minmax(0, 1fr); gap: 12px; align-items: start; }
     .proxy-card { min-width: 0; background: var(--panel); border: 1px solid #d1dae5; border-radius: 8px; padding: 12px; display: grid; gap: 10px; box-shadow: 0 1px 2px rgba(23,32,42,.04); }
-    .target-card { min-width: 0; border: 1px solid #b8c5d3; border-radius: 8px; padding: 10px; display: grid; gap: 8px; background: #e6edf4; }
+    .targets-row { min-width: 0; display: flex; gap: 10px; overflow-x: auto; padding: 2px 2px 8px; scrollbar-gutter: stable; }
+    .target-card { flex: 0 0 min(360px, calc(100vw - 78px)); min-width: 300px; border: 1px solid #b8c5d3; border-radius: 8px; padding: 10px; display: grid; gap: 8px; background: #e6edf4; align-self: start; }
     .target-card input, .target-card textarea { background: #ffffff; border-color: #b8c5d3; }
     .target-card button { background: #dce6f0; border-color: #adbdcc; }
     .target-card button:hover { background: #d2deea; }
@@ -58,9 +59,15 @@ INDEX_HTML = r"""<!doctype html>
     .default-target input { width: auto; }
     .target-options { display: grid; gap: 8px; padding: 8px; border: 1px solid #c9d4df; border-radius: 6px; background: #f2f6fa; }
     .target-options[hidden] { display: none; }
-    .proxy-head { display: flex; align-items: center; gap: 8px; justify-content: space-between; }
+    .target-controls { display: flex; gap: 8px; align-items: center; justify-content: space-between; }
+    .target-enabled { display: inline-flex; width: auto; align-items: center; gap: 6px; color: var(--muted); font-size: 12px; }
+    .target-enabled input { width: auto; }
+    .proxy-head { display: grid; grid-template-columns: minmax(180px, 1fr) minmax(160px, 220px) 100px auto; gap: 8px; align-items: end; }
     .proxy-title { display: flex; align-items: center; gap: 8px; font-weight: 650; min-width: 0; }
     .proxy-title input { min-width: 0; }
+    .proxy-head label:not(.switch) { display: grid; grid-template-columns: auto minmax(0, 1fr); gap: 6px; align-items: center; }
+    .proxy-head label:not(.switch) span { white-space: nowrap; }
+    .proxy-head .switch { align-self: center; justify-self: end; }
     .status { width: 10px; height: 10px; border-radius: 50%; background: #a5adba; flex: 0 0 auto; }
     .status.running { background: var(--accent); }
     .switch { position: relative; width: 42px; height: 24px; flex: 0 0 auto; }
@@ -126,7 +133,12 @@ INDEX_HTML = r"""<!doctype html>
       .header-actions { justify-content: space-between; }
       .logs-view { grid-template-columns: 1fr; grid-template-rows: 260px 1fr; }
       .log-list { border-right: 0; border-bottom: 1px solid var(--line); }
-      .proxy-grid, .fields, .fields.three { grid-template-columns: 1fr; }
+      .proxy-head { grid-template-columns: 1fr; align-items: stretch; }
+      .proxy-head label:not(.switch) { grid-template-columns: 1fr; }
+      .proxy-head label:not(.switch) span { white-space: normal; }
+      .proxy-head .switch { justify-self: start; }
+      .fields, .fields.three { grid-template-columns: 1fr; }
+      .target-card { flex-basis: min(340px, calc(100vw - 56px)); min-width: 280px; }
     }
   </style>
 </head>
@@ -220,6 +232,7 @@ INDEX_HTML = r"""<!doctype html>
         addTarget: "添加转发地址",
         targetName: "名称",
         defaultTarget: "默认",
+        targetEnabled: "启用",
         modelMappings: "模型映射，每行一个 监听模型 => 转发模型；省略 => 时保持同名",
         moreTargetOptions: "更多配置",
         lessTargetOptions: "收起配置",
@@ -269,6 +282,7 @@ INDEX_HTML = r"""<!doctype html>
         addTarget: "Add target",
         targetName: "Name",
         defaultTarget: "Default",
+        targetEnabled: "Enabled",
         modelMappings: "Model mapping, one per line: listened model => upstream model; omit => to keep the same name",
         moreTargetOptions: "More settings",
         lessTargetOptions: "Collapse settings",
@@ -324,11 +338,11 @@ INDEX_HTML = r"""<!doctype html>
       return status === undefined || status === null || status === "pending" ? t("pending") : String(status);
     }
     const suggestedStripRequestFields = __SUGGESTED_STRIP_REQUEST_FIELDS__;
-    const newTarget = () => ({ id: `target-${Date.now()}-${Math.random().toString(16).slice(2)}`, name: "Target", target_url: "http://127.0.0.1:1235", target_headers: [], strip_request_fields: "", inject_request_fields: "", timeout: 600, readable_log_dir: "logs\\readable", model_mappings: [], expanded: false });
+    const newTarget = () => ({ id: `target-${Date.now()}-${Math.random().toString(16).slice(2)}`, name: "Target", enabled: true, target_url: "http://127.0.0.1:1235", target_headers: [], strip_request_fields: "", inject_request_fields: "", timeout: 600, readable_log_dir: "logs\\readable", model_mappings: [], expanded: false });
     const newPair = () => { const target = newTarget(); return { id: `proxy-${Date.now()}`, name: t("newProxy"), enabled: false, running: false, listen_host: "127.0.0.1", listen_port: 1234, access_log: false, targets: [target], default_target_id: target.id }; };
     function pairTargets(pair) {
       if (Array.isArray(pair.targets) && pair.targets.length) return pair.targets;
-      const target = { id: "target-1", name: "Target", target_url: pair.target_url || "http://127.0.0.1:1235", target_headers: pair.target_headers || [], strip_request_fields: pair.strip_request_fields || "", inject_request_fields: pair.inject_request_fields || "", timeout: pair.timeout || 600, readable_log_dir: pair.readable_log_dir || "logs\\readable", model_mappings: pair.model_mappings || [], expanded: false };
+      const target = { id: "target-1", name: "Target", enabled: true, target_url: pair.target_url || "http://127.0.0.1:1235", target_headers: pair.target_headers || [], strip_request_fields: pair.strip_request_fields || "", inject_request_fields: pair.inject_request_fields || "", timeout: pair.timeout || 600, readable_log_dir: pair.readable_log_dir || "logs\\readable", model_mappings: pair.model_mappings || [], expanded: false };
       pair.targets = [target];
       pair.default_target_id = pair.default_target_id || target.id;
       return pair.targets;
@@ -338,18 +352,22 @@ INDEX_HTML = r"""<!doctype html>
     }
     function renderTarget(target, pair, pairIndex, targetIndex) {
       const expanded = Boolean(target.expanded);
+      const isDefault = pair.default_target_id === target.id;
       return `
         <section class="target-card" data-target-index="${targetIndex}">
           <div class="target-head">
             <div class="target-title">
               <input data-target-field="name" value="${escapeHtml(target.name || "")}" placeholder="${escapeHtml(t("targetName"))}">
-              <label class="default-target"><input type="radio" name="default-target-${pairIndex}" data-default-target ${pair.default_target_id === target.id ? "checked" : ""}> <span>${escapeHtml(t("defaultTarget"))}</span></label>
+              <label class="default-target"><input type="radio" name="default-target-${pairIndex}" data-default-target ${isDefault ? "checked" : ""}> <span>${escapeHtml(t("defaultTarget"))}</span></label>
             </div>
             <button data-remove-target>${escapeHtml(t("delete"))}</button>
           </div>
           <label><span>${escapeHtml(t("targetUrl"))}</span><input data-target-field="target_url" value="${escapeHtml(target.target_url || "")}" placeholder="https://api.example.com/v1"></label>
           <label><span>${escapeHtml(t("modelMappings"))}</span><textarea data-target-field="model_mappings" placeholder="A-gpt-5.5 => gpt-5.5">${escapeHtml(mappingsText(target.model_mappings))}</textarea></label>
-          <button data-toggle-target-options>${escapeHtml(t(expanded ? "lessTargetOptions" : "moreTargetOptions"))}</button>
+          <div class="target-controls">
+            ${isDefault ? `<span class="target-enabled">${escapeHtml(t("defaultTarget"))}</span>` : `<label class="target-enabled"><input type="checkbox" data-target-enabled ${target.enabled !== false ? "checked" : ""}> <span>${escapeHtml(t("targetEnabled"))}</span></label>`}
+            <button data-toggle-target-options>${escapeHtml(t(expanded ? "lessTargetOptions" : "moreTargetOptions"))}</button>
+          </div>
           <div class="target-options" ${expanded ? "" : "hidden"}>
             <div class="fields">
               <label><span>${escapeHtml(t("timeoutSeconds"))}</span><input type="number" data-target-field="timeout" value="${target.timeout || 600}"></label>
@@ -366,16 +384,22 @@ INDEX_HTML = r"""<!doctype html>
         <article class="proxy-card" data-index="${i}">
           <div class="proxy-head">
             <div class="proxy-title"><span class="status ${p.running ? "running" : ""}"></span><input data-field="name" value="${escapeHtml(p.name || "")}"></div>
-            <label class="switch" title="${escapeHtml(t("switch"))}"><input type="checkbox" data-toggle ${p.enabled ? "checked" : ""}><span class="slider"></span></label>
-          </div>
-          <div class="fields">
             <label><span>${escapeHtml(t("listenHost"))}</span><input data-field="listen_host" value="${escapeHtml(p.listen_host || "")}"></label>
             <label><span>${escapeHtml(t("port"))}</span><input type="number" data-field="listen_port" value="${p.listen_port || 0}"></label>
+            <label class="switch" title="${escapeHtml(t("switch"))}"><input type="checkbox" data-toggle ${p.enabled ? "checked" : ""}><span class="slider"></span></label>
           </div>
           <strong>${escapeHtml(t("targets"))}</strong>
-          ${pairTargets(p).map((target, targetIndex) => renderTarget(target, p, i, targetIndex)).join("")}
+          <div class="targets-row">
+            ${pairTargets(p).map((target, targetIndex) => renderTarget(target, p, i, targetIndex)).join("")}
+          </div>
           <div class="row-actions"><button data-add-target>${escapeHtml(t("addTarget"))}</button><button data-remove>${escapeHtml(t("delete"))}</button></div>
         </article>`).join("");
+    }
+    function rerenderPairAtScroll(card, scrollLeft) {
+      const index = card.dataset.index;
+      renderPairs();
+      const nextRow = document.querySelector(`.proxy-card[data-index="${index}"] .targets-row`);
+      if (nextRow) nextRow.scrollLeft = scrollLeft;
     }
     function escapeHtml(text) { return String(text).replace(/[&<>"']/g, (ch) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[ch])); }
     function collectPairs() {
@@ -409,6 +433,11 @@ INDEX_HTML = r"""<!doctype html>
             target[field] = value;
           });
           if (targetCard.querySelector("[data-default-target]")?.checked) pair.default_target_id = target.id;
+          const enabledInput = targetCard.querySelector("[data-target-enabled]");
+          target.enabled = enabledInput ? enabledInput.checked : true;
+        });
+        pairTargets(pair).forEach((target) => {
+          if (target.id === pair.default_target_id) target.enabled = true;
         });
       });
     }
@@ -566,12 +595,14 @@ INDEX_HTML = r"""<!doctype html>
       const card = event.target.closest(".proxy-card");
       if (!card) return;
       const pair = state.pairs[Number(card.dataset.index)];
+      const targetRow = card.querySelector(".targets-row");
+      const targetScrollLeft = targetRow ? targetRow.scrollLeft : 0;
       if (event.target.matches("[data-add-target]")) {
         collectPairs();
         const target = newTarget();
         pairTargets(pair).push(target);
         pair.default_target_id = pair.default_target_id || target.id;
-        renderPairs();
+        rerenderPairAtScroll(card, targetScrollLeft);
         return;
       }
       if (event.target.matches("[data-toggle-target-options]")) {
@@ -579,7 +610,7 @@ INDEX_HTML = r"""<!doctype html>
         const targetCard = event.target.closest(".target-card");
         const target = pairTargets(pair)[Number(targetCard.dataset.targetIndex)];
         target.expanded = !target.expanded;
-        renderPairs();
+        rerenderPairAtScroll(card, targetScrollLeft);
         return;
       }
       if (event.target.matches("[data-remove-target]")) {
@@ -589,7 +620,7 @@ INDEX_HTML = r"""<!doctype html>
         if (targets.length <= 1) return;
         const removed = targets.splice(Number(targetCard.dataset.targetIndex), 1)[0];
         if (pair.default_target_id === removed.id) pair.default_target_id = targets[0].id;
-        renderPairs();
+        rerenderPairAtScroll(card, targetScrollLeft);
         return;
       }
       if (event.target.matches("[data-remove]")) { state.pairs.splice(Number(card.dataset.index), 1); renderPairs(); }
