@@ -2,13 +2,18 @@
 
 English | [中文](README.cn.md)
 
-LLM Proxy is a local web console for managing OpenAI-compatible LLM proxy traffic. It lets you create one or more local proxy endpoints, forward each endpoint to a different upstream API, and inspect the full request/response history from a browser.
+LLM Proxy is a local web console for managing OpenAI-compatible LLM proxy traffic. It lets you create one or more local proxy endpoints, route each endpoint to one or more upstream APIs by request model, and inspect the full request/response history from a browser.
 
 The command line is now mainly the launcher and compatibility layer. Day-to-day use is centered on the built-in UI: enable proxy pairs, edit upstream settings, search logs, and review complete interaction payloads without digging through terminal output.
 
 ## What It Does
 
 - Manage multiple local proxy pairs from one web interface.
+- Give each local proxy pair one listen address and one or more upstream targets.
+- Route requests to different upstream targets by matching the top-level JSON `model` field.
+- Rewrite model names per upstream, for example receive `A-gpt-5.5` locally and forward it as `gpt-5.5`.
+- Configure a default upstream target for unmatched models.
+- Enable or disable non-default upstream targets without deleting their settings.
 - Forward OpenAI-compatible requests to local or remote upstreams such as `llama.cpp`, OpenRouter, or another compatible gateway.
 - Record complete request and response data, including headers, bodies, status codes, durations, client addresses, target addresses, and streaming summaries.
 - Browse logs in the UI with search across path, method, status, target, record id, and task grouping.
@@ -42,9 +47,11 @@ In the UI:
 1. Open the **Proxy** tab.
 2. Add or edit a proxy pair.
 3. Set the local listen address, for example `127.0.0.1:1234`.
-4. Set the upstream target URL, for example `http://127.0.0.1:1235` or `https://openrouter.ai/api/v1`.
-5. Enable the proxy pair.
-6. Point your Agent or SDK base URL to the local proxy address.
+4. Add one or more upstream targets, for example `http://127.0.0.1:1235` or `https://openrouter.ai/api/v1`.
+5. For each upstream target, optionally add model mappings such as `A-gpt-5.5 => gpt-5.5`.
+6. Choose the default target used when no model mapping matches.
+7. Enable the proxy pair.
+8. Point your Agent or SDK base URL to the local proxy address.
 
 For the default proxy pair, client requests should go to:
 
@@ -62,16 +69,41 @@ The **Proxy** tab is the main control surface. Each proxy pair includes:
 
 - Name and enabled/running status.
 - Listen host and port.
+- One or more upstream targets, shown horizontally inside the proxy pair.
+- A default target for unmatched request models.
+
+Each upstream target includes:
+
+- Enabled state. The default target is always available as fallback; non-default targets can be disabled.
 - Upstream target URL.
+- Model mappings, one per line. Use `local-model => upstream-model`; omit `=> upstream-model` to keep the same model name.
 - Timeout.
-- Readable log directory.
+- Readable log directory, default `logs\readable`.
 - Upstream headers, one `Name: value` entry per line.
 - Request fields to strip before forwarding.
 - Request fields to inject before forwarding as a JSON object.
 
+Only the target URL and model mappings are shown by default. Use **More settings** on a target card to reveal timeout, readable log directory, headers, and request-field rewriting options.
+
 Proxy pairs are saved to `logs/proxies.json` unless `--config-file` is provided.
 
 ![Proxy Management UI](doc/ui_proxy_en.png)
+
+### Model Routing
+
+When the proxy receives a request, it reads the top-level JSON `model` field and checks the enabled upstream targets in order. If a target has a matching model mapping, the request is forwarded to that target. If the mapping specifies a different upstream model name, the proxy rewrites `model` before forwarding.
+
+If no enabled non-default target matches, the request goes to the configured default target. The default target also handles requests without a readable JSON `model` field.
+
+Example target mappings:
+
+```text
+A-gpt-5.5 => gpt-5.5
+qwen-local => qwen3
+fallback-model
+```
+
+In the last line, `fallback-model` is forwarded with the same model name.
 
 ### History And Logs
 
@@ -95,16 +127,24 @@ The **History** tab lets you review captured traffic without opening log files m
 4. Configure your client base URL as `http://127.0.0.1:1234`.
 5. Open **History** to inspect the captured interaction.
 
+### Route Multiple Models From One Local Endpoint
+
+1. Create one proxy pair listening on `127.0.0.1:1234`.
+2. Add target A, for example `https://provider-a.example/v1`, and map `A-gpt-5.5 => gpt-5.5`.
+3. Add target B, for example `https://provider-b.example/v1`, and map `B-qwen => qwen3`.
+4. Set one target as the default fallback.
+5. Point your client at `http://127.0.0.1:1234`; requests are routed by their `model` field.
+
 ### Inspect A Remote Gateway
 
 1. Create a proxy pair with target URL `https://openrouter.ai/api/v1` or another OpenAI-compatible endpoint.
-2. Add required upstream headers in the proxy card, such as `Authorization: Bearer ...`.
+2. Add required upstream headers in the target card's **More settings** section, such as `Authorization: Bearer ...`.
 3. Enable the proxy pair.
 4. Point your local client at the proxy listen address.
 
 ### Normalize Request Parameters
 
-Some upstreams reject or ignore sampling fields from another client. In a proxy pair, use **Request fields to remove before forwarding** to strip top-level JSON fields such as:
+Some upstreams reject or ignore sampling fields from another client. In a target's **More settings** section, use **Request fields to remove before forwarding** to strip top-level JSON fields such as:
 
 ```text
 temperature, top_p, top_k, min_p, typical_p, repeat_penalty,
@@ -124,7 +164,7 @@ When a request is changed, the logs record `request.stripped_fields`, `request.i
 Default paths:
 
 - Proxy configuration: `logs/proxies.json`
-- Readable interaction logs: `logs/readable/`
+- Readable interaction logs: `logs/readable/` by default, configurable per upstream target.
 - Task-grouped logs: `logs/readable/tasks/`
 
 Each captured interaction is written to its own directory with:
