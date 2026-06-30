@@ -22,13 +22,11 @@ flowchart LR
 
 ```mermaid
 flowchart LR
-  Client["Agent / SDK<br/>base_url=http://127.0.0.1:1234"] --> Proxy["LLM Proxy<br/>读取 request.model"]
-  Proxy --> MatchA{"model = A-gpt-5.5?"}
+  Client["Agent / SDK<br/>base_url=http://127.0.0.1:1234"] --> MatchA{"model = A-gpt-5.5?"}
   MatchA -- 是 --> RewriteA["改写 model<br/>A-gpt-5.5 -> gpt-5.5"]
   RewriteA --> UpstreamA["转发地址 A<br/>https://provider-a.example/v1"]
-  MatchA -- 否 --> MatchB{"model = B-qwen?"}
-  MatchB -- 是 --> RewriteB["改写 model<br/>B-qwen -> qwen3"]
-  RewriteB --> UpstreamB["转发地址 B<br/>https://provider-b.example/v1"]
+  MatchA -- 否 --> MatchB{"model = qwen3.6?"}
+  MatchB -- 是 --> UpstreamB["转发地址 B<br/>https://provider-b.example/v1"]
   MatchB -- 否 --> Default["默认转发地址<br/>兜底上游"]
 ```
 
