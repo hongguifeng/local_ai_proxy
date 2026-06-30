@@ -102,6 +102,7 @@ Each upstream target includes:
 
 - Enabled state. The default target is always available as fallback; non-default targets can be disabled.
 - Upstream target URL.
+- API Key. If set, it adds or replaces `Authorization: Bearer ...` on forwarded requests.
 - Model mappings, one per line. Use `local-model => upstream-model`; omit `=> upstream-model` to keep the same model name.
 - Timeout.
 - Log directory, default `logs`.
@@ -109,7 +110,7 @@ Each upstream target includes:
 - Request fields to strip before forwarding.
 - Request fields to inject before forwarding as a JSON object.
 
-Only the target URL and model mappings are shown by default. Use **More settings** on a target card to reveal timeout, readable log directory, headers, and request-field rewriting options.
+The target URL, API Key, and model mappings are shown by default. Use **More settings** on a target card to reveal timeout, readable log directory, headers, and request-field rewriting options.
 
 Proxy pairs are saved to `logs/proxies.json` unless `--config-file` is provided.
 
@@ -164,7 +165,7 @@ The **History** tab lets you review captured traffic without opening log files m
 ### Inspect A Remote Gateway
 
 1. Create a proxy pair with target URL `https://openrouter.ai/api/v1` or another OpenAI-compatible endpoint.
-2. Add required upstream headers in the target card's **More settings** section, such as `Authorization: Bearer ...`.
+2. Add the upstream key in the target card's **API Key** field, for example `sk-or-...`.
 3. Enable the proxy pair.
 4. Point your local client at the proxy listen address.
 
@@ -226,7 +227,7 @@ Header injection example:
 ```powershell
 python -m llm_proxy `
   --target-url https://openrouter.ai/api/v1 `
-  --target-header "Authorization: Bearer sk-or-..." `
+  --target-api-key "sk-or-..." `
   --target-header "HTTP-Referer: http://localhost" `
   --target-header "X-Title: LLM Proxy"
 ```
@@ -253,6 +254,7 @@ Common launcher options and environment variables:
 - `--target-scheme` / `LLM_PROXY_TARGET_SCHEME`
 - `--target-host` / `LLM_PROXY_TARGET_HOST`
 - `--target-port` / `LLM_PROXY_TARGET_PORT`
+- `--target-api-key` / `LLM_PROXY_TARGET_API_KEY`
 - `--target-header`
 - `--timeout` / `LLM_PROXY_TIMEOUT`
 - `--strip-request-fields` / `LLM_PROXY_STRIP_REQUEST_FIELDS`

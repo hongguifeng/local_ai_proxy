@@ -45,6 +45,11 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--target-host", default=os.getenv("LLM_PROXY_TARGET_HOST", "127.0.0.1"))
     parser.add_argument("--target-port", type=int, default=int(os.getenv("LLM_PROXY_TARGET_PORT", "1235")))
     parser.add_argument(
+        "--target-api-key",
+        default=os.getenv("LLM_PROXY_TARGET_API_KEY", ""),
+        help="API key for the upstream target. If set, overrides the Authorization header with Bearer <key>.",
+    )
+    parser.add_argument(
         "--target-header",
         action="append",
         default=None,
@@ -124,6 +129,7 @@ def main() -> int:
         "target_host": target["host"],
         "target_port": target["port"],
         "target_base_path": target["base_path"],
+        "target_api_key": str(args.target_api_key or "").strip(),
         "target_headers": target_headers,
         "strip_request_fields": strip_request_fields,
         "inject_request_fields": inject_request_fields,

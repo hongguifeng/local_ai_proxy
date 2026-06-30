@@ -63,6 +63,8 @@ INDEX_HTML = r"""<!doctype html>
     .target-controls { display: flex; gap: 8px; align-items: center; justify-content: space-between; }
     .target-enabled { display: inline-flex; width: auto; align-items: center; gap: 6px; color: var(--muted); font-size: 12px; }
     .target-enabled input { width: auto; }
+    .secret-field { display: grid; grid-template-columns: minmax(0, 1fr) 34px 34px; gap: 6px; align-items: center; }
+    .secret-field button { height: 34px; padding: 0; display: inline-grid; place-items: center; }
     .proxy-head { display: grid; grid-template-columns: minmax(180px, 1fr) minmax(160px, 220px) 100px auto; gap: 8px; align-items: end; }
     .proxy-title { display: flex; align-items: center; gap: 8px; font-weight: 650; min-width: 0; }
     .proxy-title input { min-width: 0; }
@@ -218,6 +220,7 @@ INDEX_HTML = r"""<!doctype html>
         copyJson: "复制 JSON",
         copiedJson: "已复制 JSON",
         copiedText: "已复制格式化文本",
+        copiedApiKey: "已复制 API Key",
         copyFailed: "复制失败",
         savedConfig: "配置已保存",
         newProxy: "新代理",
@@ -225,6 +228,10 @@ INDEX_HTML = r"""<!doctype html>
         listenHost: "监听地址",
         port: "端口",
         targetUrl: "转发地址",
+        targetApiKey: "API Key",
+        showApiKey: "显示 API Key",
+        hideApiKey: "隐藏 API Key",
+        copyApiKey: "复制 API Key",
         timeoutSeconds: "超时秒数",
         readableLogDir: "日志目录",
         upstreamHeaders: "上游 Headers，每行一个 Name: value",
@@ -268,6 +275,7 @@ INDEX_HTML = r"""<!doctype html>
         copyJson: "Copy JSON",
         copiedJson: "Copied JSON",
         copiedText: "Copied formatted text",
+        copiedApiKey: "Copied API Key",
         copyFailed: "Copy failed",
         savedConfig: "Config saved",
         newProxy: "New proxy",
@@ -275,6 +283,10 @@ INDEX_HTML = r"""<!doctype html>
         listenHost: "Listen host",
         port: "Port",
         targetUrl: "Target URL",
+        targetApiKey: "API Key",
+        showApiKey: "Show API Key",
+        hideApiKey: "Hide API Key",
+        copyApiKey: "Copy API Key",
         timeoutSeconds: "Timeout seconds",
         readableLogDir: "Log directory",
         upstreamHeaders: "Upstream headers, one Name: value per line",
@@ -340,11 +352,11 @@ INDEX_HTML = r"""<!doctype html>
       return status === undefined || status === null || status === "pending" ? t("pending") : String(status);
     }
     const suggestedStripRequestFields = __SUGGESTED_STRIP_REQUEST_FIELDS__;
-    const newTarget = () => ({ id: `target-${Date.now()}-${Math.random().toString(16).slice(2)}`, name: "Target", enabled: true, target_url: "http://127.0.0.1:1235", target_headers: [], strip_request_fields: "", inject_request_fields: "", timeout: 600, readable_log_dir: "logs", model_mappings: [], expanded: false });
+    const newTarget = () => ({ id: `target-${Date.now()}-${Math.random().toString(16).slice(2)}`, name: "Target", enabled: true, target_url: "http://127.0.0.1:1235", target_api_key: "", target_headers: [], strip_request_fields: "", inject_request_fields: "", timeout: 600, readable_log_dir: "logs", model_mappings: [], expanded: false });
     const newPair = () => { const target = newTarget(); return { id: `proxy-${Date.now()}`, name: t("newProxy"), enabled: false, running: false, listen_host: "127.0.0.1", listen_port: 1234, access_log: false, targets: [target], default_target_id: target.id }; };
     function pairTargets(pair) {
       if (Array.isArray(pair.targets) && pair.targets.length) return pair.targets;
-      const target = { id: "target-1", name: "Target", enabled: true, target_url: pair.target_url || "http://127.0.0.1:1235", target_headers: pair.target_headers || [], strip_request_fields: pair.strip_request_fields || "", inject_request_fields: pair.inject_request_fields || "", timeout: pair.timeout || 600, readable_log_dir: pair.readable_log_dir || "logs", model_mappings: pair.model_mappings || [], expanded: false };
+      const target = { id: "target-1", name: "Target", enabled: true, target_url: pair.target_url || "http://127.0.0.1:1235", target_api_key: pair.target_api_key || "", target_headers: pair.target_headers || [], strip_request_fields: pair.strip_request_fields || "", inject_request_fields: pair.inject_request_fields || "", timeout: pair.timeout || 600, readable_log_dir: pair.readable_log_dir || "logs", model_mappings: pair.model_mappings || [], expanded: false };
       pair.targets = [target];
       pair.default_target_id = pair.default_target_id || target.id;
       return pair.targets;
@@ -365,6 +377,14 @@ INDEX_HTML = r"""<!doctype html>
             <button data-remove-target>${escapeHtml(t("delete"))}</button>
           </div>
           <label><span>${escapeHtml(t("targetUrl"))}</span><input data-target-field="target_url" value="${escapeHtml(target.target_url || "")}" placeholder="https://api.example.com/v1"></label>
+          <label>
+            <span>${escapeHtml(t("targetApiKey"))}</span>
+            <div class="secret-field">
+              <input data-target-field="target_api_key" type="password" value="${escapeHtml(target.target_api_key || "")}" placeholder="sk-...">
+              <button type="button" data-toggle-api-key title="${escapeHtml(t("showApiKey"))}">👁</button>
+              <button type="button" data-copy-api-key title="${escapeHtml(t("copyApiKey"))}">📋</button>
+            </div>
+          </label>
           <label><span>${escapeHtml(t("modelMappings"))}</span><textarea data-target-field="model_mappings" placeholder="A-gpt-5.5 => gpt-5.5">${escapeHtml(mappingsText(target.model_mappings))}</textarea></label>
           <div class="target-controls">
             ${isDefault ? `<span class="target-enabled">${escapeHtml(t("defaultTarget"))}</span>` : `<label class="target-enabled"><input type="checkbox" data-target-enabled ${target.enabled !== false ? "checked" : ""}> <span>${escapeHtml(t("targetEnabled"))}</span></label>`}
@@ -628,6 +648,26 @@ INDEX_HTML = r"""<!doctype html>
         const target = pairTargets(pair)[Number(targetCard.dataset.targetIndex)];
         target.expanded = !target.expanded;
         rerenderPairAtScroll(card, targetScrollLeft);
+        return;
+      }
+      if (event.target.matches("[data-toggle-api-key]")) {
+        const field = event.target.closest(".secret-field");
+        const input = field?.querySelector("[data-target-field='target_api_key']");
+        if (!input) return;
+        const visible = input.type === "text";
+        input.type = visible ? "password" : "text";
+        event.target.classList.toggle("active", !visible);
+        event.target.title = t(visible ? "showApiKey" : "hideApiKey");
+        return;
+      }
+      if (event.target.matches("[data-copy-api-key]")) {
+        const field = event.target.closest(".secret-field");
+        const input = field?.querySelector("[data-target-field='target_api_key']");
+        if (!input) return;
+        navigator.clipboard.writeText(input.value || "").then(
+          () => toast(t("copiedApiKey")),
+          () => toast(t("copyFailed"))
+        );
         return;
       }
       if (event.target.matches("[data-remove-target]")) {

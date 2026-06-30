@@ -107,6 +107,11 @@ class ProxyHandler(BaseHTTPRequestHandler):
             # 用户通过 --target-header 指定的头拥有最高优先级，会覆盖客户端原来的同名头。
             forwarded = [(key, value) for key, value in forwarded if key.lower() not in override_keys]
             forwarded.extend(target["target_headers"])  # type: ignore[arg-type]
+        target_api_key = str(target.get("target_api_key") or "").strip()
+        if target_api_key:
+            auth_value = target_api_key if target_api_key.lower().startswith("bearer ") else f"Bearer {target_api_key}"
+            forwarded = [(key, value) for key, value in forwarded if key.lower() != "authorization"]
+            forwarded.append(("Authorization", auth_value))
         return forwarded
 
     def _upstream_headers(self, target: dict[str, object], body_size: int) -> list[tuple[str, str]]:
@@ -130,6 +135,7 @@ class ProxyHandler(BaseHTTPRequestHandler):
                 "target_host": self.server_config["target_host"],
                 "target_port": self.server_config["target_port"],
                 "target_base_path": self.server_config["target_base_path"],
+                "target_api_key": self.server_config.get("target_api_key", ""),
                 "target_headers": self.server_config["target_headers"],
                 "strip_request_fields": self.server_config["strip_request_fields"],
                 "inject_request_fields": self.server_config.get("inject_request_fields", {}),
