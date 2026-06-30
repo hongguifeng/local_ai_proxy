@@ -78,12 +78,12 @@ http://127.0.0.1:1234
 - 上游目标 URL。
 - 模型映射，每行一个。格式为 `监听模型 => 转发模型`；如果省略 `=> 转发模型`，则保持同名转发。
 - 超时时间。
-- 可读日志目录，默认 `logs\readable`。
+- 日志目录，默认 `logs`。
 - 上游 headers，每行一个 `Name: value`。
 - 转发前需要移除的 request 字段。
 - 转发前需要注入的 request 字段，格式为 JSON object。
 
-默认情况下，每个转发地址只显示 URL 和模型映射。点击转发地址块里的 **更多配置** 可展开超时、可读日志目录、headers 和 request 字段改写选项。
+默认情况下，每个转发地址只显示 URL 和模型映射。点击转发地址块里的 **更多配置** 可展开超时、日志目录、headers 和 request 字段改写选项。
 
 代理地址对默认保存到 `logs/proxies.json`，也可以通过 `--config-file` 指定其他配置文件。
 
@@ -164,8 +164,8 @@ presence_penalty, frequency_penalty, seed
 默认路径：
 
 - 代理配置：`logs/proxies.json`
-- 可读交互日志：默认 `logs/readable/`，可按转发地址单独配置
-- 按任务归档的日志：`logs/readable/tasks/`
+- 可读交互日志：默认 `logs/readable/`，可按转发地址单独配置日志根目录
+- 按任务归档的日志：`logs/tasks/`
 
 每次捕获到的交互都会写入独立目录，包含：
 
@@ -220,7 +220,7 @@ python -m llm_proxy --inject-request-fields '{"metadata":{"source":"proxy"},"str
 - `--ui-host` / `LLM_PROXY_UI_HOST`，默认 `127.0.0.1`
 - `--ui-port` / `LLM_PROXY_UI_PORT`，默认 `8088`
 - `--config-file` / `LLM_PROXY_CONFIG_FILE`，默认 `logs/proxies.json`
-- `--readable-log-dir` / `LLM_PROXY_READABLE_LOG_DIR`，默认 `logs/readable`
+- `--readable-log-dir` / `LLM_PROXY_READABLE_LOG_DIR`，默认 `logs`
 - `--listen-host` / `LLM_PROXY_HOST`
 - `--listen-port` / `LLM_PROXY_PORT`
 - `--target-url` / `LLM_PROXY_TARGET_URL`

@@ -1,8 +1,8 @@
 """流量日志记录器。
 
-本项目只写 ``logs/readable``：人类友好的 Markdown/JSON 文件，方便直接打开查看请求和响应。
+本项目默认把单次请求写到 ``logs/readable``：人类友好的 Markdown/JSON 文件，方便直接打开查看请求和响应。
 
-另外，日志器会尝试把同一个 LLM 任务中的多次请求归到同一个 ``tasks`` 目录。
+另外，日志器会尝试把同一个 LLM 任务中的多次请求归到同级的 ``tasks`` 目录。
 """
 
 from __future__ import annotations
