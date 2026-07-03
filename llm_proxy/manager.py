@@ -4,33 +4,33 @@ import json
 import threading
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any
+from typing import cast
 
-from .constants import DEFAULT_STRIP_REQUEST_FIELDS
+from .config import (
+    DEFAULT_CONFIG_PATH,
+    DEFAULT_LOG_ROOT,
+    SUGGESTED_STRIP_REQUEST_FIELDS_TEXT,
+    default_proxy_pair,
+    log_root_from_setting,
+    normalize_pair,
+    readable_dir_from_log_root,
+)
 from .file_io import atomic_write_text
 from .http_utils import parse_header_overrides
 from .logger import TrafficLogger
-from .models import JsonObject, ProxyPair, PublicProxyPair, RuntimeTarget, TargetConfig
+from .models import JsonObject, ProxyPair, ProxyServerConfig, PublicProxyPair, RuntimeTarget, TargetConfig
 from .sanitize import parse_inject_request_fields, parse_strip_request_fields
 from .server import ProxyHandler, ProxyServer
 from .target import parse_target_url
 
-DEFAULT_CONFIG_PATH = Path("logs/proxies.json")
-DEFAULT_LOG_ROOT = Path("logs")
-SUGGESTED_STRIP_REQUEST_FIELDS_TEXT = ",".join(DEFAULT_STRIP_REQUEST_FIELDS)
-
-
-def log_root_from_setting(value: str | Path | None) -> Path | None:
-    if value is None:
-        return None
-    return Path(value)
-
-
-def readable_dir_from_log_root(value: str | Path | None) -> Path | None:
-    root = log_root_from_setting(value)
-    if root is None:
-        return None
-    return root / "readable"
+__all__ = [
+    "DEFAULT_CONFIG_PATH",
+    "DEFAULT_LOG_ROOT",
+    "ProxyManager",
+    "SUGGESTED_STRIP_REQUEST_FIELDS_TEXT",
+    "log_root_from_setting",
+    "readable_dir_from_log_root",
+]
 
 
 @dataclass
@@ -54,35 +54,7 @@ class ProxyManager:
 
     def _load_pairs(self) -> list[ProxyPair]:
         if not self.config_path.exists():
-            return [
-                self._normalize_pair(
-                    {
-                        "id": "default",
-                        "name": "Default proxy",
-                        "enabled": False,
-                        "listen_host": "127.0.0.1",
-                        "listen_port": 1234,
-                        "access_log": False,
-                        "targets": [
-                            {
-                                "id": "target-1",
-                                "name": "Target",
-                                "enabled": True,
-                                "target_url": "http://127.0.0.1:1235",
-                                "target_api_key": "",
-                                "target_headers": [],
-                                "strip_request_fields": "",
-                                "inject_request_fields": "",
-                                "timeout": 600,
-                                "readable_log_dir": str(self.readable_log_dir or DEFAULT_LOG_ROOT),
-                                "redact_logs": False,
-                                "model_mappings": [],
-                            }
-                        ],
-                        "default_target_id": "target-1",
-                    }
-                )
-            ]
+            return [default_proxy_pair(self.readable_log_dir)]
         try:
             loaded = json.loads(self.config_path.read_text(encoding="utf-8"))
         except (OSError, json.JSONDecodeError):
@@ -90,7 +62,7 @@ class ProxyManager:
         raw_pairs = loaded.get("pairs") if isinstance(loaded, dict) else None
         if not isinstance(raw_pairs, list):
             return []
-        return [self._normalize_pair(pair) for pair in raw_pairs if isinstance(pair, dict)]
+        return [normalize_pair(pair, self.readable_log_dir) for pair in raw_pairs if isinstance(pair, dict)]
 
     def save(self) -> None:
         with self.lock:
@@ -114,7 +86,7 @@ class ProxyManager:
             return [self._public_pair(pair) for pair in self.pairs]
 
     def replace_pairs(self, pairs: list[JsonObject]) -> list[PublicProxyPair]:
-        normalized = [self._normalize_pair(pair) for pair in pairs]
+        normalized = [normalize_pair(pair, self.readable_log_dir) for pair in pairs]
         with self.lock:
             old_ids = {str(pair["id"]) for pair in self.pairs}
             new_ids = {str(pair["id"]) for pair in normalized}
@@ -166,7 +138,7 @@ class ProxyManager:
         logger = targets[0].get("traffic_logger")
         if not isinstance(logger, TrafficLogger):
             logger = TrafficLogger(self._readable_dir_for(pair))
-        config = {
+        config: ProxyServerConfig = {
             "targets": targets,
             "default_target_id": pair.get("default_target_id") or targets[0]["id"],
             "access_log": bool(pair.get("access_log", False)),
@@ -219,60 +191,4 @@ class ProxyManager:
         runtime = self.runtimes.get(str(pair["id"]))
         public["running"] = runtime is not None
         public["actual_listen_port"] = runtime.server.server_address[1] if runtime else None
-        return public
-
-    def _normalize_pair(self, pair: JsonObject) -> ProxyPair:
-        pair_id = str(pair.get("id") or f"proxy-{len(pair)}").strip()
-        targets = pair.get("targets")
-        normalized_targets = [self._normalize_target(target, index) for index, target in enumerate(targets) if isinstance(target, dict)] if isinstance(targets, list) else []
-        if not normalized_targets:
-            normalized_targets = [self._normalize_target({}, 0)]
-        default_target_id = str(pair.get("default_target_id") or normalized_targets[0]["id"])
-        if default_target_id not in {target["id"] for target in normalized_targets}:
-            default_target_id = str(normalized_targets[0]["id"])
-        normalized: ProxyPair = {
-            "id": pair_id,
-            "name": str(pair.get("name") or pair_id),
-            "enabled": bool(pair.get("enabled", False)),
-            "listen_host": str(pair.get("listen_host") or "127.0.0.1"),
-            "listen_port": int(pair.get("listen_port") or 1234),
-            "access_log": bool(pair.get("access_log", False)),
-            "targets": normalized_targets,
-            "default_target_id": default_target_id,
-        }
-        return normalized
-
-    def _normalize_target(self, target: JsonObject, index: int) -> TargetConfig:
-        target_id = str(target.get("id") or f"target-{index + 1}").strip()
-        inject_request_fields = target.get("inject_request_fields")
-        if isinstance(inject_request_fields, dict):
-            inject_request_fields = json.dumps(inject_request_fields, ensure_ascii=False, separators=(",", ":"))
-        elif inject_request_fields is None:
-            inject_request_fields = ""
-        return {
-            "id": target_id,
-            "name": str(target.get("name") or target_id),
-            "target_url": str(target.get("target_url") or "http://127.0.0.1:1235").strip(),
-            "target_api_key": str(target.get("target_api_key") or "").strip(),
-            "target_headers": list(target.get("target_headers") or []),
-            "strip_request_fields": target.get("strip_request_fields") or "",
-            "inject_request_fields": str(inject_request_fields),
-            "timeout": float(target.get("timeout") or 600),
-            "readable_log_dir": "" if target.get("readable_log_dir") == "" else str(log_root_from_setting(target.get("readable_log_dir") or self.readable_log_dir) or ""),
-            "redact_logs": bool(target.get("redact_logs", False)),
-            "model_mappings": self._normalize_model_mappings(target.get("model_mappings") or target.get("models") or []),
-            "enabled": bool(target.get("enabled", True)),
-        }
-
-    def _normalize_model_mappings(self, mappings: Any) -> list[dict[str, str]]:
-        normalized: list[dict[str, str]] = []
-        if not isinstance(mappings, list):
-            return normalized
-        for item in mappings:
-            if not isinstance(item, dict):
-                continue
-            listen = str(item.get("listen") or "").strip()
-            upstream = str(item.get("upstream") or listen).strip()
-            if listen:
-                normalized.append({"listen": listen, "upstream": upstream or listen})
-        return normalized
+        return cast(PublicProxyPair, public)

@@ -6,7 +6,8 @@ import threading
 from pathlib import Path
 from typing import Any
 
-from .manager import ProxyManager, readable_dir_from_log_root
+from .log_roots import readable_roots
+from .manager import ProxyManager
 from .payloads import body_json_value
 
 
@@ -139,24 +140,7 @@ class LogStore:
             self.record_cache.clear()
 
     def _readable_roots(self) -> list[Path]:
-        paths: list[Path] = []
-
-        def add_log_root(raw_path: object) -> None:
-            if not raw_path:
-                return
-            readable_root = readable_dir_from_log_root(str(raw_path))
-            if readable_root:
-                paths.append(readable_root)
-
-        for pair in self.manager.list_pairs():
-            targets = pair.get("targets")
-            if isinstance(targets, list):
-                for target in targets:
-                    if isinstance(target, dict):
-                        add_log_root(target.get("readable_log_dir"))
-        if not paths:
-            add_log_root(self.manager.readable_log_dir)
-        return list(dict.fromkeys(paths))
+        return readable_roots(self.manager)
 
     def _iter_finished_records(self) -> list[dict[str, Any]]:
         records = []
@@ -279,8 +263,8 @@ class LogStore:
         return value.replace("-", ":")
 
     def _build_snapshot(self) -> dict[str, Any]:
-        groups = []
-        ungrouped_records = []
+        groups: list[dict[str, Any]] = []
+        ungrouped_records: list[dict[str, Any]] = []
         task_record_ids: set[str] = set()
         by_id: dict[str, dict[str, Any]] = {}
 
@@ -291,7 +275,7 @@ class LogStore:
             task_meta_map = self._load_task_meta_map(root) if tasks_root.exists() else {}
             if tasks_root.exists():
                 for task_path in self._iter_dirs(tasks_root):
-                    logs = []
+                    logs: list[dict[str, Any]] = []
                     for request_path in self._iter_dirs(task_path):
                         record = self._read_readable_record(request_path, include_body=False)
                         if not record:
@@ -328,7 +312,14 @@ class LogStore:
                     ungrouped_records.append(record)
 
         groups.sort(
-            key=lambda group: max((str(item.get("_sort_key") or item.get("timestamp") or "") for item in group["logs"]), default=""),
+            key=lambda group: max(
+                (
+                    str(item.get("_sort_key") or item.get("timestamp") or "")
+                    for item in group.get("logs", [])
+                    if isinstance(item, dict)
+                ),
+                default="",
+            ),
             reverse=True,
         )
         ungrouped = [self._log_item(record) for record in ungrouped_records]
@@ -354,15 +345,20 @@ class LogStore:
         cache_signature = (stat.st_mtime_ns, stat.st_size)
         cached = self.record_cache.get(cache_key)
         if cached and cached[0] == cache_signature:
-            record = copy.deepcopy(cached[1])
+            record: dict[str, Any] = copy.deepcopy(cached[1])
         else:
-            record = self._read_readable_record_metadata(path, markdown_path)
-            if record is None:
+            loaded_record = self._read_readable_record_metadata(path, markdown_path)
+            if loaded_record is None:
                 return None
+            record = loaded_record
             self.record_cache[cache_key] = (cache_signature, copy.deepcopy(record))
         if include_body:
-            record["request"]["body_json"] = self._read_json_file(path / "request.json")
-            record["response"]["body_json"] = self._read_json_file(path / "response.json")
+            request = record.get("request")
+            if isinstance(request, dict):
+                request["body_json"] = self._read_json_file(path / "request.json")
+            response = record.get("response")
+            if isinstance(response, dict):
+                response["body_json"] = self._read_json_file(path / "response.json")
         return record
 
     def _read_readable_record_metadata(self, path: Path, markdown_path: Path) -> dict[str, Any] | None:
@@ -444,9 +440,12 @@ class LogStore:
             return value
 
     def _log_item(self, record: dict[str, Any]) -> dict[str, Any]:
-        request = record.get("request") if isinstance(record.get("request"), dict) else {}
-        response = record.get("response") if isinstance(record.get("response"), dict) else {}
-        target = record.get("target") if isinstance(record.get("target"), dict) else {}
+        request_obj = record.get("request")
+        request = request_obj if isinstance(request_obj, dict) else {}
+        response_obj = record.get("response")
+        response = response_obj if isinstance(response_obj, dict) else {}
+        target_obj = record.get("target")
+        target = target_obj if isinstance(target_obj, dict) else {}
         target_text = str(record.get("_target_text") or f"{target.get('scheme')}://{target.get('host')}:{target.get('port')}{target.get('path')}")
         return {
             "id": record.get("id"),

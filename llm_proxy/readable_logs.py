@@ -4,6 +4,7 @@ import datetime as dt
 import json
 from collections.abc import Mapping
 from pathlib import Path
+from typing import cast
 
 from .file_io import atomic_write_text
 from .payloads import body_json_value, render_headers
@@ -23,9 +24,9 @@ def ensure_readable_dir(path: Path) -> None:
 
 def readable_dir_name(record: Mapping[str, object]) -> str:
     timestamp = local_datetime_for_filename(readable_start_timestamp(record))
-    request = record["request"]  # type: ignore[index]
-    method = str(request["method"])  # type: ignore[index]
-    path = str(request["path"])  # type: ignore[index]
+    request = cast(Mapping[str, object], record["request"])
+    method = str(request["method"])
+    path = str(request["path"])
     safe_path = "".join(ch if ch.isalnum() else "-" for ch in path).strip("-")
     safe_path = safe_path[:80] or "root"
     return f"{timestamp}__{method}__{safe_path}__{record['id']}"
@@ -33,10 +34,10 @@ def readable_dir_name(record: Mapping[str, object]) -> str:
 
 def readable_filename(record: Mapping[str, object]) -> str:
     start_time = readable_start_timestamp(record)
-    duration_ms = record["duration_ms"]
+    duration_ms = float(cast(str | int | float, record["duration_ms"]))
 
     start_dt = dt.datetime.fromisoformat(str(start_time))
-    end_dt = start_dt + dt.timedelta(milliseconds=float(duration_ms))
+    end_dt = start_dt + dt.timedelta(milliseconds=duration_ms)
 
     start_str = local_time_from_timestamp_for_filename(start_time)
     end_str = end_dt.astimezone().strftime("%H-%M-%S.%f")[:-3]
@@ -48,19 +49,21 @@ def write_json_file(path: Path, value: object) -> None:
 
 
 def write_body_json_files(path: Path, record: Mapping[str, object]) -> None:
-    request = record["request"]  # type: ignore[assignment]
-    response = record["response"]  # type: ignore[assignment]
-    request_body = request.get("upstream_body", request["body"])  # type: ignore[index]
+    request = cast(Mapping[str, object], record["request"])
+    response = cast(Mapping[str, object], record["response"])
+    request_body = cast(Mapping[str, object], request.get("upstream_body", request["body"]))
+    response_body = cast(Mapping[str, object], response["body"])
     write_json_file(path / "request.json", body_json_value(request_body))
-    write_json_file(path / "response.json", body_json_value(response["body"]))  # type: ignore[index]
+    write_json_file(path / "response.json", body_json_value(response_body))
 
 
 def render_interaction_markdown(record: Mapping[str, object]) -> str:
-    request = record["request"]  # type: ignore[assignment]
-    response = record["response"]  # type: ignore[assignment]
-    target = record["target"]  # type: ignore[assignment]
-    client = record["client"]  # type: ignore[assignment]
+    request = cast(Mapping[str, object], record["request"])
+    response = cast(Mapping[str, object], record["response"])
+    target = cast(Mapping[str, object], record["target"])
+    client = cast(Mapping[str, object], record["client"])
     error = record.get("error")
+    duration_ms = float(cast(str | int | float, record["duration_ms"]))
     parts = [
         f"# LLM Interaction {record['id']}",
         "",
@@ -68,11 +71,11 @@ def render_interaction_markdown(record: Mapping[str, object]) -> str:
         "",
         f"- Time: {record['timestamp']}",
         f"- Event: {record.get('event', 'interaction')}",
-        f"- Duration: {format_duration_hms(float(record['duration_ms']))} ({record['duration_ms']} ms)",
-        f"- Client: {client['host']}:{client['port']}",  # type: ignore[index]
-        f"- Target: {target['scheme']}://{target['host']}:{target['port']}{target['path']}",  # type: ignore[index]
-        f"- Request: {request['method']} {request['path']}",  # type: ignore[index]
-        f"- Response: {response['status']}",  # type: ignore[index]
+        f"- Duration: {format_duration_hms(duration_ms)} ({record['duration_ms']} ms)",
+        f"- Client: {client['host']}:{client['port']}",
+        f"- Target: {target['scheme']}://{target['host']}:{target['port']}{target['path']}",
+        f"- Request: {request['method']} {request['path']}",
+        f"- Response: {response['status']}",
     ]
     if error:
         parts.append(f"- Error: {error}")
@@ -94,7 +97,7 @@ def render_interaction_markdown(record: Mapping[str, object]) -> str:
             "## Request Headers",
             "",
             "```text",
-            render_headers(request["headers"]),  # type: ignore[index]
+            render_headers(cast(Mapping[str, list[str]], request["headers"])),
             "```",
             "",
             "## Request Body",
@@ -108,7 +111,7 @@ def render_interaction_markdown(record: Mapping[str, object]) -> str:
             "## Response Headers",
             "",
             "```text",
-            render_headers(response["headers"]),  # type: ignore[index]
+            render_headers(cast(Mapping[str, list[str]], response["headers"])),
             "```",
             "",
             "## Response Body",

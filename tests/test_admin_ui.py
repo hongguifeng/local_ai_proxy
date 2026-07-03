@@ -12,6 +12,41 @@ from llm_proxy.manager import ProxyManager
 
 
 class AdminUiTests(unittest.TestCase):
+    def test_admin_static_assets_are_served(self) -> None:
+        temp_dir = tempfile.TemporaryDirectory()
+        server = None
+        try:
+            root = Path(temp_dir.name)
+            manager = ProxyManager(root / "proxies.json", root)
+            server = AdminServer(("127.0.0.1", 0), manager)
+            thread = threading.Thread(target=server.serve_forever, daemon=True)
+            thread.start()
+
+            conn = http.client.HTTPConnection("127.0.0.1", server.server_address[1], timeout=5)
+            conn.request("GET", "/static/app.css")
+            css_response = conn.getresponse()
+            css_body = css_response.read().decode("utf-8")
+            conn.close()
+
+            conn = http.client.HTTPConnection("127.0.0.1", server.server_address[1], timeout=5)
+            conn.request("GET", "/static/app.js")
+            js_response = conn.getresponse()
+            js_body = js_response.read().decode("utf-8")
+            conn.close()
+
+            self.assertEqual(css_response.status, 200)
+            self.assertIn("text/css", css_response.getheader("Content-Type", ""))
+            self.assertIn(".app", css_body)
+            self.assertEqual(js_response.status, 200)
+            self.assertIn("javascript", js_response.getheader("Content-Type", ""))
+            self.assertIn("suggestedStripRequestFields", js_body)
+            self.assertNotIn("__SUGGESTED_STRIP_REQUEST_FIELDS__", js_body)
+        finally:
+            if server is not None:
+                server.shutdown()
+                server.server_close()
+            temp_dir.cleanup()
+
     def test_proxy_pairs_can_be_saved_and_listed(self) -> None:
         temp_dir = tempfile.TemporaryDirectory()
         server = None

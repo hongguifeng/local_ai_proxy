@@ -2,12 +2,21 @@
 
 from __future__ import annotations
 
+from typing import TypedDict
 from urllib.parse import urlsplit
 
 from .constants import DEFAULT_PORTS
 
 
-def parse_target_url(raw_target_url: str) -> dict[str, object]:
+class ParsedTargetUrl(TypedDict):
+    scheme: str
+    host: str
+    port: int
+    base_path: str
+    display_url: str
+
+
+def parse_target_url(raw_target_url: str) -> ParsedTargetUrl:
     parsed = urlsplit(raw_target_url)
     if parsed.scheme not in DEFAULT_PORTS or not parsed.hostname:
         raise ValueError("target_url must look like http://host[:port][/base-path] or https://host[:port][/base-path].")

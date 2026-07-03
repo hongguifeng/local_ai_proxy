@@ -16,6 +16,7 @@ dependencies = []
 [project.optional-dependencies]
 dev = [
   "mypy>=1.10",
+  "pytest>=8.0",
   "ruff>=0.5",
 ]
 
@@ -26,7 +27,7 @@ llm-proxy = "llm_proxy.cli:main"
 include = ["llm_proxy*"]
 
 [tool.setuptools.package-data]
-llm_proxy = ["static/*.html"]
+llm_proxy = ["static/*.css", "static/*.html", "static/*.js"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
@@ -50,16 +51,7 @@ ignore = [
 
 [tool.mypy]
 python_version = "3.10"
-files = [
-  "llm_proxy/file_io.py",
-  "llm_proxy/http_utils.py",
-  "llm_proxy/log_maintenance.py",
-  "llm_proxy/models.py",
-  "llm_proxy/redaction.py",
-  "llm_proxy/sanitize.py",
-  "llm_proxy/target.py",
-  "llm_proxy/time_utils.py",
-]
+files = ["llm_proxy"]
 check_untyped_defs = true
 ignore_missing_imports = true
 follow_imports = "skip"

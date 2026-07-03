@@ -60,27 +60,28 @@ class TrafficLogger:
             self.task_grouper.prepare(record)
             self._write_readable(record)
 
-    def _write_readable(self, record: TrafficRecord) -> None:
+    def _write_readable(self, record: Mapping[str, object]) -> None:
         """写入或更新一条请求对应的 readable 目录。"""
         if not self.readable_dir:
             return
+        record_to_write = record
         if self.redact_logs:
-            record = redact_record(record)
-        record_id = str(record["id"])
+            record_to_write = redact_record(record)
+        record_id = str(record_to_write["id"])
         readable_path = self.readable_paths.get(record_id)
         if readable_path is None:
-            readable_path = self.readable_dir / readable_dir_name(record)
+            readable_path = self.readable_dir / readable_dir_name(record_to_write)
             ensure_readable_dir(readable_path)
             self.readable_paths[record_id] = readable_path
-        current_readable_filename = readable_filename(record)
+        current_readable_filename = readable_filename(record_to_write)
         # 同一个请求在“等待响应”和“请求完成”时会生成不同文件名，
         # 这里删除旧 Markdown，保持目录里只有最新状态的一份摘要。
         for existing_markdown in readable_path.glob("*.md"):
             if existing_markdown.name != current_readable_filename:
                 existing_markdown.unlink()
-        atomic_write_text(readable_path / current_readable_filename, render_interaction_markdown(record))
-        write_body_json_files(readable_path, record)
-        self._write_task_readable(record, current_readable_filename)
+        atomic_write_text(readable_path / current_readable_filename, render_interaction_markdown(record_to_write))
+        write_body_json_files(readable_path, record_to_write)
+        self._write_task_readable(record_to_write, current_readable_filename)
 
     def _write_task_readable(self, record: Mapping[str, object], readable_filename: str) -> None:
         """把当前请求也写进它所属的任务目录。"""

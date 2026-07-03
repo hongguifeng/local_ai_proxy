@@ -31,4 +31,4 @@ jobs:
         run: python -m compileall -q llm_proxy tests
 
       - name: Unit tests
-        run: python -m unittest discover -s tests
+        run: python -m pytest

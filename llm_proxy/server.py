@@ -7,7 +7,6 @@
 from __future__ import annotations
 
 import http.client
-import json
 import time
 import uuid
 from dataclasses import dataclass
@@ -18,6 +17,7 @@ from .http_utils import headers_to_dict
 from .logger import TrafficLogger
 from .models import JsonObject, ProxyServerConfig, RuntimeTarget, TrafficRecord
 from .payloads import bytes_payload
+from .routing import rewrite_request_model, select_target_by_model
 from .sanitize import transform_request_json_fields
 from .target import join_target_path
 from .time_utils import utc_now_iso
@@ -140,50 +140,6 @@ class ProxyHandler(BaseHTTPRequestHandler):
             return [target for target in targets if isinstance(target, dict)]
         raise ValueError("ProxyServer config must include at least one target.")
 
-    def _request_model(self, request_body: bytes) -> str | None:
-        try:
-            loaded = json.loads(request_body.decode("utf-8"))
-        except (UnicodeDecodeError, json.JSONDecodeError):
-            return None
-        if not isinstance(loaded, dict):
-            return None
-        model = loaded.get("model")
-        return model if isinstance(model, str) else None
-
-    def _select_target(self, request_body: bytes) -> tuple[RuntimeTarget, str | None, str | None]:
-        """按请求 model 选择上游，并返回可能需要改写成的上游 model。"""
-        targets = self._targets()
-        default_target_id = str(self.server_config.get("default_target_id") or "")
-        default_target = next((target for target in targets if str(target.get("id")) == default_target_id), targets[0])
-        request_model = self._request_model(request_body)
-        if request_model:
-            for target in targets:
-                if target is not default_target and not bool(target.get("enabled", True)):
-                    continue
-                mappings = target.get("model_mappings")
-                if not isinstance(mappings, list):
-                    continue
-                for mapping in mappings:
-                    if not isinstance(mapping, dict):
-                        continue
-                    listen_model = mapping.get("listen")
-                    if listen_model == request_model:
-                        upstream_model = mapping.get("upstream")
-                        return target, request_model, upstream_model if isinstance(upstream_model, str) and upstream_model else None
-        return default_target, request_model, None
-
-    def _rewrite_request_model(self, request_body: bytes, upstream_model: str | None) -> bytes:
-        if not upstream_model:
-            return request_body
-        try:
-            loaded = json.loads(request_body.decode("utf-8"))
-        except (UnicodeDecodeError, json.JSONDecodeError):
-            return request_body
-        if not isinstance(loaded, dict):
-            return request_body
-        loaded["model"] = upstream_model
-        return json.dumps(loaded, ensure_ascii=False, separators=(",", ":")).encode("utf-8")
-
     def _target_path(self, target: RuntimeTarget) -> tuple[str, str, int, str]:
         target_scheme = str(target["target_scheme"])
         target_host = str(target["target_host"])
@@ -234,7 +190,7 @@ class ProxyHandler(BaseHTTPRequestHandler):
         timestamp: str | None = None,
         error: str | None = None,
     ) -> TrafficRecord:
-        record = {
+        record: TrafficRecord = {
             **base_record,
             "event": event,
             "duration_ms": duration_ms,
@@ -378,12 +334,19 @@ class ProxyHandler(BaseHTTPRequestHandler):
             self.traffic_logger.write(self._event_record(initial_record, "request_received", 0))
 
         request_body = self._read_request_body()
-        selected_target, request_model, upstream_model = self._select_target(request_body)
+        selection = select_target_by_model(
+            self._targets(),
+            str(self.server_config.get("default_target_id") or ""),
+            request_body,
+        )
+        selected_target = selection.target
+        request_model = selection.request_model
+        upstream_model = selection.upstream_model
         active_logger = selected_target.get("traffic_logger")
         if not isinstance(active_logger, TrafficLogger):
             active_logger = self.traffic_logger
         target_scheme, target_host, target_port, target_path = self._target_path(selected_target)
-        model_rewritten_body = self._rewrite_request_model(request_body, upstream_model)
+        model_rewritten_body = rewrite_request_model(request_body, upstream_model)
         upstream_request_body, stripped_request_fields, injected_request_fields = transform_request_json_fields(
             model_rewritten_body,
             selected_target["strip_request_fields"],
@@ -399,7 +362,7 @@ class ProxyHandler(BaseHTTPRequestHandler):
             stripped_request_fields,
             injected_request_fields,
         )
-        base_record = {
+        base_record: TrafficRecord = {
             **initial_record,
             "target": {
                 "scheme": target_scheme,

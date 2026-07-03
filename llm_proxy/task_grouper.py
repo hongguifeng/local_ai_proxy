@@ -5,6 +5,7 @@ import uuid
 from collections.abc import Mapping
 from pathlib import Path
 
+from .models import TrafficRecord
 from .records import (
     endpoint_kind,
     first_string,
@@ -32,7 +33,7 @@ class TaskGrouper:
         self.task_index_store = task_index_store
         self.readable_dir = readable_dir
 
-    def prepare(self, record: dict[str, object]) -> None:
+    def prepare(self, record: TrafficRecord) -> None:
         """为当前记录匹配或创建一个 LLM 任务。
 
         只有常见的模型请求端点会进入任务归档逻辑，例如 Responses API、
@@ -128,7 +129,7 @@ class TaskGrouper:
         tasks = self.task_index.setdefault("tasks", {})
         if not isinstance(tasks, dict):
             self.task_index["tasks"] = {}
-            tasks = self.task_index["tasks"]  # type: ignore[assignment]
+            tasks = self.task_index["tasks"]
         if not isinstance(tasks, dict):
             return None
 
@@ -136,7 +137,7 @@ class TaskGrouper:
         if matched_id and isinstance(tasks.get(matched_id), dict):
             task = tasks[matched_id]
             task["last_match_confidence"] = 1.0 if kind == "responses" else task.get("last_match_confidence", 0.8)
-            return task  # type: ignore[return-value]
+            return task
 
         task = self._new_task(record, kind, payload)
         tasks[str(task["id"])] = task
@@ -218,7 +219,7 @@ class TaskGrouper:
         payload: Mapping[str, object],
         include_user_boundary: bool = True,
     ) -> dict[str, object]:
-        fingerprints = request_boundary_fingerprints(kind, payload)
+        fingerprints: dict[str, object] = dict(request_boundary_fingerprints(kind, payload))
         if not include_user_boundary:
             fingerprints.pop("first_user", None)
         return fingerprints
@@ -421,10 +422,12 @@ class TaskGrouper:
 
     def _task_request_dir_name(self, record: Mapping[str, object], sequence: int) -> str:
         """生成任务目录下单次请求的子目录名。"""
-        request = record["request"]  # type: ignore[index]
+        request = record["request"]
+        if not isinstance(request, Mapping):
+            request = {}
         started_at = record.get("started_timestamp", record.get("timestamp"))
         time_part = local_time_from_timestamp_for_filename(started_at)
-        path = safe_filename_part(request["path"], "root")  # type: ignore[index]
+        path = safe_filename_part(request.get("path"), "root")
         return f"{sequence:03d}__{time_part}__{path}__{record['id']}"
 
     def _model_name_for_dir_name(self, task: Mapping[str, object]) -> str:

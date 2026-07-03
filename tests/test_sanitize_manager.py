@@ -9,7 +9,7 @@ from llm_proxy import (
     transform_request_json_fields,
 )
 from llm_proxy.manager import SUGGESTED_STRIP_REQUEST_FIELDS_TEXT, ProxyManager
-from llm_proxy.ui import INDEX_HTML
+from llm_proxy.ui import APP_JS, INDEX_HTML
 
 
 class RequestSanitizationConfigTests(unittest.TestCase):
@@ -75,7 +75,8 @@ class RequestSanitizationConfigTests(unittest.TestCase):
             temp_dir.cleanup()
 
     def test_admin_html_uses_suggested_strip_fields_as_placeholder(self) -> None:
-        self.assertIn(json.dumps(SUGGESTED_STRIP_REQUEST_FIELDS_TEXT), INDEX_HTML)
-        self.assertIn('strip_request_fields: ""', INDEX_HTML)
-        self.assertIn('placeholder="${escapeHtml(suggestedStripRequestFields)}"', INDEX_HTML)
-        self.assertIn("inject_request_fields", INDEX_HTML)
+        self.assertIn('/static/app.js', INDEX_HTML)
+        self.assertIn(json.dumps(SUGGESTED_STRIP_REQUEST_FIELDS_TEXT), APP_JS)
+        self.assertIn('strip_request_fields: ""', APP_JS)
+        self.assertIn('placeholder="${escapeHtml(suggestedStripRequestFields)}"', APP_JS)
+        self.assertIn("inject_request_fields", APP_JS)

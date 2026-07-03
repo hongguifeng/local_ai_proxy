@@ -53,7 +53,7 @@ def compact_tool_calls(tool_calls: list[object]) -> list[object]:
             merge_tool_call_delta(merged, item)
         else:
             passthrough.append(item)
-    compacted = [merged[index] for index in sorted(merged)]
+    compacted: list[object] = [merged[index] for index in sorted(merged)]
     compacted.extend(passthrough)
     for tool_call in compacted:
         if not isinstance(tool_call, dict):
@@ -73,7 +73,7 @@ def compact_tool_calls(tool_calls: list[object]) -> list[object]:
 
 def compact_response_tool_calls(tool_calls: dict[str, dict[str, object]]) -> list[object]:
     """压缩 Responses API 的函数调用参数。"""
-    compacted = []
+    compacted: list[object] = []
     for key in sorted(tool_calls):
         tool_call = dict(tool_calls[key])
         arguments = tool_call.get("arguments")

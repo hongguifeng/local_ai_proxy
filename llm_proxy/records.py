@@ -151,7 +151,7 @@ def chat_prefix_messages(payload: Mapping[str, object], limit: int = 4) -> list[
     messages = payload.get("messages")
     if not isinstance(messages, list):
         return []
-    compacted = []
+    compacted: list[object] = []
     for message in messages:
         if not isinstance(message, Mapping):
             continue
@@ -175,7 +175,7 @@ def chat_content_messages(payload: Mapping[str, object]) -> list[object]:
     messages = payload.get("messages")
     if not isinstance(messages, list):
         return []
-    compacted = []
+    compacted: list[object] = []
     for message in messages:
         if not isinstance(message, Mapping):
             continue
@@ -281,7 +281,7 @@ def responses_first_user_message(payload: Mapping[str, object]) -> object | None
 
 def responses_user_messages(payload: Mapping[str, object]) -> list[object]:
     """Return non-fixed user messages from a Responses API payload."""
-    user_messages = []
+    user_messages: list[object] = []
     for item in responses_input_items(payload):
         if not isinstance(item, Mapping) or item.get("role") != "user":
             continue
@@ -296,7 +296,7 @@ def chat_user_messages(payload: Mapping[str, object]) -> list[object]:
     messages = payload.get("messages")
     if not isinstance(messages, list):
         return []
-    user_messages = []
+    user_messages: list[object] = []
     for message in messages:
         if not isinstance(message, Mapping) or message.get("role") != "user":
             continue

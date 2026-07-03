@@ -11,7 +11,7 @@ from urllib.parse import parse_qs, urlsplit
 from .log_maintenance import cleanup_logs, export_logs_zip
 from .log_store import LogStore
 from .manager import ProxyManager
-from .ui import INDEX_HTML
+from .ui import APP_CSS, APP_JS, INDEX_HTML
 
 
 class AdminHandler(BaseHTTPRequestHandler):
@@ -28,7 +28,13 @@ class AdminHandler(BaseHTTPRequestHandler):
     def do_GET(self) -> None:
         parsed = urlsplit(self.path)
         if parsed.path == "/":
-            self._send_html(INDEX_HTML)
+            self._send_text(INDEX_HTML, "text/html; charset=utf-8")
+            return
+        if parsed.path == "/static/app.css":
+            self._send_text(APP_CSS, "text/css; charset=utf-8")
+            return
+        if parsed.path == "/static/app.js":
+            self._send_text(APP_JS, "application/javascript; charset=utf-8")
             return
         if parsed.path == "/api/pairs":
             self._send_json({"pairs": self.manager.list_pairs()})
@@ -135,10 +141,10 @@ class AdminHandler(BaseHTTPRequestHandler):
             return None
         return parsed if parsed >= 0 else None
 
-    def _send_html(self, html: str) -> None:
-        data = html.encode("utf-8")
+    def _send_text(self, text: str, content_type: str) -> None:
+        data = text.encode("utf-8")
         self.send_response(200)
-        self.send_header("Content-Type", "text/html; charset=utf-8")
+        self.send_header("Content-Type", content_type)
         self.send_header("Content-Length", str(len(data)))
         self.send_header("Connection", "close")
         self.end_headers()
