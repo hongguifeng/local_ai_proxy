@@ -8,13 +8,19 @@
 from __future__ import annotations
 
 import datetime as dt
-import json
 import threading
 import uuid
 from pathlib import Path
 from typing import Mapping
 
-from .payloads import body_json_value, render_headers
+from .readable_logs import (
+    ensure_readable_dir,
+    readable_dir_name,
+    readable_filename,
+    render_interaction_markdown,
+    write_body_json_files,
+    write_task_index_markdown,
+)
 from .records import (
     endpoint_kind,
     first_string,
@@ -28,15 +34,12 @@ from .records import (
     response_ids_from_body,
     safe_filename_part,
 )
+from .task_index import TASK_MATCH_STRATEGY_VERSION, TaskIndexStore
 from .time_utils import (
-    format_duration_hms,
     local_datetime_for_filename,
     local_time_from_timestamp_for_filename,
-    readable_start_timestamp,
     utc_now_iso,
 )
-
-TASK_MATCH_STRATEGY_VERSION = 3
 
 
 class TrafficLogger:
@@ -51,8 +54,8 @@ class TrafficLogger:
         self.readable_paths: dict[str, Path] = {}
         # .task-index.json 保存“请求 ID/响应 ID/上下文 ID -> 任务”的索引，
         # 下次写日志时可以继续把相关请求放进同一个任务目录。
-        self.task_index_path = readable_dir.parent / ".task-index.json" if readable_dir else None
-        self.task_index = self._load_task_index()
+        self.task_index_store = TaskIndexStore(readable_dir.parent / ".task-index.json" if readable_dir else None)
+        self.task_index = self.task_index_store.load()
         if self.readable_dir:
             self.readable_dir.mkdir(parents=True, exist_ok=True)
 
@@ -78,46 +81,18 @@ class TrafficLogger:
         record_id = str(record["id"])
         readable_path = self.readable_paths.get(record_id)
         if readable_path is None:
-            readable_dir_name = self._readable_dir_name(record)
-            readable_path = self.readable_dir / readable_dir_name
-            self._ensure_readable_dir(readable_path)
+            readable_path = self.readable_dir / readable_dir_name(record)
+            ensure_readable_dir(readable_path)
             self.readable_paths[record_id] = readable_path
-        readable_filename = self._readable_filename(record)
+        current_readable_filename = readable_filename(record)
         # 同一个请求在“等待响应”和“请求完成”时会生成不同文件名，
         # 这里删除旧 Markdown，保持目录里只有最新状态的一份摘要。
         for existing_markdown in readable_path.glob("*.md"):
-            if existing_markdown.name != readable_filename:
+            if existing_markdown.name != current_readable_filename:
                 existing_markdown.unlink()
-        (readable_path / readable_filename).write_text(self._render_markdown(record), encoding="utf-8")
-        self._write_body_json_files(readable_path, record)
-        self._write_task_readable(record, readable_filename)
-
-    def _load_task_index(self) -> dict[str, object]:
-        """读取任务索引；文件不存在或损坏时返回空索引。"""
-        if not self.task_index_path or not self.task_index_path.exists():
-            return {"task_match_strategy_version": TASK_MATCH_STRATEGY_VERSION, "tasks": {}, "request_to_task": {}, "response_to_task": {}, "context_to_task": {}}
-        try:
-            loaded = json.loads(self.task_index_path.read_text(encoding="utf-8"))
-        except (OSError, json.JSONDecodeError):
-            return {"task_match_strategy_version": TASK_MATCH_STRATEGY_VERSION, "tasks": {}, "request_to_task": {}, "response_to_task": {}, "context_to_task": {}}
-        if not isinstance(loaded, dict):
-            return {"task_match_strategy_version": TASK_MATCH_STRATEGY_VERSION, "tasks": {}, "request_to_task": {}, "response_to_task": {}, "context_to_task": {}}
-        loaded.setdefault("task_match_strategy_version", TASK_MATCH_STRATEGY_VERSION)
-        loaded.setdefault("tasks", {})
-        loaded.setdefault("request_to_task", {})
-        loaded.setdefault("response_to_task", {})
-        loaded.setdefault("context_to_task", {})
-        return loaded
-
-    def _save_task_index(self) -> None:
-        """把任务索引写回磁盘。"""
-        if not self.task_index_path:
-            return
-        self.task_index["task_match_strategy_version"] = TASK_MATCH_STRATEGY_VERSION
-        payload = json.dumps(self.task_index, ensure_ascii=False, indent=2)
-        temp_path = self.task_index_path.with_name(f".{self.task_index_path.name}.{uuid.uuid4().hex}.tmp")
-        temp_path.write_text(payload, encoding="utf-8")
-        temp_path.replace(self.task_index_path)
+        (readable_path / current_readable_filename).write_text(render_interaction_markdown(record), encoding="utf-8")
+        write_body_json_files(readable_path, record)
+        self._write_task_readable(record, current_readable_filename)
 
     def _prepare_task(self, record: dict[str, object]) -> None:
         """为当前记录匹配或创建一个 LLM 任务。
@@ -208,7 +183,7 @@ class TrafficLogger:
             "request_sequence": request_info.get("sequence"),
             "confidence": task.get("last_match_confidence", 1.0),
         }
-        self._save_task_index()
+        self.task_index_store.save(self.task_index)
 
     def _find_or_create_task(self, record: Mapping[str, object], kind: str, payload: object) -> dict[str, object] | None:
         """查找现有任务；找不到就创建新任务。"""
@@ -582,155 +557,10 @@ class TrafficLogger:
 
         task_path = self.readable_dir.parent / "tasks" / str(task_dir_name)
         request_path_in_task = task_path / str(request_info["dir_name"])
-        self._ensure_readable_dir(request_path_in_task)
+        ensure_readable_dir(request_path_in_task)
         for existing_markdown in request_path_in_task.glob("*.md"):
             if existing_markdown.name != readable_filename:
                 existing_markdown.unlink()
-        (request_path_in_task / readable_filename).write_text(self._render_markdown(record), encoding="utf-8")
-        self._write_body_json_files(request_path_in_task, dict(record))
-        self._write_task_index_markdown(task_path, task)
-
-    def _write_task_index_markdown(self, task_path: Path, task: Mapping[str, object]) -> None:
-        """生成任务目录下的 index.md，列出该任务的请求时间线。"""
-        task_path.mkdir(parents=True, exist_ok=True)
-        requests = task.get("requests")
-        request_items = list(requests.items()) if isinstance(requests, dict) else []
-        request_items.sort(key=lambda item: item[1].get("sequence", 0) if isinstance(item[1], dict) else 0)
-        parts = [
-            f"# LLM Task {task.get('id')}",
-            "",
-            "## Summary",
-            "",
-            f"- Kind: {task.get('kind')}",
-            f"- Started: {task.get('started_at')}",
-            f"- Last seen: {task.get('last_seen_at')}",
-            f"- Requests: {task.get('request_count', len(request_items))}",
-        ]
-        if task.get("model"):
-            parts.append(f"- Model: {task.get('model')}")
-        parts.extend(["", "## Timeline", ""])
-        for request_id, info in request_items:
-            if not isinstance(info, dict):
-                continue
-            status = info.get("status")
-            status_text = "pending" if status is None else str(status)
-            method = info.get("method", "")
-            path = info.get("path", "")
-            duration = info.get("duration_ms", 0)
-            dir_name = info.get("dir_name")
-            parts.append(
-                f"- {int(info.get('sequence', 0)):03d} `{method} {path}` -> {status_text} "
-                f"({duration} ms) [{request_id}]({dir_name}/)"
-            )
-        parts.append("")
-        (task_path / "index.md").write_text("\n".join(parts), encoding="utf-8")
-
-    def _ensure_readable_dir(self, path: Path) -> None:
-        """确保目标是目录；如果同名文件已存在，先删除它。"""
-        if path.is_file():
-            path.unlink()
-        path.mkdir(parents=True, exist_ok=True)
-
-    def _write_json_file(self, path: Path, value: object) -> None:
-        """用统一格式写 JSON 文件。"""
-        path.write_text(json.dumps(value, ensure_ascii=False, indent=2), encoding="utf-8")
-
-    def _write_body_json_files(self, path: Path, record: dict[str, object]) -> None:
-        """在 readable 目录里写 request.json 和 response.json。"""
-        request = record["request"]  # type: ignore[assignment]
-        response = record["response"]  # type: ignore[assignment]
-        request_body = request.get("upstream_body", request["body"])  # type: ignore[index]
-        self._write_json_file(path / "request.json", body_json_value(request_body))
-        self._write_json_file(path / "response.json", body_json_value(response["body"]))  # type: ignore[index]
-
-    def _readable_dir_name(self, record: dict[str, object]) -> str:
-        """生成单次交互的 readable 目录名。"""
-        timestamp = local_datetime_for_filename(readable_start_timestamp(record))
-        method = str(record["request"]["method"])  # type: ignore[index]
-        path = str(record["request"]["path"])  # type: ignore[index]
-        safe_path = "".join(ch if ch.isalnum() else "-" for ch in path).strip("-")
-        safe_path = safe_path[:80] or "root"
-        return f"{timestamp}__{method}__{safe_path}__{record['id']}"
-
-    def _readable_filename(self, record: dict[str, object]) -> str:
-        """生成 Markdown 文件名，格式是 ``开始时间__结束时间.md``。"""
-        start_time = readable_start_timestamp(record)
-        duration_ms = record["duration_ms"]
-
-        start_dt = dt.datetime.fromisoformat(str(start_time))
-        end_dt = start_dt + dt.timedelta(milliseconds=duration_ms)
-
-        start_str = local_time_from_timestamp_for_filename(start_time)
-        end_str = end_dt.astimezone().strftime("%H-%M-%S.%f")[:-3]
-
-        return f"{start_str}__{end_str}.md"
-
-    def _render_markdown(self, record: dict[str, object]) -> str:
-        """把一条记录渲染成 Markdown 摘要。"""
-        request = record["request"]  # type: ignore[assignment]
-        response = record["response"]  # type: ignore[assignment]
-        target = record["target"]  # type: ignore[assignment]
-        client = record["client"]  # type: ignore[assignment]
-        error = record.get("error")
-        parts = [
-            f"# LLM Interaction {record['id']}",
-            "",
-            "## Summary",
-            "",
-            f"- Time: {record['timestamp']}",
-            f"- Event: {record.get('event', 'interaction')}",
-            f"- Duration: {format_duration_hms(record['duration_ms'])} ({record['duration_ms']} ms)",
-            f"- Client: {client['host']}:{client['port']}",  # type: ignore[index]
-            f"- Target: {target['scheme']}://{target['host']}:{target['port']}{target['path']}",  # type: ignore[index]
-            f"- Request: {request['method']} {request['path']}",  # type: ignore[index]
-            f"- Response: {response['status']}",  # type: ignore[index]
-        ]
-        if error:
-            parts.append(f"- Error: {error}")
-        stripped_fields = request.get("stripped_fields") if isinstance(request, dict) else None
-        if stripped_fields:
-            parts.append(f"- Stripped request fields: {', '.join(str(field) for field in stripped_fields)}")
-        injected_fields = request.get("injected_fields") if isinstance(request, dict) else None
-        if injected_fields:
-            parts.append(f"- Injected request fields: {', '.join(str(field) for field in injected_fields)}")
-        added_headers = request.get("added_upstream_headers") if isinstance(request, dict) else None
-        if added_headers:
-            parts.append(f"- Added upstream headers: {', '.join(str(field) for field in added_headers)}")
-        task = record.get("task")
-        if isinstance(task, dict):
-            parts.append(f"- Task: {task.get('kind')} / {task.get('id')} / request {task.get('request_sequence')}")
-        parts.extend(
-            [
-                "",
-                "## Request Headers",
-                "",
-                "```text",
-                render_headers(request["headers"]),  # type: ignore[index]
-                "```",
-                "",
-                "## Request Body",
-                "",
-                "See `request.json`.",
-            ]
-        )
-        parts.extend(
-            [
-                "",
-                "## Response Headers",
-                "",
-                "```text",
-                render_headers(response["headers"]),  # type: ignore[index]
-                "```",
-                "",
-                "## Response Body",
-                "",
-                "See `response.json`.",
-                "",
-            ]
-        )
-        return "\n".join(parts)
-
-    def write_index(self, record: dict[str, object]) -> None:
-        """预留接口：未来可以在 readable 根目录生成总索引。"""
-        if not self.readable_dir:
-            return
+        (request_path_in_task / readable_filename).write_text(render_interaction_markdown(record), encoding="utf-8")
+        write_body_json_files(request_path_in_task, dict(record))
+        write_task_index_markdown(task_path, task)
