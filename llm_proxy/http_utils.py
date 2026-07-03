@@ -2,7 +2,8 @@
 
 from __future__ import annotations
 
-from typing import Iterable
+from collections.abc import Iterable
+
 
 def headers_to_dict(headers: Iterable[tuple[str, str]]) -> dict[str, list[str]]:
     """把 HTTP 头列表转成字典。

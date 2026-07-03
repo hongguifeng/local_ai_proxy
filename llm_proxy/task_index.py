@@ -1,9 +1,9 @@
 from __future__ import annotations
 
 import json
-import uuid
 from pathlib import Path
 
+from .file_io import atomic_write_text
 
 TASK_MATCH_STRATEGY_VERSION = 3
 
@@ -43,6 +43,4 @@ class TaskIndexStore:
             return
         task_index["task_match_strategy_version"] = TASK_MATCH_STRATEGY_VERSION
         payload = json.dumps(task_index, ensure_ascii=False, indent=2)
-        temp_path = self.path.with_name(f".{self.path.name}.{uuid.uuid4().hex}.tmp")
-        temp_path.write_text(payload, encoding="utf-8")
-        temp_path.replace(self.path)
+        atomic_write_text(self.path, payload)

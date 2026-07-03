@@ -8,9 +8,10 @@ from __future__ import annotations
 
 import base64
 import json
-from typing import Mapping
+from collections.abc import Mapping
 
 from .streams import compact_sse_json
+
 
 def bytes_payload(data: bytes) -> dict[str, object]:
     """把原始 bytes 包装成日志里的 body 字段。

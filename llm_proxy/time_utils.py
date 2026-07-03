@@ -8,7 +8,8 @@
 from __future__ import annotations
 
 import datetime as dt
-from typing import Mapping
+from collections.abc import Mapping
+
 
 def utc_now_iso() -> str:
     """返回当前 UTC 时间，格式适合写入 JSON 日志。"""

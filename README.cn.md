@@ -202,6 +202,16 @@ presence_penalty, frequency_penalty, seed
 
 对于 OpenAI-compatible SSE 流式响应，`response.json` 会在保留原始流数据的同时写入聚合后的 `stream_summary`，其中可能包含 `content`、`reasoning`、`tool_calls`、`finish_reasons`、`usage` 等字段。
 
+## 安全说明
+
+LLM Proxy 面向本地开发和流量检查。除非你已经加了自己的网络访问控制，否则管理界面应保持绑定在 `127.0.0.1`。
+
+- 请求和响应日志可能包含 prompts、文档内容、API keys、工具输出和其他敏感数据。
+- 上游 API Key 会保存在代理配置文件中。请不要把 `logs/proxies.json` 或自定义配置文件提交到版本库。
+- 代理会把请求 body 转发到配置的上游。只把本地监听端口暴露给可信客户端。
+- request 字段移除功能适合处理已知不应发给上游的字段，但不要把它当作完整的数据防泄漏系统。
+- 不再需要的日志目录应定期轮转或删除。
+
 ## 配置参考
 
 常用启动参数和环境变量：
@@ -219,10 +229,13 @@ presence_penalty, frequency_penalty, seed
 ```text
 llm_proxy/
   __main__.py       # python -m llm_proxy 入口
+  admin_server.py   # 管理端 HTTP API 和 UI 服务生命周期
   cli.py            # Web 控制台启动器
-  ui.py             # 内置 Web 控制台和管理 API
+  ui.py             # 内置 Web 控制台 HTML/CSS/JS
+  file_io.py        # 小文件原子写入
   log_store.py      # 历史日志读取、缓存和搜索
   manager.py        # 多代理管理和配置持久化
+  models.py         # 共享的配置和日志记录类型结构
   server.py         # HTTP 代理服务和 handler
   logger.py         # Markdown/JSON 可读日志写入
   records.py        # 请求/响应分析和任务指纹
@@ -231,7 +244,15 @@ llm_proxy/
   target.py         # 上游 URL 解析和路径拼接
   payloads.py       # body 编码、解析和渲染辅助
 tests/
-  test_proxy.py
+  test_admin_ui.py
+  test_file_io.py
+  test_logger.py
+  test_sanitize_manager.py
+  test_server.py
+  test_streams.py
+  test_target.py
+.github/workflows/
+  ci.yml
 doc/
   ui_proxy_cn.png
   ui_logs_cn.png
@@ -242,5 +263,15 @@ pyproject.toml
 ## 测试
 
 ```powershell
+python -m unittest discover -s tests
+```
+
+开发检查：
+
+```powershell
+python -m pip install -e ".[dev]"
+python -m ruff check .
+python -m mypy
+python -m compileall -q llm_proxy tests
 python -m unittest discover -s tests
 ```

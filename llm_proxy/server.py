@@ -10,15 +10,26 @@ import http.client
 import json
 import time
 import uuid
+from dataclasses import dataclass
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
 from .constants import DEFAULT_PORTS, HOP_BY_HOP_HEADERS
 from .http_utils import headers_to_dict
 from .logger import TrafficLogger
+from .models import JsonObject, ProxyServerConfig, RuntimeTarget, TrafficRecord
 from .payloads import bytes_payload
 from .sanitize import transform_request_json_fields
 from .target import join_target_path
 from .time_utils import utc_now_iso
+
+
+@dataclass
+class UpstreamResult:
+    status: int
+    headers: list[tuple[str, str]]
+    body: bytes
+    error: str | None = None
+
 
 class ProxyHandler(BaseHTTPRequestHandler):
     """处理单个客户端 HTTP 请求的代理 Handler。
@@ -56,7 +67,7 @@ class ProxyHandler(BaseHTTPRequestHandler):
             super().log_message(fmt, *args)
 
     @property
-    def server_config(self) -> dict[str, object]:
+    def server_config(self) -> ProxyServerConfig:
         """取服务器启动时保存的配置。
 
         标准库的 ``self.server`` 类型比较宽泛，所以这里用 type ignore 告诉类型检查器：
@@ -83,7 +94,7 @@ class ProxyHandler(BaseHTTPRequestHandler):
             return b""
         return self.rfile.read(body_size) if body_size > 0 else b""
 
-    def _forward_headers(self, target: dict[str, object]) -> list[tuple[str, str]]:
+    def _forward_headers(self, target: RuntimeTarget) -> list[tuple[str, str]]:
         """构造转发给上游的请求头。
 
         代理不能原样复制所有头：Host 要改成上游地址，hop-by-hop 头要丢弃，
@@ -102,11 +113,11 @@ class ProxyHandler(BaseHTTPRequestHandler):
         forwarded.append(("Host", host_header))
         forwarded.append(("X-Forwarded-For", self.client_address[0]))
         forwarded.append(("X-Forwarded-Host", self.headers.get("Host", "")))
-        override_keys = {key.lower() for key, _ in target["target_headers"]}  # type: ignore[index]
+        override_keys = {key.lower() for key, _ in target["target_headers"]}
         if override_keys:
             # 用户通过 --target-header 指定的头拥有最高优先级，会覆盖客户端原来的同名头。
             forwarded = [(key, value) for key, value in forwarded if key.lower() not in override_keys]
-            forwarded.extend(target["target_headers"])  # type: ignore[arg-type]
+            forwarded.extend(target["target_headers"])
         target_api_key = str(target.get("target_api_key") or "").strip()
         if target_api_key:
             auth_value = target_api_key if target_api_key.lower().startswith("bearer ") else f"Bearer {target_api_key}"
@@ -114,7 +125,7 @@ class ProxyHandler(BaseHTTPRequestHandler):
             forwarded.append(("Authorization", auth_value))
         return forwarded
 
-    def _upstream_headers(self, target: dict[str, object], body_size: int) -> list[tuple[str, str]]:
+    def _upstream_headers(self, target: RuntimeTarget, body_size: int) -> list[tuple[str, str]]:
         """生成上游请求头，并根据实际转发 body 长度重写 Content-Length。"""
         headers = self._forward_headers(target)
         headers = [(key, value) for key, value in headers if key.lower() != "content-length"]
@@ -122,7 +133,7 @@ class ProxyHandler(BaseHTTPRequestHandler):
             headers.append(("Content-Length", str(body_size)))
         return headers
 
-    def _targets(self) -> list[dict[str, object]]:
+    def _targets(self) -> list[RuntimeTarget]:
         """Return the configured upstream targets."""
         targets = self.server_config.get("targets")
         if isinstance(targets, list) and targets:
@@ -139,7 +150,7 @@ class ProxyHandler(BaseHTTPRequestHandler):
         model = loaded.get("model")
         return model if isinstance(model, str) else None
 
-    def _select_target(self, request_body: bytes) -> tuple[dict[str, object], str | None, str | None]:
+    def _select_target(self, request_body: bytes) -> tuple[RuntimeTarget, str | None, str | None]:
         """按请求 model 选择上游，并返回可能需要改写成的上游 model。"""
         targets = self._targets()
         default_target_id = str(self.server_config.get("default_target_id") or "")
@@ -173,16 +184,16 @@ class ProxyHandler(BaseHTTPRequestHandler):
         loaded["model"] = upstream_model
         return json.dumps(loaded, ensure_ascii=False, separators=(",", ":")).encode("utf-8")
 
-    def _target_path(self, target: dict[str, object]) -> tuple[str, str, int, str]:
+    def _target_path(self, target: RuntimeTarget) -> tuple[str, str, int, str]:
         target_scheme = str(target["target_scheme"])
         target_host = str(target["target_host"])
         target_port = int(target["target_port"])
         target_base_path = str(target["target_base_path"])
         return target_scheme, target_host, target_port, join_target_path(target_base_path, self.path)
 
-    def _initial_record(self, request_id: str, target: dict[str, object]) -> dict[str, object]:
+    def _initial_record(self, request_id: str, target: RuntimeTarget) -> TrafficRecord:
         target_scheme, target_host, target_port, target_path = self._target_path(target)
-        record: dict[str, object] = {
+        record: TrafficRecord = {
             "id": request_id,
             "timestamp": utc_now_iso(),
             "client": {
@@ -213,7 +224,7 @@ class ProxyHandler(BaseHTTPRequestHandler):
 
     def _event_record(
         self,
-        base_record: dict[str, object],
+        base_record: TrafficRecord,
         event: str,
         duration_ms: float,
         *,
@@ -222,7 +233,7 @@ class ProxyHandler(BaseHTTPRequestHandler):
         response_body: bytes = b"",
         timestamp: str | None = None,
         error: str | None = None,
-    ) -> dict[str, object]:
+    ) -> TrafficRecord:
         record = {
             **base_record,
             "event": event,
@@ -243,13 +254,13 @@ class ProxyHandler(BaseHTTPRequestHandler):
         self,
         request_body: bytes,
         upstream_request_body: bytes,
-        selected_target: dict[str, object],
+        selected_target: RuntimeTarget,
         request_model: str | None,
         upstream_model: str | None,
         stripped_request_fields: list[str],
         injected_request_fields: list[str],
-    ) -> dict[str, object]:
-        record: dict[str, object] = {
+    ) -> JsonObject:
+        record: JsonObject = {
             "method": self.command,
             "path": self.path,
             "headers": headers_to_dict(self.headers.items()),
@@ -274,10 +285,78 @@ class ProxyHandler(BaseHTTPRequestHandler):
             }
         if stripped_request_fields or injected_request_fields or upstream_model:
             record["upstream_body"] = bytes_payload(upstream_request_body)
-        target_headers = selected_target["target_headers"]  # type: ignore[assignment]
+        target_headers = selected_target["target_headers"]
         if target_headers:
-            record["added_upstream_headers"] = [key for key, _ in target_headers]  # type: ignore[union-attr]
+            record["added_upstream_headers"] = [key for key, _ in target_headers]
         return record
+
+    def _forward_upstream_response(
+        self,
+        selected_target: RuntimeTarget,
+        target_scheme: str,
+        target_host: str,
+        target_port: int,
+        target_path: str,
+        upstream_request_body: bytes,
+    ) -> UpstreamResult:
+        """Forward the request upstream while streaming the response downstream."""
+        response_body_parts: list[bytes] = []
+        response_status = 502
+        response_headers: list[tuple[str, str]] = []
+        sent_downstream_headers = False
+        conn: http.client.HTTPConnection | None = None
+
+        try:
+            timeout = float(selected_target["timeout"])
+            conn_class = http.client.HTTPSConnection if target_scheme == "https" else http.client.HTTPConnection
+            conn = conn_class(target_host, target_port, timeout=timeout)
+            # 用 putrequest/putheader 可以精确控制 Host、Content-Length 等代理敏感字段。
+            conn.putrequest(self.command, target_path, skip_host=True, skip_accept_encoding=True)
+            for key, value in self._upstream_headers(selected_target, len(upstream_request_body)):
+                conn.putheader(key, value)
+            conn.endheaders(upstream_request_body)
+
+            upstream = conn.getresponse()
+            response_status = upstream.status
+            response_headers = upstream.getheaders()
+            self.send_response(upstream.status, upstream.reason)
+            for key, value in response_headers:
+                lower_key = key.lower()
+                if lower_key in HOP_BY_HOP_HEADERS or lower_key == "content-length":
+                    continue
+                self.send_header(key, value)
+            # 代理会在本次响应结束后关闭连接，避免连接复用带来的边界问题。
+            self.send_header("Connection", "close")
+            self.end_headers()
+            sent_downstream_headers = True
+
+            if self.command != "HEAD":
+                while True:
+                    chunk = upstream.read(64 * 1024)
+                    if not chunk:
+                        break
+                    response_body_parts.append(chunk)
+                    # 边读边写给客户端，不等完整响应结束，减少流式响应的延迟。
+                    self.wfile.write(chunk)
+                    self.wfile.flush()
+            return UpstreamResult(
+                status=response_status,
+                headers=response_headers,
+                body=b"".join(response_body_parts),
+            )
+        except Exception as exc:  # noqa: BLE001 - proxy must record operational failures.
+            error = repr(exc)
+            if not sent_downstream_headers and not self.wfile.closed:
+                self.send_error(502, "Bad Gateway", error)
+            return UpstreamResult(
+                status=response_status,
+                headers=response_headers,
+                body=b"".join(response_body_parts),
+                error=error,
+            )
+        finally:
+            if conn is not None:
+                conn.close()
 
     def _proxy(self) -> None:
         """完整执行一次代理转发。
@@ -293,11 +372,6 @@ class ProxyHandler(BaseHTTPRequestHandler):
         targets = self._targets()
         early_log_before_body = len(targets) == 1
         early_target = targets[0]
-        response_body_parts: list[bytes] = []
-        response_status = 502
-        response_headers: list[tuple[str, str]] = []
-        error: str | None = None
-        sent_downstream_headers = False
         initial_record = self._initial_record(request_id, early_target)
         # 先写“请求已到达”日志，即使客户端 body 很慢或上游卡住，也能看到这次请求。
         if early_log_before_body:
@@ -309,12 +383,11 @@ class ProxyHandler(BaseHTTPRequestHandler):
         if not isinstance(active_logger, TrafficLogger):
             active_logger = self.traffic_logger
         target_scheme, target_host, target_port, target_path = self._target_path(selected_target)
-        timeout = float(selected_target["timeout"])
         model_rewritten_body = self._rewrite_request_model(request_body, upstream_model)
         upstream_request_body, stripped_request_fields, injected_request_fields = transform_request_json_fields(
             model_rewritten_body,
-            selected_target["strip_request_fields"],  # type: ignore[arg-type]
-            selected_target.get("inject_request_fields", {}),  # type: ignore[arg-type]
+            selected_target["strip_request_fields"],
+            selected_target.get("inject_request_fields", {}),
         )
         # 日志保存客户端原始请求体；真正发给上游的 body 可能已经移除了部分字段。
         request_record = self._request_record(
@@ -354,60 +427,30 @@ class ProxyHandler(BaseHTTPRequestHandler):
             )
         )
 
-        try:
-            conn_class = http.client.HTTPSConnection if target_scheme == "https" else http.client.HTTPConnection
-            conn = conn_class(target_host, target_port, timeout=timeout)
-            # 用 putrequest/putheader 可以精确控制 Host、Content-Length 等代理敏感字段。
-            conn.putrequest(self.command, target_path, skip_host=True, skip_accept_encoding=True)
-            for key, value in self._upstream_headers(selected_target, len(upstream_request_body)):
-                conn.putheader(key, value)
-            conn.endheaders(upstream_request_body)
+        upstream_result = self._forward_upstream_response(
+            selected_target,
+            target_scheme,
+            target_host,
+            target_port,
+            target_path,
+            upstream_request_body,
+        )
 
-            upstream = conn.getresponse()
-            response_status = upstream.status
-            response_headers = upstream.getheaders()
-            self.send_response(upstream.status, upstream.reason)
-            for key, value in response_headers:
-                lower_key = key.lower()
-                if lower_key in HOP_BY_HOP_HEADERS or lower_key == "content-length":
-                    continue
-                self.send_header(key, value)
-            # 代理会在本次响应结束后关闭连接，避免连接复用带来的边界问题。
-            self.send_header("Connection", "close")
-            self.end_headers()
-            sent_downstream_headers = True
-
-            if self.command != "HEAD":
-                while True:
-                    chunk = upstream.read(64 * 1024)
-                    if not chunk:
-                        break
-                    response_body_parts.append(chunk)
-                    # 边读边写给客户端，不等完整响应结束，减少流式响应的延迟。
-                    self.wfile.write(chunk)
-                    self.wfile.flush()
-            conn.close()
-        except Exception as exc:  # noqa: BLE001 - proxy must record operational failures.
-            error = repr(exc)
-            if not sent_downstream_headers and not self.wfile.closed:
-                self.send_error(502, "Bad Gateway", error)
-        finally:
-            # 无论成功还是失败，都写最终日志，这样排错时不会丢失异常信息。
-            duration_ms = round((time.perf_counter() - started) * 1000, 3)
-            response_body = b"".join(response_body_parts)
-            active_logger.write(
-                self._event_record(
-                    base_record,
-                    "request_finished",
-                    duration_ms,
-                    response_status=response_status,
-                    response_headers=response_headers,
-                    response_body=response_body,
-                    timestamp=utc_now_iso(),
-                    error=error,
-                )
+        # 无论成功还是失败，都写最终日志，这样排错时不会丢失异常信息。
+        duration_ms = round((time.perf_counter() - started) * 1000, 3)
+        active_logger.write(
+            self._event_record(
+                base_record,
+                "request_finished",
+                duration_ms,
+                response_status=upstream_result.status,
+                response_headers=upstream_result.headers,
+                response_body=upstream_result.body,
+                timestamp=utc_now_iso(),
+                error=upstream_result.error,
             )
-            self.close_connection = True
+        )
+        self.close_connection = True
 
 
 class ProxyServer(ThreadingHTTPServer):
@@ -422,7 +465,7 @@ class ProxyServer(ThreadingHTTPServer):
         self,
         listen: tuple[str, int],
         handler_class: type[BaseHTTPRequestHandler],
-        config: dict[str, object],
+        config: ProxyServerConfig,
         traffic_logger: TrafficLogger,
     ) -> None:
         super().__init__(listen, handler_class)

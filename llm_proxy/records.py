@@ -8,9 +8,10 @@ from __future__ import annotations
 
 import hashlib
 import json
-from typing import Mapping
+from collections.abc import Mapping
 
 from .payloads import body_json_value
+
 
 def stable_hash(value: object, length: int = 12) -> str:
     """对任意 JSON 可序列化对象生成稳定短哈希。

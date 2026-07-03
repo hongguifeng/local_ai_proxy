@@ -404,7 +404,13 @@ class TrafficLoggerTaskGroupingTests(unittest.TestCase):
                     root = Path(log_dir.name)
                     logger = TrafficLogger(root / "readable")
 
-                    def record(request_id: str, timestamp: str, input_text: str, tools: list[object] | None) -> dict[str, object]:
+                    def record(
+                        request_id: str,
+                        timestamp: str,
+                        input_text: str,
+                        tools: list[object] | None,
+                        metadata_key: str = metadata_field,
+                    ) -> dict[str, object]:
                         payload: dict[str, object] = {
                             "model": "gpt-5.5",
                             "instructions": "same instructions",
@@ -418,7 +424,7 @@ class TrafficLoggerTaskGroupingTests(unittest.TestCase):
                             "started_timestamp": timestamp,
                             "event": "request_finished",
                             "duration_ms": 100,
-                            "client_metadata": {metadata_field: "client-thread-1"},
+                            "client_metadata": {metadata_key: "client-thread-1"},
                             "client": {"host": "127.0.0.1", "port": 1000},
                             "target": {"scheme": "http", "host": "127.0.0.1", "port": 1235, "path": "/v1/responses"},
                             "request": {

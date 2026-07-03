@@ -8,7 +8,7 @@ from llm_proxy import (
     parse_strip_request_fields,
     transform_request_json_fields,
 )
-from llm_proxy.manager import ProxyManager, SUGGESTED_STRIP_REQUEST_FIELDS_TEXT
+from llm_proxy.manager import SUGGESTED_STRIP_REQUEST_FIELDS_TEXT, ProxyManager
 from llm_proxy.ui import INDEX_HTML
 
 

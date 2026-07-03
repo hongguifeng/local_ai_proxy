@@ -1,6 +1,5 @@
 import openai
 
-
 # 这个示例演示客户端如何把请求发到本地代理。
 # 代理默认监听 http://localhost:1234，再由代理转发到真实上游服务。
 client = openai.OpenAI(

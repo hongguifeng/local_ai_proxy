@@ -202,6 +202,16 @@ Each captured interaction is written to its own directory with:
 
 For OpenAI-compatible SSE responses, `response.json` includes an aggregated `stream_summary` while preserving the original stream data. The summary can include `content`, `reasoning`, `tool_calls`, `finish_reasons`, and `usage`.
 
+## Security Notes
+
+LLM Proxy is designed for local development and traffic inspection. Keep the admin UI bound to `127.0.0.1` unless you have added your own network controls.
+
+- Request and response logs may contain prompts, documents, API keys, tool outputs, and other sensitive data.
+- Upstream API keys are stored in the proxy config file. Keep `logs/proxies.json` and custom config paths out of source control.
+- The proxy can forward arbitrary request bodies to configured upstreams. Only expose local listen ports to clients you trust.
+- Use request-field stripping for fields you know an upstream should not receive, but do not treat it as a complete data-loss-prevention system.
+- Rotate or delete log directories when they are no longer needed.
+
 ## Configuration Reference
 
 Common launcher options and environment variables:
@@ -219,10 +229,13 @@ Proxy listen addresses, upstream targets, API keys, headers, model mappings, tim
 ```text
 llm_proxy/
   __main__.py       # python -m llm_proxy entry point
+  admin_server.py   # admin HTTP API and UI server lifecycle
   cli.py            # web console launcher
-  ui.py             # built-in web console and admin API
+  ui.py             # built-in web console HTML/CSS/JS
+  file_io.py        # atomic small-file writes
   log_store.py      # history log loading, caching, and search
   manager.py        # multi-proxy management and config persistence
+  models.py         # shared typed configuration and record shapes
   server.py         # HTTP proxy server and handler
   logger.py         # readable Markdown/JSON log writer
   records.py        # request/response analysis and task fingerprints
@@ -231,7 +244,15 @@ llm_proxy/
   target.py         # upstream URL parsing and path joining
   payloads.py       # body encoding, parsing, and rendering helpers
 tests/
-  test_proxy.py
+  test_admin_ui.py
+  test_file_io.py
+  test_logger.py
+  test_sanitize_manager.py
+  test_server.py
+  test_streams.py
+  test_target.py
+.github/workflows/
+  ci.yml
 doc/
   ui_proxy_en.png
   ui_logs_en.png
@@ -242,5 +263,15 @@ pyproject.toml
 ## Tests
 
 ```powershell
+python -m unittest discover -s tests
+```
+
+Development checks:
+
+```powershell
+python -m pip install -e ".[dev]"
+python -m ruff check .
+python -m mypy
+python -m compileall -q llm_proxy tests
 python -m unittest discover -s tests
 ```

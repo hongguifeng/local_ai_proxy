@@ -8,9 +8,11 @@
 from __future__ import annotations
 
 import threading
+from collections.abc import Mapping
 from pathlib import Path
-from typing import Mapping
 
+from .file_io import atomic_write_text
+from .models import TrafficRecord
 from .readable_logs import (
     ensure_readable_dir,
     readable_dir_name,
@@ -41,13 +43,13 @@ class TrafficLogger:
         if self.readable_dir:
             self.readable_dir.mkdir(parents=True, exist_ok=True)
 
-    def write(self, record: dict[str, object]) -> None:
+    def write(self, record: TrafficRecord) -> None:
         """写一条完整 readable 日志记录。"""
         with self.lock:
             self.task_grouper.prepare(record)
             self._write_readable(record)
 
-    def update_readable(self, record: dict[str, object]) -> None:
+    def update_readable(self, record: TrafficRecord) -> None:
         """更新 readable 日志。
 
         请求体读完但响应还没回来时会调用它，用来让 Markdown/JSON 文件先出现。
@@ -56,7 +58,7 @@ class TrafficLogger:
             self.task_grouper.prepare(record)
             self._write_readable(record)
 
-    def _write_readable(self, record: dict[str, object]) -> None:
+    def _write_readable(self, record: TrafficRecord) -> None:
         """写入或更新一条请求对应的 readable 目录。"""
         if not self.readable_dir:
             return
@@ -72,7 +74,7 @@ class TrafficLogger:
         for existing_markdown in readable_path.glob("*.md"):
             if existing_markdown.name != current_readable_filename:
                 existing_markdown.unlink()
-        (readable_path / current_readable_filename).write_text(render_interaction_markdown(record), encoding="utf-8")
+        atomic_write_text(readable_path / current_readable_filename, render_interaction_markdown(record))
         write_body_json_files(readable_path, record)
         self._write_task_readable(record, current_readable_filename)
 
@@ -100,6 +102,6 @@ class TrafficLogger:
         for existing_markdown in request_path_in_task.glob("*.md"):
             if existing_markdown.name != readable_filename:
                 existing_markdown.unlink()
-        (request_path_in_task / readable_filename).write_text(render_interaction_markdown(record), encoding="utf-8")
+        atomic_write_text(request_path_in_task / readable_filename, render_interaction_markdown(record))
         write_body_json_files(request_path_in_task, dict(record))
         write_task_index_markdown(task_path, task)

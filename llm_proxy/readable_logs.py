@@ -2,9 +2,10 @@ from __future__ import annotations
 
 import datetime as dt
 import json
+from collections.abc import Mapping
 from pathlib import Path
-from typing import Mapping
 
+from .file_io import atomic_write_text
 from .payloads import body_json_value, render_headers
 from .time_utils import (
     format_duration_hms,
@@ -43,7 +44,7 @@ def readable_filename(record: Mapping[str, object]) -> str:
 
 
 def write_json_file(path: Path, value: object) -> None:
-    path.write_text(json.dumps(value, ensure_ascii=False, indent=2), encoding="utf-8")
+    atomic_write_text(path, json.dumps(value, ensure_ascii=False, indent=2))
 
 
 def write_body_json_files(path: Path, record: Mapping[str, object]) -> None:
@@ -151,4 +152,4 @@ def write_task_index_markdown(task_path: Path, task: Mapping[str, object]) -> No
             f"({duration} ms) [{request_id}]({dir_name}/)"
         )
     parts.append("")
-    (task_path / "index.md").write_text("\n".join(parts), encoding="utf-8")
+    atomic_write_text(task_path / "index.md", "\n".join(parts))

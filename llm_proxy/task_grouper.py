@@ -2,15 +2,15 @@ from __future__ import annotations
 
 import datetime as dt
 import uuid
+from collections.abc import Mapping
 from pathlib import Path
-from typing import Mapping
 
 from .records import (
     endpoint_kind,
     first_string,
     get_nested_value,
-    request_boundary_fingerprints,
     request_body_json,
+    request_boundary_fingerprints,
     request_fingerprints,
     request_path,
     request_user_messages,

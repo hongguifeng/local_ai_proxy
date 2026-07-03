@@ -2,18 +2,18 @@ from __future__ import annotations
 
 import json
 import threading
-import uuid
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
 from .constants import DEFAULT_STRIP_REQUEST_FIELDS
+from .file_io import atomic_write_text
 from .http_utils import parse_header_overrides
 from .logger import TrafficLogger
+from .models import JsonObject, ProxyPair, PublicProxyPair, RuntimeTarget, TargetConfig
 from .sanitize import parse_inject_request_fields, parse_strip_request_fields
 from .server import ProxyHandler, ProxyServer
 from .target import parse_target_url
-
 
 DEFAULT_CONFIG_PATH = Path("logs/proxies.json")
 DEFAULT_LOG_ROOT = Path("logs")
@@ -49,10 +49,10 @@ class ProxyManager:
         self.config_path = config_path
         self.readable_log_dir = log_root_from_setting(readable_log_dir)
         self.lock = threading.RLock()
-        self.pairs: list[dict[str, Any]] = self._load_pairs()
+        self.pairs: list[ProxyPair] = self._load_pairs()
         self.runtimes: dict[str, ProxyRuntime] = {}
 
-    def _load_pairs(self) -> list[dict[str, Any]]:
+    def _load_pairs(self) -> list[ProxyPair]:
         if not self.config_path.exists():
             return [
                 self._normalize_pair(
@@ -93,11 +93,8 @@ class ProxyManager:
 
     def save(self) -> None:
         with self.lock:
-            self.config_path.parent.mkdir(parents=True, exist_ok=True)
             payload = json.dumps({"pairs": self.pairs}, ensure_ascii=False, indent=2)
-            temp_path = self.config_path.with_name(f".{self.config_path.name}.{uuid.uuid4().hex}.tmp")
-            temp_path.write_text(payload, encoding="utf-8")
-            temp_path.replace(self.config_path)
+            atomic_write_text(self.config_path, payload)
 
     def start_enabled(self) -> None:
         with self.lock:
@@ -111,11 +108,11 @@ class ProxyManager:
         for pair_id in ids:
             self.stop(pair_id)
 
-    def list_pairs(self) -> list[dict[str, Any]]:
+    def list_pairs(self) -> list[PublicProxyPair]:
         with self.lock:
             return [self._public_pair(pair) for pair in self.pairs]
 
-    def replace_pairs(self, pairs: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    def replace_pairs(self, pairs: list[JsonObject]) -> list[PublicProxyPair]:
         normalized = [self._normalize_pair(pair) for pair in pairs]
         with self.lock:
             old_ids = {str(pair["id"]) for pair in self.pairs}
@@ -132,7 +129,7 @@ class ProxyManager:
                 self.stop(pair_id)
         return self.list_pairs()
 
-    def set_enabled(self, pair_id: str, enabled: bool) -> dict[str, Any]:
+    def set_enabled(self, pair_id: str, enabled: bool) -> PublicProxyPair:
         with self.lock:
             pair = self._find_pair(pair_id)
             pair["enabled"] = enabled
@@ -160,7 +157,7 @@ class ProxyManager:
         runtime.server.server_close()
         runtime.thread.join(timeout=2)
 
-    def _start_pair(self, pair: dict[str, Any]) -> None:
+    def _start_pair(self, pair: ProxyPair) -> None:
         pair_id = str(pair["id"])
         if pair_id in self.runtimes:
             return
@@ -180,7 +177,7 @@ class ProxyManager:
         thread.start()
         self.runtimes[pair_id] = ProxyRuntime(server=server, thread=thread, logger=logger)
 
-    def _readable_dir_for(self, pair: dict[str, Any]) -> Path | None:
+    def _readable_dir_for(self, pair: ProxyPair | TargetConfig) -> Path | None:
         raw_value = pair.get("readable_log_dir")
         if raw_value == "":
             return None
@@ -188,9 +185,9 @@ class ProxyManager:
             return readable_dir_from_log_root(str(raw_value))
         return readable_dir_from_log_root(self.readable_log_dir)
 
-    def _runtime_target(self, target_pair: dict[str, Any], pair: dict[str, Any]) -> dict[str, Any]:
+    def _runtime_target(self, target_pair: TargetConfig, pair: ProxyPair) -> RuntimeTarget:
         target = parse_target_url(str(target_pair.get("target_url") or "http://127.0.0.1:1235"))
-        runtime_target = {
+        return {
             "id": str(target_pair.get("id") or "default"),
             "name": str(target_pair.get("name") or target_pair.get("id") or "Default target"),
             "target_scheme": target["scheme"],
@@ -204,24 +201,23 @@ class ProxyManager:
             "timeout": float(target_pair.get("timeout", 600)),
             "model_mappings": list(target_pair.get("model_mappings") or []),
             "enabled": bool(target_pair.get("enabled", True)),
+            "traffic_logger": TrafficLogger(self._readable_dir_for(target_pair)),
         }
-        runtime_target["traffic_logger"] = TrafficLogger(self._readable_dir_for(target_pair))
-        return runtime_target
 
-    def _find_pair(self, pair_id: str) -> dict[str, Any]:
+    def _find_pair(self, pair_id: str) -> ProxyPair:
         for pair in self.pairs:
             if str(pair["id"]) == pair_id:
                 return pair
         raise KeyError(pair_id)
 
-    def _public_pair(self, pair: dict[str, Any]) -> dict[str, Any]:
+    def _public_pair(self, pair: ProxyPair) -> PublicProxyPair:
         public = dict(pair)
         runtime = self.runtimes.get(str(pair["id"]))
         public["running"] = runtime is not None
         public["actual_listen_port"] = runtime.server.server_address[1] if runtime else None
         return public
 
-    def _normalize_pair(self, pair: dict[str, Any]) -> dict[str, Any]:
+    def _normalize_pair(self, pair: JsonObject) -> ProxyPair:
         pair_id = str(pair.get("id") or f"proxy-{len(pair)}").strip()
         targets = pair.get("targets")
         normalized_targets = [self._normalize_target(target, index) for index, target in enumerate(targets) if isinstance(target, dict)] if isinstance(targets, list) else []
@@ -230,7 +226,7 @@ class ProxyManager:
         default_target_id = str(pair.get("default_target_id") or normalized_targets[0]["id"])
         if default_target_id not in {target["id"] for target in normalized_targets}:
             default_target_id = str(normalized_targets[0]["id"])
-        normalized = {
+        normalized: ProxyPair = {
             "id": pair_id,
             "name": str(pair.get("name") or pair_id),
             "enabled": bool(pair.get("enabled", False)),
@@ -242,7 +238,7 @@ class ProxyManager:
         }
         return normalized
 
-    def _normalize_target(self, target: dict[str, Any], index: int) -> dict[str, Any]:
+    def _normalize_target(self, target: JsonObject, index: int) -> TargetConfig:
         target_id = str(target.get("id") or f"target-{index + 1}").strip()
         inject_request_fields = target.get("inject_request_fields")
         if isinstance(inject_request_fields, dict):

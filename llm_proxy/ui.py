@@ -4,7 +4,6 @@ import json
 
 from .manager import SUGGESTED_STRIP_REQUEST_FIELDS_TEXT
 
-
 INDEX_HTML = r"""<!doctype html>
 <html lang="zh-CN">
 <head>
