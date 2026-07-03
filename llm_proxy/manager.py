@@ -2,9 +2,9 @@ from __future__ import annotations
 
 import json
 import threading
+import uuid
 from dataclasses import dataclass
 from pathlib import Path
-from types import SimpleNamespace
 from typing import Any
 
 from .constants import DEFAULT_STRIP_REQUEST_FIELDS
@@ -12,7 +12,7 @@ from .http_utils import parse_header_overrides
 from .logger import TrafficLogger
 from .sanitize import parse_inject_request_fields, parse_strip_request_fields
 from .server import ProxyHandler, ProxyServer
-from .target import parse_target
+from .target import parse_target_url
 
 
 DEFAULT_CONFIG_PATH = Path("logs/proxies.json")
@@ -44,11 +44,9 @@ class ProxyManager:
     def __init__(
         self,
         config_path: Path = DEFAULT_CONFIG_PATH,
-        log_file: Path = Path("logs/interactions.jsonl"),
         readable_log_dir: Path | None = DEFAULT_LOG_ROOT,
     ) -> None:
         self.config_path = config_path
-        self.log_file = log_file
         self.readable_log_dir = log_root_from_setting(readable_log_dir)
         self.lock = threading.RLock()
         self.pairs: list[dict[str, Any]] = self._load_pairs()
@@ -64,13 +62,23 @@ class ProxyManager:
                         "enabled": False,
                         "listen_host": "127.0.0.1",
                         "listen_port": 1234,
-                        "target_url": "http://127.0.0.1:1235",
-                        "target_api_key": "",
-                        "target_headers": [],
-                        "strip_request_fields": "",
-                        "inject_request_fields": "",
-                        "timeout": 600,
                         "access_log": False,
+                        "targets": [
+                            {
+                                "id": "target-1",
+                                "name": "Target",
+                                "enabled": True,
+                                "target_url": "http://127.0.0.1:1235",
+                                "target_api_key": "",
+                                "target_headers": [],
+                                "strip_request_fields": "",
+                                "inject_request_fields": "",
+                                "timeout": 600,
+                                "readable_log_dir": str(self.readable_log_dir or DEFAULT_LOG_ROOT),
+                                "model_mappings": [],
+                            }
+                        ],
+                        "default_target_id": "target-1",
                     }
                 )
             ]
@@ -78,7 +86,7 @@ class ProxyManager:
             loaded = json.loads(self.config_path.read_text(encoding="utf-8"))
         except (OSError, json.JSONDecodeError):
             return []
-        raw_pairs = loaded.get("pairs", loaded) if isinstance(loaded, dict) else loaded
+        raw_pairs = loaded.get("pairs") if isinstance(loaded, dict) else None
         if not isinstance(raw_pairs, list):
             return []
         return [self._normalize_pair(pair) for pair in raw_pairs if isinstance(pair, dict)]
@@ -86,10 +94,10 @@ class ProxyManager:
     def save(self) -> None:
         with self.lock:
             self.config_path.parent.mkdir(parents=True, exist_ok=True)
-            self.config_path.write_text(
-                json.dumps({"pairs": self.pairs}, ensure_ascii=False, indent=2),
-                encoding="utf-8",
-            )
+            payload = json.dumps({"pairs": self.pairs}, ensure_ascii=False, indent=2)
+            temp_path = self.config_path.with_name(f".{self.config_path.name}.{uuid.uuid4().hex}.tmp")
+            temp_path.write_text(payload, encoding="utf-8")
+            temp_path.replace(self.config_path)
 
     def start_enabled(self) -> None:
         with self.lock:
@@ -156,25 +164,13 @@ class ProxyManager:
         pair_id = str(pair["id"])
         if pair_id in self.runtimes:
             return
-        targets = [self._runtime_target(target, pair) for target in pair.get("targets", [])]
-        if not targets:
-            targets = [self._runtime_target(pair, pair)]
-        first_target = targets[0]
+        targets = [self._runtime_target(target, pair) for target in pair["targets"]]
         logger = targets[0].get("traffic_logger")
         if not isinstance(logger, TrafficLogger):
-            logger = TrafficLogger(Path(pair.get("log_file") or self.log_file), self._readable_dir_for(pair))
+            logger = TrafficLogger(self._readable_dir_for(pair))
         config = {
-            "target_scheme": first_target["target_scheme"],
-            "target_host": first_target["target_host"],
-            "target_port": first_target["target_port"],
-            "target_base_path": first_target["target_base_path"],
-            "target_api_key": first_target["target_api_key"],
-            "target_headers": first_target["target_headers"],
-            "strip_request_fields": first_target["strip_request_fields"],
-            "inject_request_fields": first_target["inject_request_fields"],
-            "timeout": first_target["timeout"],
             "targets": targets,
-            "default_target_id": pair.get("default_target_id") or first_target["id"],
+            "default_target_id": pair.get("default_target_id") or targets[0]["id"],
             "access_log": bool(pair.get("access_log", False)),
             "proxy_pair_id": pair_id,
             "proxy_pair_name": pair.get("name", pair_id),
@@ -193,14 +189,7 @@ class ProxyManager:
         return readable_dir_from_log_root(self.readable_log_dir)
 
     def _runtime_target(self, target_pair: dict[str, Any], pair: dict[str, Any]) -> dict[str, Any]:
-        target = parse_target(
-            SimpleNamespace(
-                target_url=target_pair.get("target_url") or None,
-                target_scheme=target_pair.get("target_scheme", "http"),
-                target_host=target_pair.get("target_host", "127.0.0.1"),
-                target_port=int(target_pair.get("target_port", 1235)),
-            )
-        )
+        target = parse_target_url(str(target_pair.get("target_url") or "http://127.0.0.1:1235"))
         runtime_target = {
             "id": str(target_pair.get("id") or "default"),
             "name": str(target_pair.get("name") or target_pair.get("id") or "Default target"),
@@ -216,10 +205,7 @@ class ProxyManager:
             "model_mappings": list(target_pair.get("model_mappings") or []),
             "enabled": bool(target_pair.get("enabled", True)),
         }
-        runtime_target["traffic_logger"] = TrafficLogger(
-            Path(target_pair.get("log_file") or pair.get("log_file") or self.log_file),
-            self._readable_dir_for(target_pair),
-        )
+        runtime_target["traffic_logger"] = TrafficLogger(self._readable_dir_for(target_pair))
         return runtime_target
 
     def _find_pair(self, pair_id: str) -> dict[str, Any]:
@@ -240,33 +226,19 @@ class ProxyManager:
         targets = pair.get("targets")
         normalized_targets = [self._normalize_target(target, index) for index, target in enumerate(targets) if isinstance(target, dict)] if isinstance(targets, list) else []
         if not normalized_targets:
-            normalized_targets = [self._normalize_target(pair, 0)]
-        target_url = str(pair.get("target_url") or "").strip()
-        inject_request_fields = pair.get("inject_request_fields")
-        if isinstance(inject_request_fields, dict):
-            inject_request_fields = json.dumps(inject_request_fields, ensure_ascii=False, separators=(",", ":"))
-        elif inject_request_fields is None:
-            inject_request_fields = ""
+            normalized_targets = [self._normalize_target({}, 0)]
+        default_target_id = str(pair.get("default_target_id") or normalized_targets[0]["id"])
+        if default_target_id not in {target["id"] for target in normalized_targets}:
+            default_target_id = str(normalized_targets[0]["id"])
         normalized = {
             "id": pair_id,
             "name": str(pair.get("name") or pair_id),
             "enabled": bool(pair.get("enabled", False)),
             "listen_host": str(pair.get("listen_host") or "127.0.0.1"),
             "listen_port": int(pair.get("listen_port") or 1234),
-            "target_url": target_url,
-            "target_scheme": str(pair.get("target_scheme") or "http"),
-            "target_host": str(pair.get("target_host") or "127.0.0.1"),
-            "target_port": int(pair.get("target_port") or 1235),
-            "target_api_key": str(pair.get("target_api_key") or "").strip(),
-            "target_headers": list(pair.get("target_headers") or []),
-            "strip_request_fields": pair.get("strip_request_fields"),
-            "inject_request_fields": str(inject_request_fields),
-            "timeout": float(pair.get("timeout") or 600),
             "access_log": bool(pair.get("access_log", False)),
-            "log_file": str(pair.get("log_file") or self.log_file),
-            "readable_log_dir": "" if pair.get("readable_log_dir") == "" else str(log_root_from_setting(pair.get("readable_log_dir") or self.readable_log_dir) or ""),
             "targets": normalized_targets,
-            "default_target_id": str(pair.get("default_target_id") or normalized_targets[0]["id"]),
+            "default_target_id": default_target_id,
         }
         return normalized
 
@@ -280,10 +252,7 @@ class ProxyManager:
         return {
             "id": target_id,
             "name": str(target.get("name") or target_id),
-            "target_url": str(target.get("target_url") or "").strip(),
-            "target_scheme": str(target.get("target_scheme") or "http"),
-            "target_host": str(target.get("target_host") or "127.0.0.1"),
-            "target_port": int(target.get("target_port") or 1235),
+            "target_url": str(target.get("target_url") or "http://127.0.0.1:1235").strip(),
             "target_api_key": str(target.get("target_api_key") or "").strip(),
             "target_headers": list(target.get("target_headers") or []),
             "strip_request_fields": target.get("strip_request_fields") or "",
@@ -299,14 +268,10 @@ class ProxyManager:
         if not isinstance(mappings, list):
             return normalized
         for item in mappings:
-            if isinstance(item, str):
-                listen = item.strip()
-                upstream = listen
-            elif isinstance(item, dict):
-                listen = str(item.get("listen") or item.get("listen_model") or item.get("model") or "").strip()
-                upstream = str(item.get("upstream") or item.get("upstream_model") or listen).strip()
-            else:
+            if not isinstance(item, dict):
                 continue
+            listen = str(item.get("listen") or "").strip()
+            upstream = str(item.get("upstream") or listen).strip()
             if listen:
                 normalized.append({"listen": listen, "upstream": upstream or listen})
         return normalized

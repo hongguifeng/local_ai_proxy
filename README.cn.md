@@ -4,7 +4,7 @@
 
 LLM Proxy 是一个以 Web 控制台为核心的本地 LLM 代理管理工具。它可以创建一个或多个本地代理入口，并按请求里的模型名称把同一个入口路由到一个或多个 OpenAI-compatible 上游 API，在浏览器中查看完整的请求、响应和任务历史。
 
-当前项目的主要使用方式已经从命令行参数切换到 UI 界面。命令行主要负责启动服务和兼容旧脚本；日常配置、启停代理、查看日志、搜索历史、检查请求响应内容，都推荐在内置 Web UI 中完成。
+当前项目以 Web UI 作为主要使用方式。命令行只负责启动管理界面；日常配置、启停代理、查看日志、搜索历史、检查请求响应内容，都在内置 Web UI 中完成。
 
 ## 代理和路由示意
 
@@ -53,7 +53,7 @@ flowchart LR
 启动 Web 控制台：
 
 ```powershell
-python -m llm_proxy --ui
+python -m llm_proxy
 ```
 
 Windows 下也可以直接运行：
@@ -87,7 +87,7 @@ http://127.0.0.1:1234
 
 ## Web 控制台
 
-管理界面默认运行在 `http://127.0.0.1:8088`。如需修改管理界面的监听地址，可使用 `--ui-host` 和 `--ui-port`。
+管理界面默认运行在 `http://127.0.0.1:8088`。如需修改管理界面的监听地址，可使用 `--host` 和 `--port`。
 
 ### 监听转发
 
@@ -149,7 +149,7 @@ fallback-model
 ### 查看本地模型服务请求
 
 1. 启动本地上游服务，例如运行在 `http://127.0.0.1:1235` 的 `llama.cpp` server。
-2. 运行 `python -m llm_proxy --ui`。
+2. 运行 `python -m llm_proxy`。
 3. 在 UI 中启用一个从 `127.0.0.1:1234` 到 `http://127.0.0.1:1235` 的代理地址对。
 4. 将客户端 base URL 设置为 `http://127.0.0.1:1234`。
 5. 打开 **历史日志** 查看捕获到的交互。
@@ -202,74 +202,26 @@ presence_penalty, frequency_penalty, seed
 
 对于 OpenAI-compatible SSE 流式响应，`response.json` 会在保留原始流数据的同时写入聚合后的 `stream_summary`，其中可能包含 `content`、`reasoning`、`tool_calls`、`finish_reasons`、`usage` 等字段。
 
-## 命令行兼容模式
-
-如果已有脚本依赖单代理命令行模式，仍然可以继续使用：
-
-```powershell
-python -m llm_proxy
-```
-
-旧入口也仍然保留：
-
-```powershell
-python proxy.py
-```
-
-指定远程上游：
-
-```powershell
-python -m llm_proxy --target-url https://openrouter.ai/api/v1
-```
-
-注入固定上游 headers：
-
-```powershell
-python -m llm_proxy `
-  --target-url https://openrouter.ai/api/v1 `
-  --target-api-key "sk-or-..." `
-  --target-header "HTTP-Referer: http://localhost" `
-  --target-header "X-Title: LLM Proxy"
-```
-
-命令行模式也支持请求改写：
-
-```powershell
-python -m llm_proxy --strip-request-fields "temperature,top_p"
-python -m llm_proxy --inject-request-fields '{"metadata":{"source":"proxy"},"stream":true}'
-```
-
 ## 配置参考
 
 常用启动参数和环境变量：
 
-- `--ui` / `LLM_PROXY_UI=1`
-- `--ui-host` / `LLM_PROXY_UI_HOST`，默认 `127.0.0.1`
-- `--ui-port` / `LLM_PROXY_UI_PORT`，默认 `8088`
+- `--host` / `LLM_PROXY_UI_HOST`，默认 `127.0.0.1`
+- `--port` / `LLM_PROXY_UI_PORT`，默认 `8088`
 - `--config-file` / `LLM_PROXY_CONFIG_FILE`，默认 `logs/proxies.json`
-- `--readable-log-dir` / `LLM_PROXY_READABLE_LOG_DIR`，默认 `logs`
-- `--listen-host` / `LLM_PROXY_HOST`
-- `--listen-port` / `LLM_PROXY_PORT`
-- `--target-url` / `LLM_PROXY_TARGET_URL`
-- `--target-scheme` / `LLM_PROXY_TARGET_SCHEME`
-- `--target-host` / `LLM_PROXY_TARGET_HOST`
-- `--target-port` / `LLM_PROXY_TARGET_PORT`
-- `--target-api-key` / `LLM_PROXY_TARGET_API_KEY`
-- `--target-header`
-- `--timeout` / `LLM_PROXY_TIMEOUT`
-- `--strip-request-fields` / `LLM_PROXY_STRIP_REQUEST_FIELDS`
-- `--inject-request-fields` / `LLM_PROXY_INJECT_REQUEST_FIELDS`
-- `--access-log` / `LLM_PROXY_ACCESS_LOG=1`
+- `--log-root` / `LLM_PROXY_LOG_ROOT`，默认 `logs`
+- `--no-browser` / `LLM_PROXY_NO_BROWSER=1`
 
-在单代理命令行模式下，`--target-url` 的优先级高于 `--target-scheme`、`--target-host` 和 `--target-port`。
+代理监听地址、上游转发地址、API Key、headers、模型映射、超时和 request 字段改写都在 Web 控制台中配置，并保存到 `logs/proxies.json`。
 
 ## 工程结构
 
 ```text
 llm_proxy/
   __main__.py       # python -m llm_proxy 入口
-  cli.py            # 启动器、UI 启动和兼容 CLI 模式
+  cli.py            # Web 控制台启动器
   ui.py             # 内置 Web 控制台和管理 API
+  log_store.py      # 历史日志读取、缓存和搜索
   manager.py        # 多代理管理和配置持久化
   server.py         # HTTP 代理服务和 handler
   logger.py         # Markdown/JSON 可读日志写入
@@ -283,7 +235,6 @@ tests/
 doc/
   ui_proxy_cn.png
   ui_logs_cn.png
-proxy.py            # 旧入口脚本
 run.bat             # Windows UI 启动脚本
 pyproject.toml
 ```

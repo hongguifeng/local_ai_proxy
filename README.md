@@ -53,7 +53,7 @@ Each upstream target keeps its own timeout, readable log directory, upstream hea
 Start the web console:
 
 ```powershell
-python -m llm_proxy --ui
+python -m llm_proxy
 ```
 
 Or on Windows, run:
@@ -87,7 +87,7 @@ http://127.0.0.1:1234
 
 ## Web Console
 
-The UI is served at `http://127.0.0.1:8088` by default. Use `--ui-host` and `--ui-port` if you need a different admin address.
+The UI is served at `http://127.0.0.1:8088` by default. Use `--host` and `--port` if you need a different admin address.
 
 ### Proxy Management
 
@@ -149,7 +149,7 @@ The **History** tab lets you review captured traffic without opening log files m
 ### Inspect A Local Model Server
 
 1. Start your local upstream server, for example `llama.cpp`, on `http://127.0.0.1:1235`.
-2. Start LLM Proxy with `python -m llm_proxy --ui`.
+2. Start LLM Proxy with `python -m llm_proxy`.
 3. In the UI, enable a proxy pair from `127.0.0.1:1234` to `http://127.0.0.1:1235`.
 4. Configure your client base URL as `http://127.0.0.1:1234`.
 5. Open **History** to inspect the captured interaction.
@@ -202,74 +202,26 @@ Each captured interaction is written to its own directory with:
 
 For OpenAI-compatible SSE responses, `response.json` includes an aggregated `stream_summary` while preserving the original stream data. The summary can include `content`, `reasoning`, `tool_calls`, `finish_reasons`, and `usage`.
 
-## Command-Line Compatibility
-
-The direct single-proxy mode is still available for scripts and existing workflows:
-
-```powershell
-python -m llm_proxy
-```
-
-Legacy entry point:
-
-```powershell
-python proxy.py
-```
-
-Remote target example:
-
-```powershell
-python -m llm_proxy --target-url https://openrouter.ai/api/v1
-```
-
-Header injection example:
-
-```powershell
-python -m llm_proxy `
-  --target-url https://openrouter.ai/api/v1 `
-  --target-api-key "sk-or-..." `
-  --target-header "HTTP-Referer: http://localhost" `
-  --target-header "X-Title: LLM Proxy"
-```
-
-CLI request rewriting is also available:
-
-```powershell
-python -m llm_proxy --strip-request-fields "temperature,top_p"
-python -m llm_proxy --inject-request-fields '{"metadata":{"source":"proxy"},"stream":true}'
-```
-
 ## Configuration Reference
 
 Common launcher options and environment variables:
 
-- `--ui` / `LLM_PROXY_UI=1`
-- `--ui-host` / `LLM_PROXY_UI_HOST`, default `127.0.0.1`
-- `--ui-port` / `LLM_PROXY_UI_PORT`, default `8088`
+- `--host` / `LLM_PROXY_UI_HOST`, default `127.0.0.1`
+- `--port` / `LLM_PROXY_UI_PORT`, default `8088`
 - `--config-file` / `LLM_PROXY_CONFIG_FILE`, default `logs/proxies.json`
-- `--readable-log-dir` / `LLM_PROXY_READABLE_LOG_DIR`, default `logs`
-- `--listen-host` / `LLM_PROXY_HOST`
-- `--listen-port` / `LLM_PROXY_PORT`
-- `--target-url` / `LLM_PROXY_TARGET_URL`
-- `--target-scheme` / `LLM_PROXY_TARGET_SCHEME`
-- `--target-host` / `LLM_PROXY_TARGET_HOST`
-- `--target-port` / `LLM_PROXY_TARGET_PORT`
-- `--target-api-key` / `LLM_PROXY_TARGET_API_KEY`
-- `--target-header`
-- `--timeout` / `LLM_PROXY_TIMEOUT`
-- `--strip-request-fields` / `LLM_PROXY_STRIP_REQUEST_FIELDS`
-- `--inject-request-fields` / `LLM_PROXY_INJECT_REQUEST_FIELDS`
-- `--access-log` / `LLM_PROXY_ACCESS_LOG=1`
+- `--log-root` / `LLM_PROXY_LOG_ROOT`, default `logs`
+- `--no-browser` / `LLM_PROXY_NO_BROWSER=1`
 
-`--target-url` takes precedence over `--target-scheme`, `--target-host`, and `--target-port` in single-proxy CLI mode.
+Proxy listen addresses, upstream targets, API keys, headers, model mappings, timeouts, and request-field rewriting are configured in the web console and saved to `logs/proxies.json`.
 
 ## Project Structure
 
 ```text
 llm_proxy/
   __main__.py       # python -m llm_proxy entry point
-  cli.py            # launcher, UI startup, and compatibility CLI mode
+  cli.py            # web console launcher
   ui.py             # built-in web console and admin API
+  log_store.py      # history log loading, caching, and search
   manager.py        # multi-proxy management and config persistence
   server.py         # HTTP proxy server and handler
   logger.py         # readable Markdown/JSON log writer
@@ -283,7 +235,6 @@ tests/
 doc/
   ui_proxy_en.png
   ui_logs_en.png
-proxy.py            # legacy entry script
 run.bat             # Windows UI launcher
 pyproject.toml
 ```

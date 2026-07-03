@@ -45,8 +45,7 @@ class TrafficLogger:
     代理服务器是多线程的，可能同时处理多个请求，所以所有写文件操作都用同一把锁保护。
     """
 
-    def __init__(self, path: Path, readable_dir: Path | None) -> None:
-        self.path = path
+    def __init__(self, readable_dir: Path | None) -> None:
         self.readable_dir = readable_dir
         self.lock = threading.Lock()
         self.readable_paths: dict[str, Path] = {}
@@ -115,7 +114,10 @@ class TrafficLogger:
         if not self.task_index_path:
             return
         self.task_index["task_match_strategy_version"] = TASK_MATCH_STRATEGY_VERSION
-        self.task_index_path.write_text(json.dumps(self.task_index, ensure_ascii=False, indent=2), encoding="utf-8")
+        payload = json.dumps(self.task_index, ensure_ascii=False, indent=2)
+        temp_path = self.task_index_path.with_name(f".{self.task_index_path.name}.{uuid.uuid4().hex}.tmp")
+        temp_path.write_text(payload, encoding="utf-8")
+        temp_path.replace(self.task_index_path)
 
     def _prepare_task(self, record: dict[str, object]) -> None:
         """为当前记录匹配或创建一个 LLM 任务。
@@ -512,15 +514,6 @@ class TrafficLogger:
         path = safe_filename_part(request["path"], "root")  # type: ignore[index]
         return f"{sequence:03d}__{time_part}__{path}__{record['id']}"
 
-    def _task_anchor_from_dir_name(self, dir_name: str) -> str | None:
-        """从旧目录名中尽量恢复锚点，用于兼容已有日志目录。"""
-        parts = str(dir_name).split("__")
-        if len(parts) >= 4:
-            return parts[-1]
-        if len(parts) >= 3:
-            return parts[-1]
-        return None
-
     def _model_name_for_dir_name(self, task: Mapping[str, object]) -> str:
         """Extract model name for directory naming.
 
@@ -553,10 +546,7 @@ class TrafficLogger:
         end_part = local_time_from_timestamp_for_filename(last_response_at)
         model_name = self._model_name_for_dir_name(task)
         kind = safe_filename_part(task.get("kind"), "task")
-        anchor = safe_filename_part(
-            task.get("anchor") or self._task_anchor_from_dir_name(str(task.get("dir_name") or "")),
-            "task",
-        )
+        anchor = safe_filename_part(task.get("anchor"), "task")
         return f"{start_part}__{end_part}__{model_name}__{kind}__{anchor}"
 
     def _sync_task_dir_name(self, task: dict[str, object]) -> None:

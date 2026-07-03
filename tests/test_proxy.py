@@ -7,7 +7,6 @@ import time
 import unittest
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
-from types import SimpleNamespace
 
 from llm_proxy import (
     ProxyHandler,
@@ -18,7 +17,7 @@ from llm_proxy import (
     local_datetime_for_filename,
     local_time_from_timestamp_for_filename,
     parse_inject_request_fields,
-    parse_target,
+    parse_target_url,
     parse_strip_request_fields,
     transform_request_json_fields,
 )
@@ -120,10 +119,10 @@ class RequestSanitizationConfigTests(unittest.TestCase):
         temp_dir = tempfile.TemporaryDirectory()
         try:
             root = Path(temp_dir.name)
-            manager = ProxyManager(root / "proxies.json", root / "interactions.jsonl", root)
+            manager = ProxyManager(root / "proxies.json", root)
             pairs = manager.list_pairs()
-            self.assertEqual(pairs[0]["strip_request_fields"], "")
-            self.assertEqual(pairs[0]["inject_request_fields"], "")
+            self.assertEqual(pairs[0]["targets"][0]["strip_request_fields"], "")
+            self.assertEqual(pairs[0]["targets"][0]["inject_request_fields"], "")
         finally:
             temp_dir.cleanup()
 
@@ -131,9 +130,9 @@ class RequestSanitizationConfigTests(unittest.TestCase):
         temp_dir = tempfile.TemporaryDirectory()
         try:
             root = Path(temp_dir.name)
-            manager = ProxyManager(root / "proxies.json", root / "interactions.jsonl", root / "logs")
+            manager = ProxyManager(root / "proxies.json", root / "logs")
 
-            self.assertEqual(manager.list_pairs()[0]["readable_log_dir"], str(root / "logs"))
+            self.assertEqual(manager.list_pairs()[0]["targets"][0]["readable_log_dir"], str(root / "logs"))
             self.assertEqual(manager._readable_dir_for({"readable_log_dir": str(root / "custom")}), root / "custom" / "readable")
             self.assertEqual(manager._readable_dir_for({}), root / "logs" / "readable")
         finally:
@@ -153,7 +152,7 @@ class TrafficLoggerTaskGroupingTests(unittest.TestCase):
         log_dir = tempfile.TemporaryDirectory()
         try:
             root = Path(log_dir.name)
-            logger = TrafficLogger(root / "interactions.jsonl", root / "readable")
+            logger = TrafficLogger(root / "readable")
             timestamp = "2026-06-07T08:00:00.000+00:00"
             base_record = {
                 "id": "req_1",
@@ -220,7 +219,7 @@ class TrafficLoggerTaskGroupingTests(unittest.TestCase):
         log_dir = tempfile.TemporaryDirectory()
         try:
             root = Path(log_dir.name)
-            logger = TrafficLogger(root / "interactions.jsonl", root / "readable")
+            logger = TrafficLogger(root / "readable")
 
             def record(request_id: str, timestamp: str, input_items: list[object], response_id: str) -> dict[str, object]:
                 return {
@@ -265,7 +264,7 @@ class TrafficLoggerTaskGroupingTests(unittest.TestCase):
                 {"type": "message", "role": "user", "content": [{"type": "input_text", "text": "fix proxy logging"}]},
                 {"type": "message", "role": "assistant", "content": [{"type": "output_text", "text": "looking at code"}]},
                 {"type": "function_call", "call_id": "call_1", "name": "shell_command", "arguments": "{\"command\":\"rg\"}"},
-                {"type": "function_call_output", "call_id": "call_1", "output": "proxy.py"},
+                {"type": "function_call_output", "call_id": "call_1", "output": "runner.py"},
             ]
             logger.write(record("req_1", "2026-06-07T08:00:00.000+00:00", first_input, "resp_1"))
             logger.write(record("req_2", "2026-06-07T08:00:10.000+00:00", second_input, "resp_2"))
@@ -283,7 +282,7 @@ class TrafficLoggerTaskGroupingTests(unittest.TestCase):
         log_dir = tempfile.TemporaryDirectory()
         try:
             root = Path(log_dir.name)
-            logger = TrafficLogger(root / "interactions.jsonl", root / "readable")
+            logger = TrafficLogger(root / "readable")
 
             def input_items(user_text: str) -> list[object]:
                 return [
@@ -334,7 +333,7 @@ class TrafficLoggerTaskGroupingTests(unittest.TestCase):
         log_dir = tempfile.TemporaryDirectory()
         try:
             root = Path(log_dir.name)
-            logger = TrafficLogger(root / "interactions.jsonl", root / "readable")
+            logger = TrafficLogger(root / "readable")
 
             def record(request_id: str, timestamp: str, user_text: str) -> dict[str, object]:
                 return {
@@ -383,7 +382,7 @@ class TrafficLoggerTaskGroupingTests(unittest.TestCase):
         log_dir = tempfile.TemporaryDirectory()
         try:
             root = Path(log_dir.name)
-            logger = TrafficLogger(root / "interactions.jsonl", root / "readable")
+            logger = TrafficLogger(root / "readable")
 
             def record(request_id: str, timestamp: str, model: str, response_id: str) -> dict[str, object]:
                 return {
@@ -431,7 +430,7 @@ class TrafficLoggerTaskGroupingTests(unittest.TestCase):
                 log_dir = tempfile.TemporaryDirectory()
                 try:
                     root = Path(log_dir.name)
-                    logger = TrafficLogger(root / "interactions.jsonl", root / "readable")
+                    logger = TrafficLogger(root / "readable")
 
                     def record(request_id: str, timestamp: str, instructions: str, tools: list[object], first_user: str, response_id: str) -> dict[str, object]:
                         return {
@@ -489,7 +488,7 @@ class TrafficLoggerTaskGroupingTests(unittest.TestCase):
         log_dir = tempfile.TemporaryDirectory()
         try:
             root = Path(log_dir.name)
-            logger = TrafficLogger(root / "interactions.jsonl", root / "readable")
+            logger = TrafficLogger(root / "readable")
 
             def record(request_id: str, timestamp: str, input_text: str, tools: list[object] | None) -> dict[str, object]:
                 payload: dict[str, object] = {
@@ -538,7 +537,7 @@ class TrafficLoggerTaskGroupingTests(unittest.TestCase):
                 log_dir = tempfile.TemporaryDirectory()
                 try:
                     root = Path(log_dir.name)
-                    logger = TrafficLogger(root / "interactions.jsonl", root / "readable")
+                    logger = TrafficLogger(root / "readable")
 
                     def record(request_id: str, timestamp: str, input_text: str, tools: list[object] | None) -> dict[str, object]:
                         payload: dict[str, object] = {
@@ -585,7 +584,7 @@ class TrafficLoggerTaskGroupingTests(unittest.TestCase):
         log_dir = tempfile.TemporaryDirectory()
         try:
             root = Path(log_dir.name)
-            logger = TrafficLogger(root / "interactions.jsonl", root / "readable")
+            logger = TrafficLogger(root / "readable")
 
             def message(text: str) -> dict[str, object]:
                 return {"type": "message", "role": "user", "content": [{"type": "input_text", "text": text}]}
@@ -629,7 +628,7 @@ class TrafficLoggerTaskGroupingTests(unittest.TestCase):
         log_dir = tempfile.TemporaryDirectory()
         try:
             root = Path(log_dir.name)
-            logger = TrafficLogger(root / "interactions.jsonl", root / "readable")
+            logger = TrafficLogger(root / "readable")
 
             def message(text: str) -> dict[str, object]:
                 return {"type": "message", "role": "user", "content": [{"type": "input_text", "text": text}]}
@@ -675,7 +674,7 @@ class TrafficLoggerTaskGroupingTests(unittest.TestCase):
         log_dir = tempfile.TemporaryDirectory()
         try:
             root = Path(log_dir.name)
-            logger = TrafficLogger(root / "interactions.jsonl", root / "readable")
+            logger = TrafficLogger(root / "readable")
 
             def record(request_id: str, timestamp: str, response_id: str) -> dict[str, object]:
                 return {
@@ -722,7 +721,7 @@ class TrafficLoggerTaskGroupingTests(unittest.TestCase):
         log_dir = tempfile.TemporaryDirectory()
         try:
             root = Path(log_dir.name)
-            logger = TrafficLogger(root / "interactions.jsonl", root / "readable")
+            logger = TrafficLogger(root / "readable")
 
             def message(text: str) -> dict[str, object]:
                 return {"type": "message", "role": "user", "content": [{"type": "input_text", "text": text}]}
@@ -766,7 +765,7 @@ class TrafficLoggerTaskGroupingTests(unittest.TestCase):
         log_dir = tempfile.TemporaryDirectory()
         try:
             root = Path(log_dir.name)
-            logger = TrafficLogger(root / "interactions.jsonl", root / "readable")
+            logger = TrafficLogger(root / "readable")
 
             def message(text: str) -> dict[str, object]:
                 return {"type": "message", "role": "user", "content": [{"type": "input_text", "text": text}]}
@@ -824,7 +823,7 @@ class TrafficLoggerTaskGroupingTests(unittest.TestCase):
                 log_dir = tempfile.TemporaryDirectory()
                 try:
                     root = Path(log_dir.name)
-                    logger = TrafficLogger(root / "interactions.jsonl", root / "readable")
+                    logger = TrafficLogger(root / "readable")
 
                     def record(request_id: str, timestamp: str, system: str, tools: list[object], first_user: str) -> dict[str, object]:
                         return {
@@ -882,7 +881,7 @@ class TrafficLoggerTaskGroupingTests(unittest.TestCase):
         log_dir = tempfile.TemporaryDirectory()
         try:
             root = Path(log_dir.name)
-            logger = TrafficLogger(root / "interactions.jsonl", root / "readable")
+            logger = TrafficLogger(root / "readable")
 
             def record(request_id: str, started_at: str, finished_at: str, previous_response_id: str | None, response_id: str) -> dict[str, object]:
                 payload: dict[str, object] = {
@@ -947,6 +946,50 @@ class TrafficLoggerTaskGroupingTests(unittest.TestCase):
 class TargetUrlProxyTests(unittest.TestCase):
     """验证代理服务器会按 target-url 转发请求并写日志。"""
 
+    def _target(
+        self,
+        target_id: str,
+        name: str,
+        port: int,
+        *,
+        base_path: str = "/v1",
+        target_api_key: str = "",
+        target_headers: list[tuple[str, str]] | None = None,
+        strip_request_fields: set[str] | None = None,
+        inject_request_fields: dict[str, object] | None = None,
+        model_mappings: list[dict[str, str]] | None = None,
+        enabled: bool = True,
+        timeout: float = 5,
+    ) -> dict[str, object]:
+        return {
+            "id": target_id,
+            "name": name,
+            "enabled": enabled,
+            "target_scheme": "http",
+            "target_host": "127.0.0.1",
+            "target_port": port,
+            "target_base_path": base_path,
+            "target_api_key": target_api_key,
+            "target_headers": target_headers or [],
+            "strip_request_fields": strip_request_fields or set(),
+            "inject_request_fields": inject_request_fields or {},
+            "timeout": timeout,
+            "model_mappings": model_mappings or [],
+        }
+
+    def _config(
+        self,
+        targets: list[dict[str, object]],
+        *,
+        default_target_id: str = "default",
+        access_log: bool = False,
+    ) -> dict[str, object]:
+        return {
+            "targets": targets,
+            "default_target_id": default_target_id,
+            "access_log": access_log,
+        }
+
     def test_routes_requests_to_target_by_model_and_rewrites_model(self) -> None:
         seen: dict[str, dict[str, object]] = {}
 
@@ -978,50 +1021,22 @@ class TargetUrlProxyTests(unittest.TestCase):
         proxy = None
         try:
             log_root = Path(log_dir.name)
-            logger = TrafficLogger(log_root / "interactions.jsonl", log_root / "readable")
+            logger = TrafficLogger(log_root / "readable")
             proxy = ProxyServer(
                 ("127.0.0.1", 0),
                 ProxyHandler,
-                {
-                    "target_scheme": "http",
-                    "target_host": "127.0.0.1",
-                    "target_port": upstream_a.server_address[1],
-                    "target_base_path": "/v1",
-                    "target_headers": [],
-                    "strip_request_fields": set(),
-                    "inject_request_fields": {},
-                    "timeout": 5,
-                    "access_log": False,
-                    "default_target_id": "b",
-                    "targets": [
-                        {
-                            "id": "a",
-                            "name": "A",
-                            "target_scheme": "http",
-                            "target_host": "127.0.0.1",
-                            "target_port": upstream_a.server_address[1],
-                            "target_base_path": "/v1",
-                            "target_headers": [],
-                            "strip_request_fields": set(),
-                            "inject_request_fields": {},
-                            "timeout": 5,
-                            "model_mappings": [{"listen": "A-gpt-5.5", "upstream": "gpt-5.5"}],
-                        },
-                        {
-                            "id": "b",
-                            "name": "B",
-                            "target_scheme": "http",
-                            "target_host": "127.0.0.1",
-                            "target_port": upstream_b.server_address[1],
-                            "target_base_path": "/v1",
-                            "target_headers": [],
-                            "strip_request_fields": set(),
-                            "inject_request_fields": {},
-                            "timeout": 5,
-                            "model_mappings": [],
-                        },
+                self._config(
+                    [
+                        self._target(
+                            "a",
+                            "A",
+                            upstream_a.server_address[1],
+                            model_mappings=[{"listen": "A-gpt-5.5", "upstream": "gpt-5.5"}],
+                        ),
+                        self._target("b", "B", upstream_b.server_address[1]),
                     ],
-                },
+                    default_target_id="b",
+                ),
                 logger,
             )
             threading.Thread(target=proxy.serve_forever, daemon=True).start()
@@ -1091,52 +1106,23 @@ class TargetUrlProxyTests(unittest.TestCase):
         proxy = None
         try:
             log_root = Path(log_dir.name)
-            logger = TrafficLogger(log_root / "interactions.jsonl", log_root / "readable")
+            logger = TrafficLogger(log_root / "readable")
             proxy = ProxyServer(
                 ("127.0.0.1", 0),
                 ProxyHandler,
-                {
-                    "target_scheme": "http",
-                    "target_host": "127.0.0.1",
-                    "target_port": upstream_a.server_address[1],
-                    "target_base_path": "/v1",
-                    "target_headers": [],
-                    "strip_request_fields": set(),
-                    "inject_request_fields": {},
-                    "timeout": 5,
-                    "access_log": False,
-                    "default_target_id": "b",
-                    "targets": [
-                        {
-                            "id": "a",
-                            "name": "A",
-                            "enabled": False,
-                            "target_scheme": "http",
-                            "target_host": "127.0.0.1",
-                            "target_port": upstream_a.server_address[1],
-                            "target_base_path": "/v1",
-                            "target_headers": [],
-                            "strip_request_fields": set(),
-                            "inject_request_fields": {},
-                            "timeout": 5,
-                            "model_mappings": [{"listen": "A-gpt-5.5", "upstream": "gpt-5.5"}],
-                        },
-                        {
-                            "id": "b",
-                            "name": "B",
-                            "enabled": True,
-                            "target_scheme": "http",
-                            "target_host": "127.0.0.1",
-                            "target_port": upstream_b.server_address[1],
-                            "target_base_path": "/v1",
-                            "target_headers": [],
-                            "strip_request_fields": set(),
-                            "inject_request_fields": {},
-                            "timeout": 5,
-                            "model_mappings": [],
-                        },
+                self._config(
+                    [
+                        self._target(
+                            "a",
+                            "A",
+                            upstream_a.server_address[1],
+                            enabled=False,
+                            model_mappings=[{"listen": "A-gpt-5.5", "upstream": "gpt-5.5"}],
+                        ),
+                        self._target("b", "B", upstream_b.server_address[1]),
                     ],
-                },
+                    default_target_id="b",
+                ),
                 logger,
             )
             threading.Thread(target=proxy.serve_forever, daemon=True).start()
@@ -1192,31 +1178,14 @@ class TargetUrlProxyTests(unittest.TestCase):
         proxy = None
         try:
             upstream_port = upstream.server_address[1]
-            target = parse_target(
-                SimpleNamespace(
-                    target_url=f"http://127.0.0.1:{upstream_port}/v1",
-                    target_scheme="http",
-                    target_host="127.0.0.1",
-                    target_port=1235,
-                )
-            )
+            target = parse_target_url(f"http://127.0.0.1:{upstream_port}/v1")
             log_root = Path(log_dir.name)
             readable_dir = log_root / "readable"
-            logger = TrafficLogger(log_root / "interactions.jsonl", readable_dir)
+            logger = TrafficLogger(readable_dir)
             proxy = ProxyServer(
                 ("127.0.0.1", 0),
                 ProxyHandler,
-                {
-                    "target_scheme": target["scheme"],
-                    "target_host": target["host"],
-                    "target_port": target["port"],
-                    "target_base_path": target["base_path"],
-                    "target_headers": [],
-                    "strip_request_fields": set(),
-                    "inject_request_fields": {},
-                    "timeout": 5,
-                    "access_log": False,
-                },
+                self._config([self._target("default", "Default", int(target["port"]), base_path=str(target["base_path"]))]),
                 logger,
             )
             proxy_thread = threading.Thread(target=proxy.serve_forever, daemon=True)
@@ -1239,7 +1208,6 @@ class TargetUrlProxyTests(unittest.TestCase):
             readable_interactions = [path for path in readable_dir.iterdir() if path.is_dir() and path.name != "tasks"]
             self.assertEqual(len(readable_interactions), 1)
             readable_path = readable_interactions[0]
-            self.assertFalse((log_root / "interactions.jsonl").exists())
             with (readable_path / "request.json").open(encoding="utf-8") as file:
                 self.assertEqual(json.load(file), {"messages": []})
             with (readable_path / "response.json").open(encoding="utf-8") as file:
@@ -1280,22 +1248,21 @@ class TargetUrlProxyTests(unittest.TestCase):
         proxy = None
         try:
             log_root = Path(log_dir.name)
-            logger = TrafficLogger(log_root / "interactions.jsonl", log_root / "readable")
+            logger = TrafficLogger(log_root / "readable")
             proxy = ProxyServer(
                 ("127.0.0.1", 0),
                 ProxyHandler,
-                {
-                    "target_scheme": "http",
-                    "target_host": "127.0.0.1",
-                    "target_port": upstream.server_address[1],
-                    "target_base_path": "/v1",
-                    "target_api_key": "sk-target",
-                    "target_headers": [("Authorization", "Bearer sk-header")],
-                    "strip_request_fields": set(),
-                    "inject_request_fields": {},
-                    "timeout": 5,
-                    "access_log": False,
-                },
+                self._config(
+                    [
+                        self._target(
+                            "default",
+                            "Default",
+                            upstream.server_address[1],
+                            target_api_key="sk-target",
+                            target_headers=[("Authorization", "Bearer sk-header")],
+                        )
+                    ]
+                ),
                 logger,
             )
             proxy_thread = threading.Thread(target=proxy.serve_forever, daemon=True)
@@ -1347,21 +1314,21 @@ class TargetUrlProxyTests(unittest.TestCase):
         try:
             log_root = Path(log_dir.name)
             readable_dir = log_root / "readable"
-            logger = TrafficLogger(log_root / "interactions.jsonl", readable_dir)
+            logger = TrafficLogger(readable_dir)
             proxy = ProxyServer(
                 ("127.0.0.1", 0),
                 ProxyHandler,
-                {
-                    "target_scheme": "http",
-                    "target_host": "127.0.0.1",
-                    "target_port": upstream.server_address[1],
-                    "target_base_path": "/v1",
-                    "target_headers": [],
-                    "strip_request_fields": {"temperature"},
-                    "inject_request_fields": {"metadata": {"source": "proxy"}, "stream": True},
-                    "timeout": 5,
-                    "access_log": False,
-                },
+                self._config(
+                    [
+                        self._target(
+                            "default",
+                            "Default",
+                            upstream.server_address[1],
+                            strip_request_fields={"temperature"},
+                            inject_request_fields={"metadata": {"source": "proxy"}, "stream": True},
+                        )
+                    ]
+                ),
                 logger,
             )
             proxy_thread = threading.Thread(target=proxy.serve_forever, daemon=True)
@@ -1423,21 +1390,11 @@ class TargetUrlProxyTests(unittest.TestCase):
             upstream_port = upstream.server_address[1]
             log_root = Path(log_dir.name)
             readable_dir = log_root / "readable"
-            logger = TrafficLogger(log_root / "interactions.jsonl", readable_dir)
+            logger = TrafficLogger(readable_dir)
             proxy = ProxyServer(
                 ("127.0.0.1", 0),
                 ProxyHandler,
-                {
-                    "target_scheme": "http",
-                    "target_host": "127.0.0.1",
-                    "target_port": upstream_port,
-                    "target_base_path": "/v1",
-                    "target_headers": [],
-                    "strip_request_fields": set(),
-                    "inject_request_fields": {},
-                    "timeout": 1,
-                    "access_log": False,
-                },
+                self._config([self._target("default", "Default", upstream_port, timeout=1)]),
                 logger,
             )
             proxy_thread = threading.Thread(target=proxy.serve_forever, daemon=True)
@@ -1473,7 +1430,6 @@ class TargetUrlProxyTests(unittest.TestCase):
                 self.assertIsNone(json.load(file))
             markdown = next(readable_path.glob("*.md")).read_text(encoding="utf-8")
             self.assertIn("- Event: request_received", markdown)
-            self.assertFalse((log_root / "interactions.jsonl").exists())
 
             sock.close()
             sock = None
@@ -1483,7 +1439,6 @@ class TargetUrlProxyTests(unittest.TestCase):
                 if "- Event: request_finished" in markdown:
                     break
                 time.sleep(0.05)
-            self.assertFalse((log_root / "interactions.jsonl").exists())
         finally:
             if sock is not None:
                 sock.close()
@@ -1521,21 +1476,11 @@ class TargetUrlProxyTests(unittest.TestCase):
             upstream_port = upstream.server_address[1]
             log_root = Path(log_dir.name)
             readable_dir = log_root / "readable"
-            logger = TrafficLogger(log_root / "interactions.jsonl", readable_dir)
+            logger = TrafficLogger(readable_dir)
             proxy = ProxyServer(
                 ("127.0.0.1", 0),
                 ProxyHandler,
-                {
-                    "target_scheme": "http",
-                    "target_host": "127.0.0.1",
-                    "target_port": upstream_port,
-                    "target_base_path": "/v1",
-                    "target_headers": [],
-                    "strip_request_fields": set(),
-                    "inject_request_fields": {},
-                    "timeout": 5,
-                    "access_log": False,
-                },
+                self._config([self._target("default", "Default", upstream_port)]),
                 logger,
             )
             proxy_thread = threading.Thread(target=proxy.serve_forever, daemon=True)
@@ -1583,7 +1528,6 @@ class TargetUrlProxyTests(unittest.TestCase):
             self.assertEqual(response_holder["status"], 200)
             self.assertEqual(response_holder["body"], b'{"ok":true}')
 
-            self.assertFalse((log_root / "interactions.jsonl").exists())
 
             readable_interactions = [path for path in readable_dir.iterdir() if path.is_dir() and path.name != "tasks"]
             self.assertEqual(readable_interactions, [readable_path])
@@ -1608,7 +1552,7 @@ class AdminUiTests(unittest.TestCase):
         server = None
         try:
             root = Path(temp_dir.name)
-            manager = ProxyManager(root / "proxies.json", root / "interactions.jsonl", root)
+            manager = ProxyManager(root / "proxies.json", root)
             server = AdminServer(("127.0.0.1", 0), manager)
             thread = threading.Thread(target=server.serve_forever, daemon=True)
             thread.start()
@@ -1622,8 +1566,15 @@ class AdminUiTests(unittest.TestCase):
                             "enabled": False,
                             "listen_host": "127.0.0.1",
                             "listen_port": 1234,
-                            "target_url": "http://127.0.0.1:1235/v1",
-                            "target_headers": ["X-Test: yes"],
+                            "targets": [
+                                {
+                                    "id": "target-one",
+                                    "name": "Target one",
+                                    "target_url": "http://127.0.0.1:1235/v1",
+                                    "target_headers": ["X-Test: yes"],
+                                }
+                            ],
+                            "default_target_id": "target-one",
                         },
                         {
                             "id": "two",
@@ -1631,7 +1582,14 @@ class AdminUiTests(unittest.TestCase):
                             "enabled": False,
                             "listen_host": "127.0.0.1",
                             "listen_port": 1236,
-                            "target_url": "http://127.0.0.1:1237",
+                            "targets": [
+                                {
+                                    "id": "target-two",
+                                    "name": "Target two",
+                                    "target_url": "http://127.0.0.1:1237",
+                                }
+                            ],
+                            "default_target_id": "target-two",
                         },
                     ]
                 }
@@ -1658,7 +1616,6 @@ class AdminUiTests(unittest.TestCase):
         server = None
         try:
             root = Path(temp_dir.name)
-            log_path = root / "interactions.jsonl"
             readable_path = root / "readable" / "2026-06-07__08-00-00.000__post__v1-responses__req_1"
             readable_path.mkdir(parents=True)
             (readable_path / "08-00-00.000__08-00-00.010.md").write_text(
@@ -1679,7 +1636,7 @@ class AdminUiTests(unittest.TestCase):
             )
             (readable_path / "request.json").write_text(json.dumps({"a": 1}), encoding="utf-8")
             (readable_path / "response.json").write_text(json.dumps({"ok": True}), encoding="utf-8")
-            manager = ProxyManager(root / "proxies.json", log_path, root)
+            manager = ProxyManager(root / "proxies.json", root)
             server = AdminServer(("127.0.0.1", 0), manager)
             thread = threading.Thread(target=server.serve_forever, daemon=True)
             thread.start()
@@ -1704,7 +1661,6 @@ class AdminUiTests(unittest.TestCase):
         server = None
         try:
             root = Path(temp_dir.name)
-            log_path = root / "interactions.jsonl"
             task_request_path = (
                 root
                 / "tasks"
@@ -1731,7 +1687,7 @@ class AdminUiTests(unittest.TestCase):
             )
             (task_request_path / "request.json").write_text(json.dumps({"a": 1}), encoding="utf-8")
             (task_request_path / "response.json").write_text(json.dumps({"ok": True}), encoding="utf-8")
-            manager = ProxyManager(root / "proxies.json", log_path, root)
+            manager = ProxyManager(root / "proxies.json", root)
             server = AdminServer(("127.0.0.1", 0), manager)
             thread = threading.Thread(target=server.serve_forever, daemon=True)
             thread.start()
@@ -1758,7 +1714,6 @@ class AdminUiTests(unittest.TestCase):
         server = None
         try:
             root = Path(temp_dir.name)
-            log_path = root / "interactions.jsonl"
             task_path = (
                 root
                 / "tasks"
@@ -1789,7 +1744,7 @@ class AdminUiTests(unittest.TestCase):
             write_record("002__08-00-20.000__v1-responses__req_2", "req_2", "2000-01-01T00:00:00.000+00:00")
 
             (root / "readable").mkdir(exist_ok=True)
-            manager = ProxyManager(root / "proxies.json", log_path, root)
+            manager = ProxyManager(root / "proxies.json", root)
             server = AdminServer(("127.0.0.1", 0), manager)
             thread = threading.Thread(target=server.serve_forever, daemon=True)
             thread.start()
@@ -1817,7 +1772,6 @@ class AdminUiTests(unittest.TestCase):
         server = None
         try:
             root = Path(temp_dir.name)
-            log_path = root / "interactions.jsonl"
 
             def write_readable(log_root: Path, record_id: str, target: str) -> None:
                 readable_path = log_root / "readable" / f"2026-06-07__08-00-00.000__post__v1-responses__{record_id}"
@@ -1846,7 +1800,7 @@ class AdminUiTests(unittest.TestCase):
             write_readable(first_root, "req_first", "http://127.0.0.1:1235/v1/responses")
             write_readable(second_root, "req_second", "http://127.0.0.1:1236/v1/responses")
 
-            manager = ProxyManager(root / "proxies.json", log_path, root / "default-logs")
+            manager = ProxyManager(root / "proxies.json", root / "default-logs")
             manager.replace_pairs(
                 [
                     {

@@ -123,27 +123,11 @@ class ProxyHandler(BaseHTTPRequestHandler):
         return headers
 
     def _targets(self) -> list[dict[str, object]]:
-        """返回当前服务器可用的上游配置，兼容旧的单 target config。"""
+        """Return the configured upstream targets."""
         targets = self.server_config.get("targets")
         if isinstance(targets, list) and targets:
             return [target for target in targets if isinstance(target, dict)]
-        return [
-            {
-                "id": "default",
-                "name": "Default target",
-                "target_scheme": self.server_config["target_scheme"],
-                "target_host": self.server_config["target_host"],
-                "target_port": self.server_config["target_port"],
-                "target_base_path": self.server_config["target_base_path"],
-                "target_api_key": self.server_config.get("target_api_key", ""),
-                "target_headers": self.server_config["target_headers"],
-                "strip_request_fields": self.server_config["strip_request_fields"],
-                "inject_request_fields": self.server_config.get("inject_request_fields", {}),
-                "timeout": self.server_config["timeout"],
-                "model_mappings": [],
-                "enabled": True,
-            }
-        ]
+        raise ValueError("ProxyServer config must include at least one target.")
 
     def _request_model(self, request_body: bytes) -> str | None:
         try:

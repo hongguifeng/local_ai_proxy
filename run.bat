@@ -1,1 +1,1 @@
-python -m llm_proxy --ui
+python -m llm_proxy

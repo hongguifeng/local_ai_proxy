@@ -1,8 +1,4 @@
-"""LLM HTTP proxy 包的公开 API。
-
-外部代码如果 ``import llm_proxy``，通常只需要这里导出的这些类和函数。
-这样可以隐藏内部模块拆分细节，也方便旧的 ``proxy.py`` 兼容入口复用。
-"""
+"""Public API for the LLM HTTP proxy package."""
 
 from __future__ import annotations
 
@@ -19,7 +15,7 @@ from .sanitize import (
 )
 from .server import ProxyHandler, ProxyServer
 from .streams import compact_sse_json
-from .target import join_target_path, parse_target
+from .target import join_target_path, parse_target_url
 from .time_utils import local_datetime_for_filename, local_time_from_timestamp_for_filename
 
 __all__ = [
@@ -39,7 +35,7 @@ __all__ = [
     "parse_header_overrides",
     "parse_inject_request_fields",
     "parse_strip_request_fields",
-    "parse_target",
+    "parse_target_url",
     "render_body",
     "render_headers",
     "strip_request_json_fields",
