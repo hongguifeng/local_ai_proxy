@@ -8,7 +8,9 @@
 from __future__ import annotations
 
 import json
+from dataclasses import dataclass, field
 from typing import Mapping
+
 
 def merge_tool_call_delta(merged: dict[int, dict[str, object]], tool_call: object) -> None:
     """合并 Chat Completions 流里的工具调用增量。
@@ -109,11 +111,8 @@ def compact_response_payload(response: Mapping[str, object]) -> dict[str, object
     return compacted
 
 
-def compact_sse_json(text: str) -> str | None:
-    """把 SSE 文本压缩成 JSON 摘要。
-
-    如果输入不是可识别的 SSE，返回 ``None``，让调用方按普通文本/JSON 处理。
-    """
+def parse_sse_events(text: str) -> tuple[list[object], bool] | None:
+    """解析 SSE 里的 JSON data 片段，并记录是否见到 ``[DONE]``。"""
     events = []
     done_seen = False
     for line in text.splitlines():
@@ -133,143 +132,193 @@ def compact_sse_json(text: str) -> str | None:
             return None
     if not events:
         return None
+    return events, done_seen
 
-    content_parts: list[str] = []
-    reasoning_parts: list[str] = []
-    tool_calls: list[object] = []
-    response_tool_calls: dict[str, dict[str, object]] = {}
-    finish_reasons: list[str] = []
+
+@dataclass
+class StreamAccumulator:
+    """把不同 OpenAI 兼容流事件累积成 readable 日志摘要。"""
+
+    event_count: int
+    done_seen: bool
+    content_parts: list[str] = field(default_factory=list)
+    reasoning_parts: list[str] = field(default_factory=list)
+    tool_calls: list[object] = field(default_factory=list)
+    response_tool_calls: dict[str, dict[str, object]] = field(default_factory=dict)
+    finish_reasons: list[str] = field(default_factory=list)
     usage: object | None = None
     response_payload: object | None = None
-    other_payloads: list[object] = []
+    other_payloads: list[object] = field(default_factory=list)
 
-    for event in events:
+    def add_event(self, event: object) -> None:
         if not isinstance(event, dict):
-            other_payloads.append(event)
-            continue
+            self.other_payloads.append(event)
+            return
 
         event_type = event.get("type")
         if isinstance(event_type, str) and event_type.startswith("response."):
-            # Responses API 的事件类型以 response. 开头，字段结构和 Chat Completions 不同。
-            if event_type == "response.output_text.delta":
-                delta = event.get("delta")
-                if isinstance(delta, str) and delta:
-                    content_parts.append(delta)
-            elif event_type == "response.output_text.done" and not content_parts:
-                value = event.get("text")
-                if isinstance(value, str) and value:
-                    content_parts.append(value)
-            elif event_type in {
-                "response.reasoning_text.delta",
-                "response.reasoning_summary_text.delta",
-            }:
-                delta = event.get("delta")
-                if isinstance(delta, str) and delta:
-                    reasoning_parts.append(delta)
-            elif event_type in {
-                "response.reasoning_text.done",
-                "response.reasoning_summary_text.done",
-            } and not reasoning_parts:
-                value = event.get("text")
-                if isinstance(value, str) and value:
-                    reasoning_parts.append(value)
-            elif event_type == "response.function_call_arguments.delta":
-                # 函数调用参数也是分片返回的，需要按 item_id/call_id 拼起来。
-                item_id = str(event.get("item_id") or event.get("call_id") or event.get("output_index") or "0")
-                tool_call = response_tool_calls.setdefault(item_id, {"arguments": ""})
-                for key in ("item_id", "call_id", "output_index"):
-                    value = event.get(key)
-                    if value is not None:
-                        tool_call[key] = value
-                delta = event.get("delta")
-                if isinstance(delta, str):
-                    tool_call["arguments"] = str(tool_call.get("arguments", "")) + delta
-            elif event_type == "response.function_call_arguments.done":
-                item_id = str(event.get("item_id") or event.get("call_id") or event.get("output_index") or "0")
-                tool_call = response_tool_calls.setdefault(item_id, {})
-                for key in ("item_id", "call_id", "output_index"):
-                    value = event.get(key)
-                    if value is not None:
-                        tool_call[key] = value
-                arguments = event.get("arguments")
-                if isinstance(arguments, str):
-                    tool_call["arguments"] = arguments
-            elif event_type in {"response.completed", "response.incomplete"}:
-                response = event.get("response")
-                if isinstance(response, dict):
-                    compacted_response = compact_response_payload(response)
-                    if compacted_response:
-                        response_payload = {
-                            **response_payload,
-                            **compacted_response,
-                        } if isinstance(response_payload, dict) else compacted_response
-                    if response.get("usage"):
-                        usage = response["usage"]
-                    status = response.get("status")
-                    if status:
-                        finish_reasons.append(str(status))
-            elif event_type == "response.created":
-                response = event.get("response")
-                if isinstance(response, dict) and response_payload is None:
-                    response_payload = compact_response_payload(response)
-            continue
+            self.add_response_event(event_type, event)
+            return
 
+        self.add_chat_event(event)
+
+    def add_response_event(self, event_type: str, event: Mapping[str, object]) -> None:
+        # Responses API 的事件类型以 response. 开头，字段结构和 Chat Completions 不同。
+        if event_type == "response.output_text.delta":
+            self.append_string(self.content_parts, event.get("delta"))
+        elif event_type == "response.output_text.done" and not self.content_parts:
+            self.append_string(self.content_parts, event.get("text"))
+        elif event_type in {
+            "response.reasoning_text.delta",
+            "response.reasoning_summary_text.delta",
+        }:
+            self.append_string(self.reasoning_parts, event.get("delta"))
+        elif event_type in {
+            "response.reasoning_text.done",
+            "response.reasoning_summary_text.done",
+        } and not self.reasoning_parts:
+            self.append_string(self.reasoning_parts, event.get("text"))
+        elif event_type == "response.function_call_arguments.delta":
+            self.add_response_function_call_delta(event)
+        elif event_type == "response.function_call_arguments.done":
+            self.add_response_function_call_done(event)
+        elif event_type in {"response.completed", "response.incomplete"}:
+            self.add_response_completion(event)
+        elif event_type == "response.created":
+            response = event.get("response")
+            if isinstance(response, dict) and self.response_payload is None:
+                self.response_payload = compact_response_payload(response)
+
+    def add_response_function_call_delta(self, event: Mapping[str, object]) -> None:
+        # 函数调用参数也是分片返回的，需要按 item_id/call_id 拼起来。
+        item_id = self.response_tool_call_key(event)
+        tool_call = self.response_tool_calls.setdefault(item_id, {"arguments": ""})
+        self.copy_response_tool_call_ids(tool_call, event)
+        delta = event.get("delta")
+        if isinstance(delta, str):
+            tool_call["arguments"] = str(tool_call.get("arguments", "")) + delta
+
+    def add_response_function_call_done(self, event: Mapping[str, object]) -> None:
+        item_id = self.response_tool_call_key(event)
+        tool_call = self.response_tool_calls.setdefault(item_id, {})
+        self.copy_response_tool_call_ids(tool_call, event)
+        arguments = event.get("arguments")
+        if isinstance(arguments, str):
+            tool_call["arguments"] = arguments
+
+    def add_response_completion(self, event: Mapping[str, object]) -> None:
+        response = event.get("response")
+        if not isinstance(response, dict):
+            return
+        compacted_response = compact_response_payload(response)
+        if compacted_response:
+            self.response_payload = (
+                {
+                    **self.response_payload,
+                    **compacted_response,
+                }
+                if isinstance(self.response_payload, dict)
+                else compacted_response
+            )
+        if response.get("usage"):
+            self.usage = response["usage"]
+        status = response.get("status")
+        if status:
+            self.finish_reasons.append(str(status))
+
+    def add_chat_event(self, event: Mapping[str, object]) -> None:
         if event.get("usage"):
-            usage = event["usage"]
-        choices = event.get("choices") if isinstance(event, dict) else None
+            self.usage = event["usage"]
+        choices = event.get("choices")
         if not isinstance(choices, list):
-            other_payloads.append(event)
-            continue
+            self.other_payloads.append(event)
+            return
+
         # Chat Completions 的流式内容通常放在 choices[].delta 或 choices[].message 里。
         for choice in choices:
             if not isinstance(choice, dict):
                 continue
             finish_reason = choice.get("finish_reason")
             if finish_reason:
-                finish_reasons.append(str(finish_reason))
+                self.finish_reasons.append(str(finish_reason))
             delta = choice.get("delta")
             message = choice.get("message")
             for payload in (delta, message, choice):
                 if not isinstance(payload, dict):
                     continue
-                for key in ("reasoning_content", "reasoning", "reasoning_text"):
-                    value = payload.get(key)
-                    if isinstance(value, str) and value:
-                        reasoning_parts.append(value)
-                value = payload.get("content")
-                if isinstance(value, str) and value:
-                    content_parts.append(value)
-                value = payload.get("text")
-                if isinstance(value, str) and value:
-                    content_parts.append(value)
-                value = payload.get("tool_calls")
-                if value:
-                    tool_calls.append(value)
+                self.add_chat_payload(payload)
 
-    summary: dict[str, object] = {
-        "stream_summary": {
-            "event_count": len(events),
-            "done_seen": done_seen,
+    def add_chat_payload(self, payload: Mapping[str, object]) -> None:
+        for key in ("reasoning_content", "reasoning", "reasoning_text"):
+            self.append_string(self.reasoning_parts, payload.get(key))
+        self.append_string(self.content_parts, payload.get("content"))
+        self.append_string(self.content_parts, payload.get("text"))
+        value = payload.get("tool_calls")
+        if value:
+            self.tool_calls.append(value)
+
+    def summary(self) -> dict[str, object]:
+        stream_summary: dict[str, object] = {
+            "event_count": self.event_count,
+            "done_seen": self.done_seen,
         }
-    }
-    stream_summary = summary["stream_summary"]
-    if isinstance(stream_summary, dict):
         # 只写入实际出现过的信息，避免日志里充满空字段。
-        if reasoning_parts:
-            stream_summary["reasoning"] = "".join(reasoning_parts)
-        if content_parts:
-            stream_summary["content"] = "".join(content_parts)
-        if response_tool_calls:
-            stream_summary["response_tool_calls"] = compact_response_tool_calls(response_tool_calls)
-        if tool_calls:
-            stream_summary["tool_calls"] = compact_tool_calls(tool_calls)
-        if finish_reasons:
-            stream_summary["finish_reasons"] = finish_reasons
-        if usage:
-            stream_summary["usage"] = usage
-        if response_payload:
-            stream_summary["response"] = response_payload
-        if other_payloads:
-            stream_summary["other_payloads"] = other_payloads
-    return json.dumps(summary, ensure_ascii=False, indent=2)
+        if self.reasoning_parts:
+            stream_summary["reasoning"] = "".join(self.reasoning_parts)
+        if self.content_parts:
+            stream_summary["content"] = "".join(self.content_parts)
+        if self.response_tool_calls:
+            stream_summary["response_tool_calls"] = compact_response_tool_calls(
+                self.response_tool_calls
+            )
+        if self.tool_calls:
+            stream_summary["tool_calls"] = compact_tool_calls(self.tool_calls)
+        if self.finish_reasons:
+            stream_summary["finish_reasons"] = self.finish_reasons
+        if self.usage:
+            stream_summary["usage"] = self.usage
+        if self.response_payload:
+            stream_summary["response"] = self.response_payload
+        if self.other_payloads:
+            stream_summary["other_payloads"] = self.other_payloads
+        return {"stream_summary": stream_summary}
 
+    @staticmethod
+    def append_string(parts: list[str], value: object) -> None:
+        if isinstance(value, str) and value:
+            parts.append(value)
+
+    @staticmethod
+    def response_tool_call_key(event: Mapping[str, object]) -> str:
+        return str(
+            event.get("item_id")
+            or event.get("call_id")
+            or event.get("output_index")
+            or "0"
+        )
+
+    @staticmethod
+    def copy_response_tool_call_ids(
+        tool_call: dict[str, object],
+        event: Mapping[str, object],
+    ) -> None:
+        for key in ("item_id", "call_id", "output_index"):
+            value = event.get(key)
+            if value is not None:
+                tool_call[key] = value
+
+
+def compact_sse_json(text: str) -> str | None:
+    """把 SSE 文本压缩成 JSON 摘要。
+
+    如果输入不是可识别的 SSE，返回 ``None``，让调用方按普通文本/JSON 处理。
+    """
+    parsed = parse_sse_events(text)
+    if parsed is None:
+        return None
+    events, done_seen = parsed
+    accumulator = StreamAccumulator(event_count=len(events), done_seen=done_seen)
+    for event in events:
+        accumulator.add_event(event)
+    summary = accumulator.summary()
+    return json.dumps(summary, ensure_ascii=False, indent=2)

@@ -8,8 +8,8 @@ import threading
 import webbrowser
 from pathlib import Path
 
+from .admin_server import serve_admin
 from .manager import DEFAULT_CONFIG_PATH, DEFAULT_LOG_ROOT, ProxyManager
-from .ui import serve_admin
 
 
 def open_browser_later(url: str) -> None:
