@@ -173,6 +173,112 @@ class ProxyHandler(BaseHTTPRequestHandler):
         loaded["model"] = upstream_model
         return json.dumps(loaded, ensure_ascii=False, separators=(",", ":")).encode("utf-8")
 
+    def _target_path(self, target: dict[str, object]) -> tuple[str, str, int, str]:
+        target_scheme = str(target["target_scheme"])
+        target_host = str(target["target_host"])
+        target_port = int(target["target_port"])
+        target_base_path = str(target["target_base_path"])
+        return target_scheme, target_host, target_port, join_target_path(target_base_path, self.path)
+
+    def _initial_record(self, request_id: str, target: dict[str, object]) -> dict[str, object]:
+        target_scheme, target_host, target_port, target_path = self._target_path(target)
+        record: dict[str, object] = {
+            "id": request_id,
+            "timestamp": utc_now_iso(),
+            "client": {
+                "host": self.client_address[0],
+                "port": self.client_address[1],
+            },
+            "target": {
+                "scheme": target_scheme,
+                "host": target_host,
+                "port": target_port,
+                "path": target_path,
+            },
+            "request": {
+                "method": self.command,
+                "path": self.path,
+                "headers": headers_to_dict(self.headers.items()),
+                "body": bytes_payload(b""),
+                "body_pending": True,
+            },
+        }
+        if self.server_config.get("proxy_pair_id"):
+            record["proxy"] = {
+                "id": self.server_config.get("proxy_pair_id"),
+                "name": self.server_config.get("proxy_pair_name"),
+            }
+        record["started_timestamp"] = record["timestamp"]
+        return record
+
+    def _event_record(
+        self,
+        base_record: dict[str, object],
+        event: str,
+        duration_ms: float,
+        *,
+        response_status: object = None,
+        response_headers: list[tuple[str, str]] | None = None,
+        response_body: bytes = b"",
+        timestamp: str | None = None,
+        error: str | None = None,
+    ) -> dict[str, object]:
+        record = {
+            **base_record,
+            "event": event,
+            "duration_ms": duration_ms,
+            "response": {
+                "status": response_status,
+                "headers": headers_to_dict(response_headers or []),
+                "body": bytes_payload(response_body),
+            },
+        }
+        if timestamp is not None:
+            record["timestamp"] = timestamp
+        if error:
+            record["error"] = error
+        return record
+
+    def _request_record(
+        self,
+        request_body: bytes,
+        upstream_request_body: bytes,
+        selected_target: dict[str, object],
+        request_model: str | None,
+        upstream_model: str | None,
+        stripped_request_fields: list[str],
+        injected_request_fields: list[str],
+    ) -> dict[str, object]:
+        record: dict[str, object] = {
+            "method": self.command,
+            "path": self.path,
+            "headers": headers_to_dict(self.headers.items()),
+            "body": bytes_payload(request_body),
+        }
+        if stripped_request_fields:
+            record["stripped_fields"] = stripped_request_fields
+        if injected_request_fields:
+            record["injected_fields"] = injected_request_fields
+        if upstream_model:
+            record["model_route"] = {
+                "requested_model": request_model,
+                "upstream_model": upstream_model,
+                "target_id": selected_target.get("id"),
+                "target_name": selected_target.get("name"),
+            }
+        elif request_model:
+            record["model_route"] = {
+                "requested_model": request_model,
+                "target_id": selected_target.get("id"),
+                "target_name": selected_target.get("name"),
+            }
+        if stripped_request_fields or injected_request_fields or upstream_model:
+            record["upstream_body"] = bytes_payload(upstream_request_body)
+        target_headers = selected_target["target_headers"]  # type: ignore[assignment]
+        if target_headers:
+            record["added_upstream_headers"] = [key for key, _ in target_headers]  # type: ignore[union-attr]
+        return record
+
     def _proxy(self) -> None:
         """完整执行一次代理转发。
 
@@ -187,69 +293,22 @@ class ProxyHandler(BaseHTTPRequestHandler):
         targets = self._targets()
         early_log_before_body = len(targets) == 1
         early_target = targets[0]
-        target_scheme = str(early_target["target_scheme"])
-        target_host = str(early_target["target_host"])
-        target_port = int(early_target["target_port"])
-        target_base_path = str(early_target["target_base_path"])
-        target_path = join_target_path(target_base_path, self.path)
         response_body_parts: list[bytes] = []
         response_status = 502
         response_headers: list[tuple[str, str]] = []
         error: str | None = None
         sent_downstream_headers = False
-        initial_request_record: dict[str, object] = {
-            "method": self.command,
-            "path": self.path,
-            "headers": headers_to_dict(self.headers.items()),
-            "body": bytes_payload(b""),
-            "body_pending": True,
-        }
+        initial_record = self._initial_record(request_id, early_target)
         # 先写“请求已到达”日志，即使客户端 body 很慢或上游卡住，也能看到这次请求。
-        initial_record: dict[str, object] = {
-            "id": request_id,
-            "timestamp": utc_now_iso(),
-            "client": {
-                "host": self.client_address[0],
-                "port": self.client_address[1],
-            },
-            "target": {
-                "scheme": target_scheme,
-                "host": target_host,
-                "port": target_port,
-                "path": target_path,
-            },
-            "request": initial_request_record,
-        }
-        if self.server_config.get("proxy_pair_id"):
-            initial_record["proxy"] = {
-                "id": self.server_config.get("proxy_pair_id"),
-                "name": self.server_config.get("proxy_pair_name"),
-            }
-        initial_record["started_timestamp"] = initial_record["timestamp"]
         if early_log_before_body:
-            self.traffic_logger.write(
-                {
-                    **initial_record,
-                    "event": "request_received",
-                    "duration_ms": 0,
-                    "response": {
-                        "status": None,
-                        "headers": {},
-                        "body": bytes_payload(b""),
-                    },
-                }
-            )
+            self.traffic_logger.write(self._event_record(initial_record, "request_received", 0))
 
         request_body = self._read_request_body()
         selected_target, request_model, upstream_model = self._select_target(request_body)
         active_logger = selected_target.get("traffic_logger")
         if not isinstance(active_logger, TrafficLogger):
             active_logger = self.traffic_logger
-        target_scheme = str(selected_target["target_scheme"])
-        target_host = str(selected_target["target_host"])
-        target_port = int(selected_target["target_port"])
-        target_base_path = str(selected_target["target_base_path"])
-        target_path = join_target_path(target_base_path, self.path)
+        target_scheme, target_host, target_port, target_path = self._target_path(selected_target)
         timeout = float(selected_target["timeout"])
         model_rewritten_body = self._rewrite_request_model(request_body, upstream_model)
         upstream_request_body, stripped_request_fields, injected_request_fields = transform_request_json_fields(
@@ -258,34 +317,15 @@ class ProxyHandler(BaseHTTPRequestHandler):
             selected_target.get("inject_request_fields", {}),  # type: ignore[arg-type]
         )
         # 日志保存客户端原始请求体；真正发给上游的 body 可能已经移除了部分字段。
-        request_record: dict[str, object] = {
-            "method": self.command,
-            "path": self.path,
-            "headers": headers_to_dict(self.headers.items()),
-            "body": bytes_payload(request_body),
-        }
-        if stripped_request_fields:
-            request_record["stripped_fields"] = stripped_request_fields
-        if injected_request_fields:
-            request_record["injected_fields"] = injected_request_fields
-        if upstream_model:
-            request_record["model_route"] = {
-                "requested_model": request_model,
-                "upstream_model": upstream_model,
-                "target_id": selected_target.get("id"),
-                "target_name": selected_target.get("name"),
-            }
-        elif request_model:
-            request_record["model_route"] = {
-                "requested_model": request_model,
-                "target_id": selected_target.get("id"),
-                "target_name": selected_target.get("name"),
-            }
-        if stripped_request_fields or injected_request_fields or upstream_model:
-            request_record["upstream_body"] = bytes_payload(upstream_request_body)
-        target_headers = selected_target["target_headers"]  # type: ignore[assignment]
-        if target_headers:
-            request_record["added_upstream_headers"] = [key for key, _ in target_headers]  # type: ignore[union-attr]
+        request_record = self._request_record(
+            request_body,
+            upstream_request_body,
+            selected_target,
+            request_model,
+            upstream_model,
+            stripped_request_fields,
+            injected_request_fields,
+        )
         base_record = {
             **initial_record,
             "target": {
@@ -300,28 +340,18 @@ class ProxyHandler(BaseHTTPRequestHandler):
         }
         if not early_log_before_body:
             active_logger.write(
-                {
-                    **base_record,
-                    "event": "request_received",
-                    "duration_ms": round((time.perf_counter() - started) * 1000, 3),
-                    "response": {
-                        "status": None,
-                        "headers": {},
-                        "body": bytes_payload(b""),
-                    },
-                }
+                self._event_record(
+                    base_record,
+                    "request_received",
+                    round((time.perf_counter() - started) * 1000, 3),
+                )
             )
         active_logger.update_readable(
-            {
-                **base_record,
-                "event": "request_pending_response",
-                "duration_ms": round((time.perf_counter() - started) * 1000, 3),
-                "response": {
-                    "status": None,
-                    "headers": {},
-                    "body": bytes_payload(b""),
-                },
-            }
+            self._event_record(
+                base_record,
+                "request_pending_response",
+                round((time.perf_counter() - started) * 1000, 3),
+            )
         )
 
         try:
@@ -365,20 +395,18 @@ class ProxyHandler(BaseHTTPRequestHandler):
             # 无论成功还是失败，都写最终日志，这样排错时不会丢失异常信息。
             duration_ms = round((time.perf_counter() - started) * 1000, 3)
             response_body = b"".join(response_body_parts)
-            record = {
-                **base_record,
-                "event": "request_finished",
-                "timestamp": utc_now_iso(),
-                "duration_ms": duration_ms,
-                "response": {
-                    "status": response_status,
-                    "headers": headers_to_dict(response_headers),
-                    "body": bytes_payload(response_body),
-                },
-            }
-            if error:
-                record["error"] = error
-            active_logger.write(record)
+            active_logger.write(
+                self._event_record(
+                    base_record,
+                    "request_finished",
+                    duration_ms,
+                    response_status=response_status,
+                    response_headers=response_headers,
+                    response_body=response_body,
+                    timestamp=utc_now_iso(),
+                    error=error,
+                )
+            )
             self.close_connection = True
 
 
