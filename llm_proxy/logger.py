@@ -21,6 +21,7 @@ from .readable_logs import (
     write_body_json_files,
     write_task_index_markdown,
 )
+from .redaction import redact_record
 from .task_grouper import TaskGrouper
 from .task_index import TaskIndexStore
 
@@ -31,8 +32,9 @@ class TrafficLogger:
     代理服务器是多线程的，可能同时处理多个请求，所以所有写文件操作都用同一把锁保护。
     """
 
-    def __init__(self, readable_dir: Path | None) -> None:
+    def __init__(self, readable_dir: Path | None, *, redact_logs: bool = False) -> None:
         self.readable_dir = readable_dir
+        self.redact_logs = redact_logs
         self.lock = threading.Lock()
         self.readable_paths: dict[str, Path] = {}
         # .task-index.json 保存“请求 ID/响应 ID/上下文 ID -> 任务”的索引，
@@ -62,6 +64,8 @@ class TrafficLogger:
         """写入或更新一条请求对应的 readable 目录。"""
         if not self.readable_dir:
             return
+        if self.redact_logs:
+            record = redact_record(record)
         record_id = str(record["id"])
         readable_path = self.readable_paths.get(record_id)
         if readable_path is None:

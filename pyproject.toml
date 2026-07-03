@@ -25,6 +25,9 @@ llm-proxy = "llm_proxy.cli:main"
 [tool.setuptools.packages.find]
 include = ["llm_proxy*"]
 
+[tool.setuptools.package-data]
+llm_proxy = ["static/*.html"]
+
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 pythonpath = ["."]
@@ -50,7 +53,9 @@ python_version = "3.10"
 files = [
   "llm_proxy/file_io.py",
   "llm_proxy/http_utils.py",
+  "llm_proxy/log_maintenance.py",
   "llm_proxy/models.py",
+  "llm_proxy/redaction.py",
   "llm_proxy/sanitize.py",
   "llm_proxy/target.py",
   "llm_proxy/time_utils.py",

@@ -46,6 +46,8 @@ Each upstream target keeps its own timeout, readable log directory, upstream hea
 - Group related multi-turn Agent requests into task folders for easier review.
 - Inspect request and response JSON side by side, with wrapping, expansion, formatting, and copy controls.
 - Optionally remove or inject top-level JSON request fields before forwarding.
+- Optionally redact sensitive headers and common JSON secret fields in readable logs.
+- Export readable logs as a ZIP archive and clean selected task groups.
 - Persist proxy configuration in `logs/proxies.json` by default.
 
 ## Quick Start
@@ -109,6 +111,7 @@ Each upstream target includes:
 - Upstream headers, one `Name: value` entry per line.
 - Request fields to strip before forwarding.
 - Request fields to inject before forwarding as a JSON object.
+- Readable log redaction.
 
 The target URL, API Key, and model mappings are shown by default. Use **More settings** on a target card to reveal timeout, readable log directory, headers, and request-field rewriting options.
 
@@ -138,9 +141,11 @@ The **History** tab lets you review captured traffic without opening log files m
 
 - Automatic refresh.
 - Search by method, path, status, target URL, task id, and record id.
+- Paged loading for large log directories.
 - Task grouping for related Agent workflows.
 - Side-by-side request and response detail panes.
 - JSON expansion/collapse, line wrapping, string formatting, and copy actions.
+- ZIP export and selected-task cleanup.
 
 ![History Logs UI](doc/ui_logs_en.png)
 
@@ -186,6 +191,12 @@ Use **Request fields to inject before forwarding** to add or override top-level 
 
 When a request is changed, the logs record `request.stripped_fields`, `request.injected_fields`, and `request.upstream_body`.
 
+### Redact Readable Logs
+
+Enable **Redact logs** in a target's **More settings** section to mask common sensitive values in readable logs. Redaction covers headers such as `Authorization` and `X-API-Key`, plus JSON fields such as `api_key`, `access_token`, `token`, `password`, and `secret`.
+
+Redaction affects stored readable logs only. Requests are still forwarded to the upstream with their original values.
+
 ## Logs On Disk
 
 Default paths:
@@ -201,6 +212,8 @@ Each captured interaction is written to its own directory with:
 - `response.json`.
 
 For OpenAI-compatible SSE responses, `response.json` includes an aggregated `stream_summary` while preserving the original stream data. The summary can include `content`, `reasoning`, `tool_calls`, `finish_reasons`, and `usage`.
+
+The History tab can export readable logs as `llm-proxy-logs.zip`. Select one or more task groups in the log list, then use cleanup to delete those tasks and their readable request records.
 
 ## Security Notes
 
@@ -233,6 +246,7 @@ llm_proxy/
   cli.py            # web console launcher
   ui.py             # built-in web console HTML/CSS/JS
   file_io.py        # atomic small-file writes
+  log_maintenance.py # log ZIP export and cleanup policies
   log_store.py      # history log loading, caching, and search
   manager.py        # multi-proxy management and config persistence
   models.py         # shared typed configuration and record shapes
@@ -243,10 +257,14 @@ llm_proxy/
   sanitize.py       # request field stripping/injection
   target.py         # upstream URL parsing and path joining
   payloads.py       # body encoding, parsing, and rendering helpers
+  redaction.py      # optional readable-log redaction
+  static/
+    index.html      # admin UI frontend
 tests/
   test_admin_ui.py
   test_file_io.py
   test_logger.py
+  test_redaction.py
   test_sanitize_manager.py
   test_server.py
   test_streams.py

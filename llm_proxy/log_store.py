@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import copy
 import json
 import threading
 from pathlib import Path
@@ -17,6 +18,7 @@ class LogStore:
         self.cache_lock = threading.Lock()
         self.cache_signature: tuple[tuple[str, int, int], ...] | None = None
         self.cache: dict[str, Any] = {"groups": [], "ungrouped": [], "by_id": {}}
+        self.record_cache: dict[str, tuple[tuple[int, int], dict[str, Any]]] = {}
 
     def list_logs(self, query: str) -> list[dict[str, Any]]:
         terms = query.lower().split()
@@ -29,7 +31,15 @@ class LogStore:
         items.sort(key=lambda item: str(item.get("_sort_key") or item.get("timestamp") or ""), reverse=True)
         return items[:500]
 
-    def list_log_groups(self, query: str) -> list[dict[str, Any]]:
+    def list_log_groups(self, query: str, limit: int | None = None, offset: int = 0) -> list[dict[str, Any]]:
+        if limit is not None:
+            return self._list_log_groups_page(query, limit, offset)["groups"]
+        return self._list_log_groups_all(query)
+
+    def list_log_page(self, query: str, limit: int, offset: int) -> dict[str, Any]:
+        return self._list_log_groups_page(query, limit, offset)
+
+    def _list_log_groups_all(self, query: str) -> list[dict[str, Any]]:
         terms = query.lower().split()
         snapshot = self._snapshot()
         task_meta_by_dir: dict[str, dict[str, Any]] = {}
@@ -66,6 +76,22 @@ class LogStore:
         if ungrouped:
             groups.append({"id": "ungrouped", "title": "未归组", "meta": f"{len(ungrouped)} requests", "logs": ungrouped[:200]})
         return groups[:100]
+
+    def _list_log_groups_page(self, query: str, limit: int, offset: int) -> dict[str, Any]:
+        limit = max(1, min(limit, 500))
+        offset = max(0, offset)
+        all_groups = self._list_log_groups_all(query)
+        total = len(all_groups)
+        paged_groups = all_groups[offset : offset + limit]
+        next_offset = offset + len(paged_groups)
+        return {
+            "groups": paged_groups,
+            "total": total,
+            "limit": limit,
+            "offset": offset,
+            "next_offset": next_offset,
+            "has_more": next_offset < total,
+        }
 
     def find_log(self, record_id: str) -> dict[str, Any] | None:
         snapshot = self._snapshot()
@@ -105,6 +131,12 @@ class LogStore:
         if "body_json" not in response and isinstance(response.get("body"), dict):
             response["body_json"] = body_json_value(response["body"])
         return {"id": record.get("id"), "request": request, "response": response, "record": record}
+
+    def clear_cache(self) -> None:
+        with self.cache_lock:
+            self.cache_signature = None
+            self.cache = {"groups": [], "ungrouped": [], "by_id": {}}
+            self.record_cache.clear()
 
     def _readable_roots(self) -> list[Path]:
         paths: list[Path] = []
@@ -313,7 +345,28 @@ class LogStore:
         markdown_files = sorted(path.glob("*.md"), key=lambda item: item.stat().st_mtime, reverse=True)
         if not markdown_files:
             return None
-        metadata = self._markdown_metadata(markdown_files[0])
+        markdown_path = markdown_files[0]
+        try:
+            stat = markdown_path.stat()
+        except OSError:
+            return None
+        cache_key = str(path)
+        cache_signature = (stat.st_mtime_ns, stat.st_size)
+        cached = self.record_cache.get(cache_key)
+        if cached and cached[0] == cache_signature:
+            record = copy.deepcopy(cached[1])
+        else:
+            record = self._read_readable_record_metadata(path, markdown_path)
+            if record is None:
+                return None
+            self.record_cache[cache_key] = (cache_signature, copy.deepcopy(record))
+        if include_body:
+            record["request"]["body_json"] = self._read_json_file(path / "request.json")
+            record["response"]["body_json"] = self._read_json_file(path / "response.json")
+        return record
+
+    def _read_readable_record_metadata(self, path: Path, markdown_path: Path) -> dict[str, Any] | None:
+        metadata = self._markdown_metadata(markdown_path)
         request_text = str(metadata.get("Request") or "")
         request_method, _, request_path = request_text.partition(" ")
         response_status = self._parse_status(metadata.get("Response"))
@@ -334,9 +387,6 @@ class LogStore:
             "_dir_sequence": self._record_dir_sequence(path),
             "_sort_key": dir_sort_key or dir_timestamp or metadata.get("Time") or "",
         }
-        if include_body:
-            record["request"]["body_json"] = self._read_json_file(path / "request.json")
-            record["response"]["body_json"] = self._read_json_file(path / "response.json")
         return record
 
     def _record_dir_sequence(self, path: Path) -> str:

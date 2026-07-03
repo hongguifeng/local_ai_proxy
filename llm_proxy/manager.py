@@ -75,6 +75,7 @@ class ProxyManager:
                                 "inject_request_fields": "",
                                 "timeout": 600,
                                 "readable_log_dir": str(self.readable_log_dir or DEFAULT_LOG_ROOT),
+                                "redact_logs": False,
                                 "model_mappings": [],
                             }
                         ],
@@ -201,7 +202,10 @@ class ProxyManager:
             "timeout": float(target_pair.get("timeout", 600)),
             "model_mappings": list(target_pair.get("model_mappings") or []),
             "enabled": bool(target_pair.get("enabled", True)),
-            "traffic_logger": TrafficLogger(self._readable_dir_for(target_pair)),
+            "traffic_logger": TrafficLogger(
+                self._readable_dir_for(target_pair),
+                redact_logs=bool(target_pair.get("redact_logs", False)),
+            ),
         }
 
     def _find_pair(self, pair_id: str) -> ProxyPair:
@@ -255,6 +259,7 @@ class ProxyManager:
             "inject_request_fields": str(inject_request_fields),
             "timeout": float(target.get("timeout") or 600),
             "readable_log_dir": "" if target.get("readable_log_dir") == "" else str(log_root_from_setting(target.get("readable_log_dir") or self.readable_log_dir) or ""),
+            "redact_logs": bool(target.get("redact_logs", False)),
             "model_mappings": self._normalize_model_mappings(target.get("model_mappings") or target.get("models") or []),
             "enabled": bool(target.get("enabled", True)),
         }

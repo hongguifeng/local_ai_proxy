@@ -8,6 +8,7 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from typing import Any
 from urllib.parse import parse_qs, urlsplit
 
+from .log_maintenance import cleanup_logs, export_logs_zip
 from .log_store import LogStore
 from .manager import ProxyManager
 from .ui import INDEX_HTML
@@ -33,13 +34,23 @@ class AdminHandler(BaseHTTPRequestHandler):
             self._send_json({"pairs": self.manager.list_pairs()})
             return
         if parsed.path == "/api/logs":
-            query = parse_qs(parsed.query).get("q", [""])[0]
+            params = parse_qs(parsed.query)
+            query = params.get("q", [""])[0]
+            limit = self._query_int(params, "limit")
+            offset = self._query_int(params, "offset") or 0
+            if limit is not None:
+                page = self.log_store.list_log_page(query, limit, offset)
+                self._send_json({**page, "logs": [item for group in page["groups"] for item in group["logs"]]})
+                return
             self._send_json(
                 {
                     "groups": self.log_store.list_log_groups(query),
                     "logs": self.log_store.list_logs(query),
                 }
             )
+            return
+        if parsed.path == "/api/logs/export":
+            self._send_binary(export_logs_zip(self.manager), "application/zip", "llm-proxy-logs.zip")
             return
         if parsed.path.startswith("/api/logs/"):
             record_id = parsed.path.rsplit("/", 1)[-1]
@@ -71,6 +82,18 @@ class AdminHandler(BaseHTTPRequestHandler):
 
     def do_POST(self) -> None:
         parsed = urlsplit(self.path)
+        if parsed.path == "/api/logs/cleanup":
+            payload = self._read_json()
+            group_ids = payload.get("group_ids")
+            result = cleanup_logs(
+                self.manager,
+                older_than_days=self._optional_positive_int(payload.get("older_than_days")),
+                keep_latest=self._optional_positive_int(payload.get("keep_latest")),
+                group_ids=[str(group_id) for group_id in group_ids] if isinstance(group_ids, list) else None,
+            )
+            self.log_store.clear_cache()
+            self._send_json(result)
+            return
         if parsed.path.startswith("/api/pairs/") and parsed.path.endswith("/enabled"):
             pair_id = parsed.path.split("/")[-2]
             payload = self._read_json()
@@ -96,10 +119,36 @@ class AdminHandler(BaseHTTPRequestHandler):
             return {}
         return loaded if isinstance(loaded, dict) else {}
 
+    def _query_int(self, params: dict[str, list[str]], name: str) -> int | None:
+        value = params.get(name, [""])[0]
+        try:
+            return int(value)
+        except ValueError:
+            return None
+
+    def _optional_positive_int(self, value: object) -> int | None:
+        if value in {None, ""}:
+            return None
+        try:
+            parsed = int(str(value))
+        except ValueError:
+            return None
+        return parsed if parsed >= 0 else None
+
     def _send_html(self, html: str) -> None:
         data = html.encode("utf-8")
         self.send_response(200)
         self.send_header("Content-Type", "text/html; charset=utf-8")
+        self.send_header("Content-Length", str(len(data)))
+        self.send_header("Connection", "close")
+        self.end_headers()
+        self.wfile.write(data)
+        self.close_connection = True
+
+    def _send_binary(self, data: bytes, content_type: str, filename: str) -> None:
+        self.send_response(200)
+        self.send_header("Content-Type", content_type)
+        self.send_header("Content-Disposition", f'attachment; filename="{filename}"')
         self.send_header("Content-Length", str(len(data)))
         self.send_header("Connection", "close")
         self.end_headers()

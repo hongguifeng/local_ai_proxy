@@ -27,6 +27,7 @@ class TargetConfig(TypedDict):
     inject_request_fields: str
     timeout: float
     readable_log_dir: str
+    redact_logs: bool
     model_mappings: list[ModelMapping]
     enabled: bool
 
