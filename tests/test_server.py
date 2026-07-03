@@ -19,6 +19,20 @@ from llm_proxy import (
 class TargetUrlProxyTests(unittest.TestCase):
     """验证代理服务器会按 target-url 转发请求并写日志。"""
 
+    def _read_json_with_retry(self, path: Path, timeout: float = 2) -> object:
+        deadline = time.time() + timeout
+        last_error: OSError | json.JSONDecodeError | None = None
+        while time.time() < deadline:
+            try:
+                with path.open(encoding="utf-8") as file:
+                    return json.load(file)
+            except (OSError, json.JSONDecodeError) as exc:
+                last_error = exc
+                time.sleep(0.02)
+        if last_error is not None:
+            raise last_error
+        raise AssertionError(f"Timed out reading {path}")
+
     def _target(
         self,
         target_id: str,
@@ -590,10 +604,8 @@ class TargetUrlProxyTests(unittest.TestCase):
 
             self.assertEqual(len(readable_interactions), 1)
             readable_path = readable_interactions[0]
-            with (readable_path / "request.json").open(encoding="utf-8") as file:
-                self.assertEqual(json.load(file), {"messages": []})
-            with (readable_path / "response.json").open(encoding="utf-8") as file:
-                self.assertIsNone(json.load(file))
+            self.assertEqual(self._read_json_with_retry(readable_path / "request.json"), {"messages": []})
+            self.assertIsNone(self._read_json_with_retry(readable_path / "response.json"))
             self.assertEqual(len(list(readable_path.glob("*.md"))), 1)
 
             release_response.set()
@@ -606,8 +618,7 @@ class TargetUrlProxyTests(unittest.TestCase):
             self.assertEqual(readable_interactions, [readable_path])
             markdown_files = list(readable_path.glob("*.md"))
             self.assertEqual(readable_path.name.split("__")[1], markdown_files[0].name.split("__")[0])
-            with (readable_path / "response.json").open(encoding="utf-8") as file:
-                self.assertEqual(json.load(file), {"ok": True})
+            self.assertEqual(self._read_json_with_retry(readable_path / "response.json"), {"ok": True})
             self.assertEqual(len(markdown_files), 1)
         finally:
             release_response.set()
