@@ -188,7 +188,7 @@ class TaskGrouper:
         tasks = self.task_index.get("tasks")
         task = tasks.get(task_id) if isinstance(tasks, dict) else None
         if not isinstance(task, dict):
-            return True
+            return False
         return self._task_static_boundaries_match(task, record, kind, payload, include_user_boundary=include_user_boundary)
 
     def _task_static_boundaries_match(
