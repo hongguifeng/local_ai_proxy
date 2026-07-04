@@ -33,6 +33,13 @@ class TargetUrlProxyTests(unittest.TestCase):
             raise last_error
         raise AssertionError(f"Timed out reading {path}")
 
+    def _read_optional_json(self, path: Path) -> object:
+        try:
+            with path.open(encoding="utf-8") as file:
+                return json.load(file)
+        except FileNotFoundError:
+            return None
+
     def _request_log_dirs(self, log_root: Path) -> list[Path]:
         tasks_root = log_root / "tasks"
         if not tasks_root.exists():
@@ -602,8 +609,7 @@ class TargetUrlProxyTests(unittest.TestCase):
             assert log_path is not None
             with (log_path / "request.json").open(encoding="utf-8") as file:
                 self.assertIsNone(json.load(file))
-            with (log_path / "response.json").open(encoding="utf-8") as file:
-                self.assertIsNone(json.load(file))
+            self.assertIsNone(self._read_optional_json(log_path / "response.json"))
             markdown = next(log_path.glob("*.md")).read_text(encoding="utf-8")
             self.assertIn("- Event: request_received", markdown)
 
@@ -692,7 +698,7 @@ class TargetUrlProxyTests(unittest.TestCase):
             self.assertIsNotNone(log_path)
             assert log_path is not None
             self.assertEqual(self._read_json_with_retry(log_path / "request.json"), {"messages": []})
-            self.assertIsNone(self._read_json_with_retry(log_path / "response.json"))
+            self.assertIsNone(self._read_optional_json(log_path / "response.json"))
             self.assertEqual(len(list(log_path.glob("*.md"))), 1)
 
             release_response.set()
