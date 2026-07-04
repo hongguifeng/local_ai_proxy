@@ -20,6 +20,14 @@ def empty_task_index() -> dict[str, object]:
     }
 
 
+def _valid_task_index(value: object) -> bool:
+    if not isinstance(value, dict):
+        return False
+    if value.get("task_match_strategy_version") != TASK_MATCH_STRATEGY_VERSION:
+        return False
+    return all(isinstance(value.get(key), dict) for key in ("tasks", "request_to_task", "response_to_task", "context_to_task"))
+
+
 class TaskIndexStore:
     def __init__(self, path: Path | None) -> None:
         self.path = path
@@ -33,13 +41,8 @@ class TaskIndexStore:
             loaded = json.loads(self.path.read_text(encoding="utf-8"))
         except (OSError, json.JSONDecodeError):
             return empty_task_index()
-        if not isinstance(loaded, dict):
+        if not _valid_task_index(loaded):
             return empty_task_index()
-        loaded.setdefault("task_match_strategy_version", TASK_MATCH_STRATEGY_VERSION)
-        loaded.setdefault("tasks", {})
-        loaded.setdefault("request_to_task", {})
-        loaded.setdefault("response_to_task", {})
-        loaded.setdefault("context_to_task", {})
         self._last_seen_mtime_ns = self._mtime_ns()
         return loaded
 

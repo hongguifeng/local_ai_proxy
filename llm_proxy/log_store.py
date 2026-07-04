@@ -229,19 +229,6 @@ class LogStore:
                         "kind": task.get("kind"),
                     }
 
-        tasks_root = root.parent / "tasks"
-        if tasks_root.exists():
-            for task_path in self._iter_dirs(tasks_root):
-                parts = task_path.name.split("__")
-                if len(parts) >= 6 and not result.get(task_path.name):
-                    model_candidate = parts[3]
-                    if model_candidate and "/" not in model_candidate and chr(92) not in model_candidate:
-                        result[task_path.name] = {
-                            "id": task_path.name,
-                            "dir_name": task_path.name,
-                            "model": model_candidate,
-                            "kind": parts[4],
-                        }
         return result
 
     def _task_group_title(self, dir_name: str) -> str:

@@ -8,6 +8,7 @@ from llm_proxy import (
     local_datetime_for_filename,
     local_time_from_timestamp_for_filename,
 )
+from llm_proxy.task_index import TASK_MATCH_STRATEGY_VERSION, TaskIndexStore
 
 
 class TrafficLoggerTaskGroupingTests(unittest.TestCase):
@@ -1100,6 +1101,31 @@ class TrafficLoggerTaskGroupingTests(unittest.TestCase):
             self.assertEqual(kinds, ["messages", "responses"])
             self.assertIn("req_claude", index["request_to_task"])
             self.assertIn("req_responses", index["request_to_task"])
+        finally:
+            log_dir.cleanup()
+
+    def test_task_index_load_ignores_outdated_or_incomplete_index(self) -> None:
+        log_dir = tempfile.TemporaryDirectory()
+        try:
+            root = Path(log_dir.name)
+            index_path = root / ".task-index.json"
+            for payload in (
+                {"tasks": {"old": {}}, "request_to_task": {}},
+                {
+                    "task_match_strategy_version": TASK_MATCH_STRATEGY_VERSION - 1,
+                    "tasks": {"old": {}},
+                    "request_to_task": {},
+                    "response_to_task": {},
+                    "context_to_task": {},
+                },
+            ):
+                index_path.write_text(json.dumps(payload), encoding="utf-8")
+                loaded = TaskIndexStore(index_path).load()
+                self.assertEqual(loaded["task_match_strategy_version"], TASK_MATCH_STRATEGY_VERSION)
+                self.assertEqual(loaded["tasks"], {})
+                self.assertEqual(loaded["request_to_task"], {})
+                self.assertEqual(loaded["response_to_task"], {})
+                self.assertEqual(loaded["context_to_task"], {})
         finally:
             log_dir.cleanup()
 
