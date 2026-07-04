@@ -172,6 +172,7 @@ class TaskGrouper:
         task["dir_name"] = self._task_dir_name(task)
         requests = task.setdefault("requests", {})
         if isinstance(requests, dict):
+            request = record.get("request")
             requests[request_id] = {
                 "sequence": 1,
                 "dir_name": self._task_request_dir_name(record, 1),
@@ -180,8 +181,8 @@ class TaskGrouper:
                 "event": record.get("event", "interaction"),
                 "timestamp": record.get("timestamp"),
                 "duration_ms": record.get("duration_ms"),
-                "method": record.get("request", {}).get("method") if isinstance(record.get("request"), dict) else None,
-                "path": record.get("request", {}).get("path") if isinstance(record.get("request"), dict) else None,
+                "method": request.get("method") if isinstance(request, dict) else None,
+                "path": request.get("path") if isinstance(request, dict) else None,
                 "target": self._target_text(record),
             }
         task["request_count"] = 1
