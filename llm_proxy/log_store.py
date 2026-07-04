@@ -14,7 +14,8 @@ from .payloads import body_json_value
 class LogStore:
     """Read and cache human-readable traffic logs for the admin UI."""
 
-    UNGROUPED_TITLE = "Ungrouped"
+    # Language-neutral sentinel; frontend translates via i18n lookup
+    UNGROUPED_TITLE = "__UNGROUPED__"
 
     def __init__(self, manager: ProxyManager) -> None:
         self.manager = manager
