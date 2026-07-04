@@ -11,7 +11,7 @@ from llm_proxy import (
 
 
 class TrafficLoggerTaskGroupingTests(unittest.TestCase):
-    """验证 readable 日志里的任务归组逻辑。"""
+    """Verify task grouping logic in readable logs."""
 
     def test_keeps_pending_and_finished_records_in_one_task(self) -> None:
         log_dir = tempfile.TemporaryDirectory()
@@ -44,7 +44,7 @@ class TrafficLoggerTaskGroupingTests(unittest.TestCase):
                 },
             }
             logger.update_readable(
-                # 先模拟“请求已读完，但响应还没回来”的中间状态。
+                # Simulate the intermediate state where the request is read but the response has not yet returned.
                 {
                     **base_record,
                     "event": "request_pending_response",
@@ -53,7 +53,7 @@ class TrafficLoggerTaskGroupingTests(unittest.TestCase):
                 }
             )
             logger.write(
-                # 再模拟同一个请求完成，应该仍然归到同一个任务。
+                # Simulate the same request completing; it should still be grouped into the same task.
                 {
                     **base_record,
                     "timestamp": "2026-06-07T08:00:02.000+00:00",
@@ -124,8 +124,8 @@ class TrafficLoggerTaskGroupingTests(unittest.TestCase):
                 {"type": "message", "role": "assistant", "content": [{"type": "output_text", "text": "looking at code"}]},
             ]
             second_input = [
-                # 第二次请求没有 previous_response_id，但前几条 input 和第一次相同，
-                # 日志器应通过 input_prefix 指纹判断它们属于同一个任务。
+                # The second request has no previous_response_id, but the first few inputs match the first request,
+                # so the logger should group them into the same task via input_prefix fingerprint.
                 {"type": "message", "role": "user", "content": [{"type": "input_text", "text": "fix proxy logging"}]},
                 {"type": "message", "role": "assistant", "content": [{"type": "output_text", "text": "looking at code"}]},
                 {"type": "function_call", "call_id": "call_1", "name": "shell_command", "arguments": "{\"command\":\"rg\"}"},

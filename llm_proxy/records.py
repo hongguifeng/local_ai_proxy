@@ -1,7 +1,6 @@
-"""解析 LLM 请求/响应记录的辅助函数。
+"""Helper functions for parsing LLM request/response records.
 
-日志器会用这些函数判断一次请求属于哪类接口、提取请求正文、生成内容指纹，
-以及从响应中找出 response id。它们本身不写文件，只负责“理解记录内容”。
+The logger uses these functions to determine which type of API a request belongs to, extract request bodies, generate content fingerprints, and find response IDs from responses. They don't write files themselves, only responsible for "understanding record content".
 """
 
 from __future__ import annotations
@@ -14,23 +13,23 @@ from .payloads import body_json_value
 
 
 def stable_hash(value: object, length: int = 12) -> str:
-    """对任意 JSON 可序列化对象生成稳定短哈希。
+    """Generate a stable short hash for any JSON-serializable object.
 
-    ``sort_keys=True`` 保证字典字段顺序不同也会得到同样哈希。
+    ``sort_keys=True`` ensures that dictionaries with different field orders produce the same hash.
     """
     encoded = json.dumps(value, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
     return hashlib.sha256(encoded.encode("utf-8", errors="replace")).hexdigest()[:length]
 
 
 def safe_filename_part(value: object, fallback: str = "unknown", limit: int = 80) -> str:
-    """把任意值转成适合放进文件名的片段。"""
+    """Convert an arbitrary value into a filename-safe fragment."""
     text = str(value or "").strip()
     safe = "".join(ch if ch.isalnum() else "-" for ch in text).strip("-")
     return (safe[:limit] or fallback).strip("-") or fallback
 
 
 def get_nested_value(value: object, path: tuple[str, ...]) -> object | None:
-    """安全读取嵌套字典里的值。"""
+    """Safely read a value from a nested dictionary."""
     current = value
     for key in path:
         if not isinstance(current, Mapping):
@@ -40,7 +39,7 @@ def get_nested_value(value: object, path: tuple[str, ...]) -> object | None:
 
 
 def first_string(*values: object) -> str | None:
-    """返回第一个非空字符串。"""
+    """Return the first non-empty string."""
     for value in values:
         if isinstance(value, str) and value.strip():
             return value.strip()
@@ -48,7 +47,7 @@ def first_string(*values: object) -> str | None:
 
 
 def request_body_json(record: Mapping[str, object]) -> object:
-    """从记录中取出请求体，并按 JSON/SSE 规则解析。"""
+    """Extract the request body from the record and parse it according to JSON/SSE rules."""
     request = record.get("request")
     if not isinstance(request, Mapping):
         return None
@@ -59,7 +58,7 @@ def request_body_json(record: Mapping[str, object]) -> object:
 
 
 def response_body_json(record: Mapping[str, object]) -> object:
-    """从记录中取出响应体，并按 JSON/SSE 规则解析。"""
+    """Extract the response body from the record and parse it according to JSON/SSE rules."""
     response = record.get("response")
     if not isinstance(response, Mapping):
         return None
@@ -70,7 +69,7 @@ def response_body_json(record: Mapping[str, object]) -> object:
 
 
 def request_path(record: Mapping[str, object]) -> str:
-    """从记录中读取客户端请求路径。"""
+    """Read the client request path from the record."""
     request = record.get("request")
     if not isinstance(request, Mapping):
         return ""
@@ -78,7 +77,7 @@ def request_path(record: Mapping[str, object]) -> str:
 
 
 def endpoint_kind(path: str) -> str:
-    """根据路径判断是哪类 LLM 接口。"""
+    """Determine which type of LLM API based on the path."""
     lowered = path.lower().split("?", 1)[0].rstrip("/")
     if lowered.endswith("/responses") or lowered == "/responses":
         return "responses"
@@ -90,7 +89,7 @@ def endpoint_kind(path: str) -> str:
 
 
 def message_text(value: object) -> object:
-    """把消息内容整理成适合生成指纹的稳定结构。"""
+    """Format message content into a stable structure for generating fingerprints."""
     if isinstance(value, str):
         return value
     if isinstance(value, list):
@@ -134,7 +133,7 @@ def is_task_context_message(item: object) -> bool:
 
 
 def chat_system_messages(payload: Mapping[str, object]) -> list[object]:
-    """提取 Chat Completions 请求里的 system/developer 消息。"""
+    """Extract system/developer messages from Chat Completions requests."""
     messages = payload.get("messages")
     if not isinstance(messages, list):
         return []
@@ -147,7 +146,7 @@ def chat_system_messages(payload: Mapping[str, object]) -> list[object]:
 
 
 def chat_prefix_messages(payload: Mapping[str, object], limit: int = 4) -> list[object]:
-    """提取 Chat Completions 前几条消息作为内容指纹。"""
+    """Extract the first few messages from Chat Completions as content fingerprints."""
     messages = payload.get("messages")
     if not isinstance(messages, list):
         return []
@@ -193,7 +192,7 @@ def chat_content_messages(payload: Mapping[str, object]) -> list[object]:
 
 
 def chat_first_user_message(payload: Mapping[str, object]) -> object | None:
-    """提取 Chat Completions 里的第一条用户消息。"""
+    """Extract the first user message from Chat Completions."""
     messages = payload.get("messages")
     if not isinstance(messages, list):
         return None
@@ -204,7 +203,7 @@ def chat_first_user_message(payload: Mapping[str, object]) -> object | None:
 
 
 def responses_input_items(payload: Mapping[str, object]) -> list[object]:
-    """把 Responses API 的 input 统一转成列表。"""
+    """Convert Responses API input into a uniform list."""
     input_value = payload.get("input")
     if isinstance(input_value, list):
         return input_value
@@ -214,7 +213,7 @@ def responses_input_items(payload: Mapping[str, object]) -> list[object]:
 
 
 def responses_input_item_summary(item: object) -> object:
-    """压缩单个 Responses input 项，只保留用于识别任务的核心字段。"""
+    """Compress a single Responses input item, keeping only core fields for task identification."""
     if isinstance(item, str):
         return item
     if not isinstance(item, Mapping):
@@ -238,7 +237,7 @@ def responses_input_item_summary(item: object) -> object:
                 "arguments": content_item.get("arguments"),
                 "call_id": content_item.get("call_id"),
             }
-            # 去掉值为 None 的字段，让指纹更稳定、更简洁。
+            # Remove fields with None values to make fingerprints more stable and concise.
             compact_content.append({key: value for key, value in compact_entry.items() if value is not None})
         summary["content"] = compact_content
     elif content is not None:
@@ -252,13 +251,13 @@ def responses_input_item_summary(item: object) -> object:
 
 
 def responses_input_prefix(payload: Mapping[str, object], limit: int = 6) -> list[object]:
-    """提取 Responses API 前几个 input 项作为内容指纹。"""
+    """Extract the first few input items from Responses API as content fingerprints."""
     content_items = [item for item in responses_input_items(payload) if not is_task_context_message(item)]
     return [responses_input_item_summary(item) for item in content_items[:limit]]
 
 
 def responses_first_user_message(payload: Mapping[str, object]) -> object | None:
-    """提取 Responses API input 中第一条用户文本。"""
+    """Extract the first user text from Responses API input."""
     for item in responses_input_items(payload):
         if not isinstance(item, Mapping) or item.get("role") != "user":
             continue

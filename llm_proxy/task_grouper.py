@@ -34,16 +34,16 @@ class TaskGrouper:
         self.readable_dir = readable_dir
 
     def prepare(self, record: TrafficRecord) -> None:
-        """为当前记录匹配或创建一个 LLM 任务。
+        """Match or create an LLM task for the current record.
 
-        只有常见的模型请求端点会进入任务归档逻辑，例如 Responses API、
-        Chat Completions 和 Completions。普通接口请求只写单次交互日志。
+        Only common model request endpoints enter the task archiving logic, e.g., Responses API,
+        Chat Completions, and Completions. Regular API requests only write single interaction logs.
         """
         if not self.readable_dir:
             return
         request = record.get("request")
         if not isinstance(request, dict) or request.get("body_pending"):
-            # body 还没读完时无法判断 payload 内容，所以先不做任务归档。
+            # Cannot determine payload content when body is not fully read, so skip task archiving for now.
             return
         kind = endpoint_kind(request_path(record))
         if kind not in {"responses", "chat", "completions"}:
@@ -62,7 +62,7 @@ class TaskGrouper:
             task["requests"] = requests
         request_info = requests.get(request_id)
         if not isinstance(request_info, dict):
-            # 一个任务里可能有多次请求，sequence 用来表示它们的先后顺序。
+            # A task may have multiple requests; sequence indicates their order.
             sequence = len(requests) + 1
             request_info = {
                 "sequence": sequence,
@@ -99,12 +99,12 @@ class TaskGrouper:
         if isinstance(payload, dict):
             previous_response_id = payload.get("previous_response_id")
             if isinstance(previous_response_id, str) and previous_response_id:
-                # Responses API 常用 previous_response_id 串联上下文，这是最可靠的归组线索。
+                # Responses API commonly uses previous_response_id to chain context, this is the most reliable grouping clue.
                 response_to_task = self.task_index.setdefault("response_to_task", {})
                 if isinstance(response_to_task, dict):
                     response_to_task.setdefault(previous_response_id, task_id)
             for context_key in self._context_keys(payload, record):
-                # 某些客户端会传 conversation_id/thread_id/session_id，也可以作为归组线索。
+                # Some clients pass conversation_id/thread_id/session_id, which can also serve as grouping clues.
                 context_to_task = self.task_index.setdefault("context_to_task", {})
                 if isinstance(context_to_task, dict):
                     context_to_task.setdefault(context_key, task_id)
@@ -112,7 +112,7 @@ class TaskGrouper:
         response_to_task = self.task_index.setdefault("response_to_task", {})
         if isinstance(response_to_task, dict):
             for response_id in response_ids_from_body(response_payload):
-                # 把本次响应 ID 也登记起来，下一次请求引用它时就能找到同一个任务。
+                # Also register this response ID so the next request referencing it can find the same task.
                 response_to_task[response_id] = task_id
 
         record["task"] = {
@@ -125,7 +125,7 @@ class TaskGrouper:
         self.task_index_store.save(self.task_index)
 
     def _find_or_create_task(self, record: Mapping[str, object], kind: str, payload: object) -> dict[str, object] | None:
-        """查找现有任务；找不到就创建新任务。"""
+        """Find an existing task; if not found, create a new one."""
         tasks = self.task_index.setdefault("tasks", {})
         if not isinstance(tasks, dict):
             self.task_index["tasks"] = {}
@@ -144,13 +144,13 @@ class TaskGrouper:
         return task
 
     def _match_existing_task(self, record: Mapping[str, object], kind: str, payload: object) -> str | None:
-        """按多种线索匹配已有任务。
+        """Match existing tasks by multiple clues.
 
-        匹配优先级从可靠到模糊：
-        1. 请求 ID 已经登记过。
-        2. previous_response_id 指向已知响应。
-        3. conversation/thread/session 之类上下文 ID。
-        4. 最后才使用启发式相似度。
+        Matching priority from reliable to heuristic:
+        1. Request ID already registered.
+        2. previous_response_id points to a known response.
+        3. Context IDs like conversation/thread/session.
+        4. Finally use heuristic similarity.
         """
         request_id = str(record["id"])
         request_to_task = self.task_index.get("request_to_task")
@@ -254,7 +254,7 @@ class TaskGrouper:
         return {key: value for key, value in fingerprints.items() if key in boundary_keys}
 
     def _find_task_for_request_id(self, request_id: str) -> str | None:
-        """在任务列表里反查请求 ID，并顺手修复 request_to_task 索引。"""
+        """Look up request ID in the task list and fix the request_to_task index along the way."""
         tasks = self.task_index.get("tasks")
         if not isinstance(tasks, dict):
             return None
@@ -270,7 +270,7 @@ class TaskGrouper:
         return None
 
     def _best_heuristic_task(self, record: Mapping[str, object], kind: str, payload: object) -> str | None:
-        """在没有明确上下文 ID 时，用保守规则匹配任务。"""
+        """When no explicit context ID is available, use conservative rules to match tasks."""
         if not isinstance(payload, dict):
             return None
         tasks = self.task_index.get("tasks")
@@ -293,11 +293,11 @@ class TaskGrouper:
                 continue
             age_seconds = abs((now - last_seen).total_seconds())
             if age_seconds > 24 * 60 * 60:
-                # 间隔超过 24 小时的请求通常不应被认为是同一轮任务。
+                # Requests more than 24 hours apart should usually not be considered the same task.
                 continue
 
             if kind in {"chat", "responses"} and not self._task_user_messages_are_contained(task, current_user_messages):
-                # 对对话类接口来说，上一轮 user 序列必须仍在当前请求中，避免只凭模型和时间误判。
+                # For chat-based APIs, the previous user message sequence must still be in the current request to avoid false matches based only on model and timing.
                 continue
             if kind in {"chat", "responses"} and not self._task_has_continuation_evidence(task, kind, payload, current_user_messages):
                 continue
@@ -352,7 +352,7 @@ class TaskGrouper:
         return sequence[: len(prefix)] == prefix
 
     def _new_task(self, record: Mapping[str, object], kind: str, payload: object) -> dict[str, object]:
-        """创建新的任务元数据。"""
+        """Create new task metadata."""
         task_id = uuid.uuid4().hex
         anchor = self._task_anchor(record, kind, payload)
         task = {
@@ -376,9 +376,9 @@ class TaskGrouper:
         return task
 
     def _task_anchor(self, record: Mapping[str, object], kind: str, payload: object) -> str:
-        """生成任务目录名里的稳定锚点。
+        """Generate a stable anchor for the task directory name.
 
-        锚点尽量来自 previous_response_id 或请求内容指纹，实在没有再退回请求 ID。
+        The anchor is preferably derived from previous_response_id or request content fingerprints, falling back to request ID when unavailable.
         """
         if kind == "responses" and isinstance(payload, dict):
             previous_response_id = payload.get("previous_response_id")
@@ -391,7 +391,7 @@ class TaskGrouper:
         return f"req-{str(record['id'])[:12]}"
 
     def _context_keys(self, payload: Mapping[str, object], record: Mapping[str, object] | None = None) -> list[str]:
-        """从请求 payload 中提取可能代表同一会话的上下文键。"""
+        """Extract context keys from the request payload that may represent the same session."""
         keys: list[str] = []
         seen: set[str] = set()
 
@@ -421,7 +421,7 @@ class TaskGrouper:
         return keys
 
     def _task_request_dir_name(self, record: Mapping[str, object], sequence: int) -> str:
-        """生成任务目录下单次请求的子目录名。"""
+        """Generate the subdirectory name for a single request within a task directory."""
         request = record["request"]
         if not isinstance(request, Mapping):
             request = {}
@@ -451,10 +451,10 @@ class TaskGrouper:
         return safe or "unknown"
 
     def _task_dir_name(self, task: Mapping[str, object]) -> str:
-        """生成任务目录名。
+        """Generate the task directory name.
 
-        目录名包含开始时间、最后响应时间、接口类型和锚点。最后响应时间变化时，
-        目录名会跟着更新，方便从文件夹名看出任务持续到什么时候。
+        The directory name includes start time, last response time, API type, and anchor. When the last response time changes,
+        the directory name updates accordingly, making it easy to see how long the task lasted from the folder name.
         """
         started_at = task.get("started_at") or task.get("last_seen_at") or utc_now_iso()
         last_response_at = task.get("last_response_at") or started_at
@@ -466,7 +466,7 @@ class TaskGrouper:
         return f"{start_part}__{end_part}__{model_name}__{kind}__{anchor}"
 
     def _sync_task_dir_name(self, task: dict[str, object]) -> None:
-        """如果任务目录名需要更新，就在磁盘上重命名目录。"""
+        """If the task directory name needs updating, rename the directory on disk."""
         new_dir_name = self._task_dir_name(task)
         old_dir_name = str(task.get("dir_name") or "")
         if new_dir_name == old_dir_name:

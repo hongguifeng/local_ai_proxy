@@ -1,8 +1,8 @@
-"""OpenAI 兼容流式响应的压缩工具。
+"""Compression utilities for OpenAI-compatible streaming responses.
 
-模型接口常用 SSE（Server-Sent Events）返回流式数据，原始内容会是一堆
-``data: {...}`` 片段。直接读这些片段很费劲，所以这里把它们合并成一个摘要：
-最终文本、推理文本、工具调用参数、用量信息等。
+Model APIs commonly return streaming data via SSE (Server-Sent Events), consisting of many
+``data: {...}`` fragments. Reading these fragments directly is cumbersome, so here they are merged into a summary:
+final text, reasoning text, tool call arguments, usage info, etc.
 """
 
 from __future__ import annotations
@@ -13,10 +13,10 @@ from dataclasses import dataclass, field
 
 
 def merge_tool_call_delta(merged: dict[int, dict[str, object]], tool_call: object) -> None:
-    """合并 Chat Completions 流里的工具调用增量。
+    """Merge tool call deltas from Chat Completions streams.
 
-    流式返回时，工具调用的 arguments 经常被拆成很多小段。
-    这个函数按 ``index`` 找到同一个工具调用，并把 arguments 字符串拼回去。
+    When streaming, tool call arguments are often split into many small chunks.
+    This function finds the same tool call by ``index`` and concatenates the arguments string back together.
     """
     if not isinstance(tool_call, dict):
         return
@@ -42,7 +42,7 @@ def merge_tool_call_delta(merged: dict[int, dict[str, object]], tool_call: objec
 
 
 def compact_tool_calls(tool_calls: list[object]) -> list[object]:
-    """把多个工具调用增量压缩成完整工具调用列表。"""
+    """Compress multiple tool call deltas into a complete tool call list."""
     merged: dict[int, dict[str, object]] = {}
     passthrough: list[object] = []
     for item in tool_calls:
@@ -64,7 +64,7 @@ def compact_tool_calls(tool_calls: list[object]) -> list[object]:
         arguments = function.get("arguments")
         if isinstance(arguments, str):
             try:
-                # arguments 通常是 JSON 字符串；能解析时额外放一份对象，阅读更方便。
+                # arguments is usually a JSON string; when parseable, also store an object for easier reading.
                 function["arguments_json"] = json.loads(arguments)
             except json.JSONDecodeError:
                 pass
@@ -72,7 +72,7 @@ def compact_tool_calls(tool_calls: list[object]) -> list[object]:
 
 
 def compact_response_tool_calls(tool_calls: dict[str, dict[str, object]]) -> list[object]:
-    """压缩 Responses API 的函数调用参数。"""
+    """Compress function call arguments from the Responses API."""
     compacted: list[object] = []
     for key in sorted(tool_calls):
         tool_call = dict(tool_calls[key])
@@ -87,10 +87,10 @@ def compact_response_tool_calls(tool_calls: dict[str, dict[str, object]]) -> lis
 
 
 def compact_response_payload(response: Mapping[str, object]) -> dict[str, object]:
-    """只保留 Responses API 响应里最有用的顶层字段。
+    """Keep only the most useful top-level fields from the Responses API response.
 
-    完整 response 对象可能很大，readable 日志只需要能快速判断状态、模型、
-    上下文关系和错误信息。
+    The full response object can be large; readable logs only need to quickly determine status, model,
+    context relationships, and error information.
     """
     keep_keys = (
         "id",
@@ -112,7 +112,7 @@ def compact_response_payload(response: Mapping[str, object]) -> dict[str, object
 
 
 def parse_sse_events(text: str) -> tuple[list[object], bool] | None:
-    """解析 SSE 里的 JSON data 片段，并记录是否见到 ``[DONE]``。"""
+    """Parse JSON data fragments from SSE and track whether ``[DONE]`` is seen."""
     events = []
     done_seen = False
     for line in text.splitlines():
@@ -128,7 +128,7 @@ def parse_sse_events(text: str) -> tuple[list[object], bool] | None:
         try:
             events.append(json.loads(data))
         except json.JSONDecodeError:
-            # 只要有一个 data 片段不是 JSON，就说明它不是我们能安全压缩的流。
+            # If any data fragment is not JSON, it means it's not a stream we can safely compress.
             return None
     if not events:
         return None
@@ -137,7 +137,7 @@ def parse_sse_events(text: str) -> tuple[list[object], bool] | None:
 
 @dataclass
 class StreamAccumulator:
-    """把不同 OpenAI 兼容流事件累积成 readable 日志摘要。"""
+    """Accumulate different OpenAI-compatible stream events into a readable log summary."""
 
     event_count: int
     done_seen: bool
@@ -163,7 +163,7 @@ class StreamAccumulator:
         self.add_chat_event(event)
 
     def add_response_event(self, event_type: str, event: Mapping[str, object]) -> None:
-        # Responses API 的事件类型以 response. 开头，字段结构和 Chat Completions 不同。
+        # Responses API event types start with response. and have different field structures than Chat Completions.
         if event_type == "response.output_text.delta":
             self.append_string(self.content_parts, event.get("delta"))
         elif event_type == "response.output_text.done" and not self.content_parts:
@@ -190,7 +190,7 @@ class StreamAccumulator:
                 self.response_payload = compact_response_payload(response)
 
     def add_response_function_call_delta(self, event: Mapping[str, object]) -> None:
-        # 函数调用参数也是分片返回的，需要按 item_id/call_id 拼起来。
+        # Function call arguments are also returned in chunks, need to concatenate by item_id/call_id.
         item_id = self.response_tool_call_key(event)
         tool_call = self.response_tool_calls.setdefault(item_id, {"arguments": ""})
         self.copy_response_tool_call_ids(tool_call, event)
@@ -234,7 +234,7 @@ class StreamAccumulator:
             self.other_payloads.append(event)
             return
 
-        # Chat Completions 的流式内容通常放在 choices[].delta 或 choices[].message 里。
+        # Chat Completions streaming content is usually in choices[].delta or choices[].message.
         for choice in choices:
             if not isinstance(choice, dict):
                 continue
@@ -262,7 +262,7 @@ class StreamAccumulator:
             "event_count": self.event_count,
             "done_seen": self.done_seen,
         }
-        # 只写入实际出现过的信息，避免日志里充满空字段。
+        # Only write information that actually appeared, avoid filling logs with empty fields.
         if self.reasoning_parts:
             stream_summary["reasoning"] = "".join(self.reasoning_parts)
         if self.content_parts:
@@ -309,9 +309,9 @@ class StreamAccumulator:
 
 
 def compact_sse_json(text: str) -> str | None:
-    """把 SSE 文本压缩成 JSON 摘要。
+    """Compress SSE text into a JSON summary.
 
-    如果输入不是可识别的 SSE，返回 ``None``，让调用方按普通文本/JSON 处理。
+    If the input is not recognizable SSE, return ``None`` so the caller handles it as plain text/JSON.
     """
     parsed = parse_sse_events(text)
     if parsed is None:

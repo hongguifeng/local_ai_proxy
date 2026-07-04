@@ -4,7 +4,7 @@ from llm_proxy import join_target_path
 
 
 class JoinTargetPathTests(unittest.TestCase):
-    """验证上游 base path 和客户端 path 的拼接规则。"""
+    """Verify the concatenation rules for upstream base path and client path."""
 
     def test_prepends_target_base_path(self) -> None:
         self.assertEqual(join_target_path("/v1", "/chat/completions"), "/v1/chat/completions")

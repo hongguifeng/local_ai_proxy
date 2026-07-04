@@ -19,7 +19,7 @@ from .target import join_target_path, parse_target_url
 from .time_utils import local_datetime_for_filename, local_time_from_timestamp_for_filename
 
 __all__ = [
-    # __all__ 控制 ``from llm_proxy import *`` 会导出哪些名字。
+    # __all__ controls which names are exported via ``from llm_proxy import *``.
     "ProxyHandler",
     "ProxyManager",
     "ProxyServer",

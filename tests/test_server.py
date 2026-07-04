@@ -17,7 +17,7 @@ from llm_proxy import (
 
 
 class TargetUrlProxyTests(unittest.TestCase):
-    """验证代理服务器会按 target-url 转发请求并写日志。"""
+    """Verify that the proxy server forwards requests by target-url and writes logs."""
 
     def _read_json_with_retry(self, path: Path, timeout: float = 2) -> object:
         deadline = time.time() + timeout
@@ -241,7 +241,7 @@ class TargetUrlProxyTests(unittest.TestCase):
         upstream_seen: dict[str, object] = {}
 
         class UpstreamHandler(BaseHTTPRequestHandler):
-            """测试用上游服务，记录代理实际转发过来的内容。"""
+            """Test upstream service that records what the proxy actually forwards."""
 
             def do_POST(self) -> None:
                 length = int(self.headers.get("Content-Length", "0"))
@@ -489,7 +489,7 @@ class TargetUrlProxyTests(unittest.TestCase):
 
             sock = socket.create_connection(("127.0.0.1", proxy.server_address[1]), timeout=5)
             sock.sendall(
-                # 故意只发送请求头，不发送 body，用来验证代理能先写 request_received 日志。
+                # Only send request headers without body to verify the proxy writes request_received logs first.
                 b"POST /v1/chat/completions HTTP/1.1\r\n"
                 b"Host: 127.0.0.1\r\n"
                 b"Content-Type: application/json\r\n"

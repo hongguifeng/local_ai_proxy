@@ -1,7 +1,6 @@
-"""整个代理项目共用的常量。
+"""Shared constants for the entire proxy project.
 
-这个文件只放“不会随运行过程变化”的值。把常量集中放在这里，
-可以避免多个模块里重复写字符串，也方便以后统一修改。
+This file only contains values that "do not change during execution". Centralizing constants here avoids duplicating strings across multiple modules and makes it easier to update them in the future.
 """
 
 from __future__ import annotations
@@ -16,10 +15,9 @@ HOP_BY_HOP_HEADERS = {
     "transfer-encoding",
     "upgrade",
 }
-"""不能直接转发给上游服务器的 HTTP 头。
+"""HTTP headers that should not be forwarded to upstream servers.
 
-这些头只描述“当前这一跳连接”的状态，例如连接是否保持、是否升级协议等。
-代理收到客户端请求后，会重新和上游建立连接，所以这些头需要丢弃。
+These headers describe only the state of "this hop connection", such as whether the connection is kept alive or whether the protocol is upgraded. After the proxy receives the client's request, it establishes a new connection to the upstream, so these headers should be discarded.
 """
 
 
@@ -27,7 +25,7 @@ DEFAULT_PORTS = {
     "http": 80,
     "https": 443,
 }
-"""不同协议的默认端口。解析目标地址时，如果用户没写端口，就使用这里的值。"""
+"""Default ports for different protocols. When parsing target addresses, if the user does not specify a port, the values here are used."""
 
 DEFAULT_STRIP_REQUEST_FIELDS = (
     "temperature",
@@ -40,7 +38,7 @@ DEFAULT_STRIP_REQUEST_FIELDS = (
     "frequency_penalty",
     "seed",
 )
-"""推荐从请求 JSON 中移除的采样参数。
+"""Sampling parameters recommended for removal from request JSON.
 
-UI 新建代理时会把这些字段显示在 placeholder 里，只有用户填入配置后才会实际移除。
+These fields appear as placeholders in the UI when creating a new proxy, and will only be actually removed after the user enters the configuration.
 """

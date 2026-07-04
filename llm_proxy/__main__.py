@@ -1,9 +1,9 @@
-"""支持 ``python -m llm_proxy`` 的入口文件。"""
+"""Entry point for running the package via ``python -m llm_proxy``."""
 
 from __future__ import annotations
 
 from .cli import main
 
 if __name__ == "__main__":
-    # main() 返回进程退出码，SystemExit 会把它交给操作系统。
+    # main() returns the process exit code; SystemExit passes it to the OS.
     raise SystemExit(main())

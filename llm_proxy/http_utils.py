@@ -1,4 +1,4 @@
-"""HTTP 头处理工具。"""
+"""HTTP header processing utilities."""
 
 from __future__ import annotations
 
@@ -6,9 +6,9 @@ from collections.abc import Iterable
 
 
 def headers_to_dict(headers: Iterable[tuple[str, str]]) -> dict[str, list[str]]:
-    """把 HTTP 头列表转成字典。
+    """Convert HTTP headers list to a dictionary.
 
-    同一个 HTTP 头名可能出现多次，所以值用 list 保存，而不是简单字符串。
+    The same header name may appear multiple times, so values are stored in a list instead of plain strings.
     """
     result: dict[str, list[str]] = {}
     for key, value in headers:
@@ -17,10 +17,10 @@ def headers_to_dict(headers: Iterable[tuple[str, str]]) -> dict[str, list[str]]:
 
 
 def parse_header_overrides(raw_headers: list[str] | None) -> list[tuple[str, str]]:
-    """解析命令行传入的 --target-header 参数。
+    """Parse --target-header arguments from the command line.
 
-    用户可以多次传入类似 ``--target-header "Authorization: Bearer xxx"``。
-    这里会检查格式，并转成后续转发请求时可以直接使用的元组列表。
+    The user can pass multiple entries like ``--target-header "Authorization: Bearer xxx"``.
+    This validates the format and converts them into a list of tuples for use in forwarded requests.
     """
     parsed: list[tuple[str, str]] = []
     for raw in raw_headers or []:

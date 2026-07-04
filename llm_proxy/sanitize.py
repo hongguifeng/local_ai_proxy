@@ -1,7 +1,7 @@
-"""请求体清理工具。
+"""Request body sanitization utilities.
 
-代理在记录原始请求后，可以先移除一些顶层 JSON 字段，再把请求发给上游。
-这样既保留了客户端真实传来的内容，也能控制实际发给模型服务的参数。
+After recording the original request, the proxy can remove some top-level JSON fields before forwarding to upstream.
+This preserves the real content from the client while controlling the parameters actually sent to the model service.
 """
 
 from __future__ import annotations
@@ -12,11 +12,11 @@ from typing import Any
 
 
 def parse_strip_request_fields(raw_fields: str | None) -> set[str]:
-    """解析需要移除的字段名。
+    """Parse field names to strip.
 
-    - ``None`` 表示用户没有配置，不移除任何字段。
-    - 空字符串表示用户明确想禁用移除逻辑，返回空集合。
-    - 逗号分隔字符串会被拆成字段集合。
+    - ``None`` means the user did not configure anything, don't strip any fields.
+    - Empty string means the user explicitly disabled stripping, return empty set.
+    - Comma-separated string will be split into a set of fields.
     """
     if raw_fields is None:
         return set()
@@ -43,10 +43,10 @@ def parse_inject_request_fields(raw_fields: object | None) -> dict[str, Any]:
 
 
 def strip_request_json_fields(body: bytes, fields: set[str]) -> tuple[bytes, list[str]]:
-    """从请求 JSON 顶层移除指定字段。
+    """Remove specified fields from the top level of the request JSON.
 
-    返回值是 ``(新的请求体, 被移除的字段列表)``。如果请求体不是合法 JSON、
-    不是对象，或者没有命中字段，就原样返回，避免破坏非 JSON 请求。
+    Returns ``(new_request_body, list_of_removed_fields)``. If the request body is not valid JSON,
+    not an object, or no fields match, return unchanged to avoid breaking non-JSON requests.
     """
     if not body or not fields:
         return body, []

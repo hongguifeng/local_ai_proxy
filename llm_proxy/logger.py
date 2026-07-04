@@ -1,8 +1,8 @@
-"""流量日志记录器。
+"""Traffic log recorder.
 
-本项目默认把单次请求写到 ``logs/readable``：人类友好的 Markdown/JSON 文件，方便直接打开查看请求和响应。
+By default, this project writes individual requests to ``logs/readable``: human-friendly Markdown/JSON files, making it easy to directly open and view requests and responses.
 
-另外，日志器会尝试把同一个 LLM 任务中的多次请求归到同级的 ``tasks`` 目录。
+Additionally, the logger attempts to group multiple requests from the same LLM task into a sibling ``tasks`` directory.
 """
 
 from __future__ import annotations
@@ -27,9 +27,9 @@ from .task_index import TaskIndexStore
 
 
 class TrafficLogger:
-    """线程安全的流量日志写入器。
+    """Thread-safe traffic log writer.
 
-    代理服务器是多线程的，可能同时处理多个请求，所以所有写文件操作都用同一把锁保护。
+    The proxy server is multi-threaded and may handle multiple requests simultaneously, so all file write operations are protected by a single lock.
     """
 
     def __init__(self, readable_dir: Path | None, *, redact_logs: bool = False) -> None:
@@ -37,8 +37,8 @@ class TrafficLogger:
         self.redact_logs = redact_logs
         self.lock = threading.Lock()
         self.readable_paths: dict[str, Path] = {}
-        # .task-index.json 保存“请求 ID/响应 ID/上下文 ID -> 任务”的索引，
-        # 下次写日志时可以继续把相关请求放进同一个任务目录。
+        # .task-index.json stores the index of "request ID/response ID/context ID -> task",
+        # so when writing logs next time, related requests can be placed in the same task directory.
         self.task_index_store = TaskIndexStore(readable_dir.parent / ".task-index.json" if readable_dir else None)
         self.task_index = self.task_index_store.load()
         self.task_grouper = TaskGrouper(self.task_index, self.task_index_store, readable_dir)
@@ -46,22 +46,22 @@ class TrafficLogger:
             self.readable_dir.mkdir(parents=True, exist_ok=True)
 
     def write(self, record: TrafficRecord) -> None:
-        """写一条完整 readable 日志记录。"""
+        """Write a complete readable log record."""
         with self.lock:
             self.task_grouper.prepare(record)
             self._write_readable(record)
 
     def update_readable(self, record: TrafficRecord) -> None:
-        """更新 readable 日志。
+        """Update the readable log.
 
-        请求体读完但响应还没回来时会调用它，用来让 Markdown/JSON 文件先出现。
+        Called when the request body is read but the response has not yet arrived, so that the Markdown/JSON file appears earlier.
         """
         with self.lock:
             self.task_grouper.prepare(record)
             self._write_readable(record)
 
     def _write_readable(self, record: Mapping[str, object]) -> None:
-        """写入或更新一条请求对应的 readable 目录。"""
+        """Write or update the readable directory for a request."""
         if not self.readable_dir:
             return
         record_to_write = record
@@ -74,8 +74,8 @@ class TrafficLogger:
             ensure_readable_dir(readable_path)
             self.readable_paths[record_id] = readable_path
         current_readable_filename = readable_filename(record_to_write)
-        # 同一个请求在“等待响应”和“请求完成”时会生成不同文件名，
-        # 这里删除旧 Markdown，保持目录里只有最新状态的一份摘要。
+        # The same request generates different filenames for "waiting for response" and "request completed",
+        # here we remove old Markdown files to keep only the latest summary in the directory.
         for existing_markdown in readable_path.glob("*.md"):
             if existing_markdown.name != current_readable_filename:
                 existing_markdown.unlink()
@@ -84,7 +84,7 @@ class TrafficLogger:
         self._write_task_readable(record_to_write, current_readable_filename)
 
     def _write_task_readable(self, record: Mapping[str, object], readable_filename: str) -> None:
-        """把当前请求也写进它所属的任务目录。"""
+        """Also write the current request into its parent task directory."""
         task_ref = record.get("task")
         if not isinstance(task_ref, dict) or not self.readable_dir:
             return

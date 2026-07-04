@@ -14,6 +14,8 @@ from .payloads import body_json_value
 class LogStore:
     """Read and cache human-readable traffic logs for the admin UI."""
 
+    UNGROUPED_TITLE = "Ungrouped"
+
     def __init__(self, manager: ProxyManager) -> None:
         self.manager = manager
         self.cache_lock = threading.Lock()
@@ -27,7 +29,7 @@ class LogStore:
         items = [
             item
             for item in snapshot.get("ungrouped", [])
-            if self._log_item_matches_terms(item, {"id": "ungrouped", "title": "未归组"}, terms)
+            if self._log_item_matches_terms(item, {"id": "ungrouped", "title": self.UNGROUPED_TITLE}, terms)
         ]
         items.sort(key=lambda item: str(item.get("_sort_key") or item.get("timestamp") or ""), reverse=True)
         return items[:500]
@@ -71,11 +73,11 @@ class LogStore:
         ungrouped = [
             item
             for item in snapshot.get("ungrouped", [])
-            if self._log_item_matches_terms(item, {"id": "ungrouped", "title": "未归组"}, terms)
+            if self._log_item_matches_terms(item, {"id": "ungrouped", "title": self.UNGROUPED_TITLE}, terms)
         ]
         ungrouped.sort(key=lambda item: str(item.get("_sort_key") or item.get("timestamp") or ""), reverse=True)
         if ungrouped:
-            groups.append({"id": "ungrouped", "title": "未归组", "meta": f"{len(ungrouped)} requests", "logs": ungrouped[:200]})
+            groups.append({"id": "ungrouped", "title": self.UNGROUPED_TITLE, "meta": f"{len(ungrouped)} requests", "logs": ungrouped[:200]})
         return groups[:100]
 
     def _list_log_groups_page(self, query: str, limit: int, offset: int) -> dict[str, Any]:
