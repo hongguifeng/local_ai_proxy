@@ -27,7 +27,6 @@ from .time_utils import (
     utc_now_iso,
 )
 
-
 MODEL_TASK_KINDS = {"responses", "chat", "messages", "completions"}
 
 

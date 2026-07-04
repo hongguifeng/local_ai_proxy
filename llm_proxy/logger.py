@@ -11,7 +11,6 @@ from collections.abc import Mapping
 from pathlib import Path
 
 from .file_io import atomic_write_text
-from .models import TrafficRecord
 from .log_files import (
     ensure_log_dir,
     log_markdown_filename,
@@ -19,6 +18,7 @@ from .log_files import (
     write_body_json_files,
     write_task_index_markdown,
 )
+from .models import TrafficRecord
 from .redaction import redact_record
 from .task_grouper import TaskGrouper
 from .task_index import TaskIndexStore
