@@ -143,6 +143,7 @@ class LogStore:
             request["body_json"] = body_json_value(request["body"])
         if "body_json" not in response and isinstance(response.get("body"), dict):
             response["body_json"] = body_json_value(response["body"])
+        request.pop("path", None)
         return {"id": record.get("id"), "request": request, "response": response, "record": record}
 
     def clear_cache(self) -> None:

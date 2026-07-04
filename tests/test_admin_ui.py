@@ -149,7 +149,53 @@ class AdminUiTests(unittest.TestCase):
             conn.close()
 
             self.assertEqual(detail["request"]["body_json"], {"a": 1})
+            self.assertNotIn("path", detail["request"])
+            self.assertEqual(detail["request"]["endpoint"], "/v1/responses")
             self.assertEqual(detail["response"]["body_json"], {"ok": True})
+        finally:
+            if server is not None:
+                server.shutdown()
+                server.server_close()
+            temp_dir.cleanup()
+
+    def test_log_detail_hides_path_when_path_has_query(self) -> None:
+        temp_dir = tempfile.TemporaryDirectory()
+        server = None
+        try:
+            root = Path(temp_dir.name)
+            readable_path = root / "readable" / "2026-06-07__08-00-00.000__post__v1-responses__req_1"
+            readable_path.mkdir(parents=True)
+            (readable_path / "08-00-00.000__08-00-00.010.md").write_text(
+                "\n".join(
+                    [
+                        "# LLM Interaction req_1",
+                        "",
+                        "## Summary",
+                        "",
+                        "- Time: 2026-06-07T08:00:00.000+00:00",
+                        "- Event: request_finished",
+                        "- Target: http://127.0.0.1:1235/v1/responses?debug=1",
+                        "- Request: POST /v1/responses?debug=1",
+                        "- Endpoint: /v1/responses",
+                        "- Response: 200",
+                    ]
+                ),
+                encoding="utf-8",
+            )
+            manager = ProxyManager(root / "proxies.json", root)
+            server = AdminServer(("127.0.0.1", 0), manager)
+            thread = threading.Thread(target=server.serve_forever, daemon=True)
+            thread.start()
+
+            conn = http.client.HTTPConnection("127.0.0.1", server.server_address[1], timeout=5)
+            conn.request("GET", "/api/logs/req_1")
+            response = conn.getresponse()
+            self.assertEqual(response.status, 200)
+            detail = json.loads(response.read())
+            conn.close()
+
+            self.assertNotIn("path", detail["request"])
+            self.assertEqual(detail["request"]["endpoint"], "/v1/responses")
         finally:
             if server is not None:
                 server.shutdown()
