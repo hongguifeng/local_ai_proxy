@@ -462,7 +462,8 @@ function jsonType(value) {
   if (Array.isArray(value)) return "array";
   return typeof value;
 }
-function renderJsonValue(value, key = "", root = false, formatMode = false) {
+const defaultJsonExpandedDepth = 3;
+function renderJsonValue(value, key = "", root = false, formatMode = false, depth = 0) {
   const type = jsonType(value);
   const keyHtml = key === "" ? "" : `<span class="json-key">${escapeHtml(JSON.stringify(key))}</span>: `;
   if (type === "array" || type === "object") {
@@ -470,8 +471,9 @@ function renderJsonValue(value, key = "", root = false, formatMode = false) {
     const start = type === "array" ? "[" : "{";
     const end = type === "array" ? "]" : "}";
     const summary = `${keyHtml}${start}<span class="json-muted">${entries.length ? ` ${entries.length} ${t("items")} ` : ""}</span>${end}`;
-    const childrenHtml = `<div class="json-children">${entries.map(([childKey, childValue]) => `<div class="json-row">${renderJsonValue(childValue, String(childKey), false, formatMode)}</div>`).join("")}</div>`;
-    return `<details open${root ? ' class="root"' : ''}><summary>${summary}</summary>${childrenHtml}<div class="json-muted">${end}</div></details>`;
+    const childrenHtml = `<div class="json-children">${entries.map(([childKey, childValue]) => `<div class="json-row">${renderJsonValue(childValue, String(childKey), false, formatMode, depth + 1)}</div>`).join("")}</div>`;
+    const openAttr = depth < defaultJsonExpandedDepth ? " open" : "";
+    return `<details${openAttr}${root ? ' class="root"' : ''}><summary>${summary}</summary>${childrenHtml}<div class="json-muted">${end}</div></details>`;
   }
   if (type === "string") {
     if (!formatMode) return `${keyHtml}<span class="json-string">${escapeHtml(JSON.stringify(value))}</span>`;
@@ -511,7 +513,7 @@ function renderJsonPane(key) {
   el.classList.toggle("wrap", state.wrap[key]);
   el.classList.toggle("nowrap", !state.wrap[key]);
   if (state.tree[key]) {
-    el.innerHTML = renderJsonValue(state.raw[key], "", true, state.formatStrings[key]);
+    el.innerHTML = renderJsonValue(state.raw[key], "", true, state.formatStrings[key], 0);
   } else {
     el.textContent = jsonText(state.raw[key]);
   }
