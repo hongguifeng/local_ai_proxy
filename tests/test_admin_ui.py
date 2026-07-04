@@ -119,7 +119,6 @@ class AdminUiTests(unittest.TestCase):
             root = Path(temp_dir.name)
             request_path = root / "tasks" / "task-one-dir" / "001__08-00-00.000__v1-responses__req_1"
             request_path.mkdir(parents=True)
-            (root / "readable").mkdir()
             (root / ".task-index.json").write_text(
                 json.dumps(
                     {
@@ -193,7 +192,6 @@ class AdminUiTests(unittest.TestCase):
             root = Path(temp_dir.name)
             request_path = root / "tasks" / "task-one-dir" / "001__08-00-00.000__v1-responses__req_1"
             request_path.mkdir(parents=True)
-            (root / "readable").mkdir()
             (root / ".task-index.json").write_text(
                 json.dumps(
                     {
@@ -262,7 +260,6 @@ class AdminUiTests(unittest.TestCase):
             root = Path(temp_dir.name)
             request_path = root / "tasks" / "task-one" / "001__08-00-00.000__v1-responses__req_1"
             request_path.mkdir(parents=True)
-            (root / "readable").mkdir()
             (request_path / "08-00-00.000__08-00-00.010.md").write_text(
                 "\n".join(
                     [
@@ -324,7 +321,6 @@ class AdminUiTests(unittest.TestCase):
                 / "001__08-00-00.000__v1-responses__req_1"
             )
             task_request_path.mkdir(parents=True)
-            (root / "readable").mkdir(exist_ok=True)
             (root / ".task-index.json").write_text(
                 json.dumps(
                     {
@@ -444,7 +440,6 @@ class AdminUiTests(unittest.TestCase):
                 encoding="utf-8",
             )
 
-            (root / "readable").mkdir(exist_ok=True)
             manager = ProxyManager(root / "proxies.json", root)
             server = AdminServer(("127.0.0.1", 0), manager)
             thread = threading.Thread(target=server.serve_forever, daemon=True)
@@ -529,7 +524,6 @@ class AdminUiTests(unittest.TestCase):
                 encoding="utf-8",
             )
 
-            (root / "readable").mkdir(exist_ok=True)
             manager = ProxyManager(root / "proxies.json", root)
             server = AdminServer(("127.0.0.1", 0), manager)
             thread = threading.Thread(target=server.serve_forever, daemon=True)
@@ -598,7 +592,6 @@ class AdminUiTests(unittest.TestCase):
                 ),
                 encoding="utf-8",
             )
-            (root / "readable").mkdir(exist_ok=True)
             manager = ProxyManager(root / "proxies.json", root)
             server = AdminServer(("127.0.0.1", 0), manager)
             thread = threading.Thread(target=server.serve_forever, daemon=True)
@@ -687,7 +680,6 @@ class AdminUiTests(unittest.TestCase):
                 encoding="utf-8",
             )
 
-            (root / "readable").mkdir(exist_ok=True)
             manager = ProxyManager(root / "proxies.json", root)
             server = AdminServer(("127.0.0.1", 0), manager)
             thread = threading.Thread(target=server.serve_forever, daemon=True)
@@ -745,7 +737,6 @@ class AdminUiTests(unittest.TestCase):
                 encoding="utf-8",
             )
 
-            (root / "readable").mkdir(exist_ok=True)
             manager = ProxyManager(root / "proxies.json", root)
             server = AdminServer(("127.0.0.1", 0), manager)
             thread = threading.Thread(target=server.serve_forever, daemon=True)
@@ -812,7 +803,6 @@ class AdminUiTests(unittest.TestCase):
                 ),
                 encoding="utf-8",
             )
-            (root / "readable").mkdir(exist_ok=True)
             manager = ProxyManager(root / "proxies.json", root)
             server = AdminServer(("127.0.0.1", 0), manager)
             thread = threading.Thread(target=server.serve_forever, daemon=True)
@@ -844,7 +834,6 @@ class AdminUiTests(unittest.TestCase):
                 request_dir = f"001__08-00-00.000__v1-responses__{record_id}"
                 request_path = log_root / "tasks" / task_dir / request_dir
                 request_path.mkdir(parents=True)
-                (log_root / "readable").mkdir(parents=True)
                 (log_root / ".task-index.json").write_text(
                     json.dumps(
                         {
@@ -901,13 +890,13 @@ class AdminUiTests(unittest.TestCase):
                                 "id": "first",
                                 "name": "First",
                                 "target_url": "http://127.0.0.1:1235/v1",
-                                "readable_log_dir": str(first_root),
+                                "log_root": str(first_root),
                             },
                             {
                                 "id": "second",
                                 "name": "Second",
                                 "target_url": "http://127.0.0.1:1236/v1",
-                                "readable_log_dir": str(second_root),
+                                "log_root": str(second_root),
                             },
                         ],
                     }
@@ -938,9 +927,14 @@ class AdminUiTests(unittest.TestCase):
         server = None
         try:
             root = Path(temp_dir.name)
-            readable_path = root / "readable" / "2026-06-07__08-00-00.000__post__v1-responses__req_1"
-            readable_path.mkdir(parents=True)
-            (readable_path / "summary.md").write_text("# LLM Interaction req_1", encoding="utf-8")
+            request_path = (
+                root
+                / "tasks"
+                / "2026-06-07__08-00-00.000__08-00-00.010__responses__fp-demo"
+                / "001__08-00-00.000__v1-responses__req_1"
+            )
+            request_path.mkdir(parents=True)
+            (request_path / "summary.md").write_text("# LLM Interaction req_1", encoding="utf-8")
             manager = ProxyManager(root / "proxies.json", root)
             server = AdminServer(("127.0.0.1", 0), manager)
             thread = threading.Thread(target=server.serve_forever, daemon=True)
@@ -955,25 +949,24 @@ class AdminUiTests(unittest.TestCase):
             conn.close()
 
             with zipfile.ZipFile(BytesIO(archive_bytes)) as archive:
-                self.assertIn("readable/2026-06-07__08-00-00.000__post__v1-responses__req_1/summary.md", archive.namelist())
+                self.assertIn(
+                    "tasks/2026-06-07__08-00-00.000__08-00-00.010__responses__fp-demo/001__08-00-00.000__v1-responses__req_1/summary.md",
+                    archive.namelist(),
+                )
         finally:
             if server is not None:
                 server.shutdown()
                 server.server_close()
             temp_dir.cleanup()
 
-    def test_log_cleanup_deletes_selected_task_and_readable_records(self) -> None:
+    def test_log_cleanup_deletes_selected_task(self) -> None:
         temp_dir = tempfile.TemporaryDirectory()
         server = None
         try:
             root = Path(temp_dir.name)
-            readable_root = root / "readable"
             task_path = root / "tasks" / "2026-06-07__08-00-00.000__08-00-30.000__responses__fp-demo"
             for index in range(2):
                 record_id = f"req_{index}"
-                readable_path = readable_root / f"2026-06-07__08-00-0{index}.000__post__v1-responses__{record_id}"
-                readable_path.mkdir(parents=True)
-                (readable_path / "summary.md").write_text(f"# LLM Interaction {record_id}", encoding="utf-8")
                 task_record_path = task_path / f"00{index + 1}__08-00-0{index}.000__v1-responses__{record_id}"
                 task_record_path.mkdir(parents=True)
                 (task_record_path / "summary.md").write_text(f"# LLM Interaction {record_id}", encoding="utf-8")
@@ -995,9 +988,8 @@ class AdminUiTests(unittest.TestCase):
             payload = json.loads(response.read())
             conn.close()
 
-            self.assertEqual(payload["deleted_count"], 3)
+            self.assertEqual(payload["deleted_count"], 1)
             self.assertFalse(task_path.exists())
-            self.assertEqual([path.name for path in readable_root.iterdir() if path.is_dir()], [])
         finally:
             if server is not None:
                 server.shutdown()
@@ -1013,7 +1005,6 @@ class AdminUiTests(unittest.TestCase):
             request_path = task_path / "001__08-00-00.000__v1-responses__req_1"
             request_path.mkdir(parents=True)
             (request_path / "summary.md").write_text("# LLM Interaction req_1", encoding="utf-8")
-            (root / "readable").mkdir(exist_ok=True)
             (root / ".task-index.json").write_text(
                 json.dumps(
                     {

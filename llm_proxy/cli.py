@@ -31,7 +31,7 @@ def parse_args() -> argparse.Namespace:
 def main() -> int:
     args = parse_args()
     log_root = Path(args.log_root) if args.log_root else None
-    manager = ProxyManager(Path(args.config_file), readable_log_dir=log_root)
+    manager = ProxyManager(Path(args.config_file), log_root=log_root)
     ui_url = f"http://{args.host}:{args.port}"
     print(f"LLM proxy UI listening on {ui_url}", flush=True)
     print(f"Proxy config: {Path(args.config_file).resolve()}", flush=True)

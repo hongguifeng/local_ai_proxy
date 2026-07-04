@@ -408,7 +408,7 @@ class ProxyHandler(BaseHTTPRequestHandler):
                     round((time.perf_counter() - started) * 1000, 3),
                 )
             )
-        active_logger.update_readable(
+        active_logger.update(
             self._event_record(
                 base_record,
                 "request_pending_response",

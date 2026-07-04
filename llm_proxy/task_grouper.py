@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import datetime as dt
+import shutil
 import uuid
 from collections.abc import Mapping
 from pathlib import Path
@@ -27,11 +28,14 @@ from .time_utils import (
 )
 
 
+MODEL_TASK_KINDS = {"responses", "chat", "messages", "completions"}
+
+
 class TaskGrouper:
-    def __init__(self, task_index: dict[str, object], task_index_store: TaskIndexStore, readable_dir: Path | None) -> None:
+    def __init__(self, task_index: dict[str, object], task_index_store: TaskIndexStore, log_root: Path | None) -> None:
         self.task_index = task_index
         self.task_index_store = task_index_store
-        self.readable_dir = readable_dir
+        self.log_root = log_root
 
     def prepare(self, record: TrafficRecord) -> None:
         """Match or create an LLM task for the current record.
@@ -39,21 +43,30 @@ class TaskGrouper:
         Only common model request endpoints enter the task archiving logic, e.g., Responses API,
         Chat Completions, Anthropic/Claude Messages, and Completions. Regular API requests only write single interaction logs.
         """
-        if not self.readable_dir:
+        if not self.log_root:
             return
         request = record.get("request")
-        if not isinstance(request, dict) or request.get("body_pending"):
+        if not isinstance(request, dict):
             # Cannot determine payload content when body is not fully read, so skip task archiving for now.
             return
         kind = endpoint_kind(request_path(record))
-        if kind not in {"responses", "chat", "messages", "completions"}:
+        if request.get("body_pending"):
+            task = self._find_or_create_pending_task(record, kind or "request")
+            self._attach_task(record, task)
+            self.task_index_store.save(self.task_index)
             return
-
         payload = request_body_json(record)
         response_payload = response_body_json(record)
-        task = self._find_or_create_task(record, kind, payload)
+        pending_task_id = self._pending_task_id_for_request(str(record["id"]))
+        task = (
+            self._find_or_create_task(record, kind, payload)
+            if kind in MODEL_TASK_KINDS
+            else self._find_or_create_single_request_task(record, kind)
+        )
         if not task:
             return
+        if pending_task_id and pending_task_id != str(task.get("id")):
+            self._remove_pending_task(pending_task_id)
 
         request_id = str(record["id"])
         requests = task.setdefault("requests", {})
@@ -117,13 +130,7 @@ class TaskGrouper:
                 # Also register this response ID so the next request referencing it can find the same task.
                 response_to_task[response_id] = task_id
 
-        record["task"] = {
-            "id": task_id,
-            "kind": task.get("kind"),
-            "dir": task.get("dir_name"),
-            "request_sequence": request_info.get("sequence"),
-            "confidence": task.get("last_match_confidence", 1.0),
-        }
+        self._attach_task(record, task, request_info)
         self.task_index_store.save(self.task_index)
 
     def _find_or_create_task(self, record: Mapping[str, object], kind: str, payload: object) -> dict[str, object] | None:
@@ -145,6 +152,120 @@ class TaskGrouper:
         tasks[str(task["id"])] = task
         return task
 
+    def _find_or_create_pending_task(self, record: Mapping[str, object], kind: str) -> dict[str, object] | None:
+        """Create or reuse a temporary task while the request body is still unread."""
+        tasks = self.task_index.setdefault("tasks", {})
+        if not isinstance(tasks, dict):
+            self.task_index["tasks"] = {}
+            tasks = self.task_index["tasks"]
+        if not isinstance(tasks, dict):
+            return None
+
+        request_id = str(record["id"])
+        pending_task_id = self._pending_task_id_for_request(request_id)
+        task = tasks.get(pending_task_id) if pending_task_id else None
+        if isinstance(task, dict):
+            return task
+
+        task = self._new_task(record, kind or "request", {})
+        task["pending_request_only"] = True
+        task["anchor"] = f"pending-{safe_filename_part(request_id, limit=32)}"
+        task["dir_name"] = self._task_dir_name(task)
+        requests = task.setdefault("requests", {})
+        if isinstance(requests, dict):
+            requests[request_id] = {
+                "sequence": 1,
+                "dir_name": self._task_request_dir_name(record, 1),
+                "started_at": record.get("started_timestamp", record.get("timestamp")),
+                "status": None,
+                "event": record.get("event", "interaction"),
+                "timestamp": record.get("timestamp"),
+                "duration_ms": record.get("duration_ms"),
+                "method": record.get("request", {}).get("method") if isinstance(record.get("request"), dict) else None,
+                "path": record.get("request", {}).get("path") if isinstance(record.get("request"), dict) else None,
+                "target": self._target_text(record),
+            }
+        task["request_count"] = 1
+        task["last_seen_at"] = record.get("timestamp")
+        self._sync_task_target(task)
+        tasks[str(task["id"])] = task
+        request_to_task = self.task_index.setdefault("request_to_task", {})
+        if isinstance(request_to_task, dict):
+            request_to_task[request_id] = str(task["id"])
+        return task
+
+    def _pending_task_id_for_request(self, request_id: str) -> str | None:
+        request_to_task = self.task_index.get("request_to_task")
+        tasks = self.task_index.get("tasks")
+        task_id = request_to_task.get(request_id) if isinstance(request_to_task, dict) else None
+        task = tasks.get(task_id) if isinstance(tasks, dict) and isinstance(task_id, str) else None
+        if isinstance(task, dict) and task.get("pending_request_only"):
+            return str(task_id)
+        return None
+
+    def _is_pending_task(self, task_id: str) -> bool:
+        tasks = self.task_index.get("tasks")
+        task = tasks.get(task_id) if isinstance(tasks, dict) else None
+        return isinstance(task, dict) and bool(task.get("pending_request_only"))
+
+    def _remove_pending_task(self, task_id: str) -> None:
+        tasks = self.task_index.get("tasks")
+        task = tasks.pop(task_id, None) if isinstance(tasks, dict) else None
+        if not isinstance(task, dict):
+            return
+        dir_name = task.get("dir_name")
+        if self.log_root and isinstance(dir_name, str) and dir_name:
+            task_path = self.log_root / "tasks" / dir_name
+            try:
+                task_path.resolve().relative_to((self.log_root / "tasks").resolve())
+            except (OSError, ValueError):
+                return
+            shutil.rmtree(task_path, ignore_errors=True)
+
+    def _find_or_create_single_request_task(self, record: Mapping[str, object], kind: str) -> dict[str, object] | None:
+        """Create or reuse a one-request task for non-model endpoints."""
+        tasks = self.task_index.setdefault("tasks", {})
+        if not isinstance(tasks, dict):
+            self.task_index["tasks"] = {}
+            tasks = self.task_index["tasks"]
+        if not isinstance(tasks, dict):
+            return None
+
+        request_id = str(record["id"])
+        request_to_task = self.task_index.get("request_to_task")
+        if isinstance(request_to_task, dict):
+            task_id = request_to_task.get(request_id)
+            task = tasks.get(task_id) if isinstance(task_id, str) else None
+            if isinstance(task, dict) and not task.get("pending_request_only"):
+                return task
+
+        task = self._new_task(record, kind or "request", {})
+        task["anchor"] = f"req-{safe_filename_part(request_id, limit=32)}"
+        task["dir_name"] = self._task_dir_name(task)
+        tasks[str(task["id"])] = task
+        return task
+
+    def _attach_task(
+        self,
+        record: TrafficRecord,
+        task: Mapping[str, object] | None,
+        request_info: Mapping[str, object] | None = None,
+    ) -> None:
+        if not task:
+            return
+        if request_info is None:
+            requests = task.get("requests")
+            request_info = requests.get(str(record["id"])) if isinstance(requests, dict) else None
+        if not isinstance(request_info, Mapping):
+            return
+        record["task"] = {
+            "id": str(task["id"]),
+            "kind": task.get("kind"),
+            "dir": task.get("dir_name"),
+            "request_sequence": request_info.get("sequence"),
+            "confidence": task.get("last_match_confidence", 1.0),
+        }
+
     def _match_existing_task(self, record: Mapping[str, object], kind: str, payload: object) -> str | None:
         """Match existing tasks by multiple clues.
 
@@ -158,7 +279,7 @@ class TaskGrouper:
         request_to_task = self.task_index.get("request_to_task")
         if isinstance(request_to_task, dict):
             task_id = request_to_task.get(request_id)
-            if isinstance(task_id, str):
+            if isinstance(task_id, str) and not self._is_pending_task(task_id):
                 return task_id
 
         if isinstance(payload, dict):
@@ -474,9 +595,9 @@ class TaskGrouper:
         old_dir_name = str(task.get("dir_name") or "")
         if new_dir_name == old_dir_name:
             return
-        if self.readable_dir and old_dir_name:
-            old_task_path = self.readable_dir.parent / "tasks" / old_dir_name
-            new_task_path = self.readable_dir.parent / "tasks" / new_dir_name
+        if self.log_root and old_dir_name:
+            old_task_path = self.log_root / "tasks" / old_dir_name
+            new_task_path = self.log_root / "tasks" / new_dir_name
             if old_task_path.exists() and not new_task_path.exists():
                 old_task_path.rename(new_task_path)
         task["dir_name"] = new_dir_name

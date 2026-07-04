@@ -34,7 +34,7 @@ flowchart LR
   MatchB -- no --> Default["Default target<br/>fallback upstream"]
 ```
 
-Each upstream target keeps its own timeout, readable log directory, upstream headers, and request-field rewrite rules. Non-default targets can be disabled temporarily; disabled targets are skipped during model matching.
+Each upstream target keeps its own timeout, log directory, upstream headers, and request-field rewrite rules. Non-default targets can be disabled temporarily; disabled targets are skipped during model matching.
 
 ## What It Does
 
@@ -50,8 +50,8 @@ Each upstream target keeps its own timeout, readable log directory, upstream hea
 - Group related multi-turn Agent requests into task folders for easier review, including Claude Messages conversations.
 - Inspect request and response JSON side by side, with wrapping, expansion, formatting, and copy controls.
 - Optionally remove or inject top-level JSON request fields before forwarding.
-- Optionally redact sensitive headers and common JSON secret fields in readable logs.
-- Export readable logs as a ZIP archive and clean selected task groups.
+- Optionally redact sensitive headers and common JSON secret fields in stored logs.
+- Export task logs as a ZIP archive and clean selected task groups.
 - Persist proxy configuration in `logs/proxies.json` by default.
 
 ## Quick Start
@@ -115,9 +115,9 @@ Each upstream target includes:
 - Upstream headers, one `Name: value` entry per line.
 - Request fields to strip before forwarding.
 - Request fields to inject before forwarding as a JSON object.
-- Readable log redaction.
+- stored log redaction.
 
-The target URL, API Key, and model mappings are shown by default. Use **More settings** on a target card to reveal timeout, readable log directory, headers, and request-field rewriting options.
+The target URL, API Key, and model mappings are shown by default. Use **More settings** on a target card to reveal timeout, log directory, headers, and request-field rewriting options.
 
 Proxy pairs are saved to `logs/proxies.json` unless `--config-file` is provided.
 
@@ -125,7 +125,7 @@ Proxy pairs are saved to `logs/proxies.json` unless `--config-file` is provided.
 
 When the proxy receives a request, it reads the top-level JSON `model` field and checks the enabled upstream targets in order. If a target has a matching model mapping, the request is forwarded to that target. If the mapping specifies a different upstream model name, the proxy rewrites `model` before forwarding.
 
-If no enabled non-default target matches, the request goes to the configured default target. The default target also handles requests without a readable JSON `model` field.
+If no enabled non-default target matches, the request goes to the configured default target. The default target also handles requests without a parseable JSON `model` field.
 
 Example target mappings:
 
@@ -204,19 +204,18 @@ Use **Request fields to inject before forwarding** to add or override top-level 
 
 When a request is changed, the logs record `request.stripped_fields`, `request.injected_fields`, and `request.upstream_body`.
 
-### Redact Readable Logs
+### Redact Stored Logs
 
-Enable **Redact logs** in a target's **More settings** section to mask common sensitive values in readable logs. Redaction covers headers such as `Authorization` and `X-API-Key`, plus JSON fields such as `api_key`, `access_token`, `token`, `password`, and `secret`.
+Enable **Redact logs** in a target's **More settings** section to mask common sensitive values in stored logs. Redaction covers headers such as `Authorization` and `X-API-Key`, plus JSON fields such as `api_key`, `access_token`, `token`, `password`, and `secret`.
 
-Redaction affects stored readable logs only. Requests are still forwarded to the upstream with their original values.
+Redaction affects stored logs only. Requests are still forwarded to the upstream with their original values.
 
 ## Logs On Disk
 
 Default paths:
 
 - Proxy configuration: `logs/proxies.json`
-- Readable interaction logs: `logs/readable/` by default, configurable per upstream target by setting the log root.
-- Task-grouped logs: `logs/tasks/`
+- Task logs: `logs/tasks/` by default, configurable per upstream target by setting the log root.
 
 Each captured interaction is written to its own directory with:
 
@@ -228,7 +227,7 @@ For OpenAI-compatible and Claude Messages SSE responses, `response.json` include
 
 SSE responses are forwarded to the client line by line as they arrive from the upstream. Non-SSE responses are still forwarded in regular binary chunks.
 
-The History tab can export readable logs as `llm-proxy-logs.zip`. Select one or more task groups in the log list, then use cleanup to delete those tasks and their readable request records.
+The History tab can export task logs as `llm-proxy-logs.zip`. Select one or more task groups in the log list, then use cleanup to delete those tasks and their request records.
 
 ## Security Notes
 
@@ -266,7 +265,7 @@ llm_proxy/
   manager.py        # multi-proxy management and config persistence
   models.py         # shared typed configuration and record shapes
   server.py         # HTTP proxy server and handler
-  logger.py         # readable Markdown/JSON log writer
+  logger.py         # task Markdown/JSON log writer
   records.py        # request/response analysis and task fingerprints
   streams.py        # SSE stream summaries
   task_grouper.py   # task grouping rules and task-folder archiving
@@ -274,7 +273,7 @@ llm_proxy/
   sanitize.py       # request field stripping/injection
   target.py         # upstream URL parsing and path joining
   payloads.py       # body encoding, parsing, and rendering helpers
-  redaction.py      # optional readable-log redaction
+  redaction.py      # optional stored-log redaction
   static/
     index.html      # admin UI frontend
 tests/

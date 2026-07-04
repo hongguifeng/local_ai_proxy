@@ -33,6 +33,21 @@ class TargetUrlProxyTests(unittest.TestCase):
             raise last_error
         raise AssertionError(f"Timed out reading {path}")
 
+    def _request_log_dirs(self, log_root: Path) -> list[Path]:
+        tasks_root = log_root / "tasks"
+        if not tasks_root.exists():
+            return []
+        return sorted(path for path in tasks_root.glob("*/*") if path.is_dir())
+
+    def _wait_for_request_log(self, log_root: Path, timeout: float = 2) -> Path | None:
+        deadline = time.time() + timeout
+        while time.time() < deadline:
+            request_logs = self._request_log_dirs(log_root)
+            if request_logs:
+                return request_logs[0]
+            time.sleep(0.05)
+        return None
+
     def _target(
         self,
         target_id: str,
@@ -108,7 +123,7 @@ class TargetUrlProxyTests(unittest.TestCase):
         proxy = None
         try:
             log_root = Path(log_dir.name)
-            logger = TrafficLogger(log_root / "readable")
+            logger = TrafficLogger(log_root)
             proxy = ProxyServer(
                 ("127.0.0.1", 0),
                 ProxyHandler,
@@ -193,7 +208,7 @@ class TargetUrlProxyTests(unittest.TestCase):
         proxy = None
         try:
             log_root = Path(log_dir.name)
-            logger = TrafficLogger(log_root / "readable")
+            logger = TrafficLogger(log_root)
             proxy = ProxyServer(
                 ("127.0.0.1", 0),
                 ProxyHandler,
@@ -267,8 +282,7 @@ class TargetUrlProxyTests(unittest.TestCase):
             upstream_port = upstream.server_address[1]
             target = parse_target_url(f"http://127.0.0.1:{upstream_port}/v1")
             log_root = Path(log_dir.name)
-            readable_dir = log_root / "readable"
-            logger = TrafficLogger(readable_dir)
+            logger = TrafficLogger(log_root)
             proxy = ProxyServer(
                 ("127.0.0.1", 0),
                 ProxyHandler,
@@ -292,14 +306,14 @@ class TargetUrlProxyTests(unittest.TestCase):
 
             self.assertEqual(upstream_seen["path"], "/v1/chat/completions")
             self.assertEqual(upstream_seen["body"], '{"messages":[]}')
-            readable_interactions = [path for path in readable_dir.iterdir() if path.is_dir() and path.name != "tasks"]
-            self.assertEqual(len(readable_interactions), 1)
-            readable_path = readable_interactions[0]
-            with (readable_path / "request.json").open(encoding="utf-8") as file:
+            request_logs = self._request_log_dirs(log_root)
+            self.assertEqual(len(request_logs), 1)
+            log_path = request_logs[0]
+            with (log_path / "request.json").open(encoding="utf-8") as file:
                 self.assertEqual(json.load(file), {"messages": []})
-            with (readable_path / "response.json").open(encoding="utf-8") as file:
+            with (log_path / "response.json").open(encoding="utf-8") as file:
                 self.assertEqual(json.load(file), {"ok": True})
-            markdown = next(readable_path.glob("*.md")).read_text(encoding="utf-8")
+            markdown = next(log_path.glob("*.md")).read_text(encoding="utf-8")
             self.assertIn(f"http://127.0.0.1:{upstream_port}/v1/chat/completions", markdown)
             self.assertIn("- Event: request_finished", markdown)
         finally:
@@ -339,7 +353,7 @@ class TargetUrlProxyTests(unittest.TestCase):
         sock = None
         try:
             log_root = Path(log_dir.name)
-            logger = TrafficLogger(log_root / "readable")
+            logger = TrafficLogger(log_root)
             proxy = ProxyServer(
                 ("127.0.0.1", 0),
                 ProxyHandler,
@@ -410,7 +424,7 @@ class TargetUrlProxyTests(unittest.TestCase):
         proxy = None
         try:
             log_root = Path(log_dir.name)
-            logger = TrafficLogger(log_root / "readable")
+            logger = TrafficLogger(log_root)
             proxy = ProxyServer(
                 ("127.0.0.1", 0),
                 ProxyHandler,
@@ -475,8 +489,7 @@ class TargetUrlProxyTests(unittest.TestCase):
         proxy = None
         try:
             log_root = Path(log_dir.name)
-            readable_dir = log_root / "readable"
-            logger = TrafficLogger(readable_dir)
+            logger = TrafficLogger(log_root)
             proxy = ProxyServer(
                 ("127.0.0.1", 0),
                 ProxyHandler,
@@ -512,13 +525,13 @@ class TargetUrlProxyTests(unittest.TestCase):
                 json.loads(str(upstream_seen["body"])),
                 {"model": "demo", "metadata": {"source": "proxy"}, "stream": True},
             )
-            readable_path = next(path for path in readable_dir.iterdir() if path.is_dir() and path.name != "tasks")
-            with (readable_path / "request.json").open(encoding="utf-8") as file:
+            log_path = self._request_log_dirs(log_root)[0]
+            with (log_path / "request.json").open(encoding="utf-8") as file:
                 self.assertEqual(
                     json.load(file),
                     {"model": "demo", "metadata": {"source": "proxy"}, "stream": True},
                 )
-            markdown = next(readable_path.glob("*.md")).read_text(encoding="utf-8")
+            markdown = next(log_path.glob("*.md")).read_text(encoding="utf-8")
             self.assertIn("- Stripped request fields: temperature", markdown)
             self.assertIn("- Injected request fields: metadata, stream", markdown)
         finally:
@@ -551,8 +564,7 @@ class TargetUrlProxyTests(unittest.TestCase):
         try:
             upstream_port = upstream.server_address[1]
             log_root = Path(log_dir.name)
-            readable_dir = log_root / "readable"
-            logger = TrafficLogger(readable_dir)
+            logger = TrafficLogger(log_root)
             proxy = ProxyServer(
                 ("127.0.0.1", 0),
                 ProxyHandler,
@@ -572,35 +584,33 @@ class TargetUrlProxyTests(unittest.TestCase):
                 b"\r\n"
             )
 
-            deadline = time.time() + 2
-            readable_path = None
-            while time.time() < deadline:
-                if readable_dir.exists():
-                    readable_interactions = [
-                        path for path in readable_dir.iterdir() if path.is_dir() and path.name != "tasks"
-                    ]
-                    if readable_interactions:
-                        readable_path = readable_interactions[0]
-                        break
-                time.sleep(0.05)
-
-            self.assertIsNotNone(readable_path)
-            assert readable_path is not None
-            with (readable_path / "request.json").open(encoding="utf-8") as file:
+            log_path = self._wait_for_request_log(log_root)
+            self.assertIsNotNone(log_path)
+            assert log_path is not None
+            with (log_path / "request.json").open(encoding="utf-8") as file:
                 self.assertIsNone(json.load(file))
-            with (readable_path / "response.json").open(encoding="utf-8") as file:
+            with (log_path / "response.json").open(encoding="utf-8") as file:
                 self.assertIsNone(json.load(file))
-            markdown = next(readable_path.glob("*.md")).read_text(encoding="utf-8")
+            markdown = next(log_path.glob("*.md")).read_text(encoding="utf-8")
             self.assertIn("- Event: request_received", markdown)
 
             sock.close()
             sock = None
             deadline = time.time() + 2
+            finished_log_path = None
             while time.time() < deadline:
-                markdown = next(readable_path.glob("*.md")).read_text(encoding="utf-8")
-                if "- Event: request_finished" in markdown:
+                for current_log_path in self._request_log_dirs(log_root):
+                    markdown_files = list(current_log_path.glob("*.md"))
+                    if not markdown_files:
+                        continue
+                    markdown = markdown_files[0].read_text(encoding="utf-8")
+                    if "- Event: request_finished" in markdown:
+                        finished_log_path = current_log_path
+                        break
+                if finished_log_path:
                     break
                 time.sleep(0.05)
+            self.assertIsNotNone(finished_log_path)
         finally:
             if sock is not None:
                 sock.close()
@@ -611,7 +621,7 @@ class TargetUrlProxyTests(unittest.TestCase):
             upstream.server_close()
             log_dir.cleanup()
 
-    def test_readable_log_is_created_with_request_then_updated_with_response(self) -> None:
+    def test_stored_log_is_created_with_request_then_updated_with_response(self) -> None:
         release_response = threading.Event()
 
         class UpstreamHandler(BaseHTTPRequestHandler):
@@ -637,8 +647,7 @@ class TargetUrlProxyTests(unittest.TestCase):
         try:
             upstream_port = upstream.server_address[1]
             log_root = Path(log_dir.name)
-            readable_dir = log_root / "readable"
-            logger = TrafficLogger(readable_dir)
+            logger = TrafficLogger(log_root)
             proxy = ProxyServer(
                 ("127.0.0.1", 0),
                 ProxyHandler,
@@ -666,22 +675,12 @@ class TargetUrlProxyTests(unittest.TestCase):
             request_thread = threading.Thread(target=send_request)
             request_thread.start()
 
-            deadline = time.time() + 2
-            readable_interactions = []
-            while time.time() < deadline:
-                if readable_dir.exists():
-                    readable_interactions = [
-                        path for path in readable_dir.iterdir() if path.is_dir() and path.name != "tasks"
-                    ]
-                    if readable_interactions and (readable_interactions[0] / "request.json").exists():
-                        break
-                time.sleep(0.05)
-
-            self.assertEqual(len(readable_interactions), 1)
-            readable_path = readable_interactions[0]
-            self.assertEqual(self._read_json_with_retry(readable_path / "request.json"), {"messages": []})
-            self.assertIsNone(self._read_json_with_retry(readable_path / "response.json"))
-            self.assertEqual(len(list(readable_path.glob("*.md"))), 1)
+            log_path = self._wait_for_request_log(log_root)
+            self.assertIsNotNone(log_path)
+            assert log_path is not None
+            self.assertEqual(self._read_json_with_retry(log_path / "request.json"), {"messages": []})
+            self.assertIsNone(self._read_json_with_retry(log_path / "response.json"))
+            self.assertEqual(len(list(log_path.glob("*.md"))), 1)
 
             release_response.set()
             request_thread.join(timeout=2)
@@ -689,11 +688,12 @@ class TargetUrlProxyTests(unittest.TestCase):
             self.assertEqual(response_holder["body"], b'{"ok":true}')
 
 
-            readable_interactions = [path for path in readable_dir.iterdir() if path.is_dir() and path.name != "tasks"]
-            self.assertEqual(readable_interactions, [readable_path])
-            markdown_files = list(readable_path.glob("*.md"))
-            self.assertEqual(readable_path.name.split("__")[1], markdown_files[0].name.split("__")[0])
-            self.assertEqual(self._read_json_with_retry(readable_path / "response.json"), {"ok": True})
+            request_logs = self._request_log_dirs(log_root)
+            self.assertEqual(len(request_logs), 1)
+            finished_log_path = request_logs[0]
+            markdown_files = list(finished_log_path.glob("*.md"))
+            self.assertEqual(finished_log_path.name.split("__")[1], markdown_files[0].name.split("__")[0])
+            self.assertEqual(self._read_json_with_retry(finished_log_path / "response.json"), {"ok": True})
             self.assertEqual(len(markdown_files), 1)
         finally:
             release_response.set()

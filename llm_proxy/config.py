@@ -20,14 +20,7 @@ def log_root_from_setting(value: str | Path | None) -> Path | None:
     return Path(value)
 
 
-def readable_dir_from_log_root(value: str | Path | None) -> Path | None:
-    root = log_root_from_setting(value)
-    if root is None:
-        return None
-    return root / "readable"
-
-
-def default_proxy_pair(readable_log_dir: Path | None) -> ProxyPair:
+def default_proxy_pair(log_root: Path | None) -> ProxyPair:
     return normalize_pair(
         {
             "id": "default",
@@ -47,23 +40,23 @@ def default_proxy_pair(readable_log_dir: Path | None) -> ProxyPair:
                     "strip_request_fields": "",
                     "inject_request_fields": "",
                     "timeout": 600,
-                    "readable_log_dir": str(readable_log_dir or DEFAULT_LOG_ROOT),
+                    "log_root": str(log_root or DEFAULT_LOG_ROOT),
                     "redact_logs": False,
                     "model_mappings": [],
                 }
             ],
             "default_target_id": "target-1",
         },
-        readable_log_dir,
+        log_root,
     )
 
 
-def normalize_pair(pair: JsonObject, readable_log_dir: Path | None) -> ProxyPair:
+def normalize_pair(pair: JsonObject, log_root: Path | None) -> ProxyPair:
     pair_id = str(pair.get("id") or f"proxy-{len(pair)}").strip()
     targets = pair.get("targets")
     normalized_targets = (
         [
-            normalize_target(target, index, readable_log_dir)
+            normalize_target(target, index, log_root)
             for index, target in enumerate(targets)
             if isinstance(target, dict)
         ]
@@ -71,7 +64,7 @@ def normalize_pair(pair: JsonObject, readable_log_dir: Path | None) -> ProxyPair
         else []
     )
     if not normalized_targets:
-        normalized_targets = [normalize_target({}, 0, readable_log_dir)]
+        normalized_targets = [normalize_target({}, 0, log_root)]
     default_target_id = str(pair.get("default_target_id") or normalized_targets[0]["id"])
     if default_target_id not in {target["id"] for target in normalized_targets}:
         default_target_id = str(normalized_targets[0]["id"])
@@ -87,7 +80,7 @@ def normalize_pair(pair: JsonObject, readable_log_dir: Path | None) -> ProxyPair
     }
 
 
-def normalize_target(target: JsonObject, index: int, readable_log_dir: Path | None) -> TargetConfig:
+def normalize_target(target: JsonObject, index: int, log_root: Path | None) -> TargetConfig:
     target_id = str(target.get("id") or f"target-{index + 1}").strip()
     inject_request_fields = target.get("inject_request_fields")
     if isinstance(inject_request_fields, dict):
@@ -103,9 +96,9 @@ def normalize_target(target: JsonObject, index: int, readable_log_dir: Path | No
         "strip_request_fields": target.get("strip_request_fields") or "",
         "inject_request_fields": str(inject_request_fields),
         "timeout": float(target.get("timeout") or 600),
-        "readable_log_dir": ""
-        if target.get("readable_log_dir") == ""
-        else str(log_root_from_setting(target.get("readable_log_dir") or readable_log_dir) or ""),
+        "log_root": ""
+        if target.get("log_root") == ""
+        else str(log_root_from_setting(target.get("log_root") or log_root) or ""),
         "redact_logs": bool(target.get("redact_logs", False)),
         "model_mappings": normalize_model_mappings(target.get("model_mappings") or target.get("models") or []),
         "enabled": bool(target.get("enabled", True)),

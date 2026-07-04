@@ -1,6 +1,6 @@
 """Serialization and display utilities for request/response bodies.
 
-Logs need to preserve complete raw bytes while also being human-readable. This module converts bytes to JSON-writable structures and formats JSON or SSE streams more clearly in readable logs.
+Logs need to preserve complete raw bytes while also being human-facing. This module converts bytes to JSON-writable structures and formats JSON or SSE streams more clearly in stored logs.
 """
 
 from __future__ import annotations
@@ -38,7 +38,7 @@ def try_pretty_json(text: str) -> str:
 
 
 def render_headers(headers: Mapping[str, list[str]]) -> str:
-    """Render headers into readable multiline text for Markdown."""
+    """Render headers into plain multiline text for Markdown."""
     if not headers:
         return "(none)"
     lines: list[str] = []
@@ -49,7 +49,7 @@ def render_headers(headers: Mapping[str, list[str]]) -> str:
 
 
 def render_body(body: Mapping[str, object]) -> str:
-    """Render the body into human-readable text.
+    """Render the body into human-facing text.
 
     OpenAI-compatible APIs commonly return SSE streams. For such content, first try to compress into a summary; if not SSE, try to beautify as regular JSON.
     """
@@ -66,7 +66,7 @@ def render_body(body: Mapping[str, object]) -> str:
 def body_json_value(body: Mapping[str, object]) -> object:
     """Convert the log body into a value to write in JSON files.
 
-    Readable logs generate request.json and response.json. This function decides what to write: parsed objects for valid JSON, compressed summaries for SSE, and wrapped plain text otherwise.
+    stored logs generate request.json and response.json. This function decides what to write: parsed objects for valid JSON, compressed summaries for SSE, and wrapped plain text otherwise.
     """
     text = str(body.get("text", ""))
     if not text:
@@ -81,4 +81,3 @@ def body_json_value(body: Mapping[str, object]) -> object:
             "text": text,
             "size_bytes": body.get("size_bytes", 0),
         }
-

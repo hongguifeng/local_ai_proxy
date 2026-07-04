@@ -104,7 +104,7 @@ def compact_claude_tool_calls(tool_calls: dict[int, dict[str, object]]) -> list[
 def compact_response_payload(response: Mapping[str, object]) -> dict[str, object]:
     """Keep only the most useful top-level fields from the Responses API response.
 
-    The full response object can be large; readable logs only need to quickly determine status, model,
+    The full response object can be large; stored logs only need to quickly determine status, model,
     context relationships, and error information.
     """
     keep_keys = (
@@ -152,7 +152,7 @@ def parse_sse_events(text: str) -> tuple[list[object], bool] | None:
 
 @dataclass
 class StreamAccumulator:
-    """Accumulate different OpenAI-compatible stream events into a readable log summary."""
+    """Accumulate different OpenAI-compatible stream events into a stored log summary."""
 
     event_count: int
     done_seen: bool

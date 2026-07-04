@@ -5,7 +5,7 @@ import json
 from pathlib import Path
 from typing import Any
 
-from .log_roots import readable_roots
+from .log_roots import log_roots
 from .manager import ProxyManager
 from .payloads import body_json_value
 from .records import display_endpoint
@@ -13,7 +13,7 @@ from .task_index import TaskIndexStore
 
 
 class LogStore:
-    """Read and cache human-readable traffic logs for the admin UI."""
+    """Read and cache human-facing traffic logs for the admin UI."""
 
     def __init__(self, manager: ProxyManager) -> None:
         self.manager = manager
@@ -26,8 +26,8 @@ class LogStore:
 
     def list_log_group_logs(self, group_id: str, query: str) -> dict[str, Any] | None:
         terms = query.lower().split()
-        for root in self._readable_roots():
-            tasks_root = root.parent / "tasks"
+        for root in self._log_roots():
+            tasks_root = root / "tasks"
             if not tasks_root.exists():
                 continue
             task_meta_by_dir = self._load_task_meta_map(root)
@@ -62,8 +62,9 @@ class LogStore:
     def _list_log_group_summaries(self, query: str) -> list[dict[str, Any]]:
         terms = query.lower().split()
         groups: list[dict[str, Any]] = []
-        for root in self._readable_roots():
-            if not root.exists():
+        for root in self._log_roots():
+            tasks_root = root / "tasks"
+            if not tasks_root.exists():
                 continue
             for task_meta in self._load_task_meta_map(root).values():
                 group = self._task_group_summary(task_meta)
@@ -141,7 +142,7 @@ class LogStore:
         if not isinstance(request_meta, dict):
             request_meta = {}
         for request_path in self._iter_dirs(task_path):
-            record = self._read_readable_record(request_path, include_body=False)
+            record = self._read_log_record(request_path, include_body=False)
             if not record:
                 continue
             record["_task_dir"] = task_path.name
@@ -171,7 +172,7 @@ class LogStore:
         if record:
             return record
 
-        for root in self._readable_roots():
+        for root in self._log_roots():
             record = self._find_task_log_by_index(root, record_id)
             if record:
                 return record
@@ -192,12 +193,12 @@ class LogStore:
         self.json_cache.clear()
         self.record_path_cache.clear()
 
-    def _readable_roots(self) -> list[Path]:
-        return readable_roots(self.manager)
+    def _log_roots(self) -> list[Path]:
+        return log_roots(self.manager)
 
     def _load_task_meta_map(self, root: Path) -> dict[str, dict[str, Any]]:
         result: dict[str, dict[str, Any]] = {}
-        index_path = root.parent / ".task-index.json"
+        index_path = root / ".task-index.json"
         data = TaskIndexStore(index_path).load()
         tasks = data.get("tasks")
         if not isinstance(tasks, dict):
@@ -248,7 +249,7 @@ class LogStore:
         except OSError:
             return []
 
-    def _read_readable_record(self, path: Path, include_body: bool = True) -> dict[str, Any] | None:
+    def _read_log_record(self, path: Path, include_body: bool = True) -> dict[str, Any] | None:
         markdown_files = sorted(path.glob("*.md"), key=lambda item: item.stat().st_mtime, reverse=True)
         if not markdown_files:
             return None
@@ -263,7 +264,7 @@ class LogStore:
         if cached and cached[0] == cache_signature:
             record: dict[str, Any] = copy.deepcopy(cached[1])
         else:
-            loaded_record = self._read_readable_record_metadata(path, markdown_path)
+            loaded_record = self._read_log_record_metadata(path, markdown_path)
             if loaded_record is None:
                 return None
             record = loaded_record
@@ -277,7 +278,7 @@ class LogStore:
                 response["body_json"] = self._read_json_file(path / "response.json")
         return record
 
-    def _read_readable_record_metadata(self, path: Path, markdown_path: Path) -> dict[str, Any] | None:
+    def _read_log_record_metadata(self, path: Path, markdown_path: Path) -> dict[str, Any] | None:
         metadata = self._markdown_metadata(markdown_path)
         request_text = str(metadata.get("Request") or "")
         request_method, _, request_path = request_text.partition(" ")
@@ -299,7 +300,7 @@ class LogStore:
                 "token_count": self._parse_optional_int(metadata.get("Token count")),
             },
             "_target_text": metadata.get("Target") or "",
-            "_readable_path": str(path),
+            "_log_path": str(path),
             "_dir_sequence": self._record_dir_sequence(path),
             "_sort_key": dir_sort_key or dir_timestamp or metadata.get("Time") or "",
         }
@@ -313,7 +314,7 @@ class LogStore:
     def _record_from_cached_path(self, record_id: str, cached: object) -> dict[str, Any] | None:
         if not isinstance(cached, dict) or not isinstance(cached.get("path"), Path):
             return None
-        record = self._read_readable_record(cached["path"], include_body=True)
+        record = self._read_log_record(cached["path"], include_body=True)
         if not record or str(record.get("id")) != record_id:
             self.record_path_cache.pop(record_id, None)
             return None
@@ -323,7 +324,7 @@ class LogStore:
         return record
 
     def _find_task_log_by_index(self, root: Path, record_id: str) -> dict[str, Any] | None:
-        data = TaskIndexStore(root.parent / ".task-index.json").load()
+        data = TaskIndexStore(root / ".task-index.json").load()
         request_to_task = data.get("request_to_task")
         tasks = data.get("tasks")
         if not isinstance(request_to_task, dict) or not isinstance(tasks, dict):
@@ -338,10 +339,10 @@ class LogStore:
         request_dir = request_info.get("dir_name") if isinstance(request_info, dict) else None
         if not isinstance(task_dir, str) or not task_dir or not isinstance(request_dir, str) or not request_dir:
             return None
-        request_path = root.parent / "tasks" / task_dir / request_dir
+        request_path = root / "tasks" / task_dir / request_dir
         if not request_path.is_dir():
             return None
-        record = self._read_readable_record(request_path)
+        record = self._read_log_record(request_path)
         if not record or str(record.get("id")) != record_id:
             return None
         record["_task_dir"] = task_dir

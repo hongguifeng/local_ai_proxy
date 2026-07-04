@@ -1,4 +1,4 @@
-"""Optional readable-log redaction helpers."""
+"""Optional stored-log redaction helpers."""
 
 from __future__ import annotations
 

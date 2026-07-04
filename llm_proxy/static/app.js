@@ -36,7 +36,7 @@ const translations = {
     hideApiKey: "隐藏 API Key",
     copyApiKey: "复制 API Key",
     timeoutSeconds: "超时秒数",
-    readableLogDir: "日志目录",
+    logRoot: "日志目录",
     redactLogs: "日志脱敏",
     upstreamHeaders: "上游 Headers，每行一个 Name: value",
     stripFields: "转发前移除的 request 字段，逗号分隔；留空关闭",
@@ -102,7 +102,7 @@ const translations = {
     hideApiKey: "Hide API Key",
     copyApiKey: "Copy API Key",
     timeoutSeconds: "Timeout seconds",
-    readableLogDir: "Log directory",
+    logRoot: "Log directory",
     redactLogs: "Redact logs",
     upstreamHeaders: "Upstream headers, one Name: value per line",
     stripFields: "Request fields to remove before forwarding, comma-separated; leave blank to disable",
@@ -181,7 +181,7 @@ function logItemTitle(item) {
   return `${item.sequence ? `[${item.sequence}] ` : ""}${parts.join(" | ")}`;
 }
 const suggestedStripRequestFields = __SUGGESTED_STRIP_REQUEST_FIELDS__;
-const newTarget = () => ({ id: `target-${Date.now()}-${Math.random().toString(16).slice(2)}`, name: "Target", enabled: true, target_url: "http://127.0.0.1:1235", target_api_key: "", target_headers: [], strip_request_fields: "", inject_request_fields: "", timeout: 600, readable_log_dir: "logs", redact_logs: false, model_mappings: [], expanded: false });
+const newTarget = () => ({ id: `target-${Date.now()}-${Math.random().toString(16).slice(2)}`, name: "Target", enabled: true, target_url: "http://127.0.0.1:1235", target_api_key: "", target_headers: [], strip_request_fields: "", inject_request_fields: "", timeout: 600, log_root: "logs", redact_logs: false, model_mappings: [], expanded: false });
 const newPair = () => { const target = newTarget(); return { id: `proxy-${Date.now()}`, name: t("newProxy"), enabled: false, running: false, listen_host: "127.0.0.1", listen_port: 1234, access_log: false, targets: [target], default_target_id: target.id }; };
 function pairTargets(pair) {
   if (Array.isArray(pair.targets) && pair.targets.length) return pair.targets;
@@ -222,7 +222,7 @@ function renderTarget(target, pair, pairIndex, targetIndex) {
       <div class="target-options" ${expanded ? "" : "hidden"}>
         <div class="fields">
           <label><span>${escapeHtml(t("timeoutSeconds"))}</span><input type="number" data-target-field="timeout" value="${target.timeout || 600}"></label>
-          <label><span>${escapeHtml(t("readableLogDir"))}</span><input data-target-field="readable_log_dir" value="${escapeHtml(target.readable_log_dir || "logs")}"></label>
+          <label><span>${escapeHtml(t("logRoot"))}</span><input data-target-field="log_root" value="${escapeHtml(target.log_root || "logs")}"></label>
         </div>
         <label class="target-enabled"><input type="checkbox" data-redact-logs ${target.redact_logs ? "checked" : ""}> <span>${escapeHtml(t("redactLogs"))}</span></label>
         <label><span>${escapeHtml(t("upstreamHeaders"))}</span><textarea data-target-field="target_headers">${escapeHtml((target.target_headers || []).join("\n"))}</textarea></label>

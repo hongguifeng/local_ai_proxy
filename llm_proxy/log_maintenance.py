@@ -1,4 +1,4 @@
-"""Export and cleanup helpers for readable log directories."""
+"""Export and cleanup helpers for task log directories."""
 
 from __future__ import annotations
 
@@ -9,28 +9,22 @@ import zipfile
 from pathlib import Path
 from typing import Any
 
-from .log_roots import readable_roots as _readable_roots
+from .log_roots import log_roots as _log_roots
 from .manager import ProxyManager
 from .task_index import TaskIndexStore
 
 
-def readable_roots(manager: ProxyManager) -> list[Path]:
-    return _readable_roots(manager)
+def log_roots(manager: ProxyManager) -> list[Path]:
+    return _log_roots(manager)
 
 
 def export_logs_zip(manager: ProxyManager) -> bytes:
     buffer = io.BytesIO()
     with zipfile.ZipFile(buffer, "w", compression=zipfile.ZIP_DEFLATED) as archive:
-        for root in readable_roots(manager):
-            if not root.exists():
-                continue
-            base = root.parent.resolve()
-            for path in root.rglob("*"):
-                if not path.is_file() or path.name.startswith("."):
-                    continue
-                archive.write(path, path.resolve().relative_to(base).as_posix())
-            tasks_root = root.parent / "tasks"
+        for root in log_roots(manager):
+            tasks_root = root / "tasks"
             if tasks_root.exists():
+                base = root.resolve()
                 for path in tasks_root.rglob("*"):
                     if not path.is_file() or path.name.startswith("."):
                         continue
@@ -52,11 +46,8 @@ def cleanup_logs(
     keep_latest = max(0, keep_latest) if keep_latest is not None else None
     deleted: list[str] = []
 
-    for root in readable_roots(manager):
-        if root.exists():
-            candidates = _interaction_dirs(root)
-            deleted.extend(_delete_by_policy(root, candidates, cutoff, keep_latest))
-        tasks_root = root.parent / "tasks"
+    for root in log_roots(manager):
+        tasks_root = root / "tasks"
         if tasks_root.exists():
             for task_path in _safe_child_dirs(tasks_root):
                 candidates = _safe_child_dirs(task_path)
@@ -72,8 +63,8 @@ def cleanup_log_groups(manager: ProxyManager, group_ids: list[str]) -> dict[str,
     if not selected_ids:
         return {"deleted": deleted, "deleted_count": 0}
 
-    for root in readable_roots(manager):
-        tasks_root = root.parent / "tasks"
+    for root in log_roots(manager):
+        tasks_root = root / "tasks"
         task_id_to_dir = _task_id_to_dir(root)
         selected_dirs = {
             task_id_to_dir.get(group_id, group_id)
@@ -84,18 +75,14 @@ def cleanup_log_groups(manager: ProxyManager, group_ids: list[str]) -> dict[str,
         for task_path in _safe_child_dirs(tasks_root):
             if task_path.name not in selected_dirs:
                 continue
-            request_ids = _request_ids_from_task_dir(task_path)
             if _safe_rmtree(task_path, tasks_root):
                 deleted.append(str(task_path))
-            for readable_path in _interaction_dirs(root):
-                if _record_id_from_dir(readable_path) in request_ids and _safe_rmtree(readable_path, root):
-                    deleted.append(str(readable_path))
 
     return {"deleted": deleted, "deleted_count": len(deleted)}
 
 
 def _task_id_to_dir(root: Path) -> dict[str, str]:
-    index_path = root.parent / ".task-index.json"
+    index_path = root / ".task-index.json"
     data = TaskIndexStore(index_path).load()
     tasks = data.get("tasks") if isinstance(data, dict) else None
     if not isinstance(tasks, dict):
@@ -105,28 +92,6 @@ def _task_id_to_dir(root: Path) -> dict[str, str]:
         if isinstance(task, dict) and task.get("dir_name"):
             result[str(task_id)] = str(task["dir_name"])
     return result
-
-
-def _request_ids_from_task_dir(task_path: Path) -> set[str]:
-    request_ids: set[str] = set()
-    for request_path in _safe_child_dirs(task_path):
-        record_id = _record_id_from_dir(request_path)
-        if record_id:
-            request_ids.add(record_id)
-    return request_ids
-
-
-def _record_id_from_dir(path: Path) -> str:
-    parts = path.name.split("__")
-    return parts[-1] if parts else ""
-
-
-def _interaction_dirs(root: Path) -> list[Path]:
-    return [
-        path
-        for path in _safe_child_dirs(root)
-        if path.name != "tasks"
-    ]
 
 
 def _safe_child_dirs(root: Path) -> list[Path]:

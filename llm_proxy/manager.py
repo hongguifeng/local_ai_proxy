@@ -13,7 +13,6 @@ from .config import (
     default_proxy_pair,
     log_root_from_setting,
     normalize_pair,
-    readable_dir_from_log_root,
 )
 from .file_io import atomic_write_text
 from .http_utils import parse_header_overrides
@@ -29,7 +28,6 @@ __all__ = [
     "ProxyManager",
     "SUGGESTED_STRIP_REQUEST_FIELDS_TEXT",
     "log_root_from_setting",
-    "readable_dir_from_log_root",
 ]
 
 
@@ -44,17 +42,17 @@ class ProxyManager:
     def __init__(
         self,
         config_path: Path = DEFAULT_CONFIG_PATH,
-        readable_log_dir: Path | None = DEFAULT_LOG_ROOT,
+        log_root: Path | None = DEFAULT_LOG_ROOT,
     ) -> None:
         self.config_path = config_path
-        self.readable_log_dir = log_root_from_setting(readable_log_dir)
+        self.log_root = log_root_from_setting(log_root)
         self.lock = threading.RLock()
         self.pairs: list[ProxyPair] = self._load_pairs()
         self.runtimes: dict[str, ProxyRuntime] = {}
 
     def _load_pairs(self) -> list[ProxyPair]:
         if not self.config_path.exists():
-            return [default_proxy_pair(self.readable_log_dir)]
+            return [default_proxy_pair(self.log_root)]
         try:
             loaded = json.loads(self.config_path.read_text(encoding="utf-8"))
         except (OSError, json.JSONDecodeError):
@@ -62,7 +60,7 @@ class ProxyManager:
         raw_pairs = loaded.get("pairs") if isinstance(loaded, dict) else None
         if not isinstance(raw_pairs, list):
             return []
-        return [normalize_pair(pair, self.readable_log_dir) for pair in raw_pairs if isinstance(pair, dict)]
+        return [normalize_pair(pair, self.log_root) for pair in raw_pairs if isinstance(pair, dict)]
 
     def save(self) -> None:
         with self.lock:
@@ -86,7 +84,7 @@ class ProxyManager:
             return [self._public_pair(pair) for pair in self.pairs]
 
     def replace_pairs(self, pairs: list[JsonObject]) -> list[PublicProxyPair]:
-        normalized = [normalize_pair(pair, self.readable_log_dir) for pair in pairs]
+        normalized = [normalize_pair(pair, self.log_root) for pair in pairs]
         with self.lock:
             old_ids = {str(pair["id"]) for pair in self.pairs}
             new_ids = {str(pair["id"]) for pair in normalized}
@@ -137,7 +135,7 @@ class ProxyManager:
         targets = [self._runtime_target(target, pair) for target in pair["targets"]]
         logger = targets[0].get("traffic_logger")
         if not isinstance(logger, TrafficLogger):
-            logger = TrafficLogger(self._readable_dir_for(pair))
+            logger = TrafficLogger(self._log_root_for(pair))
         config: ProxyServerConfig = {
             "targets": targets,
             "default_target_id": pair.get("default_target_id") or targets[0]["id"],
@@ -150,13 +148,13 @@ class ProxyManager:
         thread.start()
         self.runtimes[pair_id] = ProxyRuntime(server=server, thread=thread, logger=logger)
 
-    def _readable_dir_for(self, pair: ProxyPair | TargetConfig) -> Path | None:
-        raw_value = pair.get("readable_log_dir")
+    def _log_root_for(self, pair: ProxyPair | TargetConfig) -> Path | None:
+        raw_value = pair.get("log_root")
         if raw_value == "":
             return None
         if raw_value:
-            return readable_dir_from_log_root(str(raw_value))
-        return readable_dir_from_log_root(self.readable_log_dir)
+            return log_root_from_setting(str(raw_value))
+        return log_root_from_setting(self.log_root)
 
     def _runtime_target(self, target_pair: TargetConfig, pair: ProxyPair) -> RuntimeTarget:
         target = parse_target_url(str(target_pair.get("target_url") or "http://127.0.0.1:1235"))
@@ -175,7 +173,7 @@ class ProxyManager:
             "model_mappings": list(target_pair.get("model_mappings") or []),
             "enabled": bool(target_pair.get("enabled", True)),
             "traffic_logger": TrafficLogger(
-                self._readable_dir_for(target_pair),
+                self._log_root_for(target_pair),
                 redact_logs=bool(target_pair.get("redact_logs", False)),
             ),
         }

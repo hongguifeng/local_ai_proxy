@@ -8,7 +8,7 @@ from llm_proxy import (
 
 
 class StreamSummaryTests(unittest.TestCase):
-    """Verify that SSE streaming responses can be compressed into readable summaries."""
+    """Verify that SSE streaming responses can be compressed into stored summaries."""
 
     def parse_summary(self, text: str) -> dict[str, object]:
         compacted = compact_sse_json(text)

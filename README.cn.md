@@ -34,7 +34,7 @@ flowchart LR
   MatchB -- 否 --> Default["默认转发地址<br/>兜底上游"]
 ```
 
-每个转发地址都有自己的超时、可读日志目录、上游 headers 和 request 字段改写规则。非默认转发地址可以临时关闭，关闭后不会参与模型匹配。
+每个转发地址都有自己的超时、日志目录、上游 headers 和 request 字段改写规则。非默认转发地址可以临时关闭，关闭后不会参与模型匹配。
 
 ## 核心功能
 
@@ -50,8 +50,8 @@ flowchart LR
 - 自动把相关的多轮 Agent 请求归并为任务，方便回看一次完整工作流，包括 Claude Messages 多轮对话。
 - 以左右分栏查看 request/response JSON，支持换行、展开折叠、字符串格式化和复制。
 - 可在转发前移除或注入顶层 JSON request 字段。
-- 可选对可读日志中的敏感 headers 和常见 JSON 密钥字段脱敏。
-- 可将可读日志导出为 ZIP，并清理用户选中的任务组。
+- 可选对保存日志中的敏感 headers 和常见 JSON 密钥字段脱敏。
+- 可将任务日志导出为 ZIP，并清理用户选中的任务组。
 - 默认将代理配置持久化到 `logs/proxies.json`。
 
 ## 快速开始
@@ -115,7 +115,7 @@ http://127.0.0.1:1234
 - 上游 headers，每行一个 `Name: value`。
 - 转发前需要移除的 request 字段。
 - 转发前需要注入的 request 字段，格式为 JSON object。
-- 可读日志脱敏开关。
+- 日志脱敏开关。
 
 默认情况下，每个转发地址显示 URL、API Key 和模型映射。点击转发地址块里的 **更多配置** 可展开超时、日志目录、headers 和 request 字段改写选项。
 
@@ -204,19 +204,18 @@ presence_penalty, frequency_penalty, seed
 
 当请求被改写时，日志会记录 `request.stripped_fields`、`request.injected_fields` 和 `request.upstream_body`。
 
-### 可读日志脱敏
+### 保存日志脱敏
 
-在转发地址的 **更多配置** 中启用 **日志脱敏** 后，可读日志会遮盖常见敏感值。当前会处理 `Authorization`、`X-API-Key` 等 headers，以及 `api_key`、`access_token`、`token`、`password`、`secret` 等 JSON 字段。
+在转发地址的 **更多配置** 中启用 **日志脱敏** 后，保存日志会遮盖常见敏感值。当前会处理 `Authorization`、`X-API-Key` 等 headers，以及 `api_key`、`access_token`、`token`、`password`、`secret` 等 JSON 字段。
 
-脱敏只影响保存到磁盘的可读日志；实际转发给上游的请求仍使用原始值。
+脱敏只影响保存到磁盘的日志；实际转发给上游的请求仍使用原始值。
 
 ## 磁盘日志
 
 默认路径：
 
 - 代理配置：`logs/proxies.json`
-- 可读交互日志：默认 `logs/readable/`，可按转发地址单独配置日志根目录
-- 按任务归档的日志：`logs/tasks/`
+- 任务日志：默认 `logs/tasks/`，可按转发地址单独配置日志根目录
 
 每次捕获到的交互都会写入独立目录，包含：
 
@@ -228,7 +227,7 @@ presence_penalty, frequency_penalty, seed
 
 SSE 响应会按上游到达的行逐行转发给客户端。非 SSE 响应仍按普通二进制块转发。
 
-历史日志页面可以将可读日志导出为 `llm-proxy-logs.zip`。在日志列表中选择一个或多个任务组后，可以清理这些任务及其对应的可读请求记录。
+历史日志页面可以将任务日志导出为 `llm-proxy-logs.zip`。在日志列表中选择一个或多个任务组后，可以清理这些任务及其对应的请求记录。
 
 ## 安全说明
 
@@ -266,7 +265,7 @@ llm_proxy/
   manager.py        # 多代理管理和配置持久化
   models.py         # 共享的配置和日志记录类型结构
   server.py         # HTTP 代理服务和 handler
-  logger.py         # Markdown/JSON 可读日志写入
+  logger.py         # Markdown/JSON 任务日志写入
   records.py        # 请求/响应分析和任务指纹
   streams.py        # SSE 流式响应摘要
   task_grouper.py   # 任务归类规则和任务目录归档
@@ -274,7 +273,7 @@ llm_proxy/
   sanitize.py       # request 字段移除/注入
   target.py         # 上游 URL 解析和路径拼接
   payloads.py       # body 编码、解析和渲染辅助
-  redaction.py      # 可选可读日志脱敏
+  redaction.py      # 可选保存日志脱敏
   static/
     index.html      # 管理界面前端
 tests/

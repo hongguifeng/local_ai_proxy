@@ -7,11 +7,14 @@ from llm_proxy.logger import TrafficLogger
 
 
 class LogRedactionTests(unittest.TestCase):
+    def _only_request_log_path(self, root: Path) -> Path:
+        return next((root / "tasks").glob("*/*"))
+
     def test_redacts_sensitive_headers_and_json_fields_when_enabled(self) -> None:
         temp_dir = tempfile.TemporaryDirectory()
         try:
             root = Path(temp_dir.name)
-            logger = TrafficLogger(root / "readable", redact_logs=True)
+            logger = TrafficLogger(root, redact_logs=True)
             logger.write(
                 {
                     "id": "req_1",
@@ -39,9 +42,9 @@ class LogRedactionTests(unittest.TestCase):
                 }
             )
 
-            readable_path = next((root / "readable").iterdir())
-            request_body = json.loads((readable_path / "request.json").read_text(encoding="utf-8"))
-            markdown = next(readable_path.glob("*.md")).read_text(encoding="utf-8")
+            log_path = self._only_request_log_path(root)
+            request_body = json.loads((log_path / "request.json").read_text(encoding="utf-8"))
+            markdown = next(log_path.glob("*.md")).read_text(encoding="utf-8")
 
             self.assertEqual(request_body, {"model": "demo", "api_key": "[redacted]"})
             self.assertIn("Authorization: [redacted]", markdown)
@@ -53,7 +56,7 @@ class LogRedactionTests(unittest.TestCase):
         temp_dir = tempfile.TemporaryDirectory()
         try:
             root = Path(temp_dir.name)
-            logger = TrafficLogger(root / "readable")
+            logger = TrafficLogger(root)
             logger.write(
                 {
                     "id": "req_1",
@@ -81,8 +84,8 @@ class LogRedactionTests(unittest.TestCase):
                 }
             )
 
-            readable_path = next((root / "readable").iterdir())
-            request_body = json.loads((readable_path / "request.json").read_text(encoding="utf-8"))
+            log_path = self._only_request_log_path(root)
+            request_body = json.loads((log_path / "request.json").read_text(encoding="utf-8"))
 
             self.assertEqual(request_body, {"model": "demo", "api_key": "sk-secret"})
         finally:

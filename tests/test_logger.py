@@ -12,13 +12,13 @@ from llm_proxy.task_index import TASK_MATCH_STRATEGY_VERSION, TaskIndexStore
 
 
 class TrafficLoggerTaskGroupingTests(unittest.TestCase):
-    """Verify task grouping logic in readable logs."""
+    """Verify task grouping logic in stored logs."""
 
     def test_writes_list_summary_fields_when_recording_log(self) -> None:
         log_dir = tempfile.TemporaryDirectory()
         try:
             root = Path(log_dir.name)
-            logger = TrafficLogger(root / "readable")
+            logger = TrafficLogger(root)
             logger.write(
                 {
                     "id": "req_1",
@@ -55,7 +55,7 @@ class TrafficLoggerTaskGroupingTests(unittest.TestCase):
                 }
             )
 
-            markdown = next((root / "readable").glob("*/*.md")).read_text(encoding="utf-8")
+            markdown = next((root / "tasks").glob("*/*/*.md")).read_text(encoding="utf-8")
             self.assertIn("- Endpoint: /v1/responses", markdown)
             self.assertIn("- Message count: 3", markdown)
             self.assertIn("- Token count: 5", markdown)
@@ -73,7 +73,7 @@ class TrafficLoggerTaskGroupingTests(unittest.TestCase):
         log_dir = tempfile.TemporaryDirectory()
         try:
             root = Path(log_dir.name)
-            logger = TrafficLogger(root / "readable")
+            logger = TrafficLogger(root)
             timestamp = "2026-06-07T08:00:00.000+00:00"
             base_record = {
                 "id": "req_1",
@@ -99,7 +99,7 @@ class TrafficLoggerTaskGroupingTests(unittest.TestCase):
                     },
                 },
             }
-            logger.update_readable(
+            logger.update(
                 # Simulate the intermediate state where the request is read but the response has not yet returned.
                 {
                     **base_record,
@@ -140,7 +140,7 @@ class TrafficLoggerTaskGroupingTests(unittest.TestCase):
         log_dir = tempfile.TemporaryDirectory()
         try:
             root = Path(log_dir.name)
-            logger = TrafficLogger(root / "readable")
+            logger = TrafficLogger(root)
 
             def record(request_id: str, timestamp: str, input_items: list[object], response_id: str) -> dict[str, object]:
                 return {
@@ -203,7 +203,7 @@ class TrafficLoggerTaskGroupingTests(unittest.TestCase):
         log_dir = tempfile.TemporaryDirectory()
         try:
             root = Path(log_dir.name)
-            logger = TrafficLogger(root / "readable")
+            logger = TrafficLogger(root)
 
             def input_items(user_text: str) -> list[object]:
                 return [
@@ -254,7 +254,7 @@ class TrafficLoggerTaskGroupingTests(unittest.TestCase):
         log_dir = tempfile.TemporaryDirectory()
         try:
             root = Path(log_dir.name)
-            logger = TrafficLogger(root / "readable")
+            logger = TrafficLogger(root)
 
             def record(request_id: str, timestamp: str, user_text: str) -> dict[str, object]:
                 return {
@@ -303,7 +303,7 @@ class TrafficLoggerTaskGroupingTests(unittest.TestCase):
         log_dir = tempfile.TemporaryDirectory()
         try:
             root = Path(log_dir.name)
-            logger = TrafficLogger(root / "readable")
+            logger = TrafficLogger(root)
 
             def record(request_id: str, timestamp: str, user_text: str) -> dict[str, object]:
                 return {
@@ -355,7 +355,7 @@ class TrafficLoggerTaskGroupingTests(unittest.TestCase):
         log_dir = tempfile.TemporaryDirectory()
         try:
             root = Path(log_dir.name)
-            logger = TrafficLogger(root / "readable")
+            logger = TrafficLogger(root)
 
             def record(request_id: str, timestamp: str, model: str, response_id: str) -> dict[str, object]:
                 return {
@@ -403,7 +403,7 @@ class TrafficLoggerTaskGroupingTests(unittest.TestCase):
                 log_dir = tempfile.TemporaryDirectory()
                 try:
                     root = Path(log_dir.name)
-                    logger = TrafficLogger(root / "readable")
+                    logger = TrafficLogger(root)
 
                     def record(request_id: str, timestamp: str, instructions: str, tools: list[object], first_user: str, response_id: str) -> dict[str, object]:
                         return {
@@ -461,7 +461,7 @@ class TrafficLoggerTaskGroupingTests(unittest.TestCase):
         log_dir = tempfile.TemporaryDirectory()
         try:
             root = Path(log_dir.name)
-            logger = TrafficLogger(root / "readable")
+            logger = TrafficLogger(root)
 
             def record(request_id: str, timestamp: str, input_text: str, tools: list[object] | None) -> dict[str, object]:
                 payload: dict[str, object] = {
@@ -510,7 +510,7 @@ class TrafficLoggerTaskGroupingTests(unittest.TestCase):
                 log_dir = tempfile.TemporaryDirectory()
                 try:
                     root = Path(log_dir.name)
-                    logger = TrafficLogger(root / "readable")
+                    logger = TrafficLogger(root)
 
                     def record(
                         request_id: str,
@@ -563,7 +563,7 @@ class TrafficLoggerTaskGroupingTests(unittest.TestCase):
         log_dir = tempfile.TemporaryDirectory()
         try:
             root = Path(log_dir.name)
-            logger = TrafficLogger(root / "readable")
+            logger = TrafficLogger(root)
 
             def message(text: str) -> dict[str, object]:
                 return {"type": "message", "role": "user", "content": [{"type": "input_text", "text": text}]}
@@ -607,7 +607,7 @@ class TrafficLoggerTaskGroupingTests(unittest.TestCase):
         log_dir = tempfile.TemporaryDirectory()
         try:
             root = Path(log_dir.name)
-            logger = TrafficLogger(root / "readable")
+            logger = TrafficLogger(root)
 
             def message(text: str) -> dict[str, object]:
                 return {"type": "message", "role": "user", "content": [{"type": "input_text", "text": text}]}
@@ -653,7 +653,7 @@ class TrafficLoggerTaskGroupingTests(unittest.TestCase):
         log_dir = tempfile.TemporaryDirectory()
         try:
             root = Path(log_dir.name)
-            logger = TrafficLogger(root / "readable")
+            logger = TrafficLogger(root)
 
             def record(request_id: str, timestamp: str, response_id: str) -> dict[str, object]:
                 return {
@@ -700,7 +700,7 @@ class TrafficLoggerTaskGroupingTests(unittest.TestCase):
         log_dir = tempfile.TemporaryDirectory()
         try:
             root = Path(log_dir.name)
-            logger = TrafficLogger(root / "readable")
+            logger = TrafficLogger(root)
 
             def message(text: str) -> dict[str, object]:
                 return {"type": "message", "role": "user", "content": [{"type": "input_text", "text": text}]}
@@ -744,7 +744,7 @@ class TrafficLoggerTaskGroupingTests(unittest.TestCase):
         log_dir = tempfile.TemporaryDirectory()
         try:
             root = Path(log_dir.name)
-            logger = TrafficLogger(root / "readable")
+            logger = TrafficLogger(root)
 
             def message(text: str) -> dict[str, object]:
                 return {"type": "message", "role": "user", "content": [{"type": "input_text", "text": text}]}
@@ -802,7 +802,7 @@ class TrafficLoggerTaskGroupingTests(unittest.TestCase):
                 log_dir = tempfile.TemporaryDirectory()
                 try:
                     root = Path(log_dir.name)
-                    logger = TrafficLogger(root / "readable")
+                    logger = TrafficLogger(root)
 
                     def record(request_id: str, timestamp: str, system: str, tools: list[object], first_user: str) -> dict[str, object]:
                         return {
@@ -860,7 +860,7 @@ class TrafficLoggerTaskGroupingTests(unittest.TestCase):
         log_dir = tempfile.TemporaryDirectory()
         try:
             root = Path(log_dir.name)
-            logger = TrafficLogger(root / "readable")
+            logger = TrafficLogger(root)
 
             def message(text: str) -> dict[str, object]:
                 return {"role": "user", "content": [{"type": "text", "text": text}]}
@@ -918,7 +918,7 @@ class TrafficLoggerTaskGroupingTests(unittest.TestCase):
                 log_dir = tempfile.TemporaryDirectory()
                 try:
                     root = Path(log_dir.name)
-                    logger = TrafficLogger(root / "readable")
+                    logger = TrafficLogger(root)
 
                     def record(request_id: str, timestamp: str, system: str, first_user: str) -> dict[str, object]:
                         return {
@@ -975,7 +975,7 @@ class TrafficLoggerTaskGroupingTests(unittest.TestCase):
         log_dir = tempfile.TemporaryDirectory()
         try:
             root = Path(log_dir.name)
-            logger = TrafficLogger(root / "readable")
+            logger = TrafficLogger(root)
 
             def user(text: str) -> dict[str, object]:
                 return {"role": "user", "content": [{"type": "text", "text": text}]}
@@ -1079,8 +1079,8 @@ class TrafficLoggerTaskGroupingTests(unittest.TestCase):
         log_dir = tempfile.TemporaryDirectory()
         try:
             root = Path(log_dir.name)
-            first_logger = TrafficLogger(root / "readable")
-            second_logger = TrafficLogger(root / "readable")
+            first_logger = TrafficLogger(root)
+            second_logger = TrafficLogger(root)
 
             def user(text: str) -> dict[str, object]:
                 return {"role": "user", "content": [{"type": "text", "text": text}]}
@@ -1196,8 +1196,8 @@ class TrafficLoggerTaskGroupingTests(unittest.TestCase):
         log_dir = tempfile.TemporaryDirectory()
         try:
             root = Path(log_dir.name)
-            first_logger = TrafficLogger(root / "readable")
-            second_logger = TrafficLogger(root / "readable")
+            first_logger = TrafficLogger(root)
+            second_logger = TrafficLogger(root)
 
             def user(text: str) -> dict[str, object]:
                 return {"role": "user", "content": [{"type": "text", "text": text}]}
@@ -1283,8 +1283,8 @@ class TrafficLoggerTaskGroupingTests(unittest.TestCase):
         log_dir = tempfile.TemporaryDirectory()
         try:
             root = Path(log_dir.name)
-            first_logger = TrafficLogger(root / "readable")
-            second_logger = TrafficLogger(root / "readable")
+            first_logger = TrafficLogger(root)
+            second_logger = TrafficLogger(root)
 
             def record(request_id: str, timestamp: str, path: str, text: str) -> dict[str, object]:
                 return {
@@ -1365,7 +1365,7 @@ class TrafficLoggerTaskGroupingTests(unittest.TestCase):
         log_dir = tempfile.TemporaryDirectory()
         try:
             root = Path(log_dir.name)
-            logger = TrafficLogger(root / "readable")
+            logger = TrafficLogger(root)
 
             def record(request_id: str, started_at: str, finished_at: str, previous_response_id: str | None, response_id: str) -> dict[str, object]:
                 payload: dict[str, object] = {

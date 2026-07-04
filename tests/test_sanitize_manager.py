@@ -68,9 +68,9 @@ class RequestSanitizationConfigTests(unittest.TestCase):
             root = Path(temp_dir.name)
             manager = ProxyManager(root / "proxies.json", root / "logs")
 
-            self.assertEqual(manager.list_pairs()[0]["targets"][0]["readable_log_dir"], str(root / "logs"))
-            self.assertEqual(manager._readable_dir_for({"readable_log_dir": str(root / "custom")}), root / "custom" / "readable")
-            self.assertEqual(manager._readable_dir_for({}), root / "logs" / "readable")
+            self.assertEqual(manager.list_pairs()[0]["targets"][0]["log_root"], str(root / "logs"))
+            self.assertEqual(manager._log_root_for({"log_root": str(root / "custom")}), root / "custom")
+            self.assertEqual(manager._log_root_for({}), root / "logs")
         finally:
             temp_dir.cleanup()
 

@@ -11,30 +11,19 @@ from .payloads import body_json_value, render_headers
 from .records import display_endpoint, endpoint_kind, request_message_count, response_token_count
 from .time_utils import (
     format_duration_hms,
-    local_datetime_for_filename,
     local_time_from_timestamp_for_filename,
-    readable_start_timestamp,
+    log_start_timestamp,
 )
 
 
-def ensure_readable_dir(path: Path) -> None:
+def ensure_log_dir(path: Path) -> None:
     if path.is_file():
         path.unlink()
     path.mkdir(parents=True, exist_ok=True)
 
 
-def readable_dir_name(record: Mapping[str, object]) -> str:
-    timestamp = local_datetime_for_filename(readable_start_timestamp(record))
-    request = cast(Mapping[str, object], record["request"])
-    method = str(request["method"])
-    path = str(request["path"])
-    safe_path = "".join(ch if ch.isalnum() else "-" for ch in path).strip("-")
-    safe_path = safe_path[:80] or "root"
-    return f"{timestamp}__{method}__{safe_path}__{record['id']}"
-
-
-def readable_filename(record: Mapping[str, object]) -> str:
-    start_time = readable_start_timestamp(record)
+def log_markdown_filename(record: Mapping[str, object]) -> str:
+    start_time = log_start_timestamp(record)
     duration_ms = float(cast(str | int | float, record["duration_ms"]))
 
     start_dt = dt.datetime.fromisoformat(str(start_time))
