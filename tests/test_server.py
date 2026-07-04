@@ -607,8 +607,7 @@ class TargetUrlProxyTests(unittest.TestCase):
             log_path = self._wait_for_request_log(log_root)
             self.assertIsNotNone(log_path)
             assert log_path is not None
-            with (log_path / "request.json").open(encoding="utf-8") as file:
-                self.assertIsNone(json.load(file))
+            self.assertIsNone(self._read_optional_json(log_path / "request.json"))
             self.assertIsNone(self._read_optional_json(log_path / "response.json"))
             markdown = next(log_path.glob("*.md")).read_text(encoding="utf-8")
             self.assertIn("- Event: request_received", markdown)

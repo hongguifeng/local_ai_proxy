@@ -57,11 +57,13 @@ class TaskGrouper:
         payload = request_body_json(record)
         response_payload = response_body_json(record)
         pending_task_id = self._pending_task_id_for_request(str(record["id"]))
-        task = (
-            self._find_or_create_task(record, kind, payload)
-            if kind in MODEL_TASK_KINDS
-            else self._find_or_create_single_request_task(record, kind)
-        )
+        task = self._promote_or_match_pending_task(pending_task_id, record, kind, payload)
+        if task is None:
+            task = (
+                self._find_or_create_task(record, kind, payload)
+                if kind in MODEL_TASK_KINDS
+                else self._find_or_create_single_request_task(record, kind)
+            )
         if not task:
             return
         if pending_task_id and pending_task_id != str(task.get("id")):
@@ -150,6 +152,42 @@ class TaskGrouper:
         task = self._new_task(record, kind, payload)
         tasks[str(task["id"])] = task
         return task
+
+    def _promote_or_match_pending_task(
+        self,
+        pending_task_id: str | None,
+        record: Mapping[str, object],
+        kind: str,
+        payload: object,
+    ) -> dict[str, object] | None:
+        if not pending_task_id:
+            return None
+        tasks = self.task_index.get("tasks")
+        pending_task = tasks.get(pending_task_id) if isinstance(tasks, dict) else None
+        if not isinstance(pending_task, dict):
+            return None
+
+        if kind in MODEL_TASK_KINDS:
+            matched_id = self._match_existing_task(record, kind, payload)
+            matched_task = tasks.get(matched_id) if isinstance(tasks, dict) and isinstance(matched_id, str) else None
+            if isinstance(matched_task, dict) and matched_id != pending_task_id:
+                return matched_task
+
+        self._promote_pending_task(pending_task, record, kind, payload)
+        return pending_task
+
+    def _promote_pending_task(
+        self,
+        task: dict[str, object],
+        record: Mapping[str, object],
+        kind: str,
+        payload: object,
+    ) -> None:
+        task.pop("pending_request_only", None)
+        task["kind"] = kind
+        task["endpoint"] = request_path(record)
+        task["anchor"] = self._task_anchor(record, kind, payload)
+        task["last_match_confidence"] = 1.0
 
     def _find_or_create_pending_task(self, record: Mapping[str, object], kind: str) -> dict[str, object] | None:
         """Create or reuse a temporary task while the request body is still unread."""
@@ -372,6 +410,8 @@ class TaskGrouper:
 
         for task_id, task in tasks.items():
             if not isinstance(task, dict):
+                continue
+            if task.get("pending_request_only"):
                 continue
             if not self._task_static_boundaries_match(task, record, kind, payload):
                 continue
