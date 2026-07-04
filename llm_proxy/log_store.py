@@ -9,6 +9,7 @@ from typing import Any
 from .log_roots import readable_roots
 from .manager import ProxyManager
 from .payloads import body_json_value
+from .task_index import TaskIndexStore
 
 
 class LogStore:
@@ -211,23 +212,20 @@ class LogStore:
     def _load_task_meta_map(self, root: Path) -> dict[str, dict[str, Any]]:
         result: dict[str, dict[str, Any]] = {}
         index_path = root.parent / ".task-index.json"
-        if index_path.exists():
-            try:
-                data = json.loads(index_path.read_text(encoding="utf-8"))
-            except (OSError, ValueError):
-                pass
-            else:
-                tasks = data.get("tasks", {}) or {}
-                for task_id, task in tasks.items():
-                    if not isinstance(task, dict):
-                        continue
-                    dir_name = str(task.get("dir_name") or "")
-                    result[dir_name] = {
-                        "id": task_id,
-                        "dir_name": dir_name,
-                        "model": task.get("model"),
-                        "kind": task.get("kind"),
-                    }
+        data = TaskIndexStore(index_path).load()
+        tasks = data.get("tasks")
+        if not isinstance(tasks, dict):
+            return result
+        for task_id, task in tasks.items():
+            if not isinstance(task, dict):
+                continue
+            dir_name = str(task.get("dir_name") or "")
+            result[dir_name] = {
+                "id": task_id,
+                "dir_name": dir_name,
+                "model": task.get("model"),
+                "kind": task.get("kind"),
+            }
 
         return result
 

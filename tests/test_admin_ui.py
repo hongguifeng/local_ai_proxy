@@ -169,6 +169,18 @@ class AdminUiTests(unittest.TestCase):
             )
             task_request_path.mkdir(parents=True)
             (root / "readable").mkdir(exist_ok=True)
+            (root / ".task-index.json").write_text(
+                json.dumps(
+                    {
+                        "task_match_strategy_version": 0,
+                        "tasks": {"stale-task-id": {"dir_name": task_request_path.parent.name}},
+                        "request_to_task": {},
+                        "response_to_task": {},
+                        "context_to_task": {},
+                    }
+                ),
+                encoding="utf-8",
+            )
             (task_request_path / "08-00-00.000__08-00-00.010.md").write_text(
                 "\n".join(
                     [
@@ -471,6 +483,54 @@ class AdminUiTests(unittest.TestCase):
             self.assertEqual(payload["deleted_count"], 3)
             self.assertFalse(task_path.exists())
             self.assertEqual([path.name for path in readable_root.iterdir() if path.is_dir()], [])
+        finally:
+            if server is not None:
+                server.shutdown()
+                server.server_close()
+            temp_dir.cleanup()
+
+    def test_log_cleanup_ignores_outdated_task_index_ids(self) -> None:
+        temp_dir = tempfile.TemporaryDirectory()
+        server = None
+        try:
+            root = Path(temp_dir.name)
+            task_path = root / "tasks" / "2026-06-07__08-00-00.000__08-00-30.000__responses__fp-demo"
+            request_path = task_path / "001__08-00-00.000__v1-responses__req_1"
+            request_path.mkdir(parents=True)
+            (request_path / "summary.md").write_text("# LLM Interaction req_1", encoding="utf-8")
+            (root / "readable").mkdir(exist_ok=True)
+            (root / ".task-index.json").write_text(
+                json.dumps(
+                    {
+                        "task_match_strategy_version": 0,
+                        "tasks": {"stale-task-id": {"dir_name": task_path.name}},
+                        "request_to_task": {},
+                        "response_to_task": {},
+                        "context_to_task": {},
+                    }
+                ),
+                encoding="utf-8",
+            )
+
+            manager = ProxyManager(root / "proxies.json", root)
+            server = AdminServer(("127.0.0.1", 0), manager)
+            thread = threading.Thread(target=server.serve_forever, daemon=True)
+            thread.start()
+
+            conn = http.client.HTTPConnection("127.0.0.1", server.server_address[1], timeout=5)
+            conn.request(
+                "POST",
+                "/api/logs/cleanup",
+                body=json.dumps({"group_ids": ["stale-task-id"]}),
+                headers={"Content-Type": "application/json"},
+            )
+            response = conn.getresponse()
+            self.assertEqual(response.status, 200)
+            payload = json.loads(response.read())
+            conn.close()
+
+            self.assertEqual(payload["deleted_count"], 0)
+            self.assertTrue(task_path.exists())
         finally:
             if server is not None:
                 server.shutdown()

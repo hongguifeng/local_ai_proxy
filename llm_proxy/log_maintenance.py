@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import io
-import json
 import shutil
 import time
 import zipfile
@@ -12,6 +11,7 @@ from typing import Any
 
 from .log_roots import readable_roots as _readable_roots
 from .manager import ProxyManager
+from .task_index import TaskIndexStore
 
 
 def readable_roots(manager: ProxyManager) -> list[Path]:
@@ -96,12 +96,7 @@ def cleanup_log_groups(manager: ProxyManager, group_ids: list[str]) -> dict[str,
 
 def _task_id_to_dir(root: Path) -> dict[str, str]:
     index_path = root.parent / ".task-index.json"
-    if not index_path.exists():
-        return {}
-    try:
-        data = json.loads(index_path.read_text(encoding="utf-8"))
-    except (OSError, json.JSONDecodeError):
-        return {}
+    data = TaskIndexStore(index_path).load()
     tasks = data.get("tasks") if isinstance(data, dict) else None
     if not isinstance(tasks, dict):
         return {}
