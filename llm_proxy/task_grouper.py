@@ -158,9 +158,6 @@ class TaskGrouper:
             task_id = request_to_task.get(request_id)
             if isinstance(task_id, str):
                 return task_id
-        scanned_task_id = self._find_task_for_request_id(request_id)
-        if scanned_task_id:
-            return scanned_task_id
 
         if isinstance(payload, dict):
             response_to_task = self.task_index.get("response_to_task")
@@ -237,22 +234,6 @@ class TaskGrouper:
         if not include_user_boundary:
             result.pop("first_user", None)
         return result
-
-    def _find_task_for_request_id(self, request_id: str) -> str | None:
-        """Look up request ID in the task list and fix the request_to_task index along the way."""
-        tasks = self.task_index.get("tasks")
-        if not isinstance(tasks, dict):
-            return None
-        for task_id, task in tasks.items():
-            if not isinstance(task, dict):
-                continue
-            requests = task.get("requests")
-            if isinstance(requests, dict) and request_id in requests:
-                request_to_task = self.task_index.setdefault("request_to_task", {})
-                if isinstance(request_to_task, dict):
-                    request_to_task[request_id] = str(task_id)
-                return str(task_id)
-        return None
 
     def _best_heuristic_task(self, record: Mapping[str, object], kind: str, payload: object) -> str | None:
         """When no explicit context ID is available, use conservative rules to match tasks."""

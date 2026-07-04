@@ -8,6 +8,13 @@ from .file_io import atomic_write_text
 
 TASK_MATCH_STRATEGY_VERSION = 3
 _SAVE_LOCK = threading.Lock()
+_INDEX_KEYS = {
+    "task_match_strategy_version",
+    "tasks",
+    "request_to_task",
+    "response_to_task",
+    "context_to_task",
+}
 
 
 def empty_task_index() -> dict[str, object]:
@@ -22,6 +29,8 @@ def empty_task_index() -> dict[str, object]:
 
 def _valid_task_index(value: object) -> bool:
     if not isinstance(value, dict):
+        return False
+    if set(value) != _INDEX_KEYS:
         return False
     if value.get("task_match_strategy_version") != TASK_MATCH_STRATEGY_VERSION:
         return False
@@ -88,9 +97,7 @@ class TaskIndexStore:
                 merged[key] = dict(current_values)
             elif key not in merged:
                 merged[key] = {}
-        for key, value in task_index.items():
-            if key not in {"tasks", "request_to_task", "response_to_task", "context_to_task"}:
-                merged[key] = value
+        merged["task_match_strategy_version"] = task_index.get("task_match_strategy_version", TASK_MATCH_STRATEGY_VERSION)
         return merged
 
     def _merge_tasks(self, existing_tasks: dict[object, object], current_tasks: dict[object, object]) -> dict[object, object]:

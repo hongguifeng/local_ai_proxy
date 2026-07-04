@@ -1118,6 +1118,14 @@ class TrafficLoggerTaskGroupingTests(unittest.TestCase):
                     "response_to_task": {},
                     "context_to_task": {},
                 },
+                {
+                    "task_match_strategy_version": TASK_MATCH_STRATEGY_VERSION,
+                    "tasks": {},
+                    "request_to_task": {},
+                    "response_to_task": {},
+                    "context_to_task": {},
+                    "extra": {},
+                },
             ):
                 index_path.write_text(json.dumps(payload), encoding="utf-8")
                 loaded = TaskIndexStore(index_path).load()
