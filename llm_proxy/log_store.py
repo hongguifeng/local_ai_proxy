@@ -25,6 +25,8 @@ class LogStore:
         self.cache_signature: tuple[tuple[str, int, int], ...] | None = None
         self.cache: dict[str, Any] = {"groups": [], "ungrouped": [], "by_id": {}}
         self.record_cache: dict[str, tuple[tuple[int, int], dict[str, Any]]] = {}
+        self.json_cache: dict[str, tuple[tuple[int, int], object]] = {}
+        self.record_path_cache: dict[str, dict[str, Any]] = {}
 
     def list_log_group_summary_page(self, query: str, limit: int, offset: int) -> dict[str, Any]:
         return self._list_log_group_summary_page(query, limit, offset)
@@ -198,6 +200,7 @@ class LogStore:
             item = self._log_item(record)
             request_id = str(item.get("id") or "")
             item["_sort_key"] = self._task_request_sort_key(request_meta.get(request_id), item)
+            self._cache_record_path(request_id, request_path, task_path.name)
             if self._log_item_matches_terms(item, group, terms):
                 logs.append(item)
         logs.sort(key=lambda item: str(item.get("_sort_key") or item.get("timestamp") or ""), reverse=True)
@@ -228,6 +231,7 @@ class LogStore:
                 if not record:
                     continue
                 record_id = str(record.get("id"))
+                self._cache_record_path(record_id, path, None)
                 if record_id in task_record_ids:
                     continue
                 item = self._log_item(record)
@@ -237,14 +241,13 @@ class LogStore:
         return logs
 
     def find_log(self, record_id: str) -> dict[str, Any] | None:
-        snapshot = self._snapshot()
-        found = snapshot.get("by_id", {}).get(record_id)
-        if isinstance(found, dict) and isinstance(found.get("path"), Path):
-            record = self._read_readable_record(found["path"], include_body=True)
-            if record and found.get("task_dir"):
-                record["_task_dir"] = found["task_dir"]
-            if record:
-                return record
+        record = self._record_from_cached_path(record_id, self.record_path_cache.get(record_id))
+        if record:
+            return record
+
+        record = self._find_log_by_directory_id(record_id)
+        if record:
+            return record
 
         for root in self._readable_roots():
             tasks_root = root.parent / "tasks"
@@ -259,10 +262,14 @@ class LogStore:
                     record = self._read_readable_record(request_path)
                     if record and str(record.get("id")) == record_id:
                         record["_task_dir"] = task_path.name
+                        self._cache_record_path(record_id, request_path, task_path.name)
                         return record
 
         for record in self._iter_finished_records():
             if str(record.get("id")) == record_id:
+                readable_path = record.get("_readable_path")
+                if isinstance(readable_path, str):
+                    self._cache_record_path(record_id, Path(readable_path), None)
                 return record
         return None
 
@@ -274,13 +281,15 @@ class LogStore:
         if "body_json" not in response and isinstance(response.get("body"), dict):
             response["body_json"] = body_json_value(response["body"])
         request.pop("path", None)
-        return {"id": record.get("id"), "request": request, "response": response, "record": record}
+        return {"id": record.get("id"), "request": request, "response": response}
 
     def clear_cache(self) -> None:
         with self.cache_lock:
             self.cache_signature = None
             self.cache = {"groups": [], "ungrouped": [], "by_id": {}}
             self.record_cache.clear()
+            self.json_cache.clear()
+            self.record_path_cache.clear()
 
     def _readable_roots(self) -> list[Path]:
         return readable_roots(self.manager)
@@ -422,6 +431,7 @@ class LogStore:
                         record_id = str(item.get("id"))
                         task_record_ids.add(record_id)
                         by_id[record_id] = {"path": request_path, "task_dir": task_path.name}
+                        self._cache_record_path(record_id, request_path, task_path.name)
                     if not logs:
                         continue
                     logs.sort(key=lambda item: str(item.get("_sort_key") or item.get("timestamp") or ""), reverse=True)
@@ -445,6 +455,7 @@ class LogStore:
                     continue
                 record_id = str(record.get("id"))
                 by_id.setdefault(record_id, {"path": path, "task_dir": None})
+                self._cache_record_path(record_id, path, None)
                 if record_id not in task_record_ids:
                     ungrouped_records.append(record)
 
@@ -526,6 +537,48 @@ class LogStore:
         }
         return record
 
+    def _cache_record_path(self, record_id: str, path: Path, task_dir: str | None) -> None:
+        if not record_id:
+            return
+        self.record_path_cache[record_id] = {"path": path, "task_dir": task_dir}
+
+    def _record_from_cached_path(self, record_id: str, cached: object) -> dict[str, Any] | None:
+        if not isinstance(cached, dict) or not isinstance(cached.get("path"), Path):
+            return None
+        record = self._read_readable_record(cached["path"], include_body=True)
+        if not record or str(record.get("id")) != record_id:
+            self.record_path_cache.pop(record_id, None)
+            return None
+        task_dir = cached.get("task_dir")
+        if task_dir:
+            record["_task_dir"] = task_dir
+        return record
+
+    def _find_log_by_directory_id(self, record_id: str) -> dict[str, Any] | None:
+        for root in self._readable_roots():
+            if not root.exists():
+                continue
+            for path in self._iter_dirs(root):
+                if path.name == "tasks" or self._record_id_from_dir(path) != record_id:
+                    continue
+                record = self._read_readable_record(path)
+                if record and str(record.get("id")) == record_id:
+                    self._cache_record_path(record_id, path, None)
+                    return record
+            tasks_root = root.parent / "tasks"
+            if not tasks_root.exists():
+                continue
+            for task_path in self._iter_dirs(tasks_root):
+                for request_path in self._iter_dirs(task_path):
+                    if self._record_id_from_dir(request_path) != record_id:
+                        continue
+                    record = self._read_readable_record(request_path)
+                    if record and str(record.get("id")) == record_id:
+                        record["_task_dir"] = task_path.name
+                        self._cache_record_path(record_id, request_path, task_path.name)
+                        return record
+        return None
+
     def _record_dir_sequence(self, path: Path) -> str:
         if path.parent.parent.name != "tasks":
             return ""
@@ -568,9 +621,20 @@ class LogStore:
 
     def _read_json_file(self, path: Path) -> object:
         try:
-            return json.loads(path.read_text(encoding="utf-8"))
+            stat = path.stat()
+        except OSError:
+            return None
+        cache_key = str(path)
+        cache_signature = (stat.st_mtime_ns, stat.st_size)
+        cached = self.json_cache.get(cache_key)
+        if cached and cached[0] == cache_signature:
+            return copy.deepcopy(cached[1])
+        try:
+            value = json.loads(path.read_text(encoding="utf-8"))
         except (OSError, json.JSONDecodeError):
             return None
+        self.json_cache[cache_key] = (cache_signature, copy.deepcopy(value))
+        return value
 
     def _parse_status(self, value: object) -> object:
         if value in {None, "", "None"}:

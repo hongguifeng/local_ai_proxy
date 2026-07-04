@@ -1,1 +1,1 @@
-python -m llm_proxy
+python -m llm_proxy --no-browser

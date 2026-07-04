@@ -8,6 +8,7 @@ from io import BytesIO
 from pathlib import Path
 
 from llm_proxy.admin_server import AdminServer
+from llm_proxy.log_store import LogStore
 from llm_proxy.manager import ProxyManager
 
 
@@ -148,6 +149,7 @@ class AdminUiTests(unittest.TestCase):
             detail = json.loads(response.read())
             conn.close()
 
+            self.assertNotIn("record", detail)
             self.assertEqual(detail["request"]["body_json"], {"a": 1})
             self.assertNotIn("path", detail["request"])
             self.assertEqual(detail["request"]["endpoint"], "/v1/responses")
@@ -200,6 +202,48 @@ class AdminUiTests(unittest.TestCase):
             if server is not None:
                 server.shutdown()
                 server.server_close()
+            temp_dir.cleanup()
+
+    def test_log_detail_uses_group_loaded_record_path_cache(self) -> None:
+        temp_dir = tempfile.TemporaryDirectory()
+        try:
+            root = Path(temp_dir.name)
+            request_path = root / "tasks" / "task-one" / "001__08-00-00.000__v1-responses__req_1"
+            request_path.mkdir(parents=True)
+            (root / "readable").mkdir()
+            (request_path / "08-00-00.000__08-00-00.010.md").write_text(
+                "\n".join(
+                    [
+                        "# LLM Interaction req_1",
+                        "",
+                        "## Summary",
+                        "",
+                        "- Time: 2026-06-07T08:00:00.000+00:00",
+                        "- Event: request_finished",
+                        "- Target: http://127.0.0.1:1235/v1/responses",
+                        "- Request: POST /v1/responses",
+                        "- Response: 200",
+                    ]
+                ),
+                encoding="utf-8",
+            )
+            (request_path / "request.json").write_text(json.dumps({"cached": True}), encoding="utf-8")
+            (request_path / "response.json").write_text(json.dumps({"ok": True}), encoding="utf-8")
+            store = LogStore(ProxyManager(root / "proxies.json", root))
+
+            group = store.list_log_group_logs("task-one", "")
+            self.assertEqual([item["id"] for item in (group or {}).get("logs", [])], ["req_1"])
+
+            def fail_snapshot() -> dict[str, object]:
+                raise AssertionError("find_log should use the record path cache")
+
+            store._snapshot = fail_snapshot  # type: ignore[method-assign]
+            record = store.find_log("req_1")
+            detail = store.record_detail(record or {})
+
+            self.assertEqual(detail["request"]["body_json"], {"cached": True})
+            self.assertEqual(detail["response"]["body_json"], {"ok": True})
+        finally:
             temp_dir.cleanup()
 
     def test_log_list_groups_task_directories(self) -> None:
