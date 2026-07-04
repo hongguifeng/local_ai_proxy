@@ -279,6 +279,62 @@ class AdminUiTests(unittest.TestCase):
                 server.server_close()
             temp_dir.cleanup()
 
+    def test_log_list_includes_endpoint_message_and_token_summary(self) -> None:
+        temp_dir = tempfile.TemporaryDirectory()
+        server = None
+        try:
+            root = Path(temp_dir.name)
+            task_request_path = (
+                root
+                / "tasks"
+                / "2026-06-07__08-00-00.000__08-00-00.010__responses__fp-demo"
+                / "001__08-00-00.000__v1-responses__req_1"
+            )
+            task_request_path.mkdir(parents=True)
+            (task_request_path / "summary.md").write_text(
+                "\n".join(
+                    [
+                        "# LLM Interaction req_1",
+                        "",
+                        "## Summary",
+                        "",
+                        "- Time: 2026-06-07T08:00:00.000+00:00",
+                        "- Event: request_finished",
+                        "- Target: http://127.0.0.1:1235/v1/responses",
+                        "- Request: POST /v1/responses?debug=true",
+                        "- Endpoint: /v1/responses",
+                        "- Message count: 3",
+                        "- Token count: 5",
+                        "- Response: 200",
+                    ]
+                ),
+                encoding="utf-8",
+            )
+            (root / "readable").mkdir(exist_ok=True)
+            manager = ProxyManager(root / "proxies.json", root)
+            server = AdminServer(("127.0.0.1", 0), manager)
+            thread = threading.Thread(target=server.serve_forever, daemon=True)
+            thread.start()
+
+            conn = http.client.HTTPConnection("127.0.0.1", server.server_address[1], timeout=5)
+            conn.request("GET", "/api/logs")
+            response = conn.getresponse()
+            self.assertEqual(response.status, 200)
+            payload = json.loads(response.read())
+            conn.close()
+
+            group = payload["groups"][0]
+            self.assertEqual(group["meta"], "1 requests | /v1/responses")
+            item = group["logs"][0]
+            self.assertEqual(item["endpoint"], "/v1/responses")
+            self.assertEqual(item["message_count"], 3)
+            self.assertEqual(item["token_count"], 5)
+        finally:
+            if server is not None:
+                server.shutdown()
+                server.server_close()
+            temp_dir.cleanup()
+
     def test_log_list_paginates_top_level_groups(self) -> None:
         temp_dir = tempfile.TemporaryDirectory()
         server = None

@@ -14,6 +14,54 @@ from llm_proxy.task_index import TASK_MATCH_STRATEGY_VERSION, TaskIndexStore
 class TrafficLoggerTaskGroupingTests(unittest.TestCase):
     """Verify task grouping logic in readable logs."""
 
+    def test_writes_list_summary_fields_when_recording_log(self) -> None:
+        log_dir = tempfile.TemporaryDirectory()
+        try:
+            root = Path(log_dir.name)
+            logger = TrafficLogger(root / "readable")
+            logger.write(
+                {
+                    "id": "req_1",
+                    "timestamp": "2026-06-07T08:00:00.000+00:00",
+                    "started_timestamp": "2026-06-07T08:00:00.000+00:00",
+                    "event": "request_finished",
+                    "duration_ms": 100,
+                    "client": {"host": "127.0.0.1", "port": 1000},
+                    "target": {"scheme": "http", "host": "127.0.0.1", "port": 1235, "path": "/v1/responses"},
+                    "request": {
+                        "method": "POST",
+                        "path": "/v1/responses",
+                        "headers": {},
+                        "body": {
+                            "size_bytes": 0,
+                            "base64": "",
+                            "text": json.dumps(
+                                {
+                                    "instructions": "system",
+                                    "input": [{"role": "user"}, {"type": "function_call"}],
+                                }
+                            ),
+                        },
+                    },
+                    "response": {
+                        "status": 200,
+                        "headers": {},
+                        "body": {
+                            "size_bytes": 0,
+                            "base64": "",
+                            "text": json.dumps({"usage": {"input_tokens": 3, "output_tokens": 2}}),
+                        },
+                    },
+                }
+            )
+
+            markdown = next((root / "readable").glob("*/*.md")).read_text(encoding="utf-8")
+            self.assertIn("- Endpoint: /v1/responses", markdown)
+            self.assertIn("- Message count: 3", markdown)
+            self.assertIn("- Token count: 5", markdown)
+        finally:
+            log_dir.cleanup()
+
     def test_keeps_pending_and_finished_records_in_one_task(self) -> None:
         log_dir = tempfile.TemporaryDirectory()
         try:

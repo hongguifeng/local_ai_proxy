@@ -8,6 +8,7 @@ from typing import cast
 
 from .file_io import atomic_write_text
 from .payloads import body_json_value, render_headers
+from .records import display_endpoint, endpoint_kind, request_message_count, response_token_count
 from .time_utils import (
     format_duration_hms,
     local_datetime_for_filename,
@@ -57,6 +58,20 @@ def write_body_json_files(path: Path, record: Mapping[str, object]) -> None:
     write_json_file(path / "response.json", body_json_value(response_body))
 
 
+def interaction_summary(record: Mapping[str, object]) -> dict[str, object]:
+    request = cast(Mapping[str, object], record["request"])
+    response = cast(Mapping[str, object], record["response"])
+    endpoint = display_endpoint(request["path"])
+    kind = endpoint_kind(endpoint)
+    request_body = cast(Mapping[str, object], request.get("upstream_body", request["body"]))
+    response_body = cast(Mapping[str, object], response["body"])
+    return {
+        "endpoint": endpoint,
+        "message_count": request_message_count(kind, body_json_value(request_body)),
+        "token_count": response_token_count(body_json_value(response_body)),
+    }
+
+
 def render_interaction_markdown(record: Mapping[str, object]) -> str:
     request = cast(Mapping[str, object], record["request"])
     response = cast(Mapping[str, object], record["response"])
@@ -64,6 +79,7 @@ def render_interaction_markdown(record: Mapping[str, object]) -> str:
     client = cast(Mapping[str, object], record["client"])
     error = record.get("error")
     duration_ms = float(cast(str | int | float, record["duration_ms"]))
+    summary = interaction_summary(record)
     parts = [
         f"# LLM Interaction {record['id']}",
         "",
@@ -75,6 +91,9 @@ def render_interaction_markdown(record: Mapping[str, object]) -> str:
         f"- Client: {client['host']}:{client['port']}",
         f"- Target: {target['scheme']}://{target['host']}:{target['port']}{target['path']}",
         f"- Request: {request['method']} {request['path']}",
+        f"- Endpoint: {summary['endpoint']}",
+        f"- Message count: {summary['message_count']}",
+        f"- Token count: {summary['token_count']}",
         f"- Response: {response['status']}",
     ]
     if error:

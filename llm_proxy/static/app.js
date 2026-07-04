@@ -57,6 +57,8 @@ const translations = {
     loadMore: "加载更多",
     ungrouped: "未归组",
     requests: "个请求",
+    messages: "条消息",
+    tokens: "tokens",
     items: "项",
     lines: "行",
     copyFormattedText: "复制格式化文本",
@@ -121,6 +123,8 @@ const translations = {
     loadMore: "Load more",
     ungrouped: "Ungrouped",
     requests: "requests",
+    messages: "messages",
+    tokens: "tokens",
     items: "items",
     lines: "lines",
     copyFormattedText: "Copy formatted text",
@@ -166,6 +170,15 @@ function formatLogMeta(meta) {
 }
 function formatStatus(status) {
   return status === undefined || status === null || status === "pending" ? t("pending") : String(status);
+}
+function logItemTitle(item) {
+  const parts = [];
+  const messageCount = Number(item.message_count);
+  const tokenCount = Number(item.token_count);
+  if (Number.isFinite(messageCount)) parts.push(`${messageCount} ${t("messages")}`);
+  if (Number.isFinite(tokenCount)) parts.push(`${tokenCount} ${t("tokens")}`);
+  if (!parts.length) parts.push(formatStatus(item.status));
+  return `${item.sequence ? `[${item.sequence}] ` : ""}${parts.join(" | ")}`;
 }
 const suggestedStripRequestFields = __SUGGESTED_STRIP_REQUEST_FIELDS__;
 const newTarget = () => ({ id: `target-${Date.now()}-${Math.random().toString(16).slice(2)}`, name: "Target", enabled: true, target_url: "http://127.0.0.1:1235", target_api_key: "", target_headers: [], strip_request_fields: "", inject_request_fields: "", timeout: 600, readable_log_dir: "logs", redact_logs: false, model_mappings: [], expanded: false });
@@ -404,7 +417,7 @@ function renderLogs() {
       </button>
       ${!state.collapsedGroups[group.id] ? "" : (group.logs || []).map((item) => `
         <button class="log-item ${state.selected === item.id ? "active" : ""}" data-log-id="${escapeHtml(item.id)}">
-          <span class="log-title">${item.sequence ? `${escapeHtml("[" + item.sequence + "]")} ` : ""}${escapeHtml(item.method)} ${escapeHtml(item.path)}</span>
+          <span class="log-title">${escapeHtml(logItemTitle(item))}</span>
           <span class="log-meta">${escapeHtml(item.timestamp || "")} | ${escapeHtml(formatStatus(item.status))} | ${escapeHtml(item.target || "")}</span>
         </button>`).join("")}
     </section>`).join("") || `<div class="empty">${escapeHtml(t("noLogs"))}</div>`;

@@ -9,6 +9,7 @@ from typing import Any
 from .log_roots import readable_roots
 from .manager import ProxyManager
 from .payloads import body_json_value
+from .records import display_endpoint
 from .task_index import TaskIndexStore
 
 
@@ -69,6 +70,9 @@ class LogStore:
             model = task_meta.get("model")
             if isinstance(model, str) and model.strip():
                 meta_parts.insert(0, model.rsplit("/", 1)[-1].rsplit(chr(92), 1)[-1])
+            endpoint = self._group_endpoint(filtered_logs)
+            if endpoint:
+                meta_parts.append(endpoint)
             visible_group["meta"] = " | ".join(meta_parts)
             groups.append(visible_group)
 
@@ -79,7 +83,11 @@ class LogStore:
         ]
         ungrouped.sort(key=lambda item: str(item.get("_sort_key") or item.get("timestamp") or ""), reverse=True)
         if ungrouped:
-            groups.append({"id": "ungrouped", "title": self.UNGROUPED_TITLE, "meta": f"{len(ungrouped)} requests", "logs": ungrouped[:200]})
+            meta_parts = [f"{len(ungrouped)} requests"]
+            endpoint = self._group_endpoint(ungrouped)
+            if endpoint:
+                meta_parts.append(endpoint)
+            groups.append({"id": "ungrouped", "title": self.UNGROUPED_TITLE, "meta": " | ".join(meta_parts), "logs": ungrouped[:200]})
         return groups[:100]
 
     def _list_log_groups_page(self, query: str, limit: int, offset: int) -> dict[str, Any]:
@@ -285,6 +293,7 @@ class LogStore:
                             "dir": task_path.name,
                             "title": self._task_group_title(task_path.name),
                             "meta": f"{len(logs)} requests",
+                            "endpoint": self._group_endpoint(logs),
                             "logs": logs,
                         }
                     )
@@ -353,6 +362,7 @@ class LogStore:
         metadata = self._markdown_metadata(markdown_path)
         request_text = str(metadata.get("Request") or "")
         request_method, _, request_path = request_text.partition(" ")
+        endpoint = str(metadata.get("Endpoint") or display_endpoint(request_path))
         response_status = self._parse_status(metadata.get("Response"))
         dir_timestamp, dir_sort_key = self._timestamp_from_record_dir(path)
         record: dict[str, Any] = {
@@ -362,9 +372,12 @@ class LogStore:
             "request": {
                 "method": request_method,
                 "path": request_path,
+                "endpoint": endpoint,
+                "message_count": self._parse_optional_int(metadata.get("Message count")),
             },
             "response": {
                 "status": response_status,
+                "token_count": self._parse_optional_int(metadata.get("Token count")),
             },
             "_target_text": metadata.get("Target") or "",
             "_readable_path": str(path),
@@ -427,6 +440,14 @@ class LogStore:
         except ValueError:
             return value
 
+    def _parse_optional_int(self, value: object) -> int | None:
+        if value in {None, "", "None"}:
+            return None
+        try:
+            return int(str(value))
+        except ValueError:
+            return None
+
     def _log_item(self, record: dict[str, Any]) -> dict[str, Any]:
         request_obj = record.get("request")
         request = request_obj if isinstance(request_obj, dict) else {}
@@ -442,9 +463,24 @@ class LogStore:
             "sequence": record.get("_dir_sequence", ""),
             "method": request.get("method", ""),
             "path": request.get("path", ""),
+            "endpoint": request.get("endpoint") or display_endpoint(request.get("path", "")),
+            "message_count": request.get("message_count"),
             "status": response.get("status"),
+            "token_count": response.get("token_count"),
             "target": target_text,
         }
+
+    def _group_endpoint(self, logs: list[dict[str, Any]]) -> str:
+        endpoints = {
+            str(item.get("endpoint") or "")
+            for item in logs
+            if item.get("endpoint")
+        }
+        if len(endpoints) == 1:
+            return next(iter(endpoints))
+        if len(endpoints) > 1:
+            return "mixed"
+        return ""
 
     def _log_item_matches_terms(self, item: dict[str, Any], group: dict[str, Any], terms: list[str]) -> bool:
         if not terms:
@@ -458,6 +494,7 @@ class LogStore:
                 item.get("id"),
                 item.get("method"),
                 item.get("path"),
+                item.get("endpoint"),
                 item.get("status"),
                 item.get("target"),
             ]

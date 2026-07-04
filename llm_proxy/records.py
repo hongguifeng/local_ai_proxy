@@ -90,6 +90,97 @@ def endpoint_kind(path: str) -> str:
     return "other"
 
 
+def display_endpoint(path: object) -> str:
+    """Normalize a request path for compact UI display."""
+    value = str(path or "").split("?", 1)[0].rstrip("/")
+    return value or "/"
+
+
+def request_message_count(kind: str, payload: object) -> int | None:
+    """Count top-level conversation items for common LLM request shapes."""
+    if not isinstance(payload, Mapping):
+        return None
+
+    if kind == "responses":
+        count = len(responses_input_items(payload))
+        if payload.get("instructions"):
+            count += 1
+        return count
+
+    if kind == "messages":
+        count = 0
+        system = payload.get("system")
+        if isinstance(system, list):
+            count += len(system)
+        elif system:
+            count += 1
+        messages = payload.get("messages")
+        if isinstance(messages, list):
+            count += len(messages)
+        return count
+
+    if kind == "chat":
+        messages = payload.get("messages")
+        return len(messages) if isinstance(messages, list) else 0
+
+    if kind == "completions":
+        prompt = payload.get("prompt")
+        if isinstance(prompt, list):
+            return len(prompt)
+        return 1 if prompt is not None else 0
+
+    messages = payload.get("messages")
+    if isinstance(messages, list):
+        return len(messages)
+    input_value = payload.get("input")
+    if isinstance(input_value, list):
+        return len(input_value)
+    if input_value is not None:
+        return 1
+    return None
+
+
+def response_token_count(payload: object) -> int | None:
+    """Read total response tokens from common JSON and stream-summary usage shapes."""
+    usage = _response_usage(payload)
+    if not isinstance(usage, Mapping):
+        return None
+
+    total = usage.get("total_tokens")
+    if isinstance(total, int) and not isinstance(total, bool):
+        return total
+    if isinstance(total, float) and total.is_integer():
+        return int(total)
+
+    token_keys = (
+        "input_tokens",
+        "output_tokens",
+        "cache_creation_input_tokens",
+        "cache_read_input_tokens",
+    )
+    values = [usage.get(key) for key in token_keys]
+    numeric_values = [
+        int(value)
+        for value in values
+        if isinstance(value, int) and not isinstance(value, bool)
+    ]
+    return sum(numeric_values) if numeric_values else None
+
+
+def _response_usage(payload: object) -> object | None:
+    if not isinstance(payload, Mapping):
+        return None
+    stream_summary = payload.get("stream_summary")
+    if isinstance(stream_summary, Mapping) and stream_summary.get("usage"):
+        return stream_summary.get("usage")
+    if payload.get("usage"):
+        return payload.get("usage")
+    response = payload.get("response")
+    if isinstance(response, Mapping) and response.get("usage"):
+        return response.get("usage")
+    return None
+
+
 def message_text(value: object) -> object:
     """Format message content into a stable structure for generating fingerprints."""
     if isinstance(value, str):
