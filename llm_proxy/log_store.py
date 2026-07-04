@@ -245,31 +245,9 @@ class LogStore:
         if record:
             return record
 
-        record = self._find_log_by_directory_id(record_id)
-        if record:
-            return record
-
         for root in self._readable_roots():
-            tasks_root = root.parent / "tasks"
-            if not tasks_root.exists():
-                continue
-            for task_path in tasks_root.iterdir():
-                if not task_path.is_dir() or task_path.name.startswith("."):
-                    continue
-                for request_path in task_path.iterdir():
-                    if not request_path.is_dir() or request_path.name.startswith("."):
-                        continue
-                    record = self._read_readable_record(request_path)
-                    if record and str(record.get("id")) == record_id:
-                        record["_task_dir"] = task_path.name
-                        self._cache_record_path(record_id, request_path, task_path.name)
-                        return record
-
-        for record in self._iter_finished_records():
-            if str(record.get("id")) == record_id:
-                readable_path = record.get("_readable_path")
-                if isinstance(readable_path, str):
-                    self._cache_record_path(record_id, Path(readable_path), None)
+            record = self._find_task_log_by_index(root, record_id)
+            if record:
                 return record
         return None
 
@@ -293,19 +271,6 @@ class LogStore:
 
     def _readable_roots(self) -> list[Path]:
         return readable_roots(self.manager)
-
-    def _iter_finished_records(self) -> list[dict[str, Any]]:
-        records = []
-        for root in self._readable_roots():
-            if not root.exists():
-                continue
-            for path in self._iter_dirs(root):
-                if path.name == "tasks":
-                    continue
-                record = self._read_readable_record(path)
-                if record:
-                    records.append(record)
-        return records
 
     def _signature(self) -> tuple[tuple[str, int, int], ...]:
         signature: list[tuple[str, int, int]] = []
@@ -554,30 +519,31 @@ class LogStore:
             record["_task_dir"] = task_dir
         return record
 
-    def _find_log_by_directory_id(self, record_id: str) -> dict[str, Any] | None:
-        for root in self._readable_roots():
-            if not root.exists():
-                continue
-            for path in self._iter_dirs(root):
-                if path.name == "tasks" or self._record_id_from_dir(path) != record_id:
-                    continue
-                record = self._read_readable_record(path)
-                if record and str(record.get("id")) == record_id:
-                    self._cache_record_path(record_id, path, None)
-                    return record
-            tasks_root = root.parent / "tasks"
-            if not tasks_root.exists():
-                continue
-            for task_path in self._iter_dirs(tasks_root):
-                for request_path in self._iter_dirs(task_path):
-                    if self._record_id_from_dir(request_path) != record_id:
-                        continue
-                    record = self._read_readable_record(request_path)
-                    if record and str(record.get("id")) == record_id:
-                        record["_task_dir"] = task_path.name
-                        self._cache_record_path(record_id, request_path, task_path.name)
-                        return record
-        return None
+    def _find_task_log_by_index(self, root: Path, record_id: str) -> dict[str, Any] | None:
+        data = TaskIndexStore(root.parent / ".task-index.json").load()
+        request_to_task = data.get("request_to_task")
+        tasks = data.get("tasks")
+        if not isinstance(request_to_task, dict) or not isinstance(tasks, dict):
+            return None
+        task_id = request_to_task.get(record_id)
+        task = tasks.get(task_id) if isinstance(task_id, str) else None
+        if not isinstance(task, dict):
+            return None
+        task_dir = task.get("dir_name")
+        requests = task.get("requests")
+        request_info = requests.get(record_id) if isinstance(requests, dict) else None
+        request_dir = request_info.get("dir_name") if isinstance(request_info, dict) else None
+        if not isinstance(task_dir, str) or not task_dir or not isinstance(request_dir, str) or not request_dir:
+            return None
+        request_path = root.parent / "tasks" / task_dir / request_dir
+        if not request_path.is_dir():
+            return None
+        record = self._read_readable_record(request_path)
+        if not record or str(record.get("id")) != record_id:
+            return None
+        record["_task_dir"] = task_dir
+        self._cache_record_path(record_id, request_path, task_dir)
+        return record
 
     def _record_dir_sequence(self, path: Path) -> str:
         if path.parent.parent.name != "tasks":

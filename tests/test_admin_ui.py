@@ -143,6 +143,13 @@ class AdminUiTests(unittest.TestCase):
             thread.start()
 
             conn = http.client.HTTPConnection("127.0.0.1", server.server_address[1], timeout=5)
+            conn.request("GET", "/api/log-groups/ungrouped/logs")
+            response = conn.getresponse()
+            self.assertEqual(response.status, 200)
+            response.read()
+            conn.close()
+
+            conn = http.client.HTTPConnection("127.0.0.1", server.server_address[1], timeout=5)
             conn.request("GET", "/api/logs/req_1")
             response = conn.getresponse()
             self.assertEqual(response.status, 200)
@@ -188,6 +195,13 @@ class AdminUiTests(unittest.TestCase):
             server = AdminServer(("127.0.0.1", 0), manager)
             thread = threading.Thread(target=server.serve_forever, daemon=True)
             thread.start()
+
+            conn = http.client.HTTPConnection("127.0.0.1", server.server_address[1], timeout=5)
+            conn.request("GET", "/api/log-groups/ungrouped/logs")
+            response = conn.getresponse()
+            self.assertEqual(response.status, 200)
+            response.read()
+            conn.close()
 
             conn = http.client.HTTPConnection("127.0.0.1", server.server_address[1], timeout=5)
             conn.request("GET", "/api/logs/req_1")
