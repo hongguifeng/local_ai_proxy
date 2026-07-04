@@ -418,7 +418,7 @@ function renderLogs() {
       ${!state.collapsedGroups[group.id] ? "" : (group.logs || []).map((item) => `
         <button class="log-item ${state.selected === item.id ? "active" : ""}" data-log-id="${escapeHtml(item.id)}">
           <span class="log-title">${escapeHtml(logItemTitle(item))}</span>
-          <span class="log-meta">${escapeHtml(item.timestamp || "")} | ${escapeHtml(formatStatus(item.status))} | ${escapeHtml(item.target || "")}</span>
+          <span class="log-meta">${escapeHtml(item.timestamp || "")} | ${escapeHtml(formatStatus(item.status))}</span>
         </button>`).join("")}
     </section>`).join("") || `<div class="empty">${escapeHtml(t("noLogs"))}</div>`;
   const moreHtml = state.logsHasMore ? `<button class="load-more" data-load-more>${escapeHtml(t("loadMore"))} (${state.logGroups.length}/${state.logsTotal})</button>` : "";

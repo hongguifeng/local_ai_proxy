@@ -70,9 +70,9 @@ class LogStore:
             model = task_meta.get("model")
             if isinstance(model, str) and model.strip():
                 meta_parts.insert(0, model.rsplit("/", 1)[-1].rsplit(chr(92), 1)[-1])
-            endpoint = self._group_endpoint(filtered_logs)
-            if endpoint:
-                meta_parts.append(endpoint)
+            target = self._group_target(filtered_logs)
+            if target:
+                meta_parts.append(target)
             visible_group["meta"] = " | ".join(meta_parts)
             groups.append(visible_group)
 
@@ -84,9 +84,9 @@ class LogStore:
         ungrouped.sort(key=lambda item: str(item.get("_sort_key") or item.get("timestamp") or ""), reverse=True)
         if ungrouped:
             meta_parts = [f"{len(ungrouped)} requests"]
-            endpoint = self._group_endpoint(ungrouped)
-            if endpoint:
-                meta_parts.append(endpoint)
+            target = self._group_target(ungrouped)
+            if target:
+                meta_parts.append(target)
             groups.append({"id": "ungrouped", "title": self.UNGROUPED_TITLE, "meta": " | ".join(meta_parts), "logs": ungrouped[:200]})
         return groups[:100]
 
@@ -479,6 +479,18 @@ class LogStore:
         if len(endpoints) == 1:
             return next(iter(endpoints))
         if len(endpoints) > 1:
+            return "mixed"
+        return ""
+
+    def _group_target(self, logs: list[dict[str, Any]]) -> str:
+        targets = {
+            str(item.get("target") or "")
+            for item in logs
+            if item.get("target")
+        }
+        if len(targets) == 1:
+            return next(iter(targets))
+        if len(targets) > 1:
             return "mixed"
         return ""
 

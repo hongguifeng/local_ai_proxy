@@ -324,9 +324,10 @@ class AdminUiTests(unittest.TestCase):
             conn.close()
 
             group = payload["groups"][0]
-            self.assertEqual(group["meta"], "1 requests | /v1/responses")
+            self.assertEqual(group["meta"], "1 requests | http://127.0.0.1:1235/v1/responses")
             item = group["logs"][0]
             self.assertEqual(item["endpoint"], "/v1/responses")
+            self.assertEqual(item["target"], "http://127.0.0.1:1235/v1/responses")
             self.assertEqual(item["message_count"], 3)
             self.assertEqual(item["token_count"], 5)
         finally:
