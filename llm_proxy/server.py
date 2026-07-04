@@ -287,14 +287,7 @@ class ProxyHandler(BaseHTTPRequestHandler):
             sent_downstream_headers = True
 
             if self.command != "HEAD":
-                while True:
-                    chunk = upstream.read(64 * 1024)
-                    if not chunk:
-                        break
-                    response_body_parts.append(chunk)
-                    # Write to client while reading, don't wait for complete response, reducing streaming latency.
-                    self.wfile.write(chunk)
-                    self.wfile.flush()
+                response_body_parts = self._forward_response_body(upstream, response_headers)
             return UpstreamResult(
                 status=response_status,
                 headers=response_headers,
@@ -313,6 +306,39 @@ class ProxyHandler(BaseHTTPRequestHandler):
         finally:
             if conn is not None:
                 conn.close()
+
+    def _forward_response_body(
+        self,
+        upstream: http.client.HTTPResponse,
+        response_headers: list[tuple[str, str]],
+    ) -> list[bytes]:
+        """Forward the upstream response body and keep a copy for logs."""
+        response_body_parts: list[bytes] = []
+        content_type = ""
+        for key, value in response_headers:
+            if key.lower() == "content-type":
+                content_type = value.lower()
+                break
+
+        if "text/event-stream" in content_type:
+            while True:
+                line = upstream.readline()
+                if not line:
+                    break
+                response_body_parts.append(line)
+                self.wfile.write(line)
+                self.wfile.flush()
+            return response_body_parts
+
+        while True:
+            chunk = upstream.read(64 * 1024)
+            if not chunk:
+                break
+            response_body_parts.append(chunk)
+            # Write to client while reading, don't wait for complete response, reducing streaming latency.
+            self.wfile.write(chunk)
+            self.wfile.flush()
+        return response_body_parts
 
     def _proxy(self) -> None:
         """Execute a complete proxy forward.

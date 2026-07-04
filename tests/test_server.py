@@ -310,6 +310,81 @@ class TargetUrlProxyTests(unittest.TestCase):
             upstream.server_close()
             log_dir.cleanup()
 
+    def test_sse_response_is_forwarded_before_upstream_completes(self) -> None:
+        first_sent = threading.Event()
+        release_second = threading.Event()
+
+        class UpstreamHandler(BaseHTTPRequestHandler):
+            def do_POST(self) -> None:
+                length = int(self.headers.get("Content-Length", "0"))
+                self.rfile.read(length)
+                self.send_response(200)
+                self.send_header("Content-Type", "text/event-stream")
+                self.end_headers()
+                self.wfile.write(b'data: {"content":"first"}\n\n')
+                self.wfile.flush()
+                first_sent.set()
+                release_second.wait(timeout=2)
+                self.wfile.write(b'data: {"content":"second"}\n\n')
+                self.wfile.flush()
+
+            def log_message(self, fmt: str, *args: object) -> None:
+                return
+
+        upstream = ThreadingHTTPServer(("127.0.0.1", 0), UpstreamHandler)
+        upstream_thread = threading.Thread(target=upstream.serve_forever, daemon=True)
+        upstream_thread.start()
+        log_dir = tempfile.TemporaryDirectory()
+        proxy = None
+        sock = None
+        try:
+            log_root = Path(log_dir.name)
+            logger = TrafficLogger(log_root / "readable")
+            proxy = ProxyServer(
+                ("127.0.0.1", 0),
+                ProxyHandler,
+                self._config([self._target("default", "Default", upstream.server_address[1])]),
+                logger,
+            )
+            proxy_thread = threading.Thread(target=proxy.serve_forever, daemon=True)
+            proxy_thread.start()
+
+            sock = socket.create_connection(("127.0.0.1", proxy.server_address[1]), timeout=5)
+            sock.settimeout(2)
+            sock.sendall(
+                b"POST /v1/messages HTTP/1.1\r\n"
+                b"Host: 127.0.0.1\r\n"
+                b"Content-Type: application/json\r\n"
+                b"Content-Length: 2\r\n"
+                b"\r\n"
+                b"{}"
+            )
+
+            received = b""
+            deadline = time.time() + 2
+            while b"first" not in received and time.time() < deadline:
+                received += sock.recv(4096)
+
+            self.assertTrue(first_sent.is_set())
+            self.assertIn(b"first", received)
+            self.assertNotIn(b"second", received)
+
+            release_second.set()
+            deadline = time.time() + 2
+            while b"second" not in received and time.time() < deadline:
+                received += sock.recv(4096)
+            self.assertIn(b"second", received)
+        finally:
+            release_second.set()
+            if sock is not None:
+                sock.close()
+            if proxy is not None:
+                proxy.shutdown()
+                proxy.server_close()
+            upstream.shutdown()
+            upstream.server_close()
+            log_dir.cleanup()
+
     def test_target_api_key_overrides_authorization_header(self) -> None:
         upstream_seen: dict[str, object] = {}
 

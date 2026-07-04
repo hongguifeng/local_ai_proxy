@@ -86,6 +86,21 @@ def compact_response_tool_calls(tool_calls: dict[str, dict[str, object]]) -> lis
     return compacted
 
 
+def compact_claude_tool_calls(tool_calls: dict[int, dict[str, object]]) -> list[object]:
+    """Compress tool_use blocks from Anthropic/Claude Messages streams."""
+    compacted: list[object] = []
+    for index in sorted(tool_calls):
+        tool_call = dict(tool_calls[index])
+        input_json = tool_call.pop("input_json", None)
+        if isinstance(input_json, str) and input_json:
+            try:
+                tool_call["input"] = json.loads(input_json)
+            except json.JSONDecodeError:
+                tool_call["input_json"] = input_json
+        compacted.append(tool_call)
+    return compacted
+
+
 def compact_response_payload(response: Mapping[str, object]) -> dict[str, object]:
     """Keep only the most useful top-level fields from the Responses API response.
 
@@ -145,6 +160,7 @@ class StreamAccumulator:
     reasoning_parts: list[str] = field(default_factory=list)
     tool_calls: list[object] = field(default_factory=list)
     response_tool_calls: dict[str, dict[str, object]] = field(default_factory=dict)
+    claude_tool_calls: dict[int, dict[str, object]] = field(default_factory=dict)
     finish_reasons: list[str] = field(default_factory=list)
     usage: object | None = None
     response_payload: object | None = None
@@ -158,6 +174,18 @@ class StreamAccumulator:
         event_type = event.get("type")
         if isinstance(event_type, str) and event_type.startswith("response."):
             self.add_response_event(event_type, event)
+            return
+        if isinstance(event_type, str) and event_type in {
+            "message_start",
+            "content_block_start",
+            "content_block_delta",
+            "content_block_stop",
+            "message_delta",
+            "message_stop",
+            "ping",
+            "error",
+        }:
+            self.add_claude_event(event_type, event)
             return
 
         self.add_chat_event(event)
@@ -226,6 +254,82 @@ class StreamAccumulator:
         if status:
             self.finish_reasons.append(str(status))
 
+    def add_claude_event(self, event_type: str, event: Mapping[str, object]) -> None:
+        # Anthropic/Claude Messages streams emit message_* and content_block_* events.
+        if event_type == "message_start":
+            message = event.get("message")
+            if isinstance(message, dict):
+                self.response_payload = self.compact_claude_message(message)
+                if message.get("usage"):
+                    self.usage = message["usage"]
+        elif event_type == "content_block_start":
+            self.add_claude_content_block_start(event)
+        elif event_type == "content_block_delta":
+            self.add_claude_content_block_delta(event)
+        elif event_type == "message_delta":
+            self.add_claude_message_delta(event)
+        elif event_type == "error":
+            self.other_payloads.append(event)
+
+    def add_claude_content_block_start(self, event: Mapping[str, object]) -> None:
+        raw_index = event.get("index", 0)
+        index = raw_index if isinstance(raw_index, int) else 0
+        block = event.get("content_block")
+        if not isinstance(block, dict):
+            return
+        block_type = block.get("type")
+        if block_type == "text":
+            self.append_string(self.content_parts, block.get("text"))
+        elif block_type == "thinking":
+            self.append_string(self.reasoning_parts, block.get("thinking"))
+        elif block_type == "tool_use":
+            tool_call = self.claude_tool_calls.setdefault(index, {"index": index, "type": "tool_use"})
+            for key in ("id", "name", "type"):
+                value = block.get(key)
+                if value is not None:
+                    tool_call[key] = value
+            input_value = block.get("input")
+            if input_value is not None:
+                tool_call["input"] = input_value
+
+    def add_claude_content_block_delta(self, event: Mapping[str, object]) -> None:
+        raw_index = event.get("index", 0)
+        index = raw_index if isinstance(raw_index, int) else 0
+        delta = event.get("delta")
+        if not isinstance(delta, dict):
+            return
+        delta_type = delta.get("type")
+        if delta_type == "text_delta":
+            self.append_string(self.content_parts, delta.get("text"))
+        elif delta_type == "thinking_delta":
+            self.append_string(self.reasoning_parts, delta.get("thinking"))
+        elif delta_type == "input_json_delta":
+            tool_call = self.claude_tool_calls.setdefault(index, {"index": index, "type": "tool_use"})
+            partial_json = delta.get("partial_json")
+            if isinstance(partial_json, str):
+                tool_call["input_json"] = str(tool_call.get("input_json", "")) + partial_json
+
+    def add_claude_message_delta(self, event: Mapping[str, object]) -> None:
+        delta = event.get("delta")
+        if isinstance(delta, dict):
+            stop_reason = delta.get("stop_reason")
+            if stop_reason:
+                self.finish_reasons.append(str(stop_reason))
+        usage = event.get("usage")
+        if usage:
+            if isinstance(self.usage, dict) and isinstance(usage, dict):
+                self.usage = {**self.usage, **usage}
+            else:
+                self.usage = usage
+
+    @staticmethod
+    def compact_claude_message(message: Mapping[str, object]) -> dict[str, object]:
+        keep_keys = ("id", "type", "role", "model", "stop_reason", "stop_sequence")
+        compacted = {key: message[key] for key in keep_keys if key in message}
+        if message.get("usage"):
+            compacted["usage"] = message["usage"]
+        return compacted
+
     def add_chat_event(self, event: Mapping[str, object]) -> None:
         if event.get("usage"):
             self.usage = event["usage"]
@@ -271,6 +375,8 @@ class StreamAccumulator:
             stream_summary["response_tool_calls"] = compact_response_tool_calls(
                 self.response_tool_calls
             )
+        if self.claude_tool_calls:
+            stream_summary["claude_tool_calls"] = compact_claude_tool_calls(self.claude_tool_calls)
         if self.tool_calls:
             stream_summary["tool_calls"] = compact_tool_calls(self.tool_calls)
         if self.finish_reasons:

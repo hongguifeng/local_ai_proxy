@@ -157,3 +157,69 @@ class StreamSummaryTests(unittest.TestCase):
                 "response": {"status": "completed"},
             },
         )
+
+    def test_compacts_claude_messages_stream_text_thinking_and_tool_use(self) -> None:
+        summary = self.parse_summary(
+            "\n\n".join(
+                [
+                    (
+                        'data: {"type":"message_start","message":{"id":"msg_1",'
+                        '"type":"message","role":"assistant","model":"claude-sonnet-4",'
+                        '"usage":{"input_tokens":8}}}'
+                    ),
+                    (
+                        'data: {"type":"content_block_delta","index":0,'
+                        '"delta":{"type":"thinking_delta","thinking":"plan "}}'
+                    ),
+                    (
+                        'data: {"type":"content_block_delta","index":1,'
+                        '"delta":{"type":"text_delta","text":"Hello"}}'
+                    ),
+                    (
+                        'data: {"type":"content_block_start","index":2,'
+                        '"content_block":{"type":"tool_use","id":"toolu_1","name":"lookup","input":{}}}'
+                    ),
+                    (
+                        'data: {"type":"content_block_delta","index":2,'
+                        '"delta":{"type":"input_json_delta","partial_json":"{\\"q\\":"}}'
+                    ),
+                    (
+                        'data: {"type":"content_block_delta","index":2,'
+                        '"delta":{"type":"input_json_delta","partial_json":"\\"docs\\"}"}}'
+                    ),
+                    (
+                        'data: {"type":"message_delta","delta":{"stop_reason":"end_turn"},'
+                        '"usage":{"output_tokens":5}}'
+                    ),
+                    "data: [DONE]",
+                ]
+            )
+        )
+
+        self.assertEqual(
+            summary,
+            {
+                "event_count": 7,
+                "done_seen": True,
+                "reasoning": "plan ",
+                "content": "Hello",
+                "claude_tool_calls": [
+                    {
+                        "index": 2,
+                        "type": "tool_use",
+                        "id": "toolu_1",
+                        "name": "lookup",
+                        "input": {"q": "docs"},
+                    }
+                ],
+                "finish_reasons": ["end_turn"],
+                "usage": {"input_tokens": 8, "output_tokens": 5},
+                "response": {
+                    "id": "msg_1",
+                    "type": "message",
+                    "role": "assistant",
+                    "model": "claude-sonnet-4",
+                    "usage": {"input_tokens": 8},
+                },
+            },
+        )

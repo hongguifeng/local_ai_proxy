@@ -48,6 +48,7 @@ class TrafficLogger:
     def write(self, record: TrafficRecord) -> None:
         """Write a complete readable log record."""
         with self.lock:
+            self.task_index_store.refresh_into(self.task_index)
             self.task_grouper.prepare(record)
             self._write_readable(record)
 
@@ -57,6 +58,7 @@ class TrafficLogger:
         Called when the request body is read but the response has not yet arrived, so that the Markdown/JSON file appears earlier.
         """
         with self.lock:
+            self.task_index_store.refresh_into(self.task_index)
             self.task_grouper.prepare(record)
             self._write_readable(record)
 

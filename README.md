@@ -2,7 +2,7 @@
 
 English | [中文](README.cn.md)
 
-LLM Proxy is a local web console for managing OpenAI-compatible LLM proxy traffic. Create one or more local proxy endpoints, route each endpoint to one or more upstream APIs by request model, and inspect complete request/response history from the browser.
+LLM Proxy is a local web console for managing OpenAI-compatible and Claude Messages-style LLM proxy traffic. Create one or more local proxy endpoints, route each endpoint to one or more upstream APIs by request model, and inspect complete request/response history from the browser.
 
 The command line is mainly the launcher and compatibility layer. Day-to-day use happens in the built-in UI: enable proxy pairs, edit upstream settings, search logs, export captured traffic, and review complete interaction payloads without digging through terminal output.
 
@@ -44,10 +44,10 @@ Each upstream target keeps its own timeout, readable log directory, upstream hea
 - Rewrite model names per upstream, for example receive `A-gpt-5.5` locally and forward it as `gpt-5.5`.
 - Configure a default upstream target for unmatched models.
 - Enable or disable non-default upstream targets without deleting their settings.
-- Forward OpenAI-compatible requests to local or remote upstreams such as `llama.cpp`, OpenRouter, or another compatible gateway.
+- Forward OpenAI-compatible requests and Anthropic/Claude-style `/v1/messages` requests to local or remote upstreams such as `llama.cpp`, OpenRouter, or another compatible gateway.
 - Record complete request and response data, including headers, bodies, status codes, durations, client addresses, target addresses, and streaming summaries.
 - Browse logs in the UI with search across path, method, status, target, record id, and task grouping.
-- Group related multi-turn Agent requests into task folders for easier review.
+- Group related multi-turn Agent requests into task folders for easier review, including Claude Messages conversations.
 - Inspect request and response JSON side by side, with wrapping, expansion, formatting, and copy controls.
 - Optionally remove or inject top-level JSON request fields before forwarding.
 - Optionally redact sensitive headers and common JSON secret fields in readable logs.
@@ -137,6 +137,17 @@ fallback-model
 
 In the last line, `fallback-model` is forwarded with the same model name.
 
+### Supported Request Shapes
+
+The proxy forwards arbitrary HTTP paths, but it understands the common LLM request shapes below for log summaries, stream summaries, and task grouping:
+
+- OpenAI Responses API: `/v1/responses`
+- OpenAI Chat Completions API: `/v1/chat/completions`
+- OpenAI Completions API: `/v1/completions`
+- Anthropic/Claude Messages API: `/v1/messages`
+
+For Claude Messages requests, the logger extracts the top-level `system` field and the `messages` array. Task grouping uses the stable first non-context user message as the task boundary and then requires later Claude requests to preserve the previous user-message sequence. If a client drops the first user message from a later request, that request is treated as a new task instead of being merged by loose overlap.
+
 ### History And Logs
 
 The **History** tab lets you review captured traffic without opening log files manually. It supports:
@@ -148,6 +159,8 @@ The **History** tab lets you review captured traffic without opening log files m
 - Side-by-side request and response detail panes.
 - JSON expansion/collapse, line wrapping, string formatting, and copy actions.
 - ZIP export and selected-task cleanup.
+
+Task grouping state is stored in `.task-index.json` beside the configured log root. When multiple proxy/logger instances write to the same log root, the index is refreshed before grouping and merged on save so a stale in-memory index does not overwrite newer task records after a restart or sibling write.
 
 ## Typical Workflows
 
@@ -211,7 +224,9 @@ Each captured interaction is written to its own directory with:
 - `request.json`.
 - `response.json`.
 
-For OpenAI-compatible SSE responses, `response.json` includes an aggregated `stream_summary` while preserving the original stream data. The summary can include `content`, `reasoning`, `tool_calls`, `finish_reasons`, and `usage`.
+For OpenAI-compatible and Claude Messages SSE responses, `response.json` includes an aggregated `stream_summary` while preserving the original stream data. The summary can include `content`, `reasoning`, `tool_calls`, `response_tool_calls`, `claude_tool_calls`, `finish_reasons`, `usage`, and compact response metadata.
+
+SSE responses are forwarded to the client line by line as they arrive from the upstream. Non-SSE responses are still forwarded in regular binary chunks.
 
 The History tab can export readable logs as `llm-proxy-logs.zip`. Select one or more task groups in the log list, then use cleanup to delete those tasks and their readable request records.
 
@@ -254,6 +269,8 @@ llm_proxy/
   logger.py         # readable Markdown/JSON log writer
   records.py        # request/response analysis and task fingerprints
   streams.py        # SSE stream summaries
+  task_grouper.py   # task grouping rules and task-folder archiving
+  task_index.py     # persisted task index loading and merge-safe saves
   sanitize.py       # request field stripping/injection
   target.py         # upstream URL parsing and path joining
   payloads.py       # body encoding, parsing, and rendering helpers

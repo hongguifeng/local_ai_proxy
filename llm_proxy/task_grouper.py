@@ -37,7 +37,7 @@ class TaskGrouper:
         """Match or create an LLM task for the current record.
 
         Only common model request endpoints enter the task archiving logic, e.g., Responses API,
-        Chat Completions, and Completions. Regular API requests only write single interaction logs.
+        Chat Completions, Anthropic/Claude Messages, and Completions. Regular API requests only write single interaction logs.
         """
         if not self.readable_dir:
             return
@@ -46,7 +46,7 @@ class TaskGrouper:
             # Cannot determine payload content when body is not fully read, so skip task archiving for now.
             return
         kind = endpoint_kind(request_path(record))
-        if kind not in {"responses", "chat", "completions"}:
+        if kind not in {"responses", "chat", "messages", "completions"}:
             return
 
         payload = request_body_json(record)
@@ -243,7 +243,7 @@ class TaskGrouper:
             return {}
         if kind == "responses":
             boundary_keys = {"instructions", "first_user"}
-        elif kind == "chat":
+        elif kind in {"chat", "messages"}:
             boundary_keys = {"system", "first_user"}
         elif kind == "completions":
             boundary_keys = {"prompt"}
@@ -296,10 +296,14 @@ class TaskGrouper:
                 # Requests more than 24 hours apart should usually not be considered the same task.
                 continue
 
-            if kind in {"chat", "responses"} and not self._task_user_messages_are_contained(task, current_user_messages):
-                # For chat-based APIs, the previous user message sequence must still be in the current request to avoid false matches based only on model and timing.
+            if kind in {"chat", "messages", "responses"} and not self._task_user_messages_match(
+                task,
+                kind,
+                current_user_messages,
+            ):
+                # Chat-based APIs need user-message continuity to avoid false matches based only on model and timing.
                 continue
-            if kind in {"chat", "responses"} and not self._task_has_continuation_evidence(task, kind, payload, current_user_messages):
+            if kind in {"chat", "messages", "responses"} and not self._task_has_continuation_evidence(task, kind, payload, current_user_messages):
                 continue
             if best_age_seconds is None or age_seconds < best_age_seconds:
                 best_age_seconds = age_seconds
@@ -312,9 +316,10 @@ class TaskGrouper:
             return best_id
         return None
 
-    def _task_user_messages_are_contained(
+    def _task_user_messages_match(
         self,
         task: Mapping[str, object],
+        kind: str,
         current_user_messages: list[object],
     ) -> bool:
         previous_user_messages = task.get("last_user_messages")

@@ -2,7 +2,7 @@
 
 [English](README.md) | 中文
 
-LLM Proxy 是一个以 Web 控制台为核心的本地 LLM 代理管理工具。你可以创建一个或多个本地代理入口，按请求里的模型名称把同一个入口路由到一个或多个 OpenAI-compatible 上游 API，并在浏览器中查看完整的请求、响应和任务历史。
+LLM Proxy 是一个以 Web 控制台为核心的本地 LLM 代理管理工具。你可以创建一个或多个本地代理入口，按请求里的模型名称把同一个入口路由到一个或多个 OpenAI-compatible 或 Claude Messages 风格的上游 API，并在浏览器中查看完整的请求、响应和任务历史。
 
 当前项目以 Web UI 作为主要使用方式。命令行主要负责启动管理界面；日常配置、启停代理、查看日志、搜索历史、导出流量、检查请求响应内容，都在内置 Web UI 中完成。
 
@@ -44,10 +44,10 @@ flowchart LR
 - 支持按上游改写模型名称，例如本地接收 `A-gpt-5.5`，转发时改成 `gpt-5.5`。
 - 每个代理配置可设置默认转发地址，用于处理未匹配到模型映射的请求。
 - 非默认转发地址可以临时关闭，不需要删除配置。
-- 将 OpenAI-compatible 请求转发到本地或远程上游，例如 `llama.cpp`、OpenRouter 或其他兼容网关。
+- 将 OpenAI-compatible 请求和 Anthropic/Claude 风格的 `/v1/messages` 请求转发到本地或远程上游，例如 `llama.cpp`、OpenRouter 或其他兼容网关。
 - 记录完整请求和响应，包括 headers、body、状态码、耗时、客户端地址、目标地址和流式响应摘要。
 - 在 UI 中浏览历史日志，并按 path、method、status、target、record id、task id 搜索。
-- 自动把相关的多轮 Agent 请求归并为任务，方便回看一次完整工作流。
+- 自动把相关的多轮 Agent 请求归并为任务，方便回看一次完整工作流，包括 Claude Messages 多轮对话。
 - 以左右分栏查看 request/response JSON，支持换行、展开折叠、字符串格式化和复制。
 - 可在转发前移除或注入顶层 JSON request 字段。
 - 可选对可读日志中的敏感 headers 和常见 JSON 密钥字段脱敏。
@@ -137,6 +137,17 @@ fallback-model
 
 最后一行表示监听并转发同名模型 `fallback-model`。
 
+### 支持的请求形态
+
+代理会转发任意 HTTP path，但会针对下面这些常见 LLM 请求形态做日志摘要、流式摘要和任务归类：
+
+- OpenAI Responses API：`/v1/responses`
+- OpenAI Chat Completions API：`/v1/chat/completions`
+- OpenAI Completions API：`/v1/completions`
+- Anthropic/Claude Messages API：`/v1/messages`
+
+对于 Claude Messages 请求，日志会提取顶层 `system` 字段和 `messages` 数组。任务归类会用第一个稳定的非上下文 user 消息作为任务边界，并要求后续 Claude 请求保留之前的 user 消息序列。如果客户端在后续请求中丢掉首条 user 消息，该请求会被视为新任务，不会通过宽松重叠规则强行合并。
+
 ### 历史日志
 
 **历史日志** 页面用于查看已经捕获的流量，不需要手动打开日志文件。它支持：
@@ -148,6 +159,8 @@ fallback-model
 - 左右分栏查看 request 和 response 详情。
 - JSON 展开/折叠、自动换行、字符串内容格式化和复制。
 - ZIP 导出和选中任务清理。
+
+任务归类状态会保存在日志根目录旁的 `.task-index.json` 中。当多个 proxy/logger 实例写入同一个日志根目录时，写入前会刷新索引，保存时会合并磁盘上的新记录，避免重启或并行写入后用旧的内存索引覆盖新任务。
 
 ## 常见使用流程
 
@@ -211,7 +224,9 @@ presence_penalty, frequency_penalty, seed
 - `request.json`。
 - `response.json`。
 
-对于 OpenAI-compatible SSE 流式响应，`response.json` 会在保留原始流数据的同时写入聚合后的 `stream_summary`，其中可能包含 `content`、`reasoning`、`tool_calls`、`finish_reasons`、`usage` 等字段。
+对于 OpenAI-compatible 和 Claude Messages SSE 流式响应，`response.json` 会在保留原始流数据的同时写入聚合后的 `stream_summary`，其中可能包含 `content`、`reasoning`、`tool_calls`、`response_tool_calls`、`claude_tool_calls`、`finish_reasons`、`usage` 和精简后的响应元数据等字段。
+
+SSE 响应会按上游到达的行逐行转发给客户端。非 SSE 响应仍按普通二进制块转发。
 
 历史日志页面可以将可读日志导出为 `llm-proxy-logs.zip`。在日志列表中选择一个或多个任务组后，可以清理这些任务及其对应的可读请求记录。
 
@@ -254,6 +269,8 @@ llm_proxy/
   logger.py         # Markdown/JSON 可读日志写入
   records.py        # 请求/响应分析和任务指纹
   streams.py        # SSE 流式响应摘要
+  task_grouper.py   # 任务归类规则和任务目录归档
+  task_index.py     # 任务索引加载和合并安全保存
   sanitize.py       # request 字段移除/注入
   target.py         # 上游 URL 解析和路径拼接
   payloads.py       # body 编码、解析和渲染辅助

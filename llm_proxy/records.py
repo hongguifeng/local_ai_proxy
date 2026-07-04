@@ -81,6 +81,8 @@ def endpoint_kind(path: str) -> str:
     lowered = path.lower().split("?", 1)[0].rstrip("/")
     if lowered.endswith("/responses") or lowered == "/responses":
         return "responses"
+    if lowered.endswith("/messages") or lowered == "/messages":
+        return "messages"
     if lowered.endswith("/chat/completions") or lowered == "/chat/completions":
         return "chat"
     if lowered.endswith("/completions") or lowered == "/completions":
@@ -311,6 +313,73 @@ def chat_user_messages(payload: Mapping[str, object]) -> list[object]:
     return user_messages
 
 
+def claude_system_messages(payload: Mapping[str, object]) -> list[object]:
+    """Extract top-level system messages from Anthropic/Claude Messages requests."""
+    system = payload.get("system")
+    if not system:
+        return []
+    return [{"role": "system", "content": message_text(system)}]
+
+
+def claude_message_summary(message: Mapping[str, object]) -> dict[str, object]:
+    """Compress a Claude message while preserving role and content shape."""
+    summary: dict[str, object] = {
+        "role": message.get("role"),
+        "content": message_text(message.get("content")),
+    }
+    for key in ("name", "tool_use_id"):
+        value = message.get(key)
+        if value is not None:
+            summary[key] = value
+    return summary
+
+
+def claude_messages(payload: Mapping[str, object]) -> list[object]:
+    """Return non-fixed messages from an Anthropic/Claude Messages payload."""
+    messages = payload.get("messages")
+    if not isinstance(messages, list):
+        return []
+    compacted: list[object] = []
+    for message in messages:
+        if not isinstance(message, Mapping):
+            continue
+        if is_task_context_message(message):
+            continue
+        compacted.append(claude_message_summary(message))
+    return compacted
+
+
+def claude_prefix_messages(payload: Mapping[str, object], limit: int = 4) -> list[object]:
+    """Extract the first few Claude messages as content fingerprints."""
+    return claude_messages(payload)[:limit]
+
+
+def claude_first_user_message(payload: Mapping[str, object]) -> object | None:
+    """Extract the first user message from an Anthropic/Claude Messages request."""
+    messages = payload.get("messages")
+    if not isinstance(messages, list):
+        return None
+    for message in messages:
+        if isinstance(message, Mapping) and message.get("role") == "user" and not is_task_context_message(message):
+            return message_text(message.get("content"))
+    return None
+
+
+def claude_user_messages(payload: Mapping[str, object]) -> list[object]:
+    """Return non-fixed user messages from an Anthropic/Claude Messages payload."""
+    messages = payload.get("messages")
+    if not isinstance(messages, list):
+        return []
+    user_messages: list[object] = []
+    for message in messages:
+        if not isinstance(message, Mapping) or message.get("role") != "user":
+            continue
+        if is_task_context_message(message):
+            continue
+        user_messages.append(claude_message_summary(message))
+    return user_messages
+
+
 def request_user_messages(kind: str, payload: object) -> list[object]:
     """Extract the user-message sequence used to decide task continuation."""
     if not isinstance(payload, Mapping):
@@ -319,6 +388,8 @@ def request_user_messages(kind: str, payload: object) -> list[object]:
         return responses_user_messages(payload)
     if kind == "chat":
         return chat_user_messages(payload)
+    if kind == "messages":
+        return claude_user_messages(payload)
     if kind == "completions":
         prompt = payload.get("prompt")
         return [message_text(prompt)] if prompt else []
@@ -329,7 +400,7 @@ def request_fingerprints(kind: str, payload: object) -> dict[str, str]:
     """为不同接口类型生成请求指纹。
 
     指纹用于判断两个请求是否可能属于同一个任务。不同接口的字段结构不同，
-    所以这里分别处理 responses/chat/completions。
+    所以这里分别处理 responses/chat/messages/completions。
     """
     if not isinstance(payload, Mapping):
         return {}
@@ -367,6 +438,22 @@ def request_fingerprints(kind: str, payload: object) -> dict[str, str]:
         tools = payload.get("tools", payload.get("functions"))
         if tools:
             fingerprints["tools"] = stable_hash(tools)
+    elif kind == "messages":
+        system_messages = claude_system_messages(payload)
+        if system_messages:
+            fingerprints["system"] = stable_hash(system_messages)
+        prefix_messages = claude_prefix_messages(payload)
+        if prefix_messages:
+            fingerprints["messages_prefix"] = stable_hash(prefix_messages)
+        content_messages = claude_messages(payload)
+        if content_messages:
+            fingerprints["messages"] = stable_hash(content_messages)
+        first_user = claude_first_user_message(payload)
+        if first_user:
+            fingerprints["first_user"] = stable_hash(first_user)
+        tools = payload.get("tools")
+        if tools:
+            fingerprints["tools"] = stable_hash(tools)
     elif kind == "completions":
         prompt = payload.get("prompt")
         if prompt:
@@ -379,7 +466,7 @@ def request_boundary_fingerprints(kind: str, payload: object) -> dict[str, str]:
     fingerprints = request_fingerprints(kind, payload)
     if kind == "responses":
         boundary_keys = {"instructions", "first_user"}
-    elif kind == "chat":
+    elif kind in {"chat", "messages"}:
         boundary_keys = {"system", "first_user"}
     elif kind == "completions":
         boundary_keys = {"prompt"}
