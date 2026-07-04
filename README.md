@@ -2,9 +2,13 @@
 
 English | [中文](README.cn.md)
 
-LLM Proxy is a local web console for managing OpenAI-compatible LLM proxy traffic. It lets you create one or more local proxy endpoints, route each endpoint to one or more upstream APIs by request model, and inspect the full request/response history from a browser.
+LLM Proxy is a local web console for managing OpenAI-compatible LLM proxy traffic. Create one or more local proxy endpoints, route each endpoint to one or more upstream APIs by request model, and inspect complete request/response history from the browser.
 
-The command line is now mainly the launcher and compatibility layer. Day-to-day use is centered on the built-in UI: enable proxy pairs, edit upstream settings, search logs, and review complete interaction payloads without digging through terminal output.
+The command line is mainly the launcher and compatibility layer. Day-to-day use happens in the built-in UI: enable proxy pairs, edit upstream settings, search logs, export captured traffic, and review complete interaction payloads without digging through terminal output.
+
+![Proxy Management UI](doc/ui_proxy_en.png)
+
+![History Logs UI](doc/ui_logs_en.png)
 
 ## How Routing Works
 
@@ -117,8 +121,6 @@ The target URL, API Key, and model mappings are shown by default. Use **More set
 
 Proxy pairs are saved to `logs/proxies.json` unless `--config-file` is provided.
 
-![Proxy Management UI](doc/ui_proxy_en.png)
-
 ### Model Routing
 
 When the proxy receives a request, it reads the top-level JSON `model` field and checks the enabled upstream targets in order. If a target has a matching model mapping, the request is forwarded to that target. If the mapping specifies a different upstream model name, the proxy rewrites `model` before forwarding.
@@ -146,8 +148,6 @@ The **History** tab lets you review captured traffic without opening log files m
 - Side-by-side request and response detail panes.
 - JSON expansion/collapse, line wrapping, string formatting, and copy actions.
 - ZIP export and selected-task cleanup.
-
-![History Logs UI](doc/ui_logs_en.png)
 
 ## Typical Workflows
 
