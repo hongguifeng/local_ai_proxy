@@ -48,6 +48,19 @@ class TargetUrlProxyTests(unittest.TestCase):
             time.sleep(0.05)
         return None
 
+    def _wait_for_request_json(self, log_root: Path, expected: object, timeout: float = 2) -> Path | None:
+        deadline = time.time() + timeout
+        while time.time() < deadline:
+            for request_log in self._request_log_dirs(log_root):
+                try:
+                    with (request_log / "request.json").open(encoding="utf-8") as file:
+                        if json.load(file) == expected:
+                            return request_log
+                except (OSError, json.JSONDecodeError):
+                    pass
+            time.sleep(0.02)
+        return None
+
     def _target(
         self,
         target_id: str,
@@ -675,7 +688,7 @@ class TargetUrlProxyTests(unittest.TestCase):
             request_thread = threading.Thread(target=send_request)
             request_thread.start()
 
-            log_path = self._wait_for_request_log(log_root)
+            log_path = self._wait_for_request_json(log_root, {"messages": []})
             self.assertIsNotNone(log_path)
             assert log_path is not None
             self.assertEqual(self._read_json_with_retry(log_path / "request.json"), {"messages": []})
