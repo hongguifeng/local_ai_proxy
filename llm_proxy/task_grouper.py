@@ -231,27 +231,12 @@ class TaskGrouper:
         include_user_boundary: bool = True,
     ) -> dict[str, object]:
         boundary_fingerprints = task.get("boundary_fingerprints")
-        if isinstance(boundary_fingerprints, dict):
-            result = dict(boundary_fingerprints)
-            result.pop("tools", None)
-            if not include_user_boundary:
-                result.pop("first_user", None)
-            return result
-
-        fingerprints = task.get("fingerprints")
-        if not isinstance(fingerprints, dict):
+        if not isinstance(boundary_fingerprints, dict):
             return {}
-        if kind == "responses":
-            boundary_keys = {"instructions", "first_user"}
-        elif kind in {"chat", "messages"}:
-            boundary_keys = {"system", "first_user"}
-        elif kind == "completions":
-            boundary_keys = {"prompt"}
-        else:
-            boundary_keys = set()
+        result = dict(boundary_fingerprints)
         if not include_user_boundary:
-            boundary_keys.discard("first_user")
-        return {key: value for key, value in fingerprints.items() if key in boundary_keys}
+            result.pop("first_user", None)
+        return result
 
     def _find_task_for_request_id(self, request_id: str) -> str | None:
         """Look up request ID in the task list and fix the request_to_task index along the way."""

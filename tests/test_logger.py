@@ -503,7 +503,7 @@ class TrafficLoggerTaskGroupingTests(unittest.TestCase):
                 finally:
                     log_dir.cleanup()
 
-    def test_responses_requires_previous_user_messages_to_be_contained(self) -> None:
+    def test_responses_requires_previous_user_messages_to_be_prefix(self) -> None:
         log_dir = tempfile.TemporaryDirectory()
         try:
             root = Path(log_dir.name)
@@ -547,7 +547,7 @@ class TrafficLoggerTaskGroupingTests(unittest.TestCase):
         finally:
             log_dir.cleanup()
 
-    def test_responses_groups_when_previous_user_messages_are_contained(self) -> None:
+    def test_responses_groups_when_previous_user_messages_are_prefix(self) -> None:
         log_dir = tempfile.TemporaryDirectory()
         try:
             root = Path(log_dir.name)
@@ -800,7 +800,7 @@ class TrafficLoggerTaskGroupingTests(unittest.TestCase):
                 finally:
                     log_dir.cleanup()
 
-    def test_claude_messages_group_when_previous_user_messages_are_contained(self) -> None:
+    def test_claude_messages_group_when_previous_user_messages_are_prefix(self) -> None:
         log_dir = tempfile.TemporaryDirectory()
         try:
             root = Path(log_dir.name)
@@ -1016,95 +1016,6 @@ class TrafficLoggerTaskGroupingTests(unittest.TestCase):
             self.assertEqual(len(index["tasks"]), 2)
             request_counts = sorted(task["request_count"] for task in index["tasks"].values())
             self.assertEqual(request_counts, [1, 4])
-        finally:
-            log_dir.cleanup()
-
-    def test_claude_messages_enforce_legacy_first_user_boundary(self) -> None:
-        log_dir = tempfile.TemporaryDirectory()
-        try:
-            root = Path(log_dir.name)
-            logger = TrafficLogger(root / "readable")
-
-            def user(text: str) -> dict[str, object]:
-                return {"role": "user", "content": [{"type": "text", "text": text}]}
-
-            def assistant(text: str) -> dict[str, object]:
-                return {"role": "assistant", "content": [{"type": "text", "text": text}]}
-
-            def record(request_id: str, timestamp: str, messages: list[object]) -> dict[str, object]:
-                return {
-                    "id": request_id,
-                    "timestamp": timestamp,
-                    "started_timestamp": timestamp,
-                    "event": "request_finished",
-                    "duration_ms": 100,
-                    "client": {"host": "127.0.0.1", "port": 1000},
-                    "target": {"scheme": "http", "host": "127.0.0.1", "port": 1235, "path": "/v1/messages"},
-                    "request": {
-                        "method": "POST",
-                        "path": "/v1/messages",
-                        "headers": {},
-                        "body": {
-                            "size_bytes": 0,
-                            "base64": "",
-                            "text": json.dumps(
-                                {
-                                    "model": "claude-haiku-4-5-20251001",
-                                    "messages": messages,
-                                }
-                            ),
-                        },
-                    },
-                    "response": {
-                        "status": 200,
-                        "headers": {},
-                        "body": {"size_bytes": 0, "base64": "", "text": json.dumps({"id": f"msg_{request_id}"})},
-                    },
-                }
-
-            logger.write(
-                record(
-                    "req_1",
-                    "2026-07-04T09:28:21.000+00:00",
-                    [
-                        user("写个 C++ 的快排，要支持自定义数据格式"),
-                        assistant("这是 C++ 快排。"),
-                        user("改成并行排序"),
-                        assistant("这是并行排序。"),
-                        user("优化策略"),
-                        assistant("这是优化策略。"),
-                        user("数据重复度高怎么优化"),
-                    ],
-                )
-            )
-
-            index_path = root / ".task-index.json"
-            with index_path.open(encoding="utf-8") as file:
-                index = json.load(file)
-            only_task = next(iter(index["tasks"].values()))
-            only_task["boundary_fingerprints"]["first_user"] = "legacy-first-user"
-            with index_path.open("w", encoding="utf-8") as file:
-                json.dump(index, file)
-
-            logger.write(
-                record(
-                    "req_2",
-                    "2026-07-04T09:46:36.000+00:00",
-                    [
-                        user("改成并行排序"),
-                        assistant("这是并行排序。"),
-                        user("优化策略"),
-                        assistant("这是优化策略。"),
-                        user("数据重复度高怎么优化"),
-                        assistant("这是重复度高优化。"),
-                        user("数据大小差距较大的怎么优化"),
-                    ],
-                )
-            )
-
-            with index_path.open(encoding="utf-8") as file:
-                index = json.load(file)
-            self.assertEqual(len(index["tasks"]), 2)
         finally:
             log_dir.cleanup()
 

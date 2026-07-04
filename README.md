@@ -4,7 +4,7 @@ English | [中文](README.cn.md)
 
 LLM Proxy is a local web console for managing OpenAI-compatible and Claude Messages-style LLM proxy traffic. Create one or more local proxy endpoints, route each endpoint to one or more upstream APIs by request model, and inspect complete request/response history from the browser.
 
-The command line is mainly the launcher and compatibility layer. Day-to-day use happens in the built-in UI: enable proxy pairs, edit upstream settings, search logs, export captured traffic, and review complete interaction payloads without digging through terminal output.
+The command line is mainly the launcher. Day-to-day use happens in the built-in UI: enable proxy pairs, edit upstream settings, search logs, export captured traffic, and review complete interaction payloads without digging through terminal output.
 
 ![Proxy Management UI](doc/ui_proxy_en.png)
 
