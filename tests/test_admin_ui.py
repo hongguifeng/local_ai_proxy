@@ -117,9 +117,28 @@ class AdminUiTests(unittest.TestCase):
         server = None
         try:
             root = Path(temp_dir.name)
-            readable_path = root / "readable" / "2026-06-07__08-00-00.000__post__v1-responses__req_1"
-            readable_path.mkdir(parents=True)
-            (readable_path / "08-00-00.000__08-00-00.010.md").write_text(
+            request_path = root / "tasks" / "task-one-dir" / "001__08-00-00.000__v1-responses__req_1"
+            request_path.mkdir(parents=True)
+            (root / "readable").mkdir()
+            (root / ".task-index.json").write_text(
+                json.dumps(
+                    {
+                        "task_match_strategy_version": 3,
+                        "tasks": {
+                            "task-one": {
+                                "dir_name": "task-one-dir",
+                                "request_count": 1,
+                                "requests": {"req_1": {"dir_name": request_path.name}},
+                            }
+                        },
+                        "request_to_task": {"req_1": "task-one"},
+                        "response_to_task": {},
+                        "context_to_task": {},
+                    }
+                ),
+                encoding="utf-8",
+            )
+            (request_path / "08-00-00.000__08-00-00.010.md").write_text(
                 "\n".join(
                     [
                         "# LLM Interaction req_1",
@@ -135,15 +154,15 @@ class AdminUiTests(unittest.TestCase):
                 ),
                 encoding="utf-8",
             )
-            (readable_path / "request.json").write_text(json.dumps({"a": 1}), encoding="utf-8")
-            (readable_path / "response.json").write_text(json.dumps({"ok": True}), encoding="utf-8")
+            (request_path / "request.json").write_text(json.dumps({"a": 1}), encoding="utf-8")
+            (request_path / "response.json").write_text(json.dumps({"ok": True}), encoding="utf-8")
             manager = ProxyManager(root / "proxies.json", root)
             server = AdminServer(("127.0.0.1", 0), manager)
             thread = threading.Thread(target=server.serve_forever, daemon=True)
             thread.start()
 
             conn = http.client.HTTPConnection("127.0.0.1", server.server_address[1], timeout=5)
-            conn.request("GET", "/api/log-groups/ungrouped/logs")
+            conn.request("GET", "/api/log-groups/task-one/logs")
             response = conn.getresponse()
             self.assertEqual(response.status, 200)
             response.read()
@@ -172,9 +191,28 @@ class AdminUiTests(unittest.TestCase):
         server = None
         try:
             root = Path(temp_dir.name)
-            readable_path = root / "readable" / "2026-06-07__08-00-00.000__post__v1-responses__req_1"
-            readable_path.mkdir(parents=True)
-            (readable_path / "08-00-00.000__08-00-00.010.md").write_text(
+            request_path = root / "tasks" / "task-one-dir" / "001__08-00-00.000__v1-responses__req_1"
+            request_path.mkdir(parents=True)
+            (root / "readable").mkdir()
+            (root / ".task-index.json").write_text(
+                json.dumps(
+                    {
+                        "task_match_strategy_version": 3,
+                        "tasks": {
+                            "task-one": {
+                                "dir_name": "task-one-dir",
+                                "request_count": 1,
+                                "requests": {"req_1": {"dir_name": request_path.name}},
+                            }
+                        },
+                        "request_to_task": {"req_1": "task-one"},
+                        "response_to_task": {},
+                        "context_to_task": {},
+                    }
+                ),
+                encoding="utf-8",
+            )
+            (request_path / "08-00-00.000__08-00-00.010.md").write_text(
                 "\n".join(
                     [
                         "# LLM Interaction req_1",
@@ -197,7 +235,7 @@ class AdminUiTests(unittest.TestCase):
             thread.start()
 
             conn = http.client.HTTPConnection("127.0.0.1", server.server_address[1], timeout=5)
-            conn.request("GET", "/api/log-groups/ungrouped/logs")
+            conn.request("GET", "/api/log-groups/task-one/logs")
             response = conn.getresponse()
             self.assertEqual(response.status, 200)
             response.read()
@@ -243,15 +281,29 @@ class AdminUiTests(unittest.TestCase):
             )
             (request_path / "request.json").write_text(json.dumps({"cached": True}), encoding="utf-8")
             (request_path / "response.json").write_text(json.dumps({"ok": True}), encoding="utf-8")
+            (root / ".task-index.json").write_text(
+                json.dumps(
+                    {
+                        "task_match_strategy_version": 3,
+                        "tasks": {
+                            "task-one": {
+                                "dir_name": request_path.parent.name,
+                                "request_count": 1,
+                                "requests": {"req_1": {"dir_name": request_path.name}},
+                            }
+                        },
+                        "request_to_task": {"req_1": "task-one"},
+                        "response_to_task": {},
+                        "context_to_task": {},
+                    }
+                ),
+                encoding="utf-8",
+            )
             store = LogStore(ProxyManager(root / "proxies.json", root))
 
             group = store.list_log_group_logs("task-one", "")
             self.assertEqual([item["id"] for item in (group or {}).get("logs", [])], ["req_1"])
 
-            def fail_snapshot() -> dict[str, object]:
-                raise AssertionError("find_log should use the record path cache")
-
-            store._snapshot = fail_snapshot  # type: ignore[method-assign]
             record = store.find_log("req_1")
             detail = store.record_detail(record or {})
 
@@ -742,6 +794,24 @@ class AdminUiTests(unittest.TestCase):
                     encoding="utf-8",
                 )
 
+            (root / ".task-index.json").write_text(
+                json.dumps(
+                    {
+                        "task_match_strategy_version": 3,
+                        "tasks": {
+                            f"task-{group_index}": {
+                                "dir_name": f"2026-06-07__08-0{group_index}-00.000__08-30-00.000__responses__fp-demo-{group_index}",
+                                "request_count": 1,
+                            }
+                            for group_index in (1, 2)
+                        },
+                        "request_to_task": {"req_1": "task-1", "req_2": "task-2"},
+                        "response_to_task": {},
+                        "context_to_task": {},
+                    }
+                ),
+                encoding="utf-8",
+            )
             (root / "readable").mkdir(exist_ok=True)
             manager = ProxyManager(root / "proxies.json", root)
             server = AdminServer(("127.0.0.1", 0), manager)
@@ -749,7 +819,7 @@ class AdminUiTests(unittest.TestCase):
             thread.start()
 
             conn = http.client.HTTPConnection("127.0.0.1", server.server_address[1], timeout=5)
-            conn.request("GET", "/api/log-groups/2026-06-07__08-02-00.000__08-30-00.000__responses__fp-demo-2/logs")
+            conn.request("GET", "/api/log-groups/task-2/logs")
             response = conn.getresponse()
             self.assertEqual(response.status, 200)
             payload = json.loads(response.read())
@@ -769,10 +839,31 @@ class AdminUiTests(unittest.TestCase):
         try:
             root = Path(temp_dir.name)
 
-            def write_readable(log_root: Path, record_id: str, target: str) -> None:
-                readable_path = log_root / "readable" / f"2026-06-07__08-00-00.000__post__v1-responses__{record_id}"
-                readable_path.mkdir(parents=True)
-                (readable_path / "08-00-00.000__08-00-00.010.md").write_text(
+            def write_task(log_root: Path, task_id: str, record_id: str, target: str) -> None:
+                task_dir = f"2026-06-07__08-00-00.000__08-00-00.010__responses__{task_id}"
+                request_dir = f"001__08-00-00.000__v1-responses__{record_id}"
+                request_path = log_root / "tasks" / task_dir / request_dir
+                request_path.mkdir(parents=True)
+                (log_root / "readable").mkdir(parents=True)
+                (log_root / ".task-index.json").write_text(
+                    json.dumps(
+                        {
+                            "task_match_strategy_version": 3,
+                            "tasks": {
+                                task_id: {
+                                    "dir_name": task_dir,
+                                    "request_count": 1,
+                                    "requests": {record_id: {"dir_name": request_dir}},
+                                }
+                            },
+                            "request_to_task": {record_id: task_id},
+                            "response_to_task": {},
+                            "context_to_task": {},
+                        }
+                    ),
+                    encoding="utf-8",
+                )
+                (request_path / "08-00-00.000__08-00-00.010.md").write_text(
                     "\n".join(
                         [
                             f"# LLM Interaction {record_id}",
@@ -788,13 +879,13 @@ class AdminUiTests(unittest.TestCase):
                     ),
                     encoding="utf-8",
                 )
-                (readable_path / "request.json").write_text(json.dumps({"id": record_id}), encoding="utf-8")
-                (readable_path / "response.json").write_text(json.dumps({"ok": True}), encoding="utf-8")
+                (request_path / "request.json").write_text(json.dumps({"id": record_id}), encoding="utf-8")
+                (request_path / "response.json").write_text(json.dumps({"ok": True}), encoding="utf-8")
 
             first_root = root / "first-logs"
             second_root = root / "second-logs"
-            write_readable(first_root, "req_first", "http://127.0.0.1:1235/v1/responses")
-            write_readable(second_root, "req_second", "http://127.0.0.1:1236/v1/responses")
+            write_task(first_root, "task-first", "req_first", "http://127.0.0.1:1235/v1/responses")
+            write_task(second_root, "task-second", "req_second", "http://127.0.0.1:1236/v1/responses")
 
             manager = ProxyManager(root / "proxies.json", root / "default-logs")
             manager.replace_pairs(
@@ -833,18 +924,9 @@ class AdminUiTests(unittest.TestCase):
             payload = json.loads(response.read())
             conn.close()
 
-            self.assertEqual([group["id"] for group in payload["groups"]], ["ungrouped"])
+            group_ids = {group["id"] for group in payload["groups"]}
+            self.assertEqual(group_ids, {"task-first", "task-second"})
             self.assertNotIn("logs", payload["groups"][0])
-
-            conn = http.client.HTTPConnection("127.0.0.1", server.server_address[1], timeout=5)
-            conn.request("GET", "/api/log-groups/ungrouped/logs")
-            response = conn.getresponse()
-            self.assertEqual(response.status, 200)
-            group_payload = json.loads(response.read())
-            conn.close()
-
-            ids = {item["id"] for item in group_payload["logs"]}
-            self.assertEqual(ids, {"req_first", "req_second"})
         finally:
             if server is not None:
                 server.shutdown()

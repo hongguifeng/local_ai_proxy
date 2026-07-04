@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import copy
 import json
-import threading
 from pathlib import Path
 from typing import Any
 
@@ -16,14 +15,8 @@ from .task_index import TaskIndexStore
 class LogStore:
     """Read and cache human-readable traffic logs for the admin UI."""
 
-    # Language-neutral sentinel; frontend translates via i18n lookup
-    UNGROUPED_TITLE = "__UNGROUPED__"
-
     def __init__(self, manager: ProxyManager) -> None:
         self.manager = manager
-        self.cache_lock = threading.Lock()
-        self.cache_signature: tuple[tuple[str, int, int], ...] | None = None
-        self.cache: dict[str, Any] = {"groups": [], "ungrouped": [], "by_id": {}}
         self.record_cache: dict[str, tuple[tuple[int, int], dict[str, Any]]] = {}
         self.json_cache: dict[str, tuple[tuple[int, int], object]] = {}
         self.record_path_cache: dict[str, dict[str, Any]] = {}
@@ -33,19 +26,18 @@ class LogStore:
 
     def list_log_group_logs(self, group_id: str, query: str) -> dict[str, Any] | None:
         terms = query.lower().split()
-        if group_id == "ungrouped":
-            logs = self._load_ungrouped_log_items(terms)
-            return {"id": "ungrouped", "logs": logs[:200]}
-
         for root in self._readable_roots():
             tasks_root = root.parent / "tasks"
             if not tasks_root.exists():
                 continue
-            task_dir = self._task_dir_for_group_id(root, group_id)
+            task_meta_by_dir = self._load_task_meta_map(root)
+            task_meta = self._task_meta_for_group_id(task_meta_by_dir, group_id)
+            if task_meta is None:
+                continue
+            task_dir = str(task_meta.get("dir_name") or "")
             task_path = tasks_root / task_dir
             if not task_path.is_dir() or task_path.name.startswith("."):
                 continue
-            task_meta = self._load_task_meta_map(root).get(task_path.name) or {}
             group = self._task_group_summary(task_meta)
             logs = self._load_task_log_items(task_path, group, terms, task_meta)
             return {"id": group_id, "logs": logs[:200]}
@@ -70,39 +62,13 @@ class LogStore:
     def _list_log_group_summaries(self, query: str) -> list[dict[str, Any]]:
         terms = query.lower().split()
         groups: list[dict[str, Any]] = []
-        ungrouped_count = 0
-        ungrouped_sort_key = ""
         for root in self._readable_roots():
             if not root.exists():
                 continue
-            task_record_ids = self._indexed_task_record_ids(root)
             for task_meta in self._load_task_meta_map(root).values():
                 group = self._task_group_summary(task_meta)
                 if int(group.get("_request_count") or 0) > 0 and self._group_matches_terms(group, terms):
                     groups.append(group)
-
-            for path in self._iter_dirs(root):
-                if path.name == "tasks":
-                    continue
-                record_id = self._record_id_from_dir(path)
-                if record_id in task_record_ids:
-                    continue
-                if not self._ungrouped_dir_matches_terms(path, terms):
-                    continue
-                ungrouped_count += 1
-                _, sort_key = self._timestamp_from_record_dir(path)
-                ungrouped_sort_key = max(ungrouped_sort_key, sort_key or "")
-
-        if ungrouped_count:
-            groups.append(
-                {
-                    "id": "ungrouped",
-                    "title": self.UNGROUPED_TITLE,
-                    "meta": f"{ungrouped_count} requests",
-                    "_sort_key": ungrouped_sort_key,
-                    "_request_count": ungrouped_count,
-                }
-            )
 
         groups.sort(key=lambda group: str(group.get("_sort_key") or ""), reverse=True)
         return [self._group_without_logs(group) for group in groups[:100]]
@@ -143,19 +109,11 @@ class LogStore:
     def _group_without_logs(self, group: dict[str, Any]) -> dict[str, Any]:
         return {key: value for key, value in group.items() if not key.startswith("_") and key != "logs"}
 
-    def _task_dir_for_group_id(self, root: Path, group_id: str) -> str:
-        for task in self._load_task_meta_map(root).values():
+    def _task_meta_for_group_id(self, task_meta_by_dir: dict[str, dict[str, Any]], group_id: str) -> dict[str, Any] | None:
+        for task in task_meta_by_dir.values():
             if task.get("id") == group_id and task.get("dir_name"):
-                return str(task["dir_name"])
-        return group_id
-
-    def _indexed_task_record_ids(self, root: Path) -> set[str]:
-        index_path = root.parent / ".task-index.json"
-        data = TaskIndexStore(index_path).load()
-        request_to_task = data.get("request_to_task")
-        if isinstance(request_to_task, dict):
-            return {str(request_id) for request_id in request_to_task}
-        return set()
+                return task
+        return None
 
     def _group_matches_terms(self, group: dict[str, Any], terms: list[str]) -> bool:
         if not terms:
@@ -170,16 +128,6 @@ class LogStore:
             ]
         )
         return all(term in haystack for term in terms)
-
-    def _ungrouped_dir_matches_terms(self, path: Path, terms: list[str]) -> bool:
-        if not terms:
-            return True
-        haystack = " ".join([self.UNGROUPED_TITLE, path.name]).lower()
-        return all(term in haystack for term in terms)
-
-    def _record_id_from_dir(self, path: Path) -> str:
-        parts = path.name.split("__")
-        return parts[-1] if parts else ""
 
     def _load_task_log_items(
         self,
@@ -218,28 +166,6 @@ class LogStore:
                 return f"{timestamp}|{sequence_number:09d}"
         return str(item.get("_sort_key") or item.get("timestamp") or "")
 
-    def _load_ungrouped_log_items(self, terms: list[str]) -> list[dict[str, Any]]:
-        logs: list[dict[str, Any]] = []
-        for root in self._readable_roots():
-            if not root.exists():
-                continue
-            task_record_ids = self._indexed_task_record_ids(root)
-            for path in self._iter_dirs(root):
-                if path.name == "tasks":
-                    continue
-                record = self._read_readable_record(path, include_body=False)
-                if not record:
-                    continue
-                record_id = str(record.get("id"))
-                self._cache_record_path(record_id, path, None)
-                if record_id in task_record_ids:
-                    continue
-                item = self._log_item(record)
-                if self._log_item_matches_terms(item, {"id": "ungrouped", "title": self.UNGROUPED_TITLE}, terms):
-                    logs.append(item)
-        logs.sort(key=lambda item: str(item.get("_sort_key") or item.get("timestamp") or ""), reverse=True)
-        return logs
-
     def find_log(self, record_id: str) -> dict[str, Any] | None:
         record = self._record_from_cached_path(record_id, self.record_path_cache.get(record_id))
         if record:
@@ -262,68 +188,12 @@ class LogStore:
         return {"id": record.get("id"), "request": request, "response": response}
 
     def clear_cache(self) -> None:
-        with self.cache_lock:
-            self.cache_signature = None
-            self.cache = {"groups": [], "ungrouped": [], "by_id": {}}
-            self.record_cache.clear()
-            self.json_cache.clear()
-            self.record_path_cache.clear()
+        self.record_cache.clear()
+        self.json_cache.clear()
+        self.record_path_cache.clear()
 
     def _readable_roots(self) -> list[Path]:
         return readable_roots(self.manager)
-
-    def _signature(self) -> tuple[tuple[str, int, int], ...]:
-        signature: list[tuple[str, int, int]] = []
-        for root in self._readable_roots():
-            if not root.exists():
-                signature.append((str(root), 0, 0))
-                continue
-            candidates = [root, root.parent / "tasks"]
-            try:
-                candidates.extend(path for path in root.iterdir() if path.is_dir() and not path.name.startswith("."))
-            except OSError:
-                pass
-            tasks_root = root.parent / "tasks"
-            index_path = root.parent / ".task-index.json"
-            if index_path.exists():
-                candidates.append(index_path)
-            if tasks_root.exists():
-                try:
-                    for task_path in tasks_root.iterdir():
-                        if not task_path.is_dir() or task_path.name.startswith("."):
-                            continue
-                        candidates.append(task_path)
-                        candidates.extend(path for path in task_path.iterdir() if path.is_dir() and not path.name.startswith("."))
-                except OSError:
-                    pass
-            for path in candidates:
-                try:
-                    stat = path.stat()
-                except OSError:
-                    continue
-                signature.append((str(path), stat.st_mtime_ns, stat.st_size))
-                if path.is_dir():
-                    try:
-                        newest_markdown = max(path.glob("*.md"), key=lambda item: item.stat().st_mtime_ns, default=None)
-                    except OSError:
-                        newest_markdown = None
-                    if newest_markdown is not None:
-                        try:
-                            md_stat = newest_markdown.stat()
-                        except OSError:
-                            continue
-                        signature.append((str(newest_markdown), md_stat.st_mtime_ns, md_stat.st_size))
-        return tuple(sorted(signature))
-
-    def _snapshot(self) -> dict[str, Any]:
-        signature = self._signature()
-        with self.cache_lock:
-            if signature == self.cache_signature:
-                return self.cache
-            snapshot = self._build_snapshot()
-            self.cache_signature = signature
-            self.cache = snapshot
-            return snapshot
 
     def _load_task_meta_map(self, root: Path) -> dict[str, dict[str, Any]]:
         result: dict[str, dict[str, Any]] = {}
@@ -371,73 +241,6 @@ class LogStore:
 
     def _display_log_time(self, value: str) -> str:
         return value.replace("-", ":")
-
-    def _build_snapshot(self) -> dict[str, Any]:
-        groups: list[dict[str, Any]] = []
-        ungrouped_records: list[dict[str, Any]] = []
-        task_record_ids: set[str] = set()
-        by_id: dict[str, dict[str, Any]] = {}
-
-        for root in self._readable_roots():
-            if not root.exists():
-                continue
-            tasks_root = root.parent / "tasks"
-            task_meta_map = self._load_task_meta_map(root) if tasks_root.exists() else {}
-            if tasks_root.exists():
-                for task_path in self._iter_dirs(tasks_root):
-                    logs: list[dict[str, Any]] = []
-                    for request_path in self._iter_dirs(task_path):
-                        record = self._read_readable_record(request_path, include_body=False)
-                        if not record:
-                            continue
-                        record["_task_dir"] = task_path.name
-                        item = self._log_item(record)
-                        logs.append(item)
-                        record_id = str(item.get("id"))
-                        task_record_ids.add(record_id)
-                        by_id[record_id] = {"path": request_path, "task_dir": task_path.name}
-                        self._cache_record_path(record_id, request_path, task_path.name)
-                    if not logs:
-                        continue
-                    logs.sort(key=lambda item: str(item.get("_sort_key") or item.get("timestamp") or ""), reverse=True)
-                    task_meta = task_meta_map.get(task_path.name) or {}
-                    group_id = str(task_meta.get("id") or task_path.name)
-                    groups.append(
-                        {
-                            "id": group_id,
-                            "dir": task_path.name,
-                            "title": self._task_group_title(task_path.name),
-                            "meta": f"{len(logs)} requests",
-                            "endpoint": self._group_endpoint(logs),
-                            "logs": logs,
-                        }
-                    )
-            for path in self._iter_dirs(root):
-                if path.name == "tasks":
-                    continue
-                record = self._read_readable_record(path, include_body=False)
-                if not record:
-                    continue
-                record_id = str(record.get("id"))
-                by_id.setdefault(record_id, {"path": path, "task_dir": None})
-                self._cache_record_path(record_id, path, None)
-                if record_id not in task_record_ids:
-                    ungrouped_records.append(record)
-
-        groups.sort(
-            key=lambda group: max(
-                (
-                    str(item.get("_sort_key") or item.get("timestamp") or "")
-                    for item in group.get("logs", [])
-                    if isinstance(item, dict)
-                ),
-                default="",
-            ),
-            reverse=True,
-        )
-        ungrouped = [self._log_item(record) for record in ungrouped_records]
-        ungrouped.sort(key=lambda item: str(item.get("_sort_key") or item.get("timestamp") or ""), reverse=True)
-        return {"groups": groups, "ungrouped": ungrouped, "by_id": by_id}
 
     def _iter_dirs(self, root: Path) -> list[Path]:
         try:
@@ -552,18 +355,12 @@ class LogStore:
         return sequence if sequence.isdigit() else ""
 
     def _timestamp_from_record_dir(self, path: Path) -> tuple[str | None, str | None]:
+        if path.parent.parent.name != "tasks":
+            return None, None
         parts = path.name.split("__")
-        date_part: str | None = None
-        time_part: str | None = None
-        if path.parent.parent.name == "tasks":
-            task_parts = path.parent.name.split("__")
-            if task_parts:
-                date_part = task_parts[0]
-            if len(parts) >= 2:
-                time_part = parts[1]
-        elif len(parts) >= 2:
-            date_part = parts[0]
-            time_part = parts[1]
+        task_parts = path.parent.name.split("__")
+        date_part = task_parts[0] if task_parts else None
+        time_part = parts[1] if len(parts) >= 2 else None
         if not date_part or not time_part:
             return None, None
         display_time = time_part.replace("-", ":")
@@ -639,30 +436,6 @@ class LogStore:
             "token_count": response.get("token_count"),
             "target": target_text,
         }
-
-    def _group_endpoint(self, logs: list[dict[str, Any]]) -> str:
-        endpoints = {
-            str(item.get("endpoint") or "")
-            for item in logs
-            if item.get("endpoint")
-        }
-        if len(endpoints) == 1:
-            return next(iter(endpoints))
-        if len(endpoints) > 1:
-            return "mixed"
-        return ""
-
-    def _group_target(self, logs: list[dict[str, Any]]) -> str:
-        targets = {
-            str(item.get("target") or "")
-            for item in logs
-            if item.get("target")
-        }
-        if len(targets) == 1:
-            return next(iter(targets))
-        if len(targets) > 1:
-            return "mixed"
-        return ""
 
     def _log_item_matches_terms(self, item: dict[str, Any], group: dict[str, Any], terms: list[str]) -> bool:
         if not terms:

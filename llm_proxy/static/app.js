@@ -55,7 +55,6 @@ const translations = {
     pending: "等待中",
     noLogs: "暂无日志",
     loadMore: "加载更多",
-    ungrouped: "未归组",
     requests: "个请求",
     messages: "条消息",
     tokens: "tokens",
@@ -122,7 +121,6 @@ const translations = {
     pending: "pending",
     noLogs: "No logs",
     loadMore: "Load more",
-    ungrouped: "Ungrouped",
     requests: "requests",
     messages: "messages",
     tokens: "tokens",
@@ -447,7 +445,7 @@ function renderLogs() {
       <button class="log-group-head" data-group-id="${escapeHtml(group.id || "")}">
         <input class="log-group-select" type="checkbox" data-select-group="${escapeHtml(group.id || "")}" title="${escapeHtml(t("selectLogGroup"))}" ${state.selectedLogGroups[group.id] ? "checked" : ""}>
         <span class="log-group-caret">${!state.collapsedGroups[group.id] ? "▸" : "▾"}</span>
-        <span class="log-group-title">${escapeHtml(group.title === "__UNGROUPED__" ? t("ungrouped") : (group.title || group.id || t("task")))}</span>
+        <span class="log-group-title">${escapeHtml(group.title || group.id || t("task"))}</span>
         <span class="log-meta">${escapeHtml(formatLogMeta(group.meta || ""))}</span>
       </button>
       ${!state.collapsedGroups[group.id] ? "" : state.loadingLogGroups[group.id] ? `<div class="log-item log-loading">${escapeHtml(t("loading"))}</div>` : (group.logs || []).map((item) => `
