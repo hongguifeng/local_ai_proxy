@@ -63,7 +63,8 @@ const translations = {
     lines: "行",
     copyFormattedText: "复制格式化文本",
     exportedLogs: "日志已导出",
-    cleanedLogs: "日志已清理"
+    cleanedLogs: "日志已清理",
+    loading: "加载中..."
   },
   en: {
     language: "Language",
@@ -129,12 +130,13 @@ const translations = {
     lines: "lines",
     copyFormattedText: "Copy formatted text",
     exportedLogs: "Logs exported",
-    cleanedLogs: "Logs cleaned"
+    cleanedLogs: "Logs cleaned",
+    loading: "Loading..."
   }
 };
 const savedLanguage = localStorage.getItem("llmProxyLanguage");
 const initialLanguage = savedLanguage || ((navigator.language || "").toLowerCase().startsWith("zh") ? "zh" : "en");
-const state = { language: translations[initialLanguage] ? initialLanguage : "en", pairs: [], logGroups: [], logs: [], selected: null, selectedLogGroups: {}, raw: { request: null, response: null }, wrap: { request: false, response: false }, formatStrings: { request: false, response: false }, tree: { request: true, response: true }, collapsedGroups: {}, logsLoading: false, logsLoadedAt: 0, logLimit: 100, logOffset: 0, logsHasMore: false, logsTotal: 0, searchTimer: null, refreshTimer: null };
+const state = { language: translations[initialLanguage] ? initialLanguage : "en", pairs: [], logGroups: [], logs: [], selected: null, selectedLogGroups: {}, raw: { request: null, response: null }, wrap: { request: false, response: false }, formatStrings: { request: false, response: false }, tree: { request: true, response: true }, collapsedGroups: {}, loadingLogGroups: {}, logsLoading: false, logsLoadedAt: 0, logLimit: 100, logOffset: 0, logsHasMore: false, logsTotal: 0, searchTimer: null, refreshTimer: null };
 const $ = (id) => document.getElementById(id);
 const t = (key) => (translations[state.language] && translations[state.language][key]) || translations.en[key] || key;
 const toast = (text) => { const el = $("toast"); el.textContent = text; el.classList.add("show"); setTimeout(() => el.classList.remove("show"), 2400); };
@@ -345,14 +347,31 @@ function scheduleLogRefresh(delay = 3000) {
   }, delay);
 }
 function logGroupsSignature(groups) {
-  return (groups || []).map((group) => [
+  return (groups || []).map((group) => logGroupSummarySignature(group)).join("\n");
+}
+function logGroupSummarySignature(group) {
+  return [
     group.id,
-    group.meta,
-    ...(group.logs || []).map((item) => `${item.id}:${item.timestamp}:${item.status}`)
-  ].join("|")).join("\n");
+    group.dir,
+    group.title,
+    group.meta
+  ].join("|");
 }
 function sameLogGroups(nextGroups) {
   return logGroupsSignature(state.logGroups) === logGroupsSignature(nextGroups);
+}
+function mergeLogGroupSummaries(currentGroups, nextGroups) {
+  const currentById = new Map(currentGroups.map((group) => [group.id, group]));
+  return nextGroups.map((group) => {
+    const existing = currentById.get(group.id);
+    if (!existing) return group;
+    const summaryChanged = logGroupSummarySignature(existing) !== logGroupSummarySignature(group);
+    return {
+      ...group,
+      logs: summaryChanged ? [] : existing.logs,
+      logsLoaded: summaryChanged ? false : existing.logsLoaded
+    };
+  });
 }
 async function loadLogs(options = {}) {
   if (state.logsLoading) return;
@@ -370,17 +389,17 @@ async function loadLogs(options = {}) {
     if (options.append) {
       const mergeResult = appendLogGroups(state.logGroups, nextGroups);
       state.logGroups = mergeResult.groups;
-      mergeResult.addedGroupIds.forEach((groupId) => {
-        state.collapsedGroups[groupId] = true;
-      });
       state.logs = state.logGroups.flatMap((group) => group.logs || []);
       renderLogs();
       rendered = true;
     } else if (!sameLogGroups(nextGroups)) {
-      state.logGroups = nextGroups;
+      state.logGroups = mergeLogGroupSummaries(state.logGroups, nextGroups);
       state.logs = state.logGroups.flatMap((group) => group.logs || []);
       renderLogs();
       rendered = true;
+      state.logGroups
+        .filter((group) => state.collapsedGroups[group.id] && !group.logsLoaded)
+        .forEach((group) => loadLogGroup(group.id).catch((e) => toast(e.message)));
     }
     if (!rendered) renderLogs();
     state.logsLoadedAt = Date.now();
@@ -402,9 +421,25 @@ function appendLogGroups(currentGroups, nextGroups) {
       if ((copied.logs || []).length) addedGroupIds.add(copied.id);
       return;
     }
-    existing.logs = group.logs || [];
+    Object.assign(existing, { ...group, logs: existing.logs, logsLoaded: existing.logsLoaded });
   });
   return { groups: merged, addedGroupIds };
+}
+async function loadLogGroup(groupId) {
+  const group = state.logGroups.find((item) => item.id === groupId);
+  if (!group || group.logsLoaded || state.loadingLogGroups[groupId]) return;
+  state.loadingLogGroups[groupId] = true;
+  renderLogs();
+  try {
+    const q = encodeURIComponent($("logSearch").value.trim());
+    const data = await api(`/api/log-groups/${encodeURIComponent(groupId)}/logs?q=${q}`);
+    group.logs = data.logs || [];
+    group.logsLoaded = true;
+    state.logs = state.logGroups.flatMap((item) => item.logs || []);
+  } finally {
+    delete state.loadingLogGroups[groupId];
+    renderLogs();
+  }
 }
 function renderLogs() {
   const groupsHtml = state.logGroups.map((group) => `
@@ -415,7 +450,7 @@ function renderLogs() {
         <span class="log-group-title">${escapeHtml(group.title === "__UNGROUPED__" ? t("ungrouped") : (group.title || group.id || t("task")))}</span>
         <span class="log-meta">${escapeHtml(formatLogMeta(group.meta || ""))}</span>
       </button>
-      ${!state.collapsedGroups[group.id] ? "" : (group.logs || []).map((item) => `
+      ${!state.collapsedGroups[group.id] ? "" : state.loadingLogGroups[group.id] ? `<div class="log-item log-loading">${escapeHtml(t("loading"))}</div>` : (group.logs || []).map((item) => `
         <button class="log-item ${state.selected === item.id ? "active" : ""}" data-log-id="${escapeHtml(item.id)}">
           <span class="log-title">${escapeHtml(logItemTitle(item))}</span>
           <span class="log-meta">${escapeHtml(item.timestamp || "")} | ${escapeHtml(formatStatus(item.status))}</span>
@@ -609,6 +644,12 @@ $("logItems").addEventListener("click", (event) => {
   const item = event.target.closest("[data-log-id]");
   if (item) selectLog(item.dataset.logId).catch((e) => toast(e.message));
   if (event.target.matches("[data-load-more]")) loadLogs({ append: true }).catch((e) => toast(e.message));
+});
+$("logItems").addEventListener("click", (event) => {
+  const group = event.target.closest("[data-group-id]");
+  if (!group || event.target.matches("[data-select-group]")) return;
+  const groupId = group.dataset.groupId;
+  if (state.collapsedGroups[groupId]) loadLogGroup(groupId).catch((e) => toast(e.message));
 });
 document.querySelectorAll("[data-wrap]").forEach((button) => button.addEventListener("click", () => {
   const key = button.dataset.wrap;

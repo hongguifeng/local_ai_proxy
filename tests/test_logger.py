@@ -59,6 +59,13 @@ class TrafficLoggerTaskGroupingTests(unittest.TestCase):
             self.assertIn("- Endpoint: /v1/responses", markdown)
             self.assertIn("- Message count: 3", markdown)
             self.assertIn("- Token count: 5", markdown)
+            with (root / ".task-index.json").open(encoding="utf-8") as file:
+                index = json.load(file)
+            only_task = next(iter(index["tasks"].values()))
+            self.assertEqual(only_task["target"], "http://127.0.0.1:1235/v1/responses")
+            self.assertEqual(only_task["targets"], ["http://127.0.0.1:1235/v1/responses"])
+            task_markdown = next((root / "tasks").glob("*/index.md")).read_text(encoding="utf-8")
+            self.assertIn("- Target: http://127.0.0.1:1235/v1/responses", task_markdown)
         finally:
             log_dir.cleanup()
 

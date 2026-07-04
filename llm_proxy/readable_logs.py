@@ -159,6 +159,8 @@ def write_task_index_markdown(task_path: Path, task: Mapping[str, object]) -> No
     ]
     if task.get("model"):
         parts.append(f"- Model: {task.get('model')}")
+    if task.get("target"):
+        parts.append(f"- Target: {task.get('target')}")
     parts.extend(["", "## Timeline", ""])
     for request_id, info in request_items:
         if not isinstance(info, dict):

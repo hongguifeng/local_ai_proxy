@@ -82,6 +82,7 @@ class TaskGrouper:
         request_info["duration_ms"] = record.get("duration_ms")
         request_info["method"] = request.get("method")
         request_info["path"] = request.get("path")
+        request_info["target"] = self._target_text(record)
 
         task["last_seen_at"] = record.get("timestamp")
         if status is not None:
@@ -93,6 +94,7 @@ class TaskGrouper:
         task["fingerprints"] = request_fingerprints(kind, payload)
         task["boundary_fingerprints"] = request_boundary_fingerprints(kind, payload)
         task["last_user_messages"] = request_user_messages(kind, payload)
+        self._sync_task_target(task)
         self._sync_task_dir_name(task)
 
         task_id = str(task["id"])
@@ -345,6 +347,36 @@ class TaskGrouper:
         if isinstance(payload, dict) and payload.get("model"):
             task["model"] = payload.get("model")
         return task
+
+    def _target_text(self, record: Mapping[str, object]) -> str:
+        target = record.get("target")
+        if not isinstance(target, Mapping):
+            return ""
+        scheme = target.get("scheme")
+        host = target.get("host")
+        port = target.get("port")
+        path = target.get("path", "")
+        if not scheme or not host or port in {None, ""}:
+            return ""
+        return f"{scheme}://{host}:{port}{path}"
+
+    def _sync_task_target(self, task: dict[str, object]) -> None:
+        requests = task.get("requests")
+        if not isinstance(requests, dict):
+            return
+        targets = sorted(
+            {
+                str(info.get("target"))
+                for info in requests.values()
+                if isinstance(info, dict) and info.get("target")
+            }
+        )
+        if not targets:
+            task.pop("target", None)
+            task.pop("targets", None)
+            return
+        task["targets"] = targets
+        task["target"] = targets[0] if len(targets) == 1 else "mixed"
 
     def _task_anchor(self, record: Mapping[str, object], kind: str, payload: object) -> str:
         """Generate a stable anchor for the task directory name.

@@ -218,9 +218,15 @@ class AdminUiTests(unittest.TestCase):
             (root / ".task-index.json").write_text(
                 json.dumps(
                     {
-                        "task_match_strategy_version": 0,
-                        "tasks": {"stale-task-id": {"dir_name": task_request_path.parent.name}},
-                        "request_to_task": {},
+                        "task_match_strategy_version": 3,
+                        "tasks": {
+                            "task-one": {
+                                "dir_name": task_request_path.parent.name,
+                                "request_count": 1,
+                                "last_seen_at": "2026-06-07T08:00:00.010+00:00",
+                            }
+                        },
+                        "request_to_task": {"req_1": "task-one"},
                         "response_to_task": {},
                         "context_to_task": {},
                     }
@@ -258,9 +264,18 @@ class AdminUiTests(unittest.TestCase):
             conn.close()
 
             self.assertEqual(len(payload["groups"]), 1)
-            self.assertEqual(payload["groups"][0]["id"], "2026-06-07__08-00-00.000__08-00-00.010__responses__fp-demo")
+            self.assertEqual(payload["groups"][0]["id"], "task-one")
             self.assertEqual(payload["groups"][0]["title"], "2026-06-07 08:00:00.000 - 08:00:00.010")
-            self.assertEqual(payload["groups"][0]["logs"][0]["id"], "req_1")
+            self.assertNotIn("logs", payload["groups"][0])
+
+            conn = http.client.HTTPConnection("127.0.0.1", server.server_address[1], timeout=5)
+            conn.request("GET", f"/api/log-groups/{payload['groups'][0]['id']}/logs")
+            response = conn.getresponse()
+            self.assertEqual(response.status, 200)
+            group_payload = json.loads(response.read())
+            conn.close()
+
+            self.assertEqual(group_payload["logs"][0]["id"], "req_1")
         finally:
             if server is not None:
                 server.shutdown()
@@ -300,6 +315,24 @@ class AdminUiTests(unittest.TestCase):
 
             write_record("001__08-00-00.000__v1-responses__req_1", "req_1", "2099-01-01T00:00:00.000+00:00")
             write_record("002__08-00-20.000__v1-responses__req_2", "req_2", "2000-01-01T00:00:00.000+00:00")
+            (root / ".task-index.json").write_text(
+                json.dumps(
+                    {
+                        "task_match_strategy_version": 3,
+                        "tasks": {
+                            "task-one": {
+                                "dir_name": task_path.name,
+                                "request_count": 2,
+                                "last_seen_at": "2026-06-07T08:00:20.000+00:00",
+                            }
+                        },
+                        "request_to_task": {"req_1": "task-one", "req_2": "task-one"},
+                        "response_to_task": {},
+                        "context_to_task": {},
+                    }
+                ),
+                encoding="utf-8",
+            )
 
             (root / "readable").mkdir(exist_ok=True)
             manager = ProxyManager(root / "proxies.json", root)
@@ -314,11 +347,92 @@ class AdminUiTests(unittest.TestCase):
             payload = json.loads(response.read())
             conn.close()
 
-            logs = payload["groups"][0]["logs"]
+            conn = http.client.HTTPConnection("127.0.0.1", server.server_address[1], timeout=5)
+            conn.request("GET", f"/api/log-groups/{payload['groups'][0]['id']}/logs")
+            response = conn.getresponse()
+            self.assertEqual(response.status, 200)
+            group_payload = json.loads(response.read())
+            conn.close()
+
+            logs = group_payload["logs"]
             self.assertEqual([item["id"] for item in logs], ["req_2", "req_1"])
             self.assertEqual([item["sequence"] for item in logs], ["002", "001"])
             self.assertEqual(logs[0]["timestamp"], "2026-06-07 08:00:20.000")
             self.assertEqual(logs[1]["timestamp"], "2026-06-07 08:00:00.000")
+        finally:
+            if server is not None:
+                server.shutdown()
+                server.server_close()
+            temp_dir.cleanup()
+
+    def test_log_group_logs_sort_by_task_request_timestamp_descending(self) -> None:
+        temp_dir = tempfile.TemporaryDirectory()
+        server = None
+        try:
+            root = Path(temp_dir.name)
+            task_path = root / "tasks" / "2026-06-07__08-00-00.000__08-30-00.000__responses__fp-demo"
+            for sequence, record_id in (("001", "req_old"), ("002", "req_new")):
+                request_path = task_path / f"{sequence}__08-00-00.000__v1-responses__{record_id}"
+                request_path.mkdir(parents=True)
+                (request_path / "summary.md").write_text(
+                    "\n".join(
+                        [
+                            f"# LLM Interaction {record_id}",
+                            "",
+                            "## Summary",
+                            "",
+                            "- Time: 2000-01-01T00:00:00.000+00:00",
+                            "- Event: request_finished",
+                            "- Target: http://127.0.0.1:1235/v1/responses",
+                            "- Request: POST /v1/responses",
+                            "- Response: 200",
+                        ]
+                    ),
+                    encoding="utf-8",
+                )
+            (root / ".task-index.json").write_text(
+                json.dumps(
+                    {
+                        "task_match_strategy_version": 3,
+                        "tasks": {
+                            "task-one": {
+                                "dir_name": task_path.name,
+                                "request_count": 2,
+                                "last_seen_at": "2026-06-07T08:00:20.000+00:00",
+                                "requests": {
+                                    "req_old": {
+                                        "sequence": 1,
+                                        "timestamp": "2026-06-07T08:00:00.000+00:00",
+                                    },
+                                    "req_new": {
+                                        "sequence": 2,
+                                        "timestamp": "2026-06-07T08:00:20.000+00:00",
+                                    },
+                                },
+                            }
+                        },
+                        "request_to_task": {"req_old": "task-one", "req_new": "task-one"},
+                        "response_to_task": {},
+                        "context_to_task": {},
+                    }
+                ),
+                encoding="utf-8",
+            )
+
+            (root / "readable").mkdir(exist_ok=True)
+            manager = ProxyManager(root / "proxies.json", root)
+            server = AdminServer(("127.0.0.1", 0), manager)
+            thread = threading.Thread(target=server.serve_forever, daemon=True)
+            thread.start()
+
+            conn = http.client.HTTPConnection("127.0.0.1", server.server_address[1], timeout=5)
+            conn.request("GET", "/api/log-groups/task-one/logs")
+            response = conn.getresponse()
+            self.assertEqual(response.status, 200)
+            payload = json.loads(response.read())
+            conn.close()
+
+            self.assertEqual([item["id"] for item in payload["logs"]], ["req_new", "req_old"])
         finally:
             if server is not None:
                 server.shutdown()
@@ -356,6 +470,24 @@ class AdminUiTests(unittest.TestCase):
                 ),
                 encoding="utf-8",
             )
+            (root / ".task-index.json").write_text(
+                json.dumps(
+                    {
+                        "task_match_strategy_version": 3,
+                        "tasks": {
+                            "task-one": {
+                                "dir_name": task_request_path.parent.name,
+                                "request_count": 1,
+                                "last_seen_at": "2026-06-07T08:00:00.010+00:00",
+                            }
+                        },
+                        "request_to_task": {"req_1": "task-one"},
+                        "response_to_task": {},
+                        "context_to_task": {},
+                    }
+                ),
+                encoding="utf-8",
+            )
             (root / "readable").mkdir(exist_ok=True)
             manager = ProxyManager(root / "proxies.json", root)
             server = AdminServer(("127.0.0.1", 0), manager)
@@ -370,8 +502,18 @@ class AdminUiTests(unittest.TestCase):
             conn.close()
 
             group = payload["groups"][0]
-            self.assertEqual(group["meta"], "1 requests | http://127.0.0.1:1235/v1/responses")
-            item = group["logs"][0]
+            self.assertEqual(group["meta"], "1 requests")
+            self.assertNotIn("logs", group)
+
+            conn = http.client.HTTPConnection("127.0.0.1", server.server_address[1], timeout=5)
+            conn.request("GET", f"/api/log-groups/{group['id']}/logs")
+            response = conn.getresponse()
+            self.assertEqual(response.status, 200)
+            group_payload = json.loads(response.read())
+            conn.close()
+
+            self.assertNotIn("meta", group_payload)
+            item = group_payload["logs"][0]
             self.assertEqual(item["endpoint"], "/v1/responses")
             self.assertEqual(item["target"], "http://127.0.0.1:1235/v1/responses")
             self.assertEqual(item["message_count"], 3)
@@ -387,14 +529,23 @@ class AdminUiTests(unittest.TestCase):
         server = None
         try:
             root = Path(temp_dir.name)
+            tasks: dict[str, dict[str, object]] = {}
+            request_to_task: dict[str, str] = {}
             for group_index, group_start in enumerate(["08-00-00.000", "08-01-00.000", "08-02-00.000"], start=1):
                 task_path = (
                     root
                     / "tasks"
                     / f"2026-06-07__{group_start}__08-30-00.000__responses__fp-demo-{group_index}"
                 )
+                task_id = f"task-{group_index}"
+                tasks[task_id] = {
+                    "dir_name": task_path.name,
+                    "request_count": 2,
+                    "last_seen_at": f"2026-06-07T{group_start.replace('-', ':')}+00:00",
+                }
                 for sequence in ("001", "002"):
                     record_id = f"req_{group_index}_{sequence}"
+                    request_to_task[record_id] = task_id
                     request_path = task_path / f"{sequence}__{group_start}__v1-responses__{record_id}"
                     request_path.mkdir(parents=True)
                     (request_path / "summary.md").write_text(
@@ -413,6 +564,18 @@ class AdminUiTests(unittest.TestCase):
                         ),
                         encoding="utf-8",
                     )
+            (root / ".task-index.json").write_text(
+                json.dumps(
+                    {
+                        "task_match_strategy_version": 3,
+                        "tasks": tasks,
+                        "request_to_task": request_to_task,
+                        "response_to_task": {},
+                        "context_to_task": {},
+                    }
+                ),
+                encoding="utf-8",
+            )
 
             (root / "readable").mkdir(exist_ok=True)
             manager = ProxyManager(root / "proxies.json", root)
@@ -435,8 +598,107 @@ class AdminUiTests(unittest.TestCase):
             group_dirs = [group["dir"] for group in payload["groups"]]
             self.assertTrue(group_dirs[0].endswith("fp-demo-2"))
             self.assertTrue(group_dirs[1].endswith("fp-demo-1"))
-            self.assertEqual(len(payload["groups"][0]["logs"]), 2)
-            self.assertEqual(len(payload["logs"]), 4)
+            self.assertNotIn("logs", payload["groups"][0])
+        finally:
+            if server is not None:
+                server.shutdown()
+                server.server_close()
+            temp_dir.cleanup()
+
+    def test_log_list_summary_uses_task_metadata_without_child_logs(self) -> None:
+        temp_dir = tempfile.TemporaryDirectory()
+        server = None
+        try:
+            root = Path(temp_dir.name)
+            task_path = root / "tasks" / "2026-06-07__08-00-00.000__08-30-00.000__responses__fp-demo"
+            for sequence in ("001", "002"):
+                request_path = task_path / f"{sequence}__08-00-00.000__v1-responses__req_{sequence}"
+                request_path.mkdir(parents=True)
+            (root / ".task-index.json").write_text(
+                json.dumps(
+                    {
+                        "task_match_strategy_version": 3,
+                        "tasks": {
+                            "task-one": {
+                                "dir_name": task_path.name,
+                                "model": "gpt-5.5",
+                                "target": "http://127.0.0.1:1235/v1/responses",
+                                "request_count": 2,
+                                "last_seen_at": "2026-06-07T08:30:00.000+00:00",
+                            }
+                        },
+                        "request_to_task": {},
+                        "response_to_task": {},
+                        "context_to_task": {},
+                    }
+                ),
+                encoding="utf-8",
+            )
+
+            (root / "readable").mkdir(exist_ok=True)
+            manager = ProxyManager(root / "proxies.json", root)
+            server = AdminServer(("127.0.0.1", 0), manager)
+            thread = threading.Thread(target=server.serve_forever, daemon=True)
+            thread.start()
+
+            conn = http.client.HTTPConnection("127.0.0.1", server.server_address[1], timeout=5)
+            conn.request("GET", "/api/logs?limit=100")
+            response = conn.getresponse()
+            self.assertEqual(response.status, 200)
+            payload = json.loads(response.read())
+            conn.close()
+
+            self.assertEqual(payload["total"], 1)
+            self.assertEqual(payload["groups"][0]["id"], "task-one")
+            self.assertEqual(payload["groups"][0]["meta"], "gpt-5.5 | 2 requests | http://127.0.0.1:1235/v1/responses")
+            self.assertNotIn("logs", payload["groups"][0])
+        finally:
+            if server is not None:
+                server.shutdown()
+                server.server_close()
+            temp_dir.cleanup()
+
+    def test_log_group_logs_loads_one_group_on_demand(self) -> None:
+        temp_dir = tempfile.TemporaryDirectory()
+        server = None
+        try:
+            root = Path(temp_dir.name)
+            for group_index in (1, 2):
+                task_path = root / "tasks" / f"2026-06-07__08-0{group_index}-00.000__08-30-00.000__responses__fp-demo-{group_index}"
+                request_path = task_path / f"001__08-0{group_index}-00.000__v1-responses__req_{group_index}"
+                request_path.mkdir(parents=True)
+                (request_path / "summary.md").write_text(
+                    "\n".join(
+                        [
+                            f"# LLM Interaction req_{group_index}",
+                            "",
+                            "## Summary",
+                            "",
+                            f"- Time: 2026-06-07T08:0{group_index}:00.000+00:00",
+                            "- Event: request_finished",
+                            "- Target: http://127.0.0.1:1235/v1/responses",
+                            "- Request: POST /v1/responses",
+                            "- Response: 200",
+                        ]
+                    ),
+                    encoding="utf-8",
+                )
+
+            (root / "readable").mkdir(exist_ok=True)
+            manager = ProxyManager(root / "proxies.json", root)
+            server = AdminServer(("127.0.0.1", 0), manager)
+            thread = threading.Thread(target=server.serve_forever, daemon=True)
+            thread.start()
+
+            conn = http.client.HTTPConnection("127.0.0.1", server.server_address[1], timeout=5)
+            conn.request("GET", "/api/log-groups/2026-06-07__08-02-00.000__08-30-00.000__responses__fp-demo-2/logs")
+            response = conn.getresponse()
+            self.assertEqual(response.status, 200)
+            payload = json.loads(response.read())
+            conn.close()
+
+            self.assertNotIn("meta", payload)
+            self.assertEqual([item["id"] for item in payload["logs"]], ["req_2"])
         finally:
             if server is not None:
                 server.shutdown()
@@ -513,7 +775,17 @@ class AdminUiTests(unittest.TestCase):
             payload = json.loads(response.read())
             conn.close()
 
-            ids = {item["id"] for group in payload["groups"] for item in group["logs"]}
+            self.assertEqual([group["id"] for group in payload["groups"]], ["ungrouped"])
+            self.assertNotIn("logs", payload["groups"][0])
+
+            conn = http.client.HTTPConnection("127.0.0.1", server.server_address[1], timeout=5)
+            conn.request("GET", "/api/log-groups/ungrouped/logs")
+            response = conn.getresponse()
+            self.assertEqual(response.status, 200)
+            group_payload = json.loads(response.read())
+            conn.close()
+
+            ids = {item["id"] for item in group_payload["logs"]}
             self.assertEqual(ids, {"req_first", "req_second"})
         finally:
             if server is not None:

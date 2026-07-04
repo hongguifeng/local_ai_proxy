@@ -26,76 +26,35 @@ class LogStore:
         self.cache: dict[str, Any] = {"groups": [], "ungrouped": [], "by_id": {}}
         self.record_cache: dict[str, tuple[tuple[int, int], dict[str, Any]]] = {}
 
-    def list_logs(self, query: str) -> list[dict[str, Any]]:
+    def list_log_group_summary_page(self, query: str, limit: int, offset: int) -> dict[str, Any]:
+        return self._list_log_group_summary_page(query, limit, offset)
+
+    def list_log_group_logs(self, group_id: str, query: str) -> dict[str, Any] | None:
         terms = query.lower().split()
-        snapshot = self._snapshot()
-        items = [
-            item
-            for item in snapshot.get("ungrouped", [])
-            if self._log_item_matches_terms(item, {"id": "ungrouped", "title": self.UNGROUPED_TITLE}, terms)
-        ]
-        items.sort(key=lambda item: str(item.get("_sort_key") or item.get("timestamp") or ""), reverse=True)
-        return items[:500]
+        if group_id == "ungrouped":
+            logs = self._load_ungrouped_log_items(terms)
+            return {"id": "ungrouped", "logs": logs[:200]}
 
-    def list_log_groups(self, query: str, limit: int | None = None, offset: int = 0) -> list[dict[str, Any]]:
-        if limit is not None:
-            return self._list_log_groups_page(query, limit, offset)["groups"]
-        return self._list_log_groups_all(query)
-
-    def list_log_page(self, query: str, limit: int, offset: int) -> dict[str, Any]:
-        return self._list_log_groups_page(query, limit, offset)
-
-    def _list_log_groups_all(self, query: str) -> list[dict[str, Any]]:
-        terms = query.lower().split()
-        snapshot = self._snapshot()
-        task_meta_by_dir: dict[str, dict[str, Any]] = {}
         for root in self._readable_roots():
-            if root.exists():
-                task_meta_by_dir.update(self._load_task_meta_map(root))
-
-        groups = []
-        for group in snapshot.get("groups", []):
-            filtered_logs = [
-                item
-                for item in group["logs"]
-                if self._log_item_matches_terms(item, group, terms)
-            ]
-            if not filtered_logs:
+            tasks_root = root.parent / "tasks"
+            if not tasks_root.exists():
                 continue
+            task_dir = self._task_dir_for_group_id(root, group_id)
+            task_path = tasks_root / task_dir
+            if not task_path.is_dir() or task_path.name.startswith("."):
+                continue
+            task_meta = self._load_task_meta_map(root).get(task_path.name) or {}
+            group = self._task_group_summary(task_meta)
+            logs = self._load_task_log_items(task_path, group, terms, task_meta)
+            return {"id": group_id, "logs": logs[:200]}
+        return None
 
-            visible_group = {key: value for key, value in group.items() if not key.startswith("_")}
-            visible_group["logs"] = filtered_logs[:200]
-            meta_parts = [f"{len(filtered_logs)} requests"]
-            task_meta = task_meta_by_dir.get(str(group.get("dir") or group.get("id") or "")) or {}
-            model = task_meta.get("model")
-            if isinstance(model, str) and model.strip():
-                meta_parts.insert(0, model.rsplit("/", 1)[-1].rsplit(chr(92), 1)[-1])
-            target = self._group_target(filtered_logs)
-            if target:
-                meta_parts.append(target)
-            visible_group["meta"] = " | ".join(meta_parts)
-            groups.append(visible_group)
-
-        ungrouped = [
-            item
-            for item in snapshot.get("ungrouped", [])
-            if self._log_item_matches_terms(item, {"id": "ungrouped", "title": self.UNGROUPED_TITLE}, terms)
-        ]
-        ungrouped.sort(key=lambda item: str(item.get("_sort_key") or item.get("timestamp") or ""), reverse=True)
-        if ungrouped:
-            meta_parts = [f"{len(ungrouped)} requests"]
-            target = self._group_target(ungrouped)
-            if target:
-                meta_parts.append(target)
-            groups.append({"id": "ungrouped", "title": self.UNGROUPED_TITLE, "meta": " | ".join(meta_parts), "logs": ungrouped[:200]})
-        return groups[:100]
-
-    def _list_log_groups_page(self, query: str, limit: int, offset: int) -> dict[str, Any]:
+    def _list_log_group_summary_page(self, query: str, limit: int, offset: int) -> dict[str, Any]:
         limit = max(1, min(limit, 500))
         offset = max(0, offset)
-        all_groups = self._list_log_groups_all(query)
-        total = len(all_groups)
-        paged_groups = all_groups[offset : offset + limit]
+        groups = self._list_log_group_summaries(query)
+        total = len(groups)
+        paged_groups = groups[offset : offset + limit]
         next_offset = offset + len(paged_groups)
         return {
             "groups": paged_groups,
@@ -105,6 +64,177 @@ class LogStore:
             "next_offset": next_offset,
             "has_more": next_offset < total,
         }
+
+    def _list_log_group_summaries(self, query: str) -> list[dict[str, Any]]:
+        terms = query.lower().split()
+        groups: list[dict[str, Any]] = []
+        ungrouped_count = 0
+        ungrouped_sort_key = ""
+        for root in self._readable_roots():
+            if not root.exists():
+                continue
+            task_record_ids = self._indexed_task_record_ids(root)
+            for task_meta in self._load_task_meta_map(root).values():
+                group = self._task_group_summary(task_meta)
+                if int(group.get("_request_count") or 0) > 0 and self._group_matches_terms(group, terms):
+                    groups.append(group)
+
+            for path in self._iter_dirs(root):
+                if path.name == "tasks":
+                    continue
+                record_id = self._record_id_from_dir(path)
+                if record_id in task_record_ids:
+                    continue
+                if not self._ungrouped_dir_matches_terms(path, terms):
+                    continue
+                ungrouped_count += 1
+                _, sort_key = self._timestamp_from_record_dir(path)
+                ungrouped_sort_key = max(ungrouped_sort_key, sort_key or "")
+
+        if ungrouped_count:
+            groups.append(
+                {
+                    "id": "ungrouped",
+                    "title": self.UNGROUPED_TITLE,
+                    "meta": f"{ungrouped_count} requests",
+                    "_sort_key": ungrouped_sort_key,
+                    "_request_count": ungrouped_count,
+                }
+            )
+
+        groups.sort(key=lambda group: str(group.get("_sort_key") or ""), reverse=True)
+        return [self._group_without_logs(group) for group in groups[:100]]
+
+    def _task_group_summary(self, task_meta: dict[str, Any]) -> dict[str, Any]:
+        dir_name = str(task_meta.get("dir_name") or "")
+        group_id = str(task_meta.get("id") or dir_name)
+        request_count = self._task_request_count(task_meta)
+        meta_parts = [f"{request_count} requests"]
+        model = task_meta.get("model")
+        if isinstance(model, str) and model.strip():
+            meta_parts.insert(0, model.rsplit("/", 1)[-1].rsplit(chr(92), 1)[-1])
+        target = task_meta.get("target")
+        if isinstance(target, str) and target.strip():
+            meta_parts.append(target)
+        return {
+            "id": group_id,
+            "dir": dir_name,
+            "title": self._task_group_title(dir_name),
+            "meta": " | ".join(meta_parts),
+            "_sort_key": self._task_group_sort_key(task_meta),
+            "_request_count": request_count,
+        }
+
+    def _task_request_count(self, task_meta: dict[str, Any]) -> int:
+        try:
+            return max(0, int(str(task_meta.get("request_count") or 0)))
+        except ValueError:
+            return 0
+
+    def _task_group_sort_key(self, task_meta: dict[str, Any]) -> str:
+        for key in ("last_response_at", "last_seen_at", "started_at"):
+            value = task_meta.get(key)
+            if isinstance(value, str) and value:
+                return value
+        return str(task_meta.get("dir_name") or "")
+
+    def _group_without_logs(self, group: dict[str, Any]) -> dict[str, Any]:
+        return {key: value for key, value in group.items() if not key.startswith("_") and key != "logs"}
+
+    def _task_dir_for_group_id(self, root: Path, group_id: str) -> str:
+        for task in self._load_task_meta_map(root).values():
+            if task.get("id") == group_id and task.get("dir_name"):
+                return str(task["dir_name"])
+        return group_id
+
+    def _indexed_task_record_ids(self, root: Path) -> set[str]:
+        index_path = root.parent / ".task-index.json"
+        data = TaskIndexStore(index_path).load()
+        request_to_task = data.get("request_to_task")
+        if isinstance(request_to_task, dict):
+            return {str(request_id) for request_id in request_to_task}
+        return set()
+
+    def _group_matches_terms(self, group: dict[str, Any], terms: list[str]) -> bool:
+        if not terms:
+            return True
+        haystack = " ".join(
+            str(value).lower()
+            for value in [
+                group.get("id"),
+                group.get("dir"),
+                group.get("title"),
+                group.get("meta"),
+            ]
+        )
+        return all(term in haystack for term in terms)
+
+    def _ungrouped_dir_matches_terms(self, path: Path, terms: list[str]) -> bool:
+        if not terms:
+            return True
+        haystack = " ".join([self.UNGROUPED_TITLE, path.name]).lower()
+        return all(term in haystack for term in terms)
+
+    def _record_id_from_dir(self, path: Path) -> str:
+        parts = path.name.split("__")
+        return parts[-1] if parts else ""
+
+    def _load_task_log_items(
+        self,
+        task_path: Path,
+        group: dict[str, Any],
+        terms: list[str],
+        task_meta: dict[str, Any] | None = None,
+    ) -> list[dict[str, Any]]:
+        logs: list[dict[str, Any]] = []
+        request_meta = task_meta.get("requests") if isinstance(task_meta, dict) else None
+        if not isinstance(request_meta, dict):
+            request_meta = {}
+        for request_path in self._iter_dirs(task_path):
+            record = self._read_readable_record(request_path, include_body=False)
+            if not record:
+                continue
+            record["_task_dir"] = task_path.name
+            item = self._log_item(record)
+            request_id = str(item.get("id") or "")
+            item["_sort_key"] = self._task_request_sort_key(request_meta.get(request_id), item)
+            if self._log_item_matches_terms(item, group, terms):
+                logs.append(item)
+        logs.sort(key=lambda item: str(item.get("_sort_key") or item.get("timestamp") or ""), reverse=True)
+        return logs
+
+    def _task_request_sort_key(self, request_info: object, item: dict[str, Any]) -> str:
+        if isinstance(request_info, dict):
+            timestamp = request_info.get("timestamp") or request_info.get("started_at")
+            sequence = request_info.get("sequence")
+            if isinstance(timestamp, str) and timestamp:
+                try:
+                    sequence_number = int(str(sequence))
+                except ValueError:
+                    sequence_number = 0
+                return f"{timestamp}|{sequence_number:09d}"
+        return str(item.get("_sort_key") or item.get("timestamp") or "")
+
+    def _load_ungrouped_log_items(self, terms: list[str]) -> list[dict[str, Any]]:
+        logs: list[dict[str, Any]] = []
+        for root in self._readable_roots():
+            if not root.exists():
+                continue
+            task_record_ids = self._indexed_task_record_ids(root)
+            for path in self._iter_dirs(root):
+                if path.name == "tasks":
+                    continue
+                record = self._read_readable_record(path, include_body=False)
+                if not record:
+                    continue
+                record_id = str(record.get("id"))
+                if record_id in task_record_ids:
+                    continue
+                item = self._log_item(record)
+                if self._log_item_matches_terms(item, {"id": "ungrouped", "title": self.UNGROUPED_TITLE}, terms):
+                    logs.append(item)
+        logs.sort(key=lambda item: str(item.get("_sort_key") or item.get("timestamp") or ""), reverse=True)
+        return logs
 
     def find_log(self, record_id: str) -> dict[str, Any] | None:
         snapshot = self._snapshot()
@@ -180,6 +310,9 @@ class LogStore:
             except OSError:
                 pass
             tasks_root = root.parent / "tasks"
+            index_path = root.parent / ".task-index.json"
+            if index_path.exists():
+                candidates.append(index_path)
             if tasks_root.exists():
                 try:
                     for task_path in tasks_root.iterdir():
@@ -234,6 +367,12 @@ class LogStore:
                 "dir_name": dir_name,
                 "model": task.get("model"),
                 "kind": task.get("kind"),
+                "target": task.get("target"),
+                "request_count": task.get("request_count"),
+                "started_at": task.get("started_at"),
+                "last_seen_at": task.get("last_seen_at"),
+                "last_response_at": task.get("last_response_at"),
+                "requests": task.get("requests") if isinstance(task.get("requests"), dict) else {},
             }
 
         return result

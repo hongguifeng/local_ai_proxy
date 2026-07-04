@@ -6,7 +6,7 @@ import json
 from http import HTTPStatus
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from typing import Any
-from urllib.parse import parse_qs, urlsplit
+from urllib.parse import parse_qs, unquote, urlsplit
 
 from .log_maintenance import cleanup_logs, export_logs_zip
 from .log_store import LogStore
@@ -42,18 +42,19 @@ class AdminHandler(BaseHTTPRequestHandler):
         if parsed.path == "/api/logs":
             params = parse_qs(parsed.query)
             query = params.get("q", [""])[0]
-            limit = self._query_int(params, "limit")
+            limit = self._query_int(params, "limit") or 100
             offset = self._query_int(params, "offset") or 0
-            if limit is not None:
-                page = self.log_store.list_log_page(query, limit, offset)
-                self._send_json({**page, "logs": [item for group in page["groups"] for item in group["logs"]]})
+            self._send_json(self.log_store.list_log_group_summary_page(query, limit, offset))
+            return
+        if parsed.path.startswith("/api/log-groups/") and parsed.path.endswith("/logs"):
+            params = parse_qs(parsed.query)
+            query = params.get("q", [""])[0]
+            group_id = unquote(parsed.path.removeprefix("/api/log-groups/").removesuffix("/logs"))
+            group = self.log_store.list_log_group_logs(group_id, query)
+            if group is None:
+                self._send_json({"error": "Log group not found."}, HTTPStatus.NOT_FOUND)
                 return
-            self._send_json(
-                {
-                    "groups": self.log_store.list_log_groups(query),
-                    "logs": self.log_store.list_logs(query),
-                }
-            )
+            self._send_json(group)
             return
         if parsed.path == "/api/logs/export":
             self._send_binary(export_logs_zip(self.manager), "application/zip", "llm-proxy-logs.zip")
