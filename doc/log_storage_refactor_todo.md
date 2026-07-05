@@ -15,7 +15,7 @@
 | --- | --- | --- | --- |
 | 0.1 设计收紧与 TODO 文档 | 已完成 | `87124a8` | 文档检查 |
 | 1.1 SQLite schema 与连接基础 | 已完成 | `91bf67f` | `python -m unittest tests.test_log_db` |
-| 1.2 SQLite repository 读写骨架 | 待开始 |  |  |
+| 1.2 SQLite repository 读写骨架 | 已完成 | `e1bb90c` | `python -m unittest tests.test_log_db tests.test_log_repository` |
 | 2.1 任务匹配迁移到 SQLite | 待开始 |  |  |
 | 2.2 TrafficLogger 改为 SQLite 写入 | 待开始 |  |  |
 | 3.1 Admin 日志查询切换到 SQLite | 待开始 |  |  |
@@ -48,15 +48,15 @@
 
 ### 1.2 SQLite repository 读写骨架
 
-- [ ] 新增 `llm_proxy/log_repository.py`。
-- [ ] 实现 JSON 编解码辅助。
-- [ ] 实现 task upsert。
-- [ ] 实现 record upsert。
-- [ ] 实现 response/context link upsert。
-- [ ] 实现基础 list/get/delete 方法。
-- [ ] 增加 repository 单元测试。
-- [ ] 提交代码。
-- [ ] 回填进度记录。
+- [x] 新增 `llm_proxy/log_repository.py`。
+- [x] 实现 JSON 编解码辅助。
+- [x] 实现 task upsert。
+- [x] 实现 record upsert。
+- [x] 实现 response/context link upsert。
+- [x] 实现基础 list/get/delete 方法。
+- [x] 增加 repository 单元测试。
+- [x] 提交代码。
+- [x] 回填进度记录。
 
 ## 2. 写入链路重构
 
