@@ -21,7 +21,7 @@
 | 3.1 Admin 日志查询切换到 SQLite | 已完成 | `03d5ad3` | `python -m unittest tests.test_log_db tests.test_log_repository tests.test_task_matcher tests.test_sqlite_logger tests.test_redaction tests.test_admin_ui` |
 | 3.2 清理与导出切换到 SQLite | 已完成 | `ea2a003` | `python -m unittest tests.test_log_db tests.test_log_repository tests.test_task_matcher tests.test_sqlite_logger tests.test_redaction tests.test_admin_ui` |
 | 4.1 删除旧文件索引实现 | 已完成 | `0360f40` | `python -m unittest discover -s tests`; 旧索引关键字无命中，`tasks/` 仅保留在 ZIP 导出路径 |
-| 4.2 文档、测试和收尾 | 待开始 |  |  |
+| 4.2 文档、测试和收尾 | 已完成 | `4a4f99e` | `python -m unittest discover -s tests`; `python -m compileall -q llm_proxy tests`; `python -m ruff check .`; `python -m mypy` |
 
 ## 0. 设计与计划
 
@@ -117,11 +117,11 @@
 
 ### 4.2 文档、测试和收尾
 
-- [ ] 更新 README / README.cn 中的磁盘日志说明。
-- [ ] 更新工程结构说明。
-- [ ] 运行 `python -m unittest discover -s tests`。
-- [ ] 运行 `python -m compileall -q llm_proxy tests`。
-- [ ] 如环境可用，运行 `python -m ruff check .`。
-- [ ] 最终检查 git 状态。
-- [ ] 提交代码。
-- [ ] 回填进度记录。
+- [x] 更新 README / README.cn 中的磁盘日志说明。
+- [x] 更新工程结构说明。
+- [x] 运行 `python -m unittest discover -s tests`。
+- [x] 运行 `python -m compileall -q llm_proxy tests`。
+- [x] 如环境可用，运行 `python -m ruff check .`。
+- [x] 最终检查 git 状态。
+- [x] 提交代码。
+- [x] 回填进度记录。
