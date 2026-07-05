@@ -470,7 +470,7 @@ function jsonType(value) {
   if (Array.isArray(value)) return "array";
   return typeof value;
 }
-const defaultJsonExpandedDepth = 3;
+const defaultJsonExpandedDepth = 2;
 function renderJsonValue(value, key = "", root = false, formatMode = false, depth = 0) {
   const type = jsonType(value);
   const keyHtml = key === "" ? "" : `<span class="json-key">${escapeHtml(JSON.stringify(key))}</span>: `;
