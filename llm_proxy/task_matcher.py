@@ -64,17 +64,17 @@ class TaskMatcher:
         payload = request_body_json(record)
         response_payload = response_body_json(record)
         pending_task = self._task_for_existing_record(request_id)
-        task = self._promote_or_match_pending(pending_task, record, kind, payload)
-        if task is None:
-            task = (
+        matched_task: dict[str, Any] | None = self._promote_or_match_pending(pending_task, record, kind, payload)
+        if matched_task is None:
+            matched_task = (
                 self._find_or_new_model_task(record, kind, payload)
                 if kind in MODEL_TASK_KINDS
                 else self._find_or_new_single_request_task(record, kind)
             )
-        if task is None:
+        if matched_task is None:
             return None
 
-        task = self._updated_task(task, record, kind, payload, response_payload)
+        task = self._updated_task(matched_task, record, kind, payload, response_payload)
         sequence = self._sequence_for_record(request_id, str(task["id"]))
         context_keys = self._context_keys(payload, record) if isinstance(payload, Mapping) else []
         return TaskAssignment(

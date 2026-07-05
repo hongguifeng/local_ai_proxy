@@ -160,7 +160,7 @@ fallback-model
 - JSON 展开/折叠、自动换行、字符串内容格式化和复制。
 - ZIP 导出和选中任务清理。
 
-任务归类状态会保存在日志根目录旁的 `.task-index.json` 中。当多个 proxy/logger 实例写入同一个日志根目录时，写入前会刷新索引，保存时会合并磁盘上的新记录，避免重启或并行写入后用旧的内存索引覆盖新任务。
+历史流量会保存到每个日志根目录下的 `traffic.db`。数据库用 SQLite 保存任务元数据、请求/响应详情、response id 链接、上下文链接和可搜索字段，因此历史日志页面不需要扫描 Markdown 或 JSON 文件来完成日常浏览。
 
 ## 常见使用流程
 
@@ -215,19 +215,20 @@ presence_penalty, frequency_penalty, seed
 默认路径：
 
 - 代理配置：`logs/proxies.json`
-- 任务日志：默认 `logs/tasks/`，可按转发地址单独配置日志根目录
+- 流量日志数据库：默认 `logs/traffic.db`，可按转发地址单独配置日志根目录
 
-每次捕获到的交互都会写入独立目录，包含：
+每次捕获到的交互都会写入 SQLite 记录，包含：
 
-- Markdown 摘要。
-- `request.json`。
-- `response.json`。
+- 任务归类元数据。
+- 请求和响应 headers。
+- 解析后的请求和响应 body。
+- 状态码、耗时、message count、token count、target URL 和路由元数据。
 
-对于 OpenAI-compatible 和 Claude Messages SSE 流式响应，`response.json` 会在保留原始流数据的同时写入聚合后的 `stream_summary`，其中可能包含 `content`、`reasoning`、`tool_calls`、`response_tool_calls`、`claude_tool_calls`、`finish_reasons`、`usage` 和精简后的响应元数据等字段。
+对于 OpenAI-compatible 和 Claude Messages SSE 流式响应，保存的响应 body 会包含聚合后的 `stream_summary`，保留有用的流式内容。其中可能包含 `content`、`reasoning`、`tool_calls`、`response_tool_calls`、`claude_tool_calls`、`finish_reasons`、`usage` 和精简后的响应元数据等字段。
 
 SSE 响应会按上游到达的行逐行转发给客户端。非 SSE 响应仍按普通二进制块转发。
 
-历史日志页面可以将任务日志导出为 `llm-proxy-logs.zip`。在日志列表中选择一个或多个任务组后，可以清理这些任务及其对应的请求记录。
+历史日志页面可以将任务日志导出为 `llm-proxy-logs.zip`。ZIP 会从 SQLite 按需生成，包含便于阅读的 Markdown 以及 `request.json`、`response.json` 文件。在日志列表中选择一个或多个任务组后，可以从数据库中清理这些任务及其对应的请求记录。
 
 ## 安全说明
 
@@ -237,7 +238,7 @@ LLM Proxy 面向本地开发和流量检查。除非你已经加了自己的网�
 - 上游 API Key 会保存在代理配置文件中。请不要把 `logs/proxies.json` 或自定义配置文件提交到版本库。
 - 代理会把请求 body 转发到配置的上游。只把本地监听端口暴露给可信客户端。
 - request 字段移除功能适合处理已知不应发给上游的字段，但不要把它当作完整的数据防泄漏系统。
-- 不再需要的日志目录应定期轮转或删除。
+- 不再需要的日志数据库应定期导出、轮转或删除。
 
 ## 配置参考
 
@@ -260,16 +261,17 @@ llm_proxy/
   cli.py            # Web 控制台启动器
   ui.py             # 内置 Web 控制台 HTML/CSS/JS
   file_io.py        # 小文件原子写入
-  log_maintenance.py # 日志 ZIP 导出和清理策略
-  log_store.py      # 历史日志读取、缓存和搜索
+  log_db.py         # SQLite schema 和连接初始化
+  log_repository.py # SQLite 日志读写、链接和清理基础
+  log_maintenance.py # 基于 SQLite 的日志 ZIP 导出和清理策略
+  log_store.py      # 历史日志读取和搜索
   manager.py        # 多代理管理和配置持久化
   models.py         # 共享的配置和日志记录类型结构
   server.py         # HTTP 代理服务和 handler
-  logger.py         # Markdown/JSON 任务日志写入
+  logger.py         # SQLite 流量日志写入
   records.py        # 请求/响应分析和任务指纹
   streams.py        # SSE 流式响应摘要
-  task_grouper.py   # 任务归类规则和任务目录归档
-  task_index.py     # 任务索引加载和合并安全保存
+  task_matcher.py   # 基于 SQLite 的任务归类规则
   sanitize.py       # request 字段移除/注入
   target.py         # 上游 URL 解析和路径拼接
   payloads.py       # body 编码、解析和渲染辅助
@@ -279,12 +281,15 @@ llm_proxy/
 tests/
   test_admin_ui.py
   test_file_io.py
-  test_logger.py
+  test_log_db.py
+  test_log_repository.py
   test_redaction.py
   test_sanitize_manager.py
   test_server.py
+  test_sqlite_logger.py
   test_streams.py
   test_target.py
+  test_task_matcher.py
 .github/workflows/
   ci.yml
 doc/

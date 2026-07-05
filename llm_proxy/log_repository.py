@@ -85,7 +85,7 @@ class LogRepository:
                 """,
                 values,
             )
-        loaded = self.get_task(values["id"])
+        loaded = self.get_task(str(values["id"]))
         if loaded is None:
             raise RuntimeError(f"Task {values['id']} was not saved.")
         return loaded
@@ -179,7 +179,7 @@ class LogRepository:
                 """,
                 values,
             )
-        loaded = self.get_record(values["id"])
+        loaded = self.get_record(str(values["id"]))
         if loaded is None:
             raise RuntimeError(f"Record {values['id']} was not saved.")
         return loaded

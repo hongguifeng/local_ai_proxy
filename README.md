@@ -160,7 +160,7 @@ The **History** tab lets you review captured traffic without opening log files m
 - JSON expansion/collapse, line wrapping, string formatting, and copy actions.
 - ZIP export and selected-task cleanup.
 
-Task grouping state is stored in `.task-index.json` beside the configured log root. When multiple proxy/logger instances write to the same log root, the index is refreshed before grouping and merged on save so a stale in-memory index does not overwrite newer task records after a restart or sibling write.
+Traffic history is stored in `traffic.db` under each configured log root. The database stores task metadata, request/response details, response-id links, context links, and searchable fields in SQLite, so the History tab does not need to scan Markdown or JSON files for normal browsing.
 
 ## Typical Workflows
 
@@ -215,19 +215,20 @@ Redaction affects stored logs only. Requests are still forwarded to the upstream
 Default paths:
 
 - Proxy configuration: `logs/proxies.json`
-- Task logs: `logs/tasks/` by default, configurable per upstream target by setting the log root.
+- Traffic log database: `logs/traffic.db` by default, configurable per upstream target by setting the log root.
 
-Each captured interaction is written to its own directory with:
+Each captured interaction is stored as a SQLite record with:
 
-- A Markdown summary.
-- `request.json`.
-- `response.json`.
+- Task grouping metadata.
+- Request and response headers.
+- Parsed request and response bodies.
+- Status, duration, message count, token count, target URL, and routing metadata.
 
-For OpenAI-compatible and Claude Messages SSE responses, `response.json` includes an aggregated `stream_summary` while preserving the original stream data. The summary can include `content`, `reasoning`, `tool_calls`, `response_tool_calls`, `claude_tool_calls`, `finish_reasons`, `usage`, and compact response metadata.
+For OpenAI-compatible and Claude Messages SSE responses, the stored response body includes an aggregated `stream_summary` while preserving the useful stream content. The summary can include `content`, `reasoning`, `tool_calls`, `response_tool_calls`, `claude_tool_calls`, `finish_reasons`, `usage`, and compact response metadata.
 
 SSE responses are forwarded to the client line by line as they arrive from the upstream. Non-SSE responses are still forwarded in regular binary chunks.
 
-The History tab can export task logs as `llm-proxy-logs.zip`. Select one or more task groups in the log list, then use cleanup to delete those tasks and their request records.
+The History tab can export task logs as `llm-proxy-logs.zip`. The ZIP is generated from SQLite on demand and contains human-readable Markdown plus `request.json` and `response.json` files. Select one or more task groups in the log list, then use cleanup to delete those tasks and their request records from the database.
 
 ## Security Notes
 
@@ -237,7 +238,7 @@ LLM Proxy is designed for local development and traffic inspection. Keep the adm
 - Upstream API keys are stored in the proxy config file. Keep `logs/proxies.json` and custom config paths out of source control.
 - The proxy can forward arbitrary request bodies to configured upstreams. Only expose local listen ports to clients you trust.
 - Use request-field stripping for fields you know an upstream should not receive, but do not treat it as a complete data-loss-prevention system.
-- Rotate or delete log directories when they are no longer needed.
+- Rotate, export, or delete log databases when they are no longer needed.
 
 ## Configuration Reference
 
@@ -260,16 +261,17 @@ llm_proxy/
   cli.py            # web console launcher
   ui.py             # built-in web console HTML/CSS/JS
   file_io.py        # atomic small-file writes
-  log_maintenance.py # log ZIP export and cleanup policies
-  log_store.py      # history log loading, caching, and search
+  log_db.py         # SQLite schema and connection setup
+  log_repository.py # SQLite log reads, writes, links, and cleanup primitives
+  log_maintenance.py # SQLite-backed log ZIP export and cleanup policies
+  log_store.py      # history log loading and search
   manager.py        # multi-proxy management and config persistence
   models.py         # shared typed configuration and record shapes
   server.py         # HTTP proxy server and handler
-  logger.py         # task Markdown/JSON log writer
+  logger.py         # SQLite traffic log writer
   records.py        # request/response analysis and task fingerprints
   streams.py        # SSE stream summaries
-  task_grouper.py   # task grouping rules and task-folder archiving
-  task_index.py     # persisted task index loading and merge-safe saves
+  task_matcher.py   # SQLite-backed task grouping rules
   sanitize.py       # request field stripping/injection
   target.py         # upstream URL parsing and path joining
   payloads.py       # body encoding, parsing, and rendering helpers
@@ -279,12 +281,15 @@ llm_proxy/
 tests/
   test_admin_ui.py
   test_file_io.py
-  test_logger.py
+  test_log_db.py
+  test_log_repository.py
   test_redaction.py
   test_sanitize_manager.py
   test_server.py
+  test_sqlite_logger.py
   test_streams.py
   test_target.py
+  test_task_matcher.py
 .github/workflows/
   ci.yml
 doc/

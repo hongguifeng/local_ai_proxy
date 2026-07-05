@@ -56,11 +56,10 @@ def cleanup_logs(
             tasks = _all_tasks(repository)
             selected: set[str] = set()
             if cutoff is not None:
-                selected.update(
-                    str(task["id"])
-                    for task in tasks
-                    if _task_epoch(task) is not None and _task_epoch(task) < cutoff
-                )
+                for task in tasks:
+                    task_epoch = _task_epoch(task)
+                    if task_epoch is not None and task_epoch < cutoff:
+                        selected.add(str(task["id"]))
             if keep_latest is not None:
                 selected.update(str(task["id"]) for task in tasks[keep_latest:])
             if selected:

@@ -89,9 +89,9 @@ class TrafficLogger:
             "request_body": request_body,
             "response_body": response_body,
             "model_route": request.get("model_route"),
-            "stripped_fields": list(request.get("stripped_fields") or []),
-            "injected_fields": list(request.get("injected_fields") or []),
-            "added_upstream_headers": list(request.get("added_upstream_headers") or []),
+            "stripped_fields": _list_value(request.get("stripped_fields")),
+            "injected_fields": _list_value(request.get("injected_fields")),
+            "added_upstream_headers": _list_value(request.get("added_upstream_headers")),
         }
 
 
@@ -113,3 +113,9 @@ def _target_url(target: Mapping[str, object]) -> str:
     if not scheme or not host or port in {None, ""}:
         return ""
     return f"{scheme}://{host}:{port}{path}"
+
+
+def _list_value(value: object) -> list[object]:
+    if isinstance(value, list):
+        return list(value)
+    return []
