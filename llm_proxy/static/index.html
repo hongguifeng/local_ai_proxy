@@ -48,12 +48,14 @@
         <div id="logSplitter" class="log-splitter"></div>
         <section id="detail" class="detail">
           <div class="json-pane">
-            <div class="pane-head"><strong data-i18n="request">Request</strong><span class="pane-actions"><button class="icon" data-wrap="request" data-i18n-title="toggleWrap" title="切换自动换行">↵</button><button class="icon" data-expand="request" title="展开 JSON">{}</button><button class="icon" data-format="request" data-i18n-title="formatStringContent" title="格式化字符串内容">📝</button><button class="icon" data-copy="request" data-i18n-title="copyJson" title="复制 JSON">📋</button></span></div>
+            <div class="pane-head"><strong data-i18n="request">Request</strong><span class="pane-actions"><button class="icon" data-meta="request" title="显示元信息">ⓘ</button><button class="icon" data-wrap="request" data-i18n-title="toggleWrap" title="切换自动换行">↵</button><button class="icon" data-expand="request" title="展开 JSON">{}</button><button class="icon" data-format="request" data-i18n-title="formatStringContent" title="格式化字符串内容">📝</button><button class="icon" data-copy="request" data-i18n-title="copyJson" title="复制 JSON">📋</button></span></div>
+            <div id="requestMeta" class="meta-panel json-view wrap" hidden></div>
             <div id="requestJson" class="json-view nowrap"></div>
           </div>
           <div id="splitter" class="splitter"></div>
           <div class="json-pane">
-            <div class="pane-head"><strong data-i18n="response">Response</strong><span class="pane-actions"><button class="icon" data-wrap="response" data-i18n-title="toggleWrap" title="切换自动换行">↵</button><button class="icon" data-expand="response" title="展开 JSON">{}</button><button class="icon" data-format="response" data-i18n-title="formatStringContent" title="格式化字符串内容">📝</button><button class="icon" data-copy="response" data-i18n-title="copyJson" title="复制 JSON">📋</button></span></div>
+            <div class="pane-head"><strong data-i18n="response">Response</strong><span class="pane-actions"><button class="icon" data-meta="response" title="显示元信息">ⓘ</button><button class="icon" data-wrap="response" data-i18n-title="toggleWrap" title="切换自动换行">↵</button><button class="icon" data-expand="response" title="展开 JSON">{}</button><button class="icon" data-format="response" data-i18n-title="formatStringContent" title="格式化字符串内容">📝</button><button class="icon" data-copy="response" data-i18n-title="copyJson" title="复制 JSON">📋</button></span></div>
+            <div id="responseMeta" class="meta-panel json-view wrap" hidden></div>
             <div id="responseJson" class="json-view nowrap"></div>
           </div>
         </section>

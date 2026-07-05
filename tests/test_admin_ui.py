@@ -137,9 +137,14 @@ class AdminUiTests(unittest.TestCase):
             detail = json.loads(response.read())
             conn.close()
 
-            self.assertEqual(detail["request"]["body_json"], {"input": "hello"})
-            self.assertNotIn("path", detail["request"])
-            self.assertEqual(detail["response"]["body_json"], {"ok": True})
+            self.assertEqual(detail["request"], {"input": "hello"})
+            self.assertEqual(detail["response"], {"ok": True})
+            self.assertEqual(detail["request_meta"]["method"], "POST")
+            self.assertEqual(detail["request_meta"]["endpoint"], "/v1/responses")
+            self.assertEqual(detail["request_meta"]["headers"], {"Content-Type": "application/json"})
+            self.assertEqual(detail["request_meta"]["message_count"], 1)
+            self.assertEqual(detail["response_meta"]["status"], 200)
+            self.assertEqual(detail["response_meta"]["headers"], {"Content-Type": "application/json"})
         finally:
             if server is not None:
                 server.shutdown()
@@ -340,6 +345,8 @@ class AdminUiTests(unittest.TestCase):
                     "status": status,
                     "message_count": 1,
                     "token_count": 2,
+                    "request_headers": {"Content-Type": "application/json"},
+                    "response_headers": {"Content-Type": "application/json"},
                     "request_body": {"input": "hello"},
                     "response_body": {"ok": True},
                 }

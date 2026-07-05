@@ -71,20 +71,13 @@ class LogStore:
         return None
 
     def record_detail(self, record: dict[str, Any]) -> dict[str, Any]:
-        request = {
-            "method": record.get("method"),
-            "endpoint": record.get("endpoint"),
-            "headers": record.get("request_headers") or {},
-            "message_count": record.get("message_count"),
-            "body_json": record.get("request_body"),
+        return {
+            "id": record.get("id"),
+            "request": record.get("request_body"),
+            "response": record.get("response_body"),
+            "request_meta": self._request_meta(record),
+            "response_meta": self._response_meta(record),
         }
-        response = {
-            "status": record.get("status"),
-            "headers": record.get("response_headers") or {},
-            "token_count": record.get("token_count"),
-            "body_json": record.get("response_body"),
-        }
-        return {"id": record.get("id"), "request": request, "response": response}
 
     def clear_cache(self) -> None:
         return
@@ -147,3 +140,49 @@ class LogStore:
             "token_count": record.get("token_count"),
             "target": record.get("target_url") or "",
         }
+
+    def _request_meta(self, record: dict[str, Any]) -> dict[str, Any]:
+        return self._compact_meta(
+            {
+                "id": record.get("id"),
+                "sequence": record.get("sequence"),
+                "timestamp": self._display_timestamp(record.get("timestamp")) or record.get("timestamp"),
+                "duration_ms": record.get("duration_ms"),
+                "method": record.get("method"),
+                "path": record.get("path"),
+                "endpoint": record.get("endpoint"),
+                "target": record.get("target_url"),
+                "proxy": record.get("proxy_name") or record.get("proxy_id"),
+                "client": self._client_address(record),
+                "message_count": record.get("message_count"),
+                "model_route": record.get("model_route"),
+                "stripped_fields": record.get("stripped_fields"),
+                "injected_fields": record.get("injected_fields"),
+                "added_upstream_headers": record.get("added_upstream_headers"),
+                "headers": record.get("request_headers"),
+            }
+        )
+
+    def _response_meta(self, record: dict[str, Any]) -> dict[str, Any]:
+        return self._compact_meta(
+            {
+                "status": record.get("status"),
+                "duration_ms": record.get("duration_ms"),
+                "token_count": record.get("token_count"),
+                "error": record.get("error"),
+                "headers": record.get("response_headers"),
+            }
+        )
+
+    def _client_address(self, record: dict[str, Any]) -> str:
+        host = record.get("client_host")
+        port = record.get("client_port")
+        if not host:
+            return ""
+        return f"{host}:{port}" if port not in {None, ""} else str(host)
+
+    def _compact_meta(self, values: dict[str, Any]) -> dict[str, Any]:
+        return {key: value for key, value in values.items() if not self._empty_meta_value(value)}
+
+    def _empty_meta_value(self, value: Any) -> bool:
+        return value is None or value == "" or value == [] or value == {}

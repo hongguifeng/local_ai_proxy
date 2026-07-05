@@ -21,6 +21,8 @@ const translations = {
     collapseJson: "折叠 JSON",
     formatStringContent: "格式化字符串内容",
     copyJson: "复制 JSON",
+    showMetadata: "显示元信息",
+    hideMetadata: "隐藏元信息",
     copiedJson: "已复制 JSON",
     copiedText: "已复制格式化文本",
     copiedApiKey: "已复制 API Key",
@@ -87,6 +89,8 @@ const translations = {
     collapseJson: "Collapse JSON",
     formatStringContent: "Format string content",
     copyJson: "Copy JSON",
+    showMetadata: "Show metadata",
+    hideMetadata: "Hide metadata",
     copiedJson: "Copied JSON",
     copiedText: "Copied formatted text",
     copiedApiKey: "Copied API Key",
@@ -134,7 +138,7 @@ const translations = {
 };
 const savedLanguage = localStorage.getItem("llmProxyLanguage");
 const initialLanguage = savedLanguage || ((navigator.language || "").toLowerCase().startsWith("zh") ? "zh" : "en");
-const state = { language: translations[initialLanguage] ? initialLanguage : "en", pairs: [], logGroups: [], logs: [], selected: null, selectedLogGroups: {}, raw: { request: null, response: null }, wrap: { request: false, response: false }, formatStrings: { request: false, response: false }, tree: { request: true, response: true }, collapsedGroups: {}, loadingLogGroups: {}, logsLoading: false, logsLoadedAt: 0, logLimit: 100, logOffset: 0, logsHasMore: false, logsTotal: 0, searchTimer: null, refreshTimer: null };
+const state = { language: translations[initialLanguage] ? initialLanguage : "en", pairs: [], logGroups: [], logs: [], selected: null, selectedLogGroups: {}, raw: { request: null, response: null }, meta: { request: null, response: null }, metaOpen: { request: false, response: false }, wrap: { request: false, response: false }, formatStrings: { request: false, response: false }, tree: { request: true, response: true }, collapsedGroups: {}, loadingLogGroups: {}, logsLoading: false, logsLoadedAt: 0, logLimit: 100, logOffset: 0, logsHasMore: false, logsTotal: 0, searchTimer: null, refreshTimer: null };
 const $ = (id) => document.getElementById(id);
 const t = (key) => (translations[state.language] && translations[state.language][key]) || translations.en[key] || key;
 const toast = (text) => { const el = $("toast"); el.textContent = text; el.classList.add("show"); setTimeout(() => el.classList.remove("show"), 2400); };
@@ -152,6 +156,8 @@ function applyLanguage() {
   document.querySelectorAll("[data-i18n-placeholder]").forEach((el) => { el.placeholder = t(el.dataset.i18nPlaceholder); });
   updateExpandButton("request");
   updateExpandButton("response");
+  updateMetaButton("request");
+  updateMetaButton("response");
 }
 function setLanguage(language) {
   if (!translations[language]) return;
@@ -163,6 +169,8 @@ function setLanguage(language) {
   renderLogs();
   renderJsonPane("request");
   renderJsonPane("response");
+  renderMetaPane("request");
+  renderMetaPane("response");
 }
 function formatLogMeta(meta) {
   const text = String(meta || "");
@@ -520,6 +528,25 @@ function renderJsonPane(key) {
   updateExpandButton(key);
   updatePaneButtons(key);
 }
+function hasMetadata(value) {
+  return Boolean(value && typeof value === "object" && Object.keys(value).length);
+}
+function renderMetaPane(key) {
+  const el = $(key + "Meta");
+  const available = hasMetadata(state.meta[key]);
+  const open = available && state.metaOpen[key];
+  el.hidden = !open;
+  el.innerHTML = open ? renderJsonValue(state.meta[key], "", true, true, 0) : "";
+  updateMetaButton(key);
+}
+function updateMetaButton(key) {
+  const button = document.querySelector(`[data-meta="${key}"]`);
+  if (!button) return;
+  const available = hasMetadata(state.meta[key]);
+  button.disabled = !available;
+  button.classList.toggle("active", available && state.metaOpen[key]);
+  button.title = available && state.metaOpen[key] ? t("hideMetadata") : t("showMetadata");
+}
 function updatePaneButtons(key) {
   document.querySelector(`[data-wrap="${key}"]`).classList.toggle("active", state.wrap[key]);
   document.querySelector(`[data-format="${key}"]`).classList.toggle("active", state.formatStrings[key]);
@@ -543,10 +570,16 @@ async function selectLog(id) {
   const data = await api(`/api/logs/${encodeURIComponent(id)}`);
   state.raw.request = data.request;
   state.raw.response = data.response;
+  state.meta.request = data.request_meta || null;
+  state.meta.response = data.response_meta || null;
+  state.metaOpen.request = false;
+  state.metaOpen.response = false;
   state.tree.request = true;
   state.tree.response = true;
   state.formatStrings.request = true;
   state.formatStrings.response = true;
+  renderMetaPane("request");
+  renderMetaPane("response");
   renderJsonPane("request");
   renderJsonPane("response");
 }
@@ -655,6 +688,12 @@ document.querySelectorAll("[data-wrap]").forEach((button) => button.addEventList
   const key = button.dataset.wrap;
   state.wrap[key] = !state.wrap[key];
   renderJsonPane(key);
+}));
+document.querySelectorAll("[data-meta]").forEach((button) => button.addEventListener("click", () => {
+  const key = button.dataset.meta;
+  if (!key || !hasMetadata(state.meta[key])) return;
+  state.metaOpen[key] = !state.metaOpen[key];
+  renderMetaPane(key);
 }));
 document.querySelectorAll("[data-expand]").forEach((button) => button.addEventListener("click", () => {
   const key = button.dataset.expand;
