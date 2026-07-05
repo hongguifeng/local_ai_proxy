@@ -11,6 +11,10 @@ import json
 from collections.abc import Mapping
 from dataclasses import dataclass, field
 
+MAX_SUMMARY_TEXT_CHARS = 2000
+MAX_SUMMARY_LIST_ITEMS = 20
+MAX_SUMMARY_DEPTH = 5
+
 
 def merge_tool_call_delta(merged: dict[int, dict[str, object]], tool_call: object) -> None:
     """Merge tool call deltas from Chat Completions streams.
@@ -101,6 +105,33 @@ def compact_claude_tool_calls(tool_calls: dict[int, dict[str, object]]) -> list[
     return compacted
 
 
+def compact_response_web_search_calls(calls: dict[str, dict[str, object]]) -> list[object]:
+    """Return web search calls in stable order."""
+    return [calls[key] for key in sorted(calls)]
+
+
+def compact_summary_value(value: object, depth: int = 0) -> object:
+    """Keep unfamiliar stream events useful while avoiding very large log summaries."""
+    if isinstance(value, str):
+        if len(value) <= MAX_SUMMARY_TEXT_CHARS:
+            return value
+        omitted = len(value) - MAX_SUMMARY_TEXT_CHARS
+        return f"{value[:MAX_SUMMARY_TEXT_CHARS]}... [truncated {omitted} chars]"
+    if isinstance(value, Mapping):
+        if depth >= MAX_SUMMARY_DEPTH:
+            return {
+                "_truncated": "max_depth",
+                "keys": sorted(str(key) for key in value.keys()),
+            }
+        return {str(key): compact_summary_value(item, depth + 1) for key, item in value.items()}
+    if isinstance(value, list):
+        items = [compact_summary_value(item, depth + 1) for item in value[:MAX_SUMMARY_LIST_ITEMS]]
+        if len(value) > MAX_SUMMARY_LIST_ITEMS:
+            items.append({"_truncated_items": len(value) - MAX_SUMMARY_LIST_ITEMS})
+        return items
+    return value
+
+
 def compact_response_payload(response: Mapping[str, object]) -> dict[str, object]:
     """Keep only the most useful top-level fields from the Responses API response.
 
@@ -160,6 +191,7 @@ class StreamAccumulator:
     reasoning_parts: list[str] = field(default_factory=list)
     tool_calls: list[object] = field(default_factory=list)
     response_tool_calls: dict[str, dict[str, object]] = field(default_factory=dict)
+    response_web_search_calls: dict[str, dict[str, object]] = field(default_factory=dict)
     claude_tool_calls: dict[int, dict[str, object]] = field(default_factory=dict)
     finish_reasons: list[str] = field(default_factory=list)
     usage: object | None = None
@@ -216,6 +248,91 @@ class StreamAccumulator:
             response = event.get("response")
             if isinstance(response, dict) and self.response_payload is None:
                 self.response_payload = compact_response_payload(response)
+                self.add_response_web_search_items_from_response(event_type, response)
+        elif self.is_response_web_search_event(event_type, event):
+            self.add_response_web_search_call(event)
+
+    @staticmethod
+    def is_response_web_search_event(event_type: str, event: Mapping[str, object]) -> bool:
+        if event_type.startswith("response.web_search_call."):
+            return True
+        item = event.get("item")
+        return isinstance(item, Mapping) and item.get("type") == "web_search_call"
+
+    def add_response_web_search_call(self, event: Mapping[str, object]) -> None:
+        key = self.response_web_search_call_key(event)
+        call = self.response_web_search_calls.setdefault(key, {"type": "web_search_call"})
+        item = event.get("item")
+        if isinstance(item, Mapping):
+            item_id = item.get("id")
+            if item_id:
+                call["id"] = compact_summary_value(item_id)
+                call.setdefault("item_id", compact_summary_value(item_id))
+            action = item.get("action")
+            if isinstance(action, Mapping):
+                call["action"] = compact_summary_value(action)
+            error = item.get("error")
+            if error:
+                call["error"] = compact_summary_value(error)
+        for field_name in ("item_id", "call_id", "output_index"):
+            value = event.get(field_name)
+            if value is not None:
+                call[field_name] = compact_summary_value(value)
+        action = event.get("action")
+        if isinstance(action, Mapping):
+            call["action"] = compact_summary_value(action)
+        error = event.get("error")
+        if error:
+            call["error"] = compact_summary_value(error)
+        status = self.response_web_search_status(event)
+        if status:
+            call["status"] = status
+
+    def add_response_web_search_items_from_response(
+        self,
+        event_type: str,
+        response: Mapping[str, object],
+    ) -> None:
+        output = response.get("output")
+        if not isinstance(output, list):
+            return
+        for index, item in enumerate(output):
+            if not isinstance(item, Mapping) or item.get("type") != "web_search_call":
+                continue
+            self.add_response_web_search_call(
+                {
+                    "type": event_type,
+                    "output_index": index,
+                    "item": item,
+                }
+            )
+
+    def response_web_search_call_key(self, event: Mapping[str, object]) -> str:
+        item = event.get("item")
+        if isinstance(item, Mapping):
+            item_id = item.get("id")
+            if item_id:
+                return str(item_id)
+        for field_name in ("item_id", "call_id", "output_index"):
+            value = event.get(field_name)
+            if value not in {None, ""}:
+                return str(value)
+        return str(len(self.response_web_search_calls))
+
+    @staticmethod
+    def response_web_search_status(event: Mapping[str, object]) -> str | None:
+        status = event.get("status")
+        if isinstance(status, str) and status:
+            return status
+        item = event.get("item")
+        if isinstance(item, Mapping):
+            item_status = item.get("status")
+            if isinstance(item_status, str) and item_status:
+                return item_status
+        event_type = event.get("type")
+        if isinstance(event_type, str) and event_type.startswith("response.web_search_call."):
+            return event_type.rsplit(".", 1)[-1]
+        return None
 
     def add_response_function_call_delta(self, event: Mapping[str, object]) -> None:
         # Function call arguments are also returned in chunks, need to concatenate by item_id/call_id.
@@ -253,6 +370,7 @@ class StreamAccumulator:
         status = response.get("status")
         if status:
             self.finish_reasons.append(str(status))
+        self.add_response_web_search_items_from_response(str(event.get("type") or ""), response)
 
     def add_claude_event(self, event_type: str, event: Mapping[str, object]) -> None:
         # Anthropic/Claude Messages streams emit message_* and content_block_* events.
@@ -374,6 +492,10 @@ class StreamAccumulator:
         if self.response_tool_calls:
             stream_summary["response_tool_calls"] = compact_response_tool_calls(
                 self.response_tool_calls
+            )
+        if self.response_web_search_calls:
+            stream_summary["web_search_calls"] = compact_response_web_search_calls(
+                self.response_web_search_calls
             )
         if self.claude_tool_calls:
             stream_summary["claude_tool_calls"] = compact_claude_tool_calls(self.claude_tool_calls)

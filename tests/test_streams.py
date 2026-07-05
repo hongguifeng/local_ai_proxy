@@ -158,6 +158,55 @@ class StreamSummaryTests(unittest.TestCase):
             },
         )
 
+    def test_compacts_response_web_search_call_events(self) -> None:
+        summary = self.parse_summary(
+            "\n\n".join(
+                [
+                    (
+                        'data: {"type":"response.output_item.added","output_index":0,'
+                        '"item":{"id":"ws_1","type":"web_search_call","status":"in_progress"}}'
+                    ),
+                    'data: {"type":"response.web_search_call.searching","item_id":"ws_1","output_index":0}',
+                    'data: {"type":"response.web_search_call.completed","item_id":"ws_1","output_index":0}',
+                    (
+                        'data: {"type":"response.output_item.done","output_index":0,'
+                        '"item":{"id":"ws_1","type":"web_search_call","status":"completed",'
+                        '"action":{"type":"search","query":"latest docs","queries":["latest docs"]}}}'
+                    ),
+                    'data: {"type":"response.completed","response":{"status":"completed"}}',
+                ]
+            )
+        )
+
+        self.assertEqual(
+            summary["web_search_calls"],
+            [
+                {
+                    "type": "web_search_call",
+                    "id": "ws_1",
+                    "item_id": "ws_1",
+                    "status": "completed",
+                    "output_index": 0,
+                    "action": {"type": "search", "query": "latest docs", "queries": ["latest docs"]},
+                }
+            ],
+        )
+
+    def test_ignores_unknown_response_events(self) -> None:
+        summary = self.parse_summary(
+            "\n\n".join(
+                [
+                    (
+                        'data: {"type":"response.output_item.done","output_index":1,'
+                        '"item":{"id":"mcp_1","type":"mcp_call","status":"completed","name":"fetch"}}'
+                    ),
+                    'data: {"type":"response.completed","response":{"status":"completed"}}',
+                ]
+            )
+        )
+
+        self.assertNotIn("unknown_response_events", summary)
+
     def test_compacts_claude_messages_stream_text_thinking_and_tool_use(self) -> None:
         summary = self.parse_summary(
             "\n\n".join(

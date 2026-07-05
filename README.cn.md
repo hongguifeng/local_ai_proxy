@@ -264,7 +264,7 @@ presence_penalty, frequency_penalty, seed
 - 解析后的请求和响应 body。
 - 状态码、耗时、message count、token count、target URL 和路由元数据。
 
-对于 OpenAI-compatible 和 Claude Messages SSE 流式响应，保存的响应 body 会包含聚合后的 `stream_summary`，保留有用的流式内容。其中可能包含 `content`、`reasoning`、`tool_calls`、`response_tool_calls`、`claude_tool_calls`、`finish_reasons`、`usage` 和精简后的响应元数据等字段。
+对于 OpenAI-compatible 和 Claude Messages SSE 流式响应，保存的响应 body 会包含聚合后的 `stream_summary`，保留有用的流式内容。其中可能包含 `content`、`reasoning`、`tool_calls`、`response_tool_calls`、精简后的 `web_search_calls`、`claude_tool_calls`、`finish_reasons`、`usage` 和精简后的响应元数据等字段。
 
 SSE 响应会按上游到达的行逐行转发给客户端。非 SSE 响应仍按普通二进制块转发。
 

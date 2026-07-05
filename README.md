@@ -264,7 +264,7 @@ Each captured interaction is stored as a SQLite record with:
 - Parsed request and response bodies.
 - Status, duration, message count, token count, target URL, and routing metadata.
 
-For OpenAI-compatible and Claude Messages SSE responses, the stored response body includes an aggregated `stream_summary` while preserving the useful stream content. The summary can include `content`, `reasoning`, `tool_calls`, `response_tool_calls`, `claude_tool_calls`, `finish_reasons`, `usage`, and compact response metadata.
+For OpenAI-compatible and Claude Messages SSE responses, the stored response body includes an aggregated `stream_summary` while preserving the useful stream content. The summary can include `content`, `reasoning`, `tool_calls`, `response_tool_calls`, compact `web_search_calls`, `claude_tool_calls`, `finish_reasons`, `usage`, and compact response metadata.
 
 SSE responses are forwarded to the client line by line as they arrive from the upstream. Non-SSE responses are still forwarded in regular binary chunks.
 
