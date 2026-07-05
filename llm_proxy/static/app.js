@@ -138,7 +138,7 @@ const translations = {
 };
 const savedLanguage = localStorage.getItem("llmProxyLanguage");
 const initialLanguage = savedLanguage || ((navigator.language || "").toLowerCase().startsWith("zh") ? "zh" : "en");
-const state = { language: translations[initialLanguage] ? initialLanguage : "en", pairs: [], logGroups: [], logs: [], selected: null, selectedLogGroups: {}, raw: { request: null, response: null }, meta: { request: null, response: null }, metaOpen: { request: false, response: false }, wrap: { request: false, response: false }, formatStrings: { request: false, response: false }, tree: { request: true, response: true }, collapsedGroups: {}, loadingLogGroups: {}, logsLoading: false, logsLoadedAt: 0, logLimit: 100, logOffset: 0, logsHasMore: false, logsTotal: 0, searchTimer: null, refreshTimer: null };
+const state = { language: translations[initialLanguage] ? initialLanguage : "en", pairs: [], logGroups: [], logs: [], selected: null, selectedLogGroups: {}, raw: { request: null, response: null }, meta: { request: null, response: null }, metaOpen: { request: false, response: false }, wrap: { request: false, response: false }, formatStrings: { request: false, response: false }, tree: { request: true, response: true }, collapsedGroups: {}, loadingLogGroups: {}, logsLoading: false, selectedLogLoading: false, selectedLogRefreshLoading: false, logsLoadedAt: 0, logLimit: 100, logOffset: 0, logsHasMore: false, logsTotal: 0, searchTimer: null, refreshTimer: null };
 const $ = (id) => document.getElementById(id);
 const t = (key) => (translations[state.language] && translations[state.language][key]) || translations.en[key] || key;
 const toast = (text) => { const el = $("toast"); el.textContent = text; el.classList.add("show"); setTimeout(() => el.classList.remove("show"), 2400); };
@@ -409,6 +409,11 @@ async function loadLogs(options = {}) {
     }
     if (!rendered) renderLogs();
     state.logsLoadedAt = Date.now();
+    try {
+      await refreshSelectedLogDetail();
+    } catch (e) {
+      if (!options.quiet) toast(e.message);
+    }
   } finally {
     state.logsLoading = false;
     scheduleLogRefresh();
@@ -584,24 +589,55 @@ function updateExpandButton(key) {
   const allOpen = details.length > 0 && details.every((detail) => detail.open);
   button.title = allOpen ? t("collapseJson") : t("expandJson");
 }
-async function selectLog(id) {
-  state.selected = id;
-  renderLogs();
-  const data = await api(`/api/logs/${encodeURIComponent(id)}`);
+function hasFinishedResponseDetail() {
+  const meta = state.meta.response;
+  if (!meta || typeof meta !== "object") return false;
+  return (meta.status !== undefined && meta.status !== null && meta.status !== "") || Boolean(meta.error);
+}
+function selectedLogNeedsRefresh() {
+  return Boolean(state.selected) && !hasFinishedResponseDetail();
+}
+function applySelectedLogDetail(data, options = {}) {
   state.raw.request = data.request;
   state.raw.response = data.response;
   state.meta.request = data.request_meta || null;
   state.meta.response = data.response_meta || null;
-  state.metaOpen.request = false;
-  state.metaOpen.response = false;
-  state.tree.request = true;
-  state.tree.response = true;
-  state.formatStrings.request = true;
-  state.formatStrings.response = true;
+  if (options.resetView) {
+    state.metaOpen.request = false;
+    state.metaOpen.response = false;
+    state.tree.request = true;
+    state.tree.response = true;
+    state.formatStrings.request = true;
+    state.formatStrings.response = true;
+  }
   renderMetaPane("request");
   renderMetaPane("response");
-  renderJsonPane("request");
-  renderJsonPane("response");
+  renderJsonPane("request", { preserveOpen: !options.resetView });
+  renderJsonPane("response", { preserveOpen: !options.resetView });
+}
+async function selectLog(id) {
+  state.selected = id;
+  renderLogs();
+  state.selectedLogLoading = true;
+  try {
+    const data = await api(`/api/logs/${encodeURIComponent(id)}`);
+    if (state.selected !== id) return;
+    applySelectedLogDetail(data, { resetView: true });
+  } finally {
+    if (state.selected === id) state.selectedLogLoading = false;
+  }
+}
+async function refreshSelectedLogDetail() {
+  const id = state.selected;
+  if (!id || state.selectedLogLoading || state.selectedLogRefreshLoading || !selectedLogNeedsRefresh()) return;
+  state.selectedLogRefreshLoading = true;
+  try {
+    const data = await api(`/api/logs/${encodeURIComponent(id)}`);
+    if (state.selected !== id) return;
+    applySelectedLogDetail(data, { resetView: false });
+  } finally {
+    state.selectedLogRefreshLoading = false;
+  }
 }
 document.querySelectorAll(".tab").forEach((tab) => tab.addEventListener("click", () => {
   document.querySelectorAll(".tab, .view").forEach((el) => el.classList.remove("active"));
