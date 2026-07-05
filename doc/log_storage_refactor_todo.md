@@ -13,7 +13,7 @@
 
 | 任务 | 状态 | 提交 | 验证 |
 | --- | --- | --- | --- |
-| 0.1 设计收紧与 TODO 文档 | 待完成 |  |  |
+| 0.1 设计收紧与 TODO 文档 | 已完成 | `87124a8` | 文档检查 |
 | 1.1 SQLite schema 与连接基础 | 待开始 |  |  |
 | 1.2 SQLite repository 读写骨架 | 待开始 |  |  |
 | 2.1 任务匹配迁移到 SQLite | 待开始 |  |  |
@@ -27,11 +27,11 @@
 
 ### 0.1 设计收紧与 TODO 文档
 
-- [ ] 重写 `doc/log_storage_design.md`，明确 SQLite 是唯一在线存储。
-- [ ] 明确不保留 `.task-index.json`、`tasks/` 目录、运行时 Markdown/JSON 写入兼容。
-- [ ] 编写本文档作为分阶段执行清单。
-- [ ] 提交文档基线。
-- [ ] 回填进度记录。
+- [x] 重写 `doc/log_storage_design.md`，明确 SQLite 是唯一在线存储。
+- [x] 明确不保留 `.task-index.json`、`tasks/` 目录、运行时 Markdown/JSON 写入兼容。
+- [x] 编写本文档作为分阶段执行清单。
+- [x] 提交文档基线。
+- [x] 回填进度记录。
 
 ## 1. SQLite 存储基础
 
