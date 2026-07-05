@@ -18,7 +18,7 @@
 | 1.2 SQLite repository 读写骨架 | 已完成 | `e1bb90c` | `python -m unittest tests.test_log_db tests.test_log_repository` |
 | 2.1 任务匹配迁移到 SQLite | 已完成 | `4131632` | `python -m unittest tests.test_log_db tests.test_log_repository tests.test_task_matcher` |
 | 2.2 TrafficLogger 改为 SQLite 写入 | 已完成 | `515b62a` | `python -m unittest tests.test_log_db tests.test_log_repository tests.test_task_matcher tests.test_sqlite_logger tests.test_redaction` |
-| 3.1 Admin 日志查询切换到 SQLite | 待开始 |  |  |
+| 3.1 Admin 日志查询切换到 SQLite | 已完成 | `03d5ad3` | `python -m unittest tests.test_log_db tests.test_log_repository tests.test_task_matcher tests.test_sqlite_logger tests.test_redaction tests.test_admin_ui` |
 | 3.2 清理与导出切换到 SQLite | 待开始 |  |  |
 | 4.1 删除旧文件索引实现 | 待开始 |  |  |
 | 4.2 文档、测试和收尾 | 待开始 |  |  |
@@ -85,14 +85,14 @@
 
 ### 3.1 Admin 日志查询切换到 SQLite
 
-- [ ] `LogStore` 改为 SQLite 查询，或用 repository 替代。
-- [ ] `/api/logs` 从 `tasks` 分页查询。
-- [ ] `/api/log-groups/{id}/logs` 从 `records` 分页查询。
-- [ ] `/api/logs/{id}` 从 `records` 查询详情。
-- [ ] 搜索至少覆盖 task id、record id、model、target、endpoint、method、path、status。
-- [ ] 更新 admin UI 测试。
-- [ ] 提交代码。
-- [ ] 回填进度记录。
+- [x] `LogStore` 改为 SQLite 查询，或用 repository 替代。
+- [x] `/api/logs` 从 `tasks` 分页查询。
+- [x] `/api/log-groups/{id}/logs` 从 `records` 分页查询。
+- [x] `/api/logs/{id}` 从 `records` 查询详情。
+- [x] 搜索至少覆盖 task id、record id、model、target、endpoint、method、path、status。
+- [x] 更新 admin UI 测试。
+- [x] 提交代码。
+- [x] 回填进度记录。
 
 ### 3.2 清理与导出切换到 SQLite
 
