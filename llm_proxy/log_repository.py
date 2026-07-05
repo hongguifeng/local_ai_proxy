@@ -204,6 +204,17 @@ class LogRepository:
         row = self._fetch_one("SELECT task_id FROM context_links WHERE context_key = ?", (context_key,))
         return str(row["task_id"]) if row is not None else None
 
+    def next_record_sequence(self, task_id: str) -> int:
+        row = self._fetch_one(
+            "SELECT COALESCE(MAX(sequence), 0) + 1 AS next_sequence FROM records WHERE task_id = ?",
+            (task_id,),
+        )
+        return int(row["next_sequence"]) if row is not None else 1
+
+    def record_count(self, task_id: str) -> int:
+        row = self._fetch_one("SELECT COUNT(*) AS count FROM records WHERE task_id = ?", (task_id,))
+        return int(row["count"]) if row is not None else 0
+
     def list_tasks(self, query: str = "", limit: int = 100, offset: int = 0) -> dict[str, Any]:
         limit = max(1, min(int(limit), 500))
         offset = max(0, int(offset))
