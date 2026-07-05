@@ -10,12 +10,13 @@ from pathlib import Path
 from typing import Any
 
 from .log_db import connect_log_db
-from .time_utils import local_now_iso
+from .time_utils import format_local_timestamp, local_now_iso
 
 
 class LogRepository:
     def __init__(self, log_root: Path) -> None:
         self.connection = connect_log_db(log_root)
+        self.connection.create_function("_search_text", -1, _search_text)
         self.lock = threading.RLock()
 
     def __enter__(self) -> LogRepository:
@@ -179,6 +180,15 @@ class LogRepository:
                 """,
                 values,
             )
+            task = self.connection.execute("SELECT * FROM tasks WHERE id = ?", (values["task_id"],)).fetchone()
+            self.connection.execute("DELETE FROM record_search WHERE record_id = ?", (values["id"],))
+            self.connection.execute(
+                """
+                INSERT INTO record_search(record_id, task_id, task_text, request_text, response_text, error_text)
+                VALUES (?, ?, ?, ?, ?, ?)
+                """,
+                _record_search_values(values, task),
+            )
         loaded = self.get_record(str(values["id"]))
         if loaded is None:
             raise RuntimeError(f"Record {values['id']} was not saved.")
@@ -311,46 +321,82 @@ class LogRepository:
             )
 
     def _task_filter(self, query: str) -> tuple[str, tuple[Any, ...]]:
-        terms = [term.lower() for term in query.split() if term.strip()]
+        terms = _search_terms(query)
         if not terms:
             return "", ()
         clauses: list[str] = []
         params: list[Any] = []
         for term in terms:
-            like = f"%{term}%"
+            like = _like_pattern(term)
             clauses.append(
                 """
                 (
-                  lower(id) LIKE ?
-                  OR lower(kind) LIKE ?
-                  OR lower(COALESCE(endpoint, '')) LIKE ?
-                  OR lower(COALESCE(model, '')) LIKE ?
-                  OR lower(COALESCE(target, '')) LIKE ?
+                  lower(_search_text(
+                    id, kind, endpoint, anchor, model, target,
+                    started_at, last_seen_at, last_response_at, request_count, pending_request_only,
+                    match_confidence, match_strategy_version,
+                    fingerprints_json, boundary_fingerprints_json, last_user_messages_json,
+                    created_at, updated_at
+                  )) LIKE ? ESCAPE '\\'
+                  OR EXISTS (
+                    SELECT 1
+                    FROM record_search
+                    WHERE record_search.task_id = tasks.id
+                      AND lower(
+                        COALESCE(record_search.record_id, '') || ' ' ||
+                        COALESCE(record_search.task_id, '') || ' ' ||
+                        COALESCE(record_search.task_text, '') || ' ' ||
+                        COALESCE(record_search.request_text, '') || ' ' ||
+                        COALESCE(record_search.response_text, '') || ' ' ||
+                        COALESCE(record_search.error_text, '')
+                      ) LIKE ? ESCAPE '\\'
+                  )
+                  OR EXISTS (
+                    SELECT 1
+                    FROM records
+                    WHERE records.task_id = tasks.id
+                      AND lower(_search_text(
+                        records.id, records.task_id, records.sequence, records.event,
+                        records.timestamp, records.started_at, records.duration_ms,
+                        records.proxy_id, records.proxy_name, records.client_host, records.client_port,
+                        records.target_id, records.target_name, records.target_url,
+                        records.method, records.path, records.endpoint,
+                        records.status, records.error, records.message_count, records.token_count,
+                        records.request_headers_json, records.response_headers_json,
+                        records.request_body_json, records.response_body_json,
+                        records.model_route_json, records.stripped_fields_json,
+                        records.injected_fields_json, records.added_upstream_headers_json,
+                        records.created_at, records.updated_at
+                      )) LIKE ? ESCAPE '\\'
+                  )
                 )
                 """
             )
-            params.extend([like, like, like, like, like])
+            params.extend([like, like, like])
         return "WHERE " + " AND ".join(clauses), tuple(params)
 
     def _record_filter(self, task_id: str, query: str) -> tuple[str, tuple[Any, ...]]:
-        terms = [term.lower() for term in query.split() if term.strip()]
+        terms = _search_terms(query)
         clauses = ["task_id = ?"]
         params: list[Any] = [task_id]
         for term in terms:
-            like = f"%{term}%"
+            like = _like_pattern(term)
             clauses.append(
                 """
                 (
-                  lower(id) LIKE ?
-                  OR lower(method) LIKE ?
-                  OR lower(path) LIKE ?
-                  OR lower(endpoint) LIKE ?
-                  OR lower(COALESCE(target_url, '')) LIKE ?
-                  OR CAST(status AS TEXT) LIKE ?
+                  lower(_search_text(
+                    id, task_id, sequence, event, timestamp, started_at, duration_ms,
+                    proxy_id, proxy_name, client_host, client_port,
+                    target_id, target_name, target_url, method, path, endpoint,
+                    status, error, message_count, token_count,
+                    request_headers_json, response_headers_json, request_body_json, response_body_json,
+                    model_route_json, stripped_fields_json, injected_fields_json, added_upstream_headers_json,
+                    created_at, updated_at
+                  )) LIKE ? ESCAPE '\\'
                 )
                 """
             )
-            params.extend([like, like, like, like, like, like])
+            params.append(like)
         return "WHERE " + " AND ".join(clauses), tuple(params)
 
     def _fetch_one(self, sql: str, params: tuple[Any, ...]) -> sqlite3.Row | None:
@@ -360,6 +406,90 @@ class LogRepository:
     def _fetch_all(self, sql: str, params: tuple[Any, ...]) -> list[sqlite3.Row]:
         with self.lock:
             return list(self.connection.execute(sql, params).fetchall())
+
+
+def _search_terms(query: str) -> list[str]:
+    return [term.lower() for term in str(query).split() if term.strip()]
+
+
+def _like_pattern(term: str) -> str:
+    escaped = term.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
+    return f"%{escaped}%"
+
+
+def _record_search_values(values: Mapping[str, Any], task: sqlite3.Row | None) -> tuple[str, str, str, str, str, str]:
+    task_text = _search_text(
+        *(task[key] for key in task.keys())
+    ) if task is not None else _search_text(values.get("task_id"))
+    request_text = _search_text(
+        values.get("id"),
+        values.get("task_id"),
+        values.get("sequence"),
+        values.get("event"),
+        values.get("timestamp"),
+        values.get("started_at"),
+        values.get("duration_ms"),
+        values.get("proxy_id"),
+        values.get("proxy_name"),
+        values.get("client_host"),
+        values.get("client_port"),
+        values.get("target_id"),
+        values.get("target_name"),
+        values.get("target_url"),
+        values.get("method"),
+        values.get("path"),
+        values.get("endpoint"),
+        values.get("request_headers_json"),
+        values.get("request_body_json"),
+        values.get("model_route_json"),
+        values.get("stripped_fields_json"),
+        values.get("injected_fields_json"),
+        values.get("added_upstream_headers_json"),
+        values.get("created_at"),
+        values.get("updated_at"),
+    )
+    response_text = _search_text(
+        values.get("status"),
+        values.get("message_count"),
+        values.get("token_count"),
+        values.get("duration_ms"),
+        values.get("response_headers_json"),
+        values.get("response_body_json"),
+    )
+    error_text = _search_text(values.get("error"))
+    return (
+        str(values.get("id") or ""),
+        str(values.get("task_id") or ""),
+        task_text,
+        request_text,
+        response_text,
+        error_text,
+    )
+
+
+def _search_text(*values: object) -> str:
+    parts: list[str] = []
+    for value in values:
+        if value is None:
+            continue
+        text = str(value)
+        if not text:
+            continue
+        parts.append(text)
+        timestamp_text = _timestamp_search_text(text)
+        if timestamp_text:
+            parts.append(timestamp_text)
+    return " ".join(parts)
+
+
+def _timestamp_search_text(value: str) -> str:
+    if "T" not in value and len(value) < 10:
+        return ""
+    try:
+        formatted = format_local_timestamp(value, "%Y-%m-%d %H:%M:%S")
+    except (TypeError, ValueError):
+        return ""
+    return formatted if formatted != value else ""
 
 
 def _decode_task_row(row: sqlite3.Row) -> dict[str, Any]:

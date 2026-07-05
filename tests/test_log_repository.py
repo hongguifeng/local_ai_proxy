@@ -161,6 +161,86 @@ class LogRepositoryTests(unittest.TestCase):
             finally:
                 repository.close()
 
+    def test_search_matches_record_content_and_timestamps(self) -> None:
+        with TemporaryDirectory() as temp_dir:
+            repository = LogRepository(Path(temp_dir))
+            try:
+                repository.upsert_task(
+                    {
+                        "id": "task-1",
+                        "kind": "responses",
+                        "endpoint": "/v1/responses",
+                        "model": "gpt-5",
+                        "target": "http://target",
+                        "started_at": "2026-07-06T00:00:00+00:00",
+                        "last_seen_at": "2026-07-06T00:00:02+00:00",
+                        "last_response_at": "2026-07-06T00:00:02+00:00",
+                        "match_strategy_version": 3,
+                        "request_count": 2,
+                    }
+                )
+                repository.upsert_record(
+                    {
+                        "id": "record-1",
+                        "task_id": "task-1",
+                        "sequence": 1,
+                        "event": "request_finished",
+                        "timestamp": "2026-07-06T00:00:01+00:00",
+                        "started_at": "2026-07-06T00:00:00+00:00",
+                        "method": "POST",
+                        "path": "/v1/responses",
+                        "endpoint": "/v1/responses",
+                        "target_url": "http://target",
+                        "status": 200,
+                        "request_body": {"input": "find the launch checklist", "tag": "alpha_beta"},
+                        "response_body": {"output_text": "Launch window confirmed"},
+                    }
+                )
+                repository.upsert_record(
+                    {
+                        "id": "record-2",
+                        "task_id": "task-1",
+                        "sequence": 2,
+                        "event": "request_finished",
+                        "timestamp": "2026-07-06T00:00:02+00:00",
+                        "started_at": "2026-07-06T00:00:02+00:00",
+                        "method": "POST",
+                        "path": "/v1/responses",
+                        "endpoint": "/v1/responses",
+                        "target_url": "http://target",
+                        "status": 200,
+                        "request_body": {"input": "discount 50% off", "tag": "alphaXbeta"},
+                        "response_body": {"output_text": "Coupon captured"},
+                    }
+                )
+
+                request_match = repository.list_tasks("launch checklist")
+                self.assertEqual(request_match["total"], 1)
+                self.assertEqual(request_match["tasks"][0]["id"], "task-1")
+
+                response_match = repository.list_tasks("coupon captured")
+                self.assertEqual(response_match["total"], 1)
+                self.assertEqual(response_match["tasks"][0]["id"], "task-1")
+
+                repository.connection.execute("DELETE FROM record_search")
+                old_database_match = repository.list_tasks("launch window")
+                self.assertEqual(old_database_match["total"], 1)
+                self.assertEqual(old_database_match["tasks"][0]["id"], "task-1")
+
+                timestamp_match = repository.list_task_records("task-1", "2026-07-06 00:00:02")
+                self.assertEqual(timestamp_match["total"], 1)
+                self.assertEqual(timestamp_match["records"][0]["id"], "record-2")
+
+                literal_underscore_match = repository.list_task_records("task-1", "alpha_beta")
+                self.assertEqual(literal_underscore_match["total"], 1)
+                self.assertEqual(literal_underscore_match["records"][0]["id"], "record-1")
+
+                percent_match = repository.list_task_records("task-1", "50%")
+                self.assertEqual(percent_match["total"], 1)
+                self.assertEqual(percent_match["records"][0]["id"], "record-2")
+            finally:
+                repository.close()
+
     def test_delete_tasks_cascades_records_and_links(self) -> None:
         with TemporaryDirectory() as temp_dir:
             repository = LogRepository(Path(temp_dir))
