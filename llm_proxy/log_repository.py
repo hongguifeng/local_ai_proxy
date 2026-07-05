@@ -18,6 +18,12 @@ class LogRepository:
         self.connection = connect_log_db(log_root)
         self.lock = threading.RLock()
 
+    def __enter__(self) -> LogRepository:
+        return self
+
+    def __exit__(self, exc_type: object, exc_value: object, traceback: object) -> None:
+        self.close()
+
     def close(self) -> None:
         with self.lock:
             self.connection.close()
