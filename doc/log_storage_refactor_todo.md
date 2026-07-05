@@ -19,7 +19,7 @@
 | 2.1 任务匹配迁移到 SQLite | 已完成 | `4131632` | `python -m unittest tests.test_log_db tests.test_log_repository tests.test_task_matcher` |
 | 2.2 TrafficLogger 改为 SQLite 写入 | 已完成 | `515b62a` | `python -m unittest tests.test_log_db tests.test_log_repository tests.test_task_matcher tests.test_sqlite_logger tests.test_redaction` |
 | 3.1 Admin 日志查询切换到 SQLite | 已完成 | `03d5ad3` | `python -m unittest tests.test_log_db tests.test_log_repository tests.test_task_matcher tests.test_sqlite_logger tests.test_redaction tests.test_admin_ui` |
-| 3.2 清理与导出切换到 SQLite | 待开始 |  |  |
+| 3.2 清理与导出切换到 SQLite | 已完成 | `ea2a003` | `python -m unittest tests.test_log_db tests.test_log_repository tests.test_task_matcher tests.test_sqlite_logger tests.test_redaction tests.test_admin_ui` |
 | 4.1 删除旧文件索引实现 | 待开始 |  |  |
 | 4.2 文档、测试和收尾 | 待开始 |  |  |
 
@@ -96,12 +96,12 @@
 
 ### 3.2 清理与导出切换到 SQLite
 
-- [ ] `cleanup_logs` 删除 SQLite task。
-- [ ] `export_logs_zip` 从 SQLite 动态生成 Markdown/JSON。
-- [ ] 删除目录递归导出和删除逻辑。
-- [ ] 更新导出/清理测试。
-- [ ] 提交代码。
-- [ ] 回填进度记录。
+- [x] `cleanup_logs` 删除 SQLite task。
+- [x] `export_logs_zip` 从 SQLite 动态生成 Markdown/JSON。
+- [x] 删除目录递归导出和删除逻辑。
+- [x] 更新导出/清理测试。
+- [x] 提交代码。
+- [x] 回填进度记录。
 
 ## 4. 移除旧实现与收尾
 
