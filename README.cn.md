@@ -74,6 +74,46 @@ Windows 下也可以直接运行：
 http://127.0.0.1:8088
 ```
 
+### Windows 托盘版 exe
+
+如果希望双击后只显示系统托盘图标、不显示命令行窗口，可以打包托盘启动器：
+
+```powershell
+python -m pip install -e ".[tray]" pyinstaller
+python -m PyInstaller `
+  --clean `
+  --onefile `
+  --windowed `
+  --name llm-proxy-tray `
+  --add-data "llm_proxy\static;llm_proxy\static" `
+  --collect-submodules pystray `
+  tray_launcher.py
+```
+
+生成的程序在：
+
+```powershell
+.\dist\llm-proxy-tray.exe
+```
+
+启动后会在系统托盘显示 LLM Proxy 图标。左键点击图标会打开管理界面；右键菜单提供 **Open Admin UI** 和 **Exit**。如果希望启动后立刻打开浏览器，可以运行：
+
+```powershell
+.\dist\llm-proxy-tray.exe --open-on-start
+```
+
+项目也包含 GitHub Actions 自动打包和发布流程：
+
+- 普通 push 和 pull request 会构建 `llm-proxy-tray.exe`，并作为 workflow artifact 保存。
+- 推送 `v*` tag 会自动创建或更新 GitHub Release，并上传 `llm-proxy-tray.exe` 和 `llm-proxy-tray.exe.sha256`。
+
+发布一个版本：
+
+```powershell
+git tag v0.1.0
+git push origin v0.1.0
+```
+
 在 UI 中：
 
 1. 打开 **监听转发** 页面。
@@ -259,6 +299,7 @@ llm_proxy/
   __main__.py       # python -m llm_proxy 入口
   admin_server.py   # 管理端 HTTP API 和 UI 服务生命周期
   cli.py            # Web 控制台启动器
+  tray.py           # Windows / 桌面系统托盘启动器
   ui.py             # 内置 Web 控制台 HTML/CSS/JS
   file_io.py        # 小文件原子写入
   log_db.py         # SQLite schema 和连接初始化
@@ -292,10 +333,12 @@ tests/
   test_task_matcher.py
 .github/workflows/
   ci.yml
+  release.yml        # Windows exe 打包和 GitHub Release 发布
 doc/
   ui_proxy_cn.png
   ui_logs_cn.png
 run.bat             # Windows UI 启动脚本
+tray_launcher.py    # PyInstaller 托盘版入口
 pyproject.toml
 ```
 

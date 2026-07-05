@@ -19,9 +19,14 @@ dev = [
   "pytest>=8.0",
   "ruff>=0.5",
 ]
+tray = [
+  "Pillow>=10",
+  "pystray>=0.19",
+]
 
 [project.scripts]
 llm-proxy = "llm_proxy.cli:main"
+llm-proxy-tray = "llm_proxy.tray:main"
 
 [tool.setuptools.packages.find]
 include = ["llm_proxy*"]

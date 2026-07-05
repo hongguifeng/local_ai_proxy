@@ -74,6 +74,46 @@ The browser opens automatically at:
 http://127.0.0.1:8088
 ```
 
+### Windows Tray exe
+
+To build a double-clickable tray app with no console window:
+
+```powershell
+python -m pip install -e ".[tray]" pyinstaller
+python -m PyInstaller `
+  --clean `
+  --onefile `
+  --windowed `
+  --name llm-proxy-tray `
+  --add-data "llm_proxy\static;llm_proxy\static" `
+  --collect-submodules pystray `
+  tray_launcher.py
+```
+
+The executable is created at:
+
+```powershell
+.\dist\llm-proxy-tray.exe
+```
+
+After launch, LLM Proxy appears as a system tray icon. Left-click the icon to open the admin UI, or right-click for **Open Admin UI** and **Exit**. To open the browser immediately on startup, run:
+
+```powershell
+.\dist\llm-proxy-tray.exe --open-on-start
+```
+
+The project also includes GitHub Actions automation for packaging and releases:
+
+- Regular pushes and pull requests build `llm-proxy-tray.exe` and keep it as a workflow artifact.
+- Pushing a `v*` tag creates or updates a GitHub Release with `llm-proxy-tray.exe` and `llm-proxy-tray.exe.sha256`.
+
+Publish a release:
+
+```powershell
+git tag v0.1.0
+git push origin v0.1.0
+```
+
 In the UI:
 
 1. Open the **Proxy** tab.
@@ -259,6 +299,7 @@ llm_proxy/
   __main__.py       # python -m llm_proxy entry point
   admin_server.py   # admin HTTP API and UI server lifecycle
   cli.py            # web console launcher
+  tray.py           # Windows / desktop system tray launcher
   ui.py             # built-in web console HTML/CSS/JS
   file_io.py        # atomic small-file writes
   log_db.py         # SQLite schema and connection setup
@@ -292,10 +333,12 @@ tests/
   test_task_matcher.py
 .github/workflows/
   ci.yml
+  release.yml        # Windows exe packaging and GitHub Release publishing
 doc/
   ui_proxy_en.png
   ui_logs_en.png
 run.bat             # Windows UI launcher
+tray_launcher.py    # PyInstaller tray entry point
 pyproject.toml
 ```
 

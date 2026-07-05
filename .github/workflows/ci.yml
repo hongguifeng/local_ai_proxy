@@ -28,7 +28,7 @@ jobs:
         run: python -m mypy
 
       - name: Compile
-        run: python -m compileall -q llm_proxy tests
+        run: python -m compileall -q llm_proxy tests tray_launcher.py
 
       - name: Unit tests
         run: python -m pytest
