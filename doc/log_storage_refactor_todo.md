@@ -17,7 +17,7 @@
 | 1.1 SQLite schema 与连接基础 | 已完成 | `91bf67f` | `python -m unittest tests.test_log_db` |
 | 1.2 SQLite repository 读写骨架 | 已完成 | `e1bb90c` | `python -m unittest tests.test_log_db tests.test_log_repository` |
 | 2.1 任务匹配迁移到 SQLite | 已完成 | `4131632` | `python -m unittest tests.test_log_db tests.test_log_repository tests.test_task_matcher` |
-| 2.2 TrafficLogger 改为 SQLite 写入 | 待开始 |  |  |
+| 2.2 TrafficLogger 改为 SQLite 写入 | 已完成 | `515b62a` | `python -m unittest tests.test_log_db tests.test_log_repository tests.test_task_matcher tests.test_sqlite_logger tests.test_redaction` |
 | 3.1 Admin 日志查询切换到 SQLite | 待开始 |  |  |
 | 3.2 清理与导出切换到 SQLite | 待开始 |  |  |
 | 4.1 删除旧文件索引实现 | 待开始 |  |  |
@@ -72,14 +72,14 @@
 
 ### 2.2 TrafficLogger 改为 SQLite 写入
 
-- [ ] `TrafficLogger` 使用 `LogRepository`。
-- [ ] 删除运行时 Markdown/JSON 写入。
-- [ ] pending -> finished 更新同一 record。
-- [ ] 入库前保留现有脱敏行为。
-- [ ] manager/server 中继续按 target log root 创建 logger。
-- [ ] 更新 server/logger/redaction 测试。
-- [ ] 提交代码。
-- [ ] 回填进度记录。
+- [x] `TrafficLogger` 使用 `LogRepository`。
+- [x] 删除运行时 Markdown/JSON 写入。
+- [x] pending -> finished 更新同一 record。
+- [x] 入库前保留现有脱敏行为。
+- [x] manager/server 中继续按 target log root 创建 logger。
+- [x] 更新 server/logger/redaction 测试。
+- [x] 提交代码。
+- [x] 回填进度记录。
 
 ## 3. 管理端读取、清理和导出
 
