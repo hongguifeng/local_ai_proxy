@@ -167,8 +167,8 @@ function setLanguage(language) {
   applyLanguage();
   renderPairs();
   renderLogs();
-  renderJsonPane("request");
-  renderJsonPane("response");
+  renderJsonPane("request", { preserveOpen: true });
+  renderJsonPane("response", { preserveOpen: true });
   renderMetaPane("request");
   renderMetaPane("response");
 }
@@ -471,7 +471,25 @@ function jsonType(value) {
   return typeof value;
 }
 const defaultJsonExpandedDepth = 2;
-function renderJsonValue(value, key = "", root = false, formatMode = false, depth = 0) {
+function jsonNodePathAttr(path) {
+  return escapeHtml(JSON.stringify(path));
+}
+function collectJsonNodeOpenState(el) {
+  const openState = new Map();
+  el.querySelectorAll("details[data-json-node-path]").forEach((detail) => {
+    openState.set(detail.dataset.jsonNodePath, detail.open);
+  });
+  return openState;
+}
+function restoreJsonNodeOpenState(el, openState) {
+  if (!openState) return;
+  el.querySelectorAll("details[data-json-node-path]").forEach((detail) => {
+    if (openState.has(detail.dataset.jsonNodePath)) {
+      detail.open = openState.get(detail.dataset.jsonNodePath);
+    }
+  });
+}
+function renderJsonValue(value, key = "", root = false, formatMode = false, depth = 0, path = []) {
   const type = jsonType(value);
   const keyHtml = key === "" ? "" : `<span class="json-key">${escapeHtml(JSON.stringify(key))}</span>: `;
   if (type === "array" || type === "object") {
@@ -479,9 +497,9 @@ function renderJsonValue(value, key = "", root = false, formatMode = false, dept
     const start = type === "array" ? "[" : "{";
     const end = type === "array" ? "]" : "}";
     const summary = `${keyHtml}${start}<span class="json-muted">${entries.length ? ` ${entries.length} ${t("items")} ` : ""}</span>${end}`;
-    const childrenHtml = `<div class="json-children">${entries.map(([childKey, childValue]) => `<div class="json-row">${renderJsonValue(childValue, String(childKey), false, formatMode, depth + 1)}</div>`).join("")}</div>`;
+    const childrenHtml = `<div class="json-children">${entries.map(([childKey, childValue]) => `<div class="json-row">${renderJsonValue(childValue, String(childKey), false, formatMode, depth + 1, path.concat([childKey]))}</div>`).join("")}</div>`;
     const openAttr = depth < defaultJsonExpandedDepth ? " open" : "";
-    return `<details${openAttr}${root ? ' class="root"' : ''}><summary>${summary}</summary>${childrenHtml}<div class="json-muted">${end}</div></details>`;
+    return `<details${openAttr}${root ? ' class="root"' : ''} data-json-node-path="${jsonNodePathAttr(path)}"><summary>${summary}</summary>${childrenHtml}<div class="json-muted">${end}</div></details>`;
   }
   if (type === "string") {
     if (!formatMode) return `${keyHtml}<span class="json-string">${escapeHtml(JSON.stringify(value))}</span>`;
@@ -516,12 +534,14 @@ function jsonText(value) {
   const text = JSON.stringify(value, null, 2);
   return text === undefined ? "undefined" : text;
 }
-function renderJsonPane(key) {
+function renderJsonPane(key, options = {}) {
   const el = $(key + "Json");
+  const openState = options.preserveOpen ? collectJsonNodeOpenState(el) : null;
   el.classList.toggle("wrap", state.wrap[key]);
   el.classList.toggle("nowrap", !state.wrap[key]);
   if (state.tree[key]) {
     el.innerHTML = renderJsonValue(state.raw[key], "", true, state.formatStrings[key], 0);
+    restoreJsonNodeOpenState(el, openState);
   } else {
     el.textContent = jsonText(state.raw[key]);
   }
@@ -687,7 +707,7 @@ $("logItems").addEventListener("click", (event) => {
 document.querySelectorAll("[data-wrap]").forEach((button) => button.addEventListener("click", () => {
   const key = button.dataset.wrap;
   state.wrap[key] = !state.wrap[key];
-  renderJsonPane(key);
+  renderJsonPane(key, { preserveOpen: true });
 }));
 document.querySelectorAll("[data-meta]").forEach((button) => button.addEventListener("click", () => {
   const key = button.dataset.meta;
@@ -724,7 +744,7 @@ document.querySelectorAll("[data-expand]").forEach((button) => button.addEventLi
 document.querySelectorAll("[data-format]").forEach((button) => button.addEventListener("click", () => {
   const key = button.dataset.format;
   state.formatStrings[key] = !state.formatStrings[key];
-  renderJsonPane(key);
+  renderJsonPane(key, { preserveOpen: true });
 }));
 document.querySelectorAll("[data-copy]").forEach((button) => button.addEventListener("click", () => {
   const key = button.dataset.copy;
