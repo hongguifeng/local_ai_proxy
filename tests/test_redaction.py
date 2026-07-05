@@ -7,11 +7,9 @@ from llm_proxy.logger import TrafficLogger
 
 
 class LogRedactionTests(unittest.TestCase):
-    def _only_request_log_path(self, root: Path) -> Path:
-        return next((root / "tasks").glob("*/*"))
-
     def test_redacts_sensitive_headers_and_json_fields_when_enabled(self) -> None:
         temp_dir = tempfile.TemporaryDirectory()
+        logger: TrafficLogger | None = None
         try:
             root = Path(temp_dir.name)
             logger = TrafficLogger(root, redact_logs=True)
@@ -42,18 +40,19 @@ class LogRedactionTests(unittest.TestCase):
                 }
             )
 
-            log_path = self._only_request_log_path(root)
-            request_body = json.loads((log_path / "request.json").read_text(encoding="utf-8"))
-            markdown = next(log_path.glob("*.md")).read_text(encoding="utf-8")
-
-            self.assertEqual(request_body, {"model": "demo", "api_key": "[redacted]"})
-            self.assertIn("Authorization: [redacted]", markdown)
-            self.assertNotIn("secret-token", markdown)
+            assert logger.repository is not None
+            record = logger.repository.get_record("req_1")
+            assert record is not None
+            self.assertEqual(record["request_body"], {"model": "demo", "api_key": "[redacted]"})
+            self.assertEqual(record["request_headers"], {"Authorization": ["[redacted]"]})
         finally:
+            if logger is not None:
+                logger.close()
             temp_dir.cleanup()
 
     def test_keeps_sensitive_values_when_redaction_is_disabled(self) -> None:
         temp_dir = tempfile.TemporaryDirectory()
+        logger: TrafficLogger | None = None
         try:
             root = Path(temp_dir.name)
             logger = TrafficLogger(root)
@@ -84,9 +83,11 @@ class LogRedactionTests(unittest.TestCase):
                 }
             )
 
-            log_path = self._only_request_log_path(root)
-            request_body = json.loads((log_path / "request.json").read_text(encoding="utf-8"))
-
-            self.assertEqual(request_body, {"model": "demo", "api_key": "sk-secret"})
+            assert logger.repository is not None
+            record = logger.repository.get_record("req_1")
+            assert record is not None
+            self.assertEqual(record["request_body"], {"model": "demo", "api_key": "sk-secret"})
         finally:
+            if logger is not None:
+                logger.close()
             temp_dir.cleanup()

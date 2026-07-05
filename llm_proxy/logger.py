@@ -1,96 +1,115 @@
-"""Traffic log recorder.
-
-Traffic records are stored under ``logs/tasks``. Model requests are grouped into
-conversation/task directories; other requests are kept as single-request tasks.
-"""
+"""Traffic log recorder backed by SQLite."""
 
 from __future__ import annotations
 
 import threading
 from collections.abc import Mapping
 from pathlib import Path
+from typing import Any
 
-from .file_io import atomic_write_text
-from .log_files import (
-    ensure_log_dir,
-    log_markdown_filename,
-    render_interaction_markdown,
-    write_body_json_files,
-    write_task_index_markdown,
-)
+from .log_repository import LogRepository
 from .models import TrafficRecord
+from .payloads import body_json_value
+from .records import display_endpoint, endpoint_kind, request_message_count, response_token_count
 from .redaction import redact_record
-from .task_grouper import TaskGrouper
-from .task_index import TaskIndexStore
+from .task_matcher import TaskMatcher
 
 
 class TrafficLogger:
-    """Thread-safe traffic log writer.
-
-    The proxy server is multi-threaded and may handle multiple requests simultaneously, so all file write operations are protected by a single lock.
-    """
+    """Thread-safe traffic log writer."""
 
     def __init__(self, log_root: Path | None, *, redact_logs: bool = False) -> None:
         self.log_root = log_root
         self.redact_logs = redact_logs
-        self.lock = threading.Lock()
-        # .task-index.json stores the index of "request ID/response ID/context ID -> task",
-        # so when writing logs next time, related requests can be placed in the same task directory.
-        self.task_index_store = TaskIndexStore(log_root / ".task-index.json" if log_root else None)
-        self.task_index = self.task_index_store.load()
-        self.task_grouper = TaskGrouper(self.task_index, self.task_index_store, log_root)
-        if self.log_root:
-            self.log_root.mkdir(parents=True, exist_ok=True)
+        self.lock = threading.RLock()
+        self.repository = LogRepository(log_root) if log_root else None
+        self.task_matcher = TaskMatcher(self.repository) if self.repository else None
+
+    def close(self) -> None:
+        if self.repository:
+            self.repository.close()
 
     def write(self, record: TrafficRecord) -> None:
-        """Write a complete task log record."""
-        with self.lock:
-            self.task_index_store.refresh_into(self.task_index)
-            self.task_grouper.prepare(record)
-            self._write_task_log(record)
+        """Write a complete or final traffic log record."""
+        self._save(record)
 
     def update(self, record: TrafficRecord) -> None:
-        """Update the task log.
+        """Update a traffic log while the request is still in flight."""
+        self._save(record)
 
-        Called when the request body is read but the response has not yet arrived, so that the Markdown/JSON file appears earlier.
-        """
+    def _save(self, record: TrafficRecord) -> None:
+        if not self.repository or not self.task_matcher:
+            return
         with self.lock:
-            self.task_index_store.refresh_into(self.task_index)
-            self.task_grouper.prepare(record)
-            self._write_task_log(record)
+            record_to_write: Mapping[str, object] = redact_record(record) if self.redact_logs else record
+            assignment = self.task_matcher.assign(record_to_write)
+            if assignment is None:
+                return
+            self.repository.upsert_task(assignment.task)
+            self.repository.upsert_record(self._record_row(record_to_write, assignment.task, assignment.sequence))
+            for response_id in assignment.response_ids:
+                self.repository.upsert_response_link(response_id, str(assignment.task["id"]))
+            for context_key in assignment.context_keys:
+                self.repository.upsert_context_link(context_key, str(assignment.task["id"]))
 
-    def _write_task_log(self, record: Mapping[str, object]) -> None:
-        """Write or update the request directory inside its task."""
-        if not self.log_root:
-            return
-        record_to_write = record
-        if self.redact_logs:
-            record_to_write = redact_record(record)
-        current_log_filename = log_markdown_filename(record_to_write)
-        task_ref = record_to_write.get("task")
-        if not isinstance(task_ref, dict):
-            return
-        task_dir_name = task_ref.get("dir")
-        sequence = task_ref.get("request_sequence")
-        if not task_dir_name or not sequence:
-            return
-        tasks = self.task_index.get("tasks")
-        task = tasks.get(task_ref.get("id")) if isinstance(tasks, dict) else None
-        if not isinstance(task, dict):
-            return
-        requests = task.get("requests")
-        request_info = requests.get(str(record["id"])) if isinstance(requests, dict) else None
-        if not isinstance(request_info, dict):
-            return
+    def _record_row(self, record: Mapping[str, object], task: Mapping[str, object], sequence: int) -> dict[str, Any]:
+        request = _mapping(record.get("request"))
+        response = _mapping(record.get("response"))
+        target = _mapping(record.get("target"))
+        client = _mapping(record.get("client"))
+        proxy = _mapping(record.get("proxy"))
+        request_body = _body_json(request.get("upstream_body", request.get("body")))
+        response_body = _body_json(response.get("body"))
+        endpoint = display_endpoint(request.get("path", ""))
+        kind = endpoint_kind(endpoint)
+        return {
+            "id": str(record["id"]),
+            "task_id": str(task["id"]),
+            "sequence": sequence,
+            "event": str(record.get("event") or "request_finished"),
+            "timestamp": str(record.get("timestamp") or ""),
+            "started_at": str(record.get("started_timestamp") or record.get("timestamp") or ""),
+            "duration_ms": record.get("duration_ms", 0),
+            "proxy_id": proxy.get("id"),
+            "proxy_name": proxy.get("name"),
+            "client_host": client.get("host"),
+            "client_port": client.get("port"),
+            "target_id": target.get("id"),
+            "target_name": target.get("name"),
+            "target_url": _target_url(target),
+            "method": str(request.get("method") or ""),
+            "path": str(request.get("path") or ""),
+            "endpoint": endpoint,
+            "status": response.get("status"),
+            "error": record.get("error"),
+            "message_count": request_message_count(kind, request_body),
+            "token_count": response_token_count(response_body),
+            "request_headers": request.get("headers") if isinstance(request.get("headers"), Mapping) else {},
+            "response_headers": response.get("headers") if isinstance(response.get("headers"), Mapping) else {},
+            "request_body": request_body,
+            "response_body": response_body,
+            "model_route": request.get("model_route"),
+            "stripped_fields": list(request.get("stripped_fields") or []),
+            "injected_fields": list(request.get("injected_fields") or []),
+            "added_upstream_headers": list(request.get("added_upstream_headers") or []),
+        }
 
-        task_path = self.log_root / "tasks" / str(task_dir_name)
-        request_path_in_task = task_path / str(request_info["dir_name"])
-        ensure_log_dir(request_path_in_task)
-        # The same request generates different filenames for pending and finished states;
-        # keep only the latest Markdown summary in the request directory.
-        for existing_markdown in request_path_in_task.glob("*.md"):
-            if existing_markdown.name != current_log_filename:
-                existing_markdown.unlink()
-        atomic_write_text(request_path_in_task / current_log_filename, render_interaction_markdown(record_to_write))
-        write_body_json_files(request_path_in_task, dict(record_to_write))
-        write_task_index_markdown(task_path, task)
+
+def _mapping(value: object) -> Mapping[str, object]:
+    return value if isinstance(value, Mapping) else {}
+
+
+def _body_json(value: object) -> object:
+    if isinstance(value, Mapping):
+        return body_json_value(value)
+    return None
+
+
+def _target_url(target: Mapping[str, object]) -> str:
+    scheme = target.get("scheme")
+    host = target.get("host")
+    port = target.get("port")
+    path = target.get("path", "")
+    if not scheme or not host or port in {None, ""}:
+        return ""
+    return f"{scheme}://{host}:{port}{path}"

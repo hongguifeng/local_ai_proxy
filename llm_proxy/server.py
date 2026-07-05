@@ -460,3 +460,18 @@ class ProxyServer(ThreadingHTTPServer):
         super().__init__(listen, handler_class)
         self.config = config
         self.traffic_logger = traffic_logger
+
+    def server_close(self) -> None:
+        loggers: list[TrafficLogger] = [self.traffic_logger]
+        for target in self.config.get("targets", []):
+            logger = target.get("traffic_logger")
+            if isinstance(logger, TrafficLogger):
+                loggers.append(logger)
+        seen: set[int] = set()
+        for logger in loggers:
+            identity = id(logger)
+            if identity in seen:
+                continue
+            seen.add(identity)
+            logger.close()
+        super().server_close()
