@@ -3,6 +3,8 @@ import json
 import tempfile
 import threading
 import unittest
+import zipfile
+from io import BytesIO
 from pathlib import Path
 
 from llm_proxy.admin_server import AdminServer
@@ -229,6 +231,69 @@ class AdminUiTests(unittest.TestCase):
             conn.close()
 
             self.assertEqual({group["id"] for group in payload["groups"]}, {"task-first", "task-second"})
+        finally:
+            if server is not None:
+                server.shutdown()
+                server.server_close()
+            temp_dir.cleanup()
+
+    def test_log_export_downloads_zip_from_sqlite(self) -> None:
+        temp_dir = tempfile.TemporaryDirectory()
+        server = None
+        try:
+            root = Path(temp_dir.name)
+            self._write_log(root, "task-one", "req_1", "gpt-5", "http://target/v1/responses")
+            manager = ProxyManager(root / "proxies.json", root)
+            server = AdminServer(("127.0.0.1", 0), manager)
+            threading.Thread(target=server.serve_forever, daemon=True).start()
+
+            conn = http.client.HTTPConnection("127.0.0.1", server.server_address[1], timeout=5)
+            conn.request("GET", "/api/logs/export")
+            response = conn.getresponse()
+            self.assertEqual(response.status, 200)
+            self.assertEqual(response.getheader("Content-Type"), "application/zip")
+            archive_bytes = response.read()
+            conn.close()
+
+            with zipfile.ZipFile(BytesIO(archive_bytes)) as archive:
+                names = archive.namelist()
+                self.assertTrue(any(name.endswith("/index.md") for name in names))
+                request_names = [name for name in names if name.endswith("/request.json")]
+                self.assertEqual(len(request_names), 1)
+                request_body = json.loads(archive.read(request_names[0]).decode("utf-8"))
+                self.assertEqual(request_body, {"input": "hello"})
+        finally:
+            if server is not None:
+                server.shutdown()
+                server.server_close()
+            temp_dir.cleanup()
+
+    def test_log_cleanup_deletes_selected_sqlite_task(self) -> None:
+        temp_dir = tempfile.TemporaryDirectory()
+        server = None
+        try:
+            root = Path(temp_dir.name)
+            self._write_log(root, "task-one", "req_1", "gpt-5", "http://target/v1/responses")
+            manager = ProxyManager(root / "proxies.json", root)
+            server = AdminServer(("127.0.0.1", 0), manager)
+            threading.Thread(target=server.serve_forever, daemon=True).start()
+
+            conn = http.client.HTTPConnection("127.0.0.1", server.server_address[1], timeout=5)
+            conn.request(
+                "POST",
+                "/api/logs/cleanup",
+                body=json.dumps({"group_ids": ["task-one"]}),
+                headers={"Content-Type": "application/json"},
+            )
+            response = conn.getresponse()
+            self.assertEqual(response.status, 200)
+            payload = json.loads(response.read())
+            conn.close()
+
+            self.assertEqual(payload["deleted_count"], 1)
+            with LogRepository(root) as repository:
+                self.assertIsNone(repository.get_task("task-one"))
+                self.assertIsNone(repository.get_record("req_1"))
         finally:
             if server is not None:
                 server.shutdown()
