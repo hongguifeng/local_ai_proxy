@@ -1,12 +1,12 @@
 from __future__ import annotations
 
-import datetime as dt
 from pathlib import Path
 from typing import Any
 
 from .log_repository import LogRepository
 from .log_roots import log_roots
 from .manager import ProxyManager
+from .time_utils import format_local_timestamp
 
 
 class LogStore:
@@ -119,10 +119,9 @@ class LogStore:
         if not isinstance(value, str) or not value:
             return ""
         try:
-            parsed = dt.datetime.fromisoformat(value)
+            return format_local_timestamp(value, "%Y-%m-%d %H:%M:%S")
         except ValueError:
             return value
-        return parsed.strftime("%Y-%m-%d %H:%M:%S")
 
     def _task_sort_key(self, task: dict[str, Any]) -> str:
         return str(task.get("last_response_at") or task.get("last_seen_at") or task.get("started_at") or "")

@@ -10,7 +10,7 @@ from pathlib import Path
 from typing import Any
 
 from .log_db import connect_log_db
-from .time_utils import utc_now_iso
+from .time_utils import local_now_iso
 
 
 class LogRepository:
@@ -29,7 +29,7 @@ class LogRepository:
             self.connection.close()
 
     def upsert_task(self, task: Mapping[str, Any]) -> dict[str, Any]:
-        now = utc_now_iso()
+        now = local_now_iso()
         values = {
             "id": str(task["id"]),
             "kind": str(task.get("kind") or "request"),
@@ -91,7 +91,7 @@ class LogRepository:
         return loaded
 
     def upsert_record(self, record: Mapping[str, Any]) -> dict[str, Any]:
-        now = utc_now_iso()
+        now = local_now_iso()
         values = {
             "id": str(record["id"]),
             "task_id": str(record["task_id"]),
@@ -299,7 +299,7 @@ class LogRepository:
     def _upsert_link(self, table: str, id_column: str, value: str, task_id: str) -> None:
         if not str(value).strip():
             return
-        now = utc_now_iso()
+        now = local_now_iso()
         with self.lock, self.connection:
             self.connection.execute(
                 f"""

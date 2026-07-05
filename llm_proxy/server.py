@@ -20,7 +20,7 @@ from .payloads import bytes_payload
 from .routing import rewrite_request_model, select_target_by_model
 from .sanitize import transform_request_json_fields
 from .target import join_target_path
-from .time_utils import utc_now_iso
+from .time_utils import local_now_iso
 
 
 @dataclass
@@ -151,7 +151,7 @@ class ProxyHandler(BaseHTTPRequestHandler):
         target_scheme, target_host, target_port, target_path = self._target_path(target)
         record: TrafficRecord = {
             "id": request_id,
-            "timestamp": utc_now_iso(),
+            "timestamp": local_now_iso(),
             "client": {
                 "host": self.client_address[0],
                 "port": self.client_address[1],
@@ -435,7 +435,7 @@ class ProxyHandler(BaseHTTPRequestHandler):
                 response_status=upstream_result.status,
                 response_headers=upstream_result.headers,
                 response_body=upstream_result.body,
-                timestamp=utc_now_iso(),
+                timestamp=local_now_iso(),
                 error=upstream_result.error,
             )
         )

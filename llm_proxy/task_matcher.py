@@ -22,7 +22,7 @@ from .records import (
     response_ids_from_body,
     safe_filename_part,
 )
-from .time_utils import utc_now_iso
+from .time_utils import local_now_iso
 
 TASK_MATCH_STRATEGY_VERSION = 4
 MODEL_TASK_KINDS = {"responses", "chat", "messages", "completions"}
@@ -219,9 +219,9 @@ class TaskMatcher:
         if not isinstance(payload, Mapping):
             return None
         try:
-            now = dt.datetime.fromisoformat(str(record.get("timestamp", utc_now_iso())))
+            now = dt.datetime.fromisoformat(str(record.get("timestamp", local_now_iso())))
         except ValueError:
-            now = dt.datetime.fromisoformat(utc_now_iso())
+            now = dt.datetime.fromisoformat(local_now_iso())
         best_task: dict[str, Any] | None = None
         best_age_seconds: float | None = None
         current_user_messages = request_user_messages(kind, payload)
@@ -286,7 +286,7 @@ class TaskMatcher:
         return sequence[: len(prefix)] == prefix
 
     def _new_task(self, record: Mapping[str, object], kind: str, payload: object) -> dict[str, Any]:
-        now = utc_now_iso()
+        now = local_now_iso()
         task = {
             "id": uuid.uuid4().hex,
             "kind": kind,
@@ -324,7 +324,7 @@ class TaskMatcher:
         task["pending_request_only"] = False
         task["kind"] = kind
         task["endpoint"] = request_path(record)
-        task["last_seen_at"] = record.get("timestamp", task.get("last_seen_at", utc_now_iso()))
+        task["last_seen_at"] = record.get("timestamp", task.get("last_seen_at", local_now_iso()))
         status = get_nested_value(record, ("response", "status"))
         if status is not None:
             task["last_response_at"] = record.get("timestamp", task.get("last_response_at"))
@@ -337,7 +337,7 @@ class TaskMatcher:
         if target_text:
             task["target"] = target_text
         task["request_count"] = self.repository.record_count(str(task["id"])) + (0 if existing_record else 1)
-        task["updated_at"] = utc_now_iso()
+        task["updated_at"] = local_now_iso()
         if response_ids_from_body(response_payload):
             task["last_response_at"] = record.get("timestamp", task.get("last_response_at"))
         return task

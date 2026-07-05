@@ -1,7 +1,7 @@
 """Time formatting utilities.
 
 Two time formats are needed in logs:
-1. ISO time for JSONL machine logs, easy for programs to parse.
+1. Local ISO time for database logs, easy for programs to parse.
 2. Shorter local time for Markdown directories and filenames, easy for humans to browse.
 """
 
@@ -11,9 +11,19 @@ import datetime as dt
 from collections.abc import Mapping
 
 
-def utc_now_iso() -> str:
-    """Return the current UTC time, formatted for JSON logs."""
-    return dt.datetime.now(dt.timezone.utc).isoformat(timespec="milliseconds")
+def local_now_iso() -> str:
+    """Return the current local time, formatted for machine logs."""
+    return dt.datetime.now().astimezone().isoformat(timespec="milliseconds")
+
+
+def local_datetime_from_timestamp(timestamp: object) -> dt.datetime:
+    """Parse an ISO timestamp and convert it to the local timezone."""
+    return dt.datetime.fromisoformat(str(timestamp)).astimezone()
+
+
+def format_local_timestamp(timestamp: object, fmt: str) -> str:
+    """Format an ISO timestamp in the local timezone."""
+    return local_datetime_from_timestamp(timestamp).strftime(fmt)
 
 
 def local_now_for_filename() -> str:
@@ -23,12 +33,12 @@ def local_now_for_filename() -> str:
 
 def local_datetime_for_filename(timestamp: object) -> str:
     """Convert an ISO timestamp to a local date+time filename segment."""
-    return dt.datetime.fromisoformat(str(timestamp)).astimezone().strftime("%m-%d__%H-%M-%S.%f")[:-3]
+    return format_local_timestamp(timestamp, "%m-%d__%H-%M-%S.%f")[:-3]
 
 
 def local_time_from_timestamp_for_filename(timestamp: object) -> str:
     """Convert an ISO timestamp to a local 'HH-MM-SS.mmm' filename segment."""
-    return dt.datetime.fromisoformat(str(timestamp)).astimezone().strftime("%H-%M-%S.%f")[:-3]
+    return format_local_timestamp(timestamp, "%H-%M-%S.%f")[:-3]
 
 
 def log_start_timestamp(record: Mapping[str, object]) -> object:

@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import datetime as dt
 import io
 import json
 import time
@@ -14,6 +13,7 @@ from .log_repository import LogRepository
 from .log_roots import log_roots as _log_roots
 from .manager import ProxyManager
 from .records import safe_filename_part
+from .time_utils import format_local_timestamp, local_datetime_from_timestamp
 
 
 def log_roots(manager: ProxyManager) -> list[Path]:
@@ -129,9 +129,9 @@ def _render_task_markdown(task: dict[str, Any], records: list[dict[str, Any]]) -
         "## Summary",
         "",
         f"- Kind: {task.get('kind')}",
-        f"- Started: {task.get('started_at')}",
-        f"- Last seen: {task.get('last_seen_at')}",
-        f"- Last response: {task.get('last_response_at')}",
+        f"- Started: {_display_timestamp(task.get('started_at'))}",
+        f"- Last seen: {_display_timestamp(task.get('last_seen_at'))}",
+        f"- Last response: {_display_timestamp(task.get('last_response_at'))}",
         f"- Requests: {task.get('request_count', len(records))}",
     ]
     if task.get("model"):
@@ -156,7 +156,7 @@ def _render_record_markdown(task: dict[str, Any], record: dict[str, Any]) -> str
         "",
         "## Summary",
         "",
-        f"- Time: {record.get('timestamp')}",
+        f"- Time: {_display_timestamp(record.get('timestamp'))}",
         f"- Event: {record.get('event')}",
         f"- Duration: {record.get('duration_ms')} ms",
         f"- Target: {record.get('target_url')}",
@@ -189,10 +189,18 @@ def _compact_timestamp(value: object) -> str:
     if not isinstance(value, str) or not value:
         return ""
     try:
-        parsed = dt.datetime.fromisoformat(value)
+        return format_local_timestamp(value, "%Y-%m-%d__%H-%M-%S")
     except ValueError:
         return safe_filename_part(value, "time", limit=32)
-    return parsed.strftime("%Y-%m-%d__%H-%M-%S")
+
+
+def _display_timestamp(value: object) -> str:
+    if not isinstance(value, str) or not value:
+        return ""
+    try:
+        return format_local_timestamp(value, "%Y-%m-%d %H:%M:%S")
+    except ValueError:
+        return value
 
 
 def _task_epoch(task: dict[str, Any]) -> float | None:
@@ -200,6 +208,6 @@ def _task_epoch(task: dict[str, Any]) -> float | None:
     if not isinstance(value, str) or not value:
         return None
     try:
-        return dt.datetime.fromisoformat(value).timestamp()
+        return local_datetime_from_timestamp(value).timestamp()
     except ValueError:
         return None
