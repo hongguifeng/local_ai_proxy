@@ -16,7 +16,7 @@
 | 0.1 设计收紧与 TODO 文档 | 已完成 | `87124a8` | 文档检查 |
 | 1.1 SQLite schema 与连接基础 | 已完成 | `91bf67f` | `python -m unittest tests.test_log_db` |
 | 1.2 SQLite repository 读写骨架 | 已完成 | `e1bb90c` | `python -m unittest tests.test_log_db tests.test_log_repository` |
-| 2.1 任务匹配迁移到 SQLite | 待开始 |  |  |
+| 2.1 任务匹配迁移到 SQLite | 已完成 | `4131632` | `python -m unittest tests.test_log_db tests.test_log_repository tests.test_task_matcher` |
 | 2.2 TrafficLogger 改为 SQLite 写入 | 待开始 |  |  |
 | 3.1 Admin 日志查询切换到 SQLite | 待开始 |  |  |
 | 3.2 清理与导出切换到 SQLite | 待开始 |  |  |
@@ -62,13 +62,13 @@
 
 ### 2.1 任务匹配迁移到 SQLite
 
-- [ ] 从旧 `TaskGrouper` 中提取与文件路径无关的任务匹配逻辑。
-- [ ] 移除对 `TaskIndexStore`、`dir_name`、request directory 的依赖。
-- [ ] 实现 request id、previous response id、context key、启发式匹配的 SQLite 查询。
-- [ ] 保留 pending request 归类能力。
-- [ ] 增加任务匹配测试。
-- [ ] 提交代码。
-- [ ] 回填进度记录。
+- [x] 从旧 `TaskGrouper` 中提取与文件路径无关的任务匹配逻辑。
+- [x] 移除对 `TaskIndexStore`、`dir_name`、request directory 的依赖。
+- [x] 实现 request id、previous response id、context key、启发式匹配的 SQLite 查询。
+- [x] 保留 pending request 归类能力。
+- [x] 增加任务匹配测试。
+- [x] 提交代码。
+- [x] 回填进度记录。
 
 ### 2.2 TrafficLogger 改为 SQLite 写入
 
