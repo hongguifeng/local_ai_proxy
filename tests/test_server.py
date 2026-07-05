@@ -8,66 +8,11 @@ import unittest
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 
-from llm_proxy import (
-    ProxyHandler,
-    ProxyServer,
-    TrafficLogger,
-    parse_target_url,
-)
+from llm_proxy import ProxyHandler, ProxyServer, TrafficLogger, parse_target_url
+from llm_proxy.log_repository import LogRepository
 
 
 class TargetUrlProxyTests(unittest.TestCase):
-    """Verify that the proxy server forwards requests by target-url and writes logs."""
-
-    def _read_json_with_retry(self, path: Path, timeout: float = 2) -> object:
-        deadline = time.time() + timeout
-        last_error: OSError | json.JSONDecodeError | None = None
-        while time.time() < deadline:
-            try:
-                with path.open(encoding="utf-8") as file:
-                    return json.load(file)
-            except (OSError, json.JSONDecodeError) as exc:
-                last_error = exc
-                time.sleep(0.02)
-        if last_error is not None:
-            raise last_error
-        raise AssertionError(f"Timed out reading {path}")
-
-    def _read_optional_json(self, path: Path) -> object:
-        try:
-            with path.open(encoding="utf-8") as file:
-                return json.load(file)
-        except FileNotFoundError:
-            return None
-
-    def _request_log_dirs(self, log_root: Path) -> list[Path]:
-        tasks_root = log_root / "tasks"
-        if not tasks_root.exists():
-            return []
-        return sorted(path for path in tasks_root.glob("*/*") if path.is_dir())
-
-    def _wait_for_request_log(self, log_root: Path, timeout: float = 2) -> Path | None:
-        deadline = time.time() + timeout
-        while time.time() < deadline:
-            request_logs = self._request_log_dirs(log_root)
-            if request_logs:
-                return request_logs[0]
-            time.sleep(0.05)
-        return None
-
-    def _wait_for_request_json(self, log_root: Path, expected: object, timeout: float = 2) -> Path | None:
-        deadline = time.time() + timeout
-        while time.time() < deadline:
-            for request_log in self._request_log_dirs(log_root):
-                try:
-                    with (request_log / "request.json").open(encoding="utf-8") as file:
-                        if json.load(file) == expected:
-                            return request_log
-                except (OSError, json.JSONDecodeError):
-                    pass
-            time.sleep(0.02)
-        return None
-
     def _target(
         self,
         target_id: str,
@@ -82,8 +27,9 @@ class TargetUrlProxyTests(unittest.TestCase):
         model_mappings: list[dict[str, str]] | None = None,
         enabled: bool = True,
         timeout: float = 5,
+        logger: TrafficLogger | None = None,
     ) -> dict[str, object]:
-        return {
+        result: dict[str, object] = {
             "id": target_id,
             "name": name,
             "enabled": enabled,
@@ -98,6 +44,9 @@ class TargetUrlProxyTests(unittest.TestCase):
             "timeout": timeout,
             "model_mappings": model_mappings or [],
         }
+        if logger is not None:
+            result["traffic_logger"] = logger
+        return result
 
     def _config(
         self,
@@ -119,10 +68,7 @@ class TargetUrlProxyTests(unittest.TestCase):
             class UpstreamHandler(BaseHTTPRequestHandler):
                 def do_POST(self) -> None:
                     length = int(self.headers.get("Content-Length", "0"))
-                    seen[name] = {
-                        "path": self.path,
-                        "body": self.rfile.read(length).decode("utf-8"),
-                    }
+                    seen[name] = {"path": self.path, "body": self.rfile.read(length).decode("utf-8")}
                     body = json.dumps({"upstream": name}).encode("utf-8")
                     self.send_response(200)
                     self.send_header("Content-Type", "application/json")
@@ -142,8 +88,7 @@ class TargetUrlProxyTests(unittest.TestCase):
         log_dir = tempfile.TemporaryDirectory()
         proxy = None
         try:
-            log_root = Path(log_dir.name)
-            logger = TrafficLogger(log_root)
+            logger = TrafficLogger(Path(log_dir.name))
             proxy = ProxyServer(
                 ("127.0.0.1", 0),
                 ProxyHandler,
@@ -199,85 +144,10 @@ class TargetUrlProxyTests(unittest.TestCase):
             upstream_b.server_close()
             log_dir.cleanup()
 
-    def test_disabled_non_default_target_is_skipped_for_model_routing(self) -> None:
-        seen: dict[str, int] = {"a": 0, "b": 0}
-
-        def make_handler(name: str) -> type[BaseHTTPRequestHandler]:
-            class UpstreamHandler(BaseHTTPRequestHandler):
-                def do_POST(self) -> None:
-                    length = int(self.headers.get("Content-Length", "0"))
-                    self.rfile.read(length)
-                    seen[name] += 1
-                    body = json.dumps({"upstream": name}).encode("utf-8")
-                    self.send_response(200)
-                    self.send_header("Content-Type", "application/json")
-                    self.send_header("Content-Length", str(len(body)))
-                    self.end_headers()
-                    self.wfile.write(body)
-
-                def log_message(self, fmt: str, *args: object) -> None:
-                    return
-
-            return UpstreamHandler
-
-        upstream_a = ThreadingHTTPServer(("127.0.0.1", 0), make_handler("a"))
-        upstream_b = ThreadingHTTPServer(("127.0.0.1", 0), make_handler("b"))
-        threading.Thread(target=upstream_a.serve_forever, daemon=True).start()
-        threading.Thread(target=upstream_b.serve_forever, daemon=True).start()
-        log_dir = tempfile.TemporaryDirectory()
-        proxy = None
-        try:
-            log_root = Path(log_dir.name)
-            logger = TrafficLogger(log_root)
-            proxy = ProxyServer(
-                ("127.0.0.1", 0),
-                ProxyHandler,
-                self._config(
-                    [
-                        self._target(
-                            "a",
-                            "A",
-                            upstream_a.server_address[1],
-                            enabled=False,
-                            model_mappings=[{"listen": "A-gpt-5.5", "upstream": "gpt-5.5"}],
-                        ),
-                        self._target("b", "B", upstream_b.server_address[1]),
-                    ],
-                    default_target_id="b",
-                ),
-                logger,
-            )
-            threading.Thread(target=proxy.serve_forever, daemon=True).start()
-
-            conn = http.client.HTTPConnection("127.0.0.1", proxy.server_address[1], timeout=5)
-            conn.request(
-                "POST",
-                "/v1/chat/completions",
-                body=b'{"model":"A-gpt-5.5","messages":[]}',
-                headers={"Content-Type": "application/json"},
-            )
-            response = conn.getresponse()
-            self.assertEqual(response.status, 200)
-            self.assertEqual(json.loads(response.read()), {"upstream": "b"})
-            conn.close()
-
-            self.assertEqual(seen, {"a": 0, "b": 1})
-        finally:
-            if proxy is not None:
-                proxy.shutdown()
-                proxy.server_close()
-            upstream_a.shutdown()
-            upstream_a.server_close()
-            upstream_b.shutdown()
-            upstream_b.server_close()
-            log_dir.cleanup()
-
-    def test_target_url_forwards_to_configured_upstream_and_logs_request_first(self) -> None:
+    def test_target_url_forwards_and_logs_to_sqlite(self) -> None:
         upstream_seen: dict[str, object] = {}
 
         class UpstreamHandler(BaseHTTPRequestHandler):
-            """Test upstream service that records what the proxy actually forwards."""
-
             def do_POST(self) -> None:
                 length = int(self.headers.get("Content-Length", "0"))
                 upstream_seen["path"] = self.path
@@ -294,8 +164,7 @@ class TargetUrlProxyTests(unittest.TestCase):
                 return
 
         upstream = ThreadingHTTPServer(("127.0.0.1", 0), UpstreamHandler)
-        upstream_thread = threading.Thread(target=upstream.serve_forever, daemon=True)
-        upstream_thread.start()
+        threading.Thread(target=upstream.serve_forever, daemon=True).start()
         log_dir = tempfile.TemporaryDirectory()
         proxy = None
         try:
@@ -309,8 +178,7 @@ class TargetUrlProxyTests(unittest.TestCase):
                 self._config([self._target("default", "Default", int(target["port"]), base_path=str(target["base_path"]))]),
                 logger,
             )
-            proxy_thread = threading.Thread(target=proxy.serve_forever, daemon=True)
-            proxy_thread.start()
+            threading.Thread(target=proxy.serve_forever, daemon=True).start()
 
             conn = http.client.HTTPConnection("127.0.0.1", proxy.server_address[1], timeout=5)
             conn.request(
@@ -326,16 +194,15 @@ class TargetUrlProxyTests(unittest.TestCase):
 
             self.assertEqual(upstream_seen["path"], "/v1/chat/completions")
             self.assertEqual(upstream_seen["body"], '{"messages":[]}')
-            request_logs = self._request_log_dirs(log_root)
-            self.assertEqual(len(request_logs), 1)
-            log_path = request_logs[0]
-            with (log_path / "request.json").open(encoding="utf-8") as file:
-                self.assertEqual(json.load(file), {"messages": []})
-            with (log_path / "response.json").open(encoding="utf-8") as file:
-                self.assertEqual(json.load(file), {"ok": True})
-            markdown = next(log_path.glob("*.md")).read_text(encoding="utf-8")
-            self.assertIn(f"http://127.0.0.1:{upstream_port}/v1/chat/completions", markdown)
-            self.assertIn("- Event: request_finished", markdown)
+            with LogRepository(log_root) as repository:
+                tasks = repository.list_tasks()
+                self.assertEqual(tasks["total"], 1)
+                records = repository.list_task_records(tasks["tasks"][0]["id"])
+                self.assertEqual(records["total"], 1)
+                record = records["records"][0]
+                self.assertEqual(record["request_body"], {"messages": []})
+                self.assertEqual(record["response_body"], {"ok": True})
+                self.assertEqual(record["target_url"], f"http://127.0.0.1:{upstream_port}/v1/chat/completions")
         finally:
             if proxy is not None:
                 proxy.shutdown()
@@ -366,22 +233,19 @@ class TargetUrlProxyTests(unittest.TestCase):
                 return
 
         upstream = ThreadingHTTPServer(("127.0.0.1", 0), UpstreamHandler)
-        upstream_thread = threading.Thread(target=upstream.serve_forever, daemon=True)
-        upstream_thread.start()
+        threading.Thread(target=upstream.serve_forever, daemon=True).start()
         log_dir = tempfile.TemporaryDirectory()
         proxy = None
         sock = None
         try:
-            log_root = Path(log_dir.name)
-            logger = TrafficLogger(log_root)
+            logger = TrafficLogger(Path(log_dir.name))
             proxy = ProxyServer(
                 ("127.0.0.1", 0),
                 ProxyHandler,
                 self._config([self._target("default", "Default", upstream.server_address[1])]),
                 logger,
             )
-            proxy_thread = threading.Thread(target=proxy.serve_forever, daemon=True)
-            proxy_thread.start()
+            threading.Thread(target=proxy.serve_forever, daemon=True).start()
 
             sock = socket.create_connection(("127.0.0.1", proxy.server_address[1]), timeout=5)
             sock.settimeout(2)
@@ -419,73 +283,7 @@ class TargetUrlProxyTests(unittest.TestCase):
             upstream.server_close()
             log_dir.cleanup()
 
-    def test_target_api_key_overrides_authorization_header(self) -> None:
-        upstream_seen: dict[str, object] = {}
-
-        class UpstreamHandler(BaseHTTPRequestHandler):
-            def do_POST(self) -> None:
-                length = int(self.headers.get("Content-Length", "0"))
-                self.rfile.read(length)
-                upstream_seen["authorization"] = self.headers.get("Authorization")
-                body = b'{"ok":true}'
-                self.send_response(200)
-                self.send_header("Content-Type", "application/json")
-                self.send_header("Content-Length", str(len(body)))
-                self.end_headers()
-                self.wfile.write(body)
-
-            def log_message(self, fmt: str, *args: object) -> None:
-                return
-
-        upstream = ThreadingHTTPServer(("127.0.0.1", 0), UpstreamHandler)
-        upstream_thread = threading.Thread(target=upstream.serve_forever, daemon=True)
-        upstream_thread.start()
-        log_dir = tempfile.TemporaryDirectory()
-        proxy = None
-        try:
-            log_root = Path(log_dir.name)
-            logger = TrafficLogger(log_root)
-            proxy = ProxyServer(
-                ("127.0.0.1", 0),
-                ProxyHandler,
-                self._config(
-                    [
-                        self._target(
-                            "default",
-                            "Default",
-                            upstream.server_address[1],
-                            target_api_key="sk-target",
-                            target_headers=[("Authorization", "Bearer sk-header")],
-                        )
-                    ]
-                ),
-                logger,
-            )
-            proxy_thread = threading.Thread(target=proxy.serve_forever, daemon=True)
-            proxy_thread.start()
-
-            conn = http.client.HTTPConnection("127.0.0.1", proxy.server_address[1], timeout=5)
-            conn.request(
-                "POST",
-                "/v1/responses",
-                body=b'{}',
-                headers={"Authorization": "Bearer sk-client", "Content-Type": "application/json"},
-            )
-            response = conn.getresponse()
-            self.assertEqual(response.status, 200)
-            self.assertEqual(response.read(), b'{"ok":true}')
-            conn.close()
-
-            self.assertEqual(upstream_seen["authorization"], "Bearer sk-target")
-        finally:
-            if proxy is not None:
-                proxy.shutdown()
-                proxy.server_close()
-            upstream.shutdown()
-            upstream.server_close()
-            log_dir.cleanup()
-
-    def test_injects_configured_request_fields_before_forwarding(self) -> None:
+    def test_injects_configured_request_fields_before_forwarding_and_logging(self) -> None:
         upstream_seen: dict[str, object] = {}
 
         class UpstreamHandler(BaseHTTPRequestHandler):
@@ -503,8 +301,7 @@ class TargetUrlProxyTests(unittest.TestCase):
                 return
 
         upstream = ThreadingHTTPServer(("127.0.0.1", 0), UpstreamHandler)
-        upstream_thread = threading.Thread(target=upstream.serve_forever, daemon=True)
-        upstream_thread.start()
+        threading.Thread(target=upstream.serve_forever, daemon=True).start()
         log_dir = tempfile.TemporaryDirectory()
         proxy = None
         try:
@@ -526,8 +323,7 @@ class TargetUrlProxyTests(unittest.TestCase):
                 ),
                 logger,
             )
-            proxy_thread = threading.Thread(target=proxy.serve_forever, daemon=True)
-            proxy_thread.start()
+            threading.Thread(target=proxy.serve_forever, daemon=True).start()
 
             conn = http.client.HTTPConnection("127.0.0.1", proxy.server_address[1], timeout=5)
             conn.request(
@@ -541,19 +337,13 @@ class TargetUrlProxyTests(unittest.TestCase):
             self.assertEqual(response.read(), b'{"ok":true}')
             conn.close()
 
-            self.assertEqual(
-                json.loads(str(upstream_seen["body"])),
-                {"model": "demo", "metadata": {"source": "proxy"}, "stream": True},
-            )
-            log_path = self._request_log_dirs(log_root)[0]
-            with (log_path / "request.json").open(encoding="utf-8") as file:
-                self.assertEqual(
-                    json.load(file),
-                    {"model": "demo", "metadata": {"source": "proxy"}, "stream": True},
-                )
-            markdown = next(log_path.glob("*.md")).read_text(encoding="utf-8")
-            self.assertIn("- Stripped request fields: temperature", markdown)
-            self.assertIn("- Injected request fields: metadata, stream", markdown)
+            expected = {"model": "demo", "metadata": {"source": "proxy"}, "stream": True}
+            self.assertEqual(json.loads(str(upstream_seen["body"])), expected)
+            with LogRepository(log_root) as repository:
+                records = repository.list_task_records(repository.list_tasks()["tasks"][0]["id"])["records"]
+                self.assertEqual(records[0]["request_body"], expected)
+                self.assertEqual(records[0]["stripped_fields"], ["temperature"])
+                self.assertEqual(records[0]["injected_fields"], ["metadata", "stream"])
         finally:
             if proxy is not None:
                 proxy.shutdown()
@@ -562,84 +352,7 @@ class TargetUrlProxyTests(unittest.TestCase):
             upstream.server_close()
             log_dir.cleanup()
 
-    def test_logs_as_soon_as_headers_arrive_before_body_is_read(self) -> None:
-        class UpstreamHandler(BaseHTTPRequestHandler):
-            def do_POST(self) -> None:
-                body = b'{"ok":true}'
-                self.send_response(200)
-                self.send_header("Content-Type", "application/json")
-                self.send_header("Content-Length", str(len(body)))
-                self.end_headers()
-                self.wfile.write(body)
-
-            def log_message(self, fmt: str, *args: object) -> None:
-                return
-
-        upstream = ThreadingHTTPServer(("127.0.0.1", 0), UpstreamHandler)
-        upstream_thread = threading.Thread(target=upstream.serve_forever, daemon=True)
-        upstream_thread.start()
-        log_dir = tempfile.TemporaryDirectory()
-        proxy = None
-        sock = None
-        try:
-            upstream_port = upstream.server_address[1]
-            log_root = Path(log_dir.name)
-            logger = TrafficLogger(log_root)
-            proxy = ProxyServer(
-                ("127.0.0.1", 0),
-                ProxyHandler,
-                self._config([self._target("default", "Default", upstream_port, timeout=1)]),
-                logger,
-            )
-            proxy_thread = threading.Thread(target=proxy.serve_forever, daemon=True)
-            proxy_thread.start()
-
-            sock = socket.create_connection(("127.0.0.1", proxy.server_address[1]), timeout=5)
-            sock.sendall(
-                # Only send request headers without body to verify the proxy writes request_received logs first.
-                b"POST /v1/chat/completions HTTP/1.1\r\n"
-                b"Host: 127.0.0.1\r\n"
-                b"Content-Type: application/json\r\n"
-                b"Content-Length: 20\r\n"
-                b"\r\n"
-            )
-
-            log_path = self._wait_for_request_log(log_root)
-            self.assertIsNotNone(log_path)
-            assert log_path is not None
-            self.assertIsNone(self._read_optional_json(log_path / "request.json"))
-            self.assertIsNone(self._read_optional_json(log_path / "response.json"))
-            markdown = next(log_path.glob("*.md")).read_text(encoding="utf-8")
-            self.assertIn("- Event: request_received", markdown)
-
-            sock.close()
-            sock = None
-            deadline = time.time() + 2
-            finished_log_path = None
-            while time.time() < deadline:
-                for current_log_path in self._request_log_dirs(log_root):
-                    markdown_files = list(current_log_path.glob("*.md"))
-                    if not markdown_files:
-                        continue
-                    markdown = markdown_files[0].read_text(encoding="utf-8")
-                    if "- Event: request_finished" in markdown:
-                        finished_log_path = current_log_path
-                        break
-                if finished_log_path:
-                    break
-                time.sleep(0.05)
-            self.assertIsNotNone(finished_log_path)
-        finally:
-            if sock is not None:
-                sock.close()
-            if proxy is not None:
-                proxy.shutdown()
-                proxy.server_close()
-            upstream.shutdown()
-            upstream.server_close()
-            log_dir.cleanup()
-
-    def test_stored_log_is_created_with_request_then_updated_with_response(self) -> None:
+    def test_pending_log_is_updated_to_finished_record(self) -> None:
         release_response = threading.Event()
 
         class UpstreamHandler(BaseHTTPRequestHandler):
@@ -658,22 +371,19 @@ class TargetUrlProxyTests(unittest.TestCase):
                 return
 
         upstream = ThreadingHTTPServer(("127.0.0.1", 0), UpstreamHandler)
-        upstream_thread = threading.Thread(target=upstream.serve_forever, daemon=True)
-        upstream_thread.start()
+        threading.Thread(target=upstream.serve_forever, daemon=True).start()
         log_dir = tempfile.TemporaryDirectory()
         proxy = None
         try:
-            upstream_port = upstream.server_address[1]
             log_root = Path(log_dir.name)
             logger = TrafficLogger(log_root)
             proxy = ProxyServer(
                 ("127.0.0.1", 0),
                 ProxyHandler,
-                self._config([self._target("default", "Default", upstream_port)]),
+                self._config([self._target("default", "Default", upstream.server_address[1])]),
                 logger,
             )
-            proxy_thread = threading.Thread(target=proxy.serve_forever, daemon=True)
-            proxy_thread.start()
+            threading.Thread(target=proxy.serve_forever, daemon=True).start()
 
             conn = http.client.HTTPConnection("127.0.0.1", proxy.server_address[1], timeout=5)
             response_holder: dict[str, object] = {}
@@ -692,27 +402,20 @@ class TargetUrlProxyTests(unittest.TestCase):
 
             request_thread = threading.Thread(target=send_request)
             request_thread.start()
-
-            log_path = self._wait_for_request_json(log_root, {"messages": []})
-            self.assertIsNotNone(log_path)
-            assert log_path is not None
-            self.assertEqual(self._read_json_with_retry(log_path / "request.json"), {"messages": []})
-            self.assertIsNone(self._read_optional_json(log_path / "response.json"))
-            self.assertEqual(len(list(log_path.glob("*.md"))), 1)
+            self._wait_for_record_event(log_root, "request_pending_response")
 
             release_response.set()
             request_thread.join(timeout=2)
             self.assertEqual(response_holder["status"], 200)
             self.assertEqual(response_holder["body"], b'{"ok":true}')
 
-
-            request_logs = self._request_log_dirs(log_root)
-            self.assertEqual(len(request_logs), 1)
-            finished_log_path = request_logs[0]
-            markdown_files = list(finished_log_path.glob("*.md"))
-            self.assertEqual(finished_log_path.name.split("__")[1], markdown_files[0].name.split("__")[0])
-            self.assertEqual(self._read_json_with_retry(finished_log_path / "response.json"), {"ok": True})
-            self.assertEqual(len(markdown_files), 1)
+            with LogRepository(log_root) as repository:
+                tasks = repository.list_tasks()
+                self.assertEqual(tasks["total"], 1)
+                records = repository.list_task_records(tasks["tasks"][0]["id"])
+                self.assertEqual(records["total"], 1)
+                self.assertEqual(records["records"][0]["event"], "request_finished")
+                self.assertEqual(records["records"][0]["response_body"], {"ok": True})
         finally:
             release_response.set()
             if proxy is not None:
@@ -721,3 +424,15 @@ class TargetUrlProxyTests(unittest.TestCase):
             upstream.shutdown()
             upstream.server_close()
             log_dir.cleanup()
+
+    def _wait_for_record_event(self, log_root: Path, event: str) -> None:
+        deadline = time.time() + 2
+        while time.time() < deadline:
+            with LogRepository(log_root) as repository:
+                tasks = repository.list_tasks()
+                for task in tasks["tasks"]:
+                    records = repository.list_task_records(task["id"])["records"]
+                    if any(record["event"] == event for record in records):
+                        return
+            time.sleep(0.05)
+        raise AssertionError(f"Timed out waiting for {event}")

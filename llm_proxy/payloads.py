@@ -66,7 +66,7 @@ def render_body(body: Mapping[str, object]) -> str:
 def body_json_value(body: Mapping[str, object]) -> object:
     """Convert the log body into a value to write in JSON files.
 
-    stored logs generate request.json and response.json. This function decides what to write: parsed objects for valid JSON, compressed summaries for SSE, and wrapped plain text otherwise.
+    Exported logs generate request.json and response.json. This function decides what to write: parsed objects for valid JSON, compressed summaries for SSE, and wrapped plain text otherwise.
     """
     text = str(body.get("text", ""))
     if not text:
