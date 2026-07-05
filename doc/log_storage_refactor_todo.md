@@ -14,7 +14,7 @@
 | 任务 | 状态 | 提交 | 验证 |
 | --- | --- | --- | --- |
 | 0.1 设计收紧与 TODO 文档 | 已完成 | `87124a8` | 文档检查 |
-| 1.1 SQLite schema 与连接基础 | 待开始 |  |  |
+| 1.1 SQLite schema 与连接基础 | 已完成 | `91bf67f` | `python -m unittest tests.test_log_db` |
 | 1.2 SQLite repository 读写骨架 | 待开始 |  |  |
 | 2.1 任务匹配迁移到 SQLite | 待开始 |  |  |
 | 2.2 TrafficLogger 改为 SQLite 写入 | 待开始 |  |  |
@@ -37,14 +37,14 @@
 
 ### 1.1 SQLite schema 与连接基础
 
-- [ ] 新增 `llm_proxy/log_db.py`。
-- [ ] 定义 `traffic.db` 路径规则。
-- [ ] 初始化 SQLite 连接。
-- [ ] 执行 PRAGMA：WAL、foreign keys、busy timeout、synchronous NORMAL。
-- [ ] 创建 `schema_meta`、`tasks`、`records`、`response_links`、`context_links`、`record_search`。
-- [ ] 增加基础单元测试，验证 schema 和 PRAGMA。
-- [ ] 提交代码。
-- [ ] 回填进度记录。
+- [x] 新增 `llm_proxy/log_db.py`。
+- [x] 定义 `traffic.db` 路径规则。
+- [x] 初始化 SQLite 连接。
+- [x] 执行 PRAGMA：WAL、foreign keys、busy timeout、synchronous NORMAL。
+- [x] 创建 `schema_meta`、`tasks`、`records`、`response_links`、`context_links`、`record_search`。
+- [x] 增加基础单元测试，验证 schema 和 PRAGMA。
+- [x] 提交代码。
+- [x] 回填进度记录。
 
 ### 1.2 SQLite repository 读写骨架
 
