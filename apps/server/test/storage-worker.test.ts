@@ -17,7 +17,7 @@ describe("storage Worker RPC", () => {
     const client = new StorageWorkerClient(join(await root(), "traffic.db"));
     await client.start();
     const migration = (await client.migrate()) as { schemaVersion: number; threadId: number };
-    expect(migration.schemaVersion).toBe(1);
+    expect(migration.schemaVersion).toBe(2);
     expect(migration.threadId).toBeGreaterThan(0);
     await expect(client.listTasks()).resolves.toMatchObject({ total: 0, tasks: [] });
     await expect(client.drain()).resolves.toBeUndefined();
@@ -53,7 +53,7 @@ describe("storage Worker RPC", () => {
     await restarting;
     await rejected;
     const restarted = (await client.migrate()) as { schemaVersion: number; threadId: number };
-    expect(restarted.schemaVersion).toBe(1);
+    expect(restarted.schemaVersion).toBe(2);
     expect(restarted.threadId).toBeGreaterThan(0);
     await client.close();
   });
@@ -63,10 +63,9 @@ describe("storage Worker RPC", () => {
     await client.start();
     const buffer = new Uint8Array([1, 2, 3, 4]).buffer;
     const request = client.writeTraffic(recordWithBinary(buffer.byteLength), { request: buffer });
-    const rejected = expect(request).rejects.toMatchObject({ code: "STORAGE_OPERATION_FAILED" });
     await Promise.resolve();
     expect(buffer.byteLength).toBe(0);
-    await rejected;
+    await expect(request).resolves.toMatchObject({ written: true, sequence: 1 });
     await client.close();
   });
 

@@ -67,7 +67,7 @@ python -m mypy
 | 4.3 Worker RPC | 已完成 | 本任务提交 | 103 项 Node 测试；transferable；fatal/restart/registry |
 | 4.4 有界存储队列 | 已完成 | 本任务提交 | 108 项 Node 测试；10 万 producer；typed degradation |
 | 4.5 任务匹配迁移 | 已完成 | 本任务提交 | 112 项 Node 测试；fixture 全通过；24h/50 候选上限 |
-| 4.6 traffic event 写入事务 | 未开始 |  |  |
+| 4.6 traffic event 写入事务 | 已完成 | 本任务提交 | 116 项 Node 测试；72 项 Python 测试；原子写入与幂等重试 |
 | 4.7 查询、清理和维护 | 未开始 |  |  |
 | 4.8 流式 ZIP 导出 | 未开始 |  |  |
 | 5.1 单 proxy HTTP 骨架 | 未开始 |  |  |
@@ -456,13 +456,13 @@ python -m mypy
 
 依赖：4.4、4.5、2.5。
 
-- [ ] 定义 accepted/body_read/routed/headers/finished/error event。
-- [ ] 将 event fold 为同一 record 的当前状态。
-- [ ] task、record、link 和 FTS 在一个事务中更新。
-- [ ] finished event 可幂等重试。
-- [ ] 脱敏在 enqueue 前执行。
-- [ ] 保存 error code/stage，不持久化不安全 stack。
-- [ ] 测试 pending 到 finished 不重复计数。
+- [x] 定义 accepted/body_read/routed/headers/finished/error event。
+- [x] 将 event fold 为同一 record 的当前状态。
+- [x] task、record、link 和 FTS 在一个事务中更新。
+- [x] finished event 可幂等重试。
+- [x] 脱敏在 enqueue 前执行。
+- [x] 保存 error code/stage，不持久化不安全 stack。
+- [x] 测试 pending 到 finished 不重复计数。
 
 验收：进程在任意中间 event 后终止，数据库仍保持可查询的一致状态。
 

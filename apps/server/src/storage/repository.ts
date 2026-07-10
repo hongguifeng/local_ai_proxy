@@ -90,6 +90,8 @@ interface RecordRow {
   path: string;
   status: number | null;
   error: string | null;
+  error_code: string | null;
+  error_stage: string | null;
   message_count: number | null;
   token_count: number | null;
   client_host: string | null;
@@ -160,6 +162,27 @@ export class StorageRepository {
       this.#upsertRecordRow(record);
       this.#upsertSearch(record.id, record.taskId, search);
     })();
+  }
+
+  public transaction<Result>(operation: () => Result): Result {
+    return this.#database.transaction(operation)();
+  }
+
+  public applyTrafficAssignment(
+    task: TaskMatchState,
+    record: RecordDetail,
+    search: RecordSearchText,
+    responseIds: readonly string[],
+    contextKeys: readonly string[],
+  ): void {
+    this.upsertTask(task);
+    this.#upsertRecordRow(record);
+    this.#upsertSearch(record.id, record.taskId, search);
+    const createdAt = record.timestamp;
+    for (const value of responseIds)
+      this.#upsertLink("response_links", "response_id", { value, taskId: task.id, createdAt });
+    for (const value of contextKeys)
+      this.#upsertLink("context_links", "context_key", { value, taskId: task.id, createdAt });
   }
 
   public upsertResponseLink(link: LinkWrite): void {
@@ -257,7 +280,7 @@ export class StorageRepository {
     ).count;
     const rows = this.#database
       .prepare(
-        `SELECT id, task_id, sequence, event, timestamp, duration_ms, method, path, status, error,
+        `SELECT id, task_id, sequence, event, timestamp, duration_ms, method, path, status, error, error_code, error_stage,
                 message_count, token_count
          FROM records WHERE task_id = ? ORDER BY sequence LIMIT ? OFFSET ?`,
       )
@@ -277,6 +300,8 @@ export class StorageRepository {
     const summary = recordSummary(row);
     return RecordDetailSchema.parse({
       ...summary,
+      ...(row.error_stage ? { errorStage: row.error_stage } : {}),
+      ...(row.error ? { errorMessage: row.error } : {}),
       client: { host: row.client_host ?? "", port: row.client_port ?? 0 },
       proxy: { id: row.proxy_id ?? "unknown", name: row.proxy_name ?? "Unknown" },
       target: {
@@ -329,20 +354,21 @@ export class StorageRepository {
         `INSERT INTO records(
            id, task_id, sequence, event, timestamp, started_at, duration_ms,
            proxy_id, proxy_name, client_host, client_port, target_id, target_name, target_url,
-           method, path, endpoint, status, error, message_count, token_count,
+           method, path, endpoint, status, error, error_code, error_stage, message_count, token_count,
            request_headers_json, response_headers_json, request_body_json, response_body_json,
            created_at, updated_at
          ) VALUES (
            @id, @task_id, @sequence, @event, @timestamp, @started_at, @duration_ms,
            @proxy_id, @proxy_name, @client_host, @client_port, @target_id, @target_name, @target_url,
-           @method, @path, @endpoint, @status, @error, @message_count, @token_count,
+           @method, @path, @endpoint, @status, @error, @error_code, @error_stage, @message_count, @token_count,
            @request_headers_json, @response_headers_json, @request_body_json, @response_body_json,
            @created_at, @updated_at
          )
          ON CONFLICT(id) DO UPDATE SET
            task_id=excluded.task_id, sequence=excluded.sequence, event=excluded.event,
            timestamp=excluded.timestamp, duration_ms=excluded.duration_ms, status=excluded.status,
-           error=excluded.error, message_count=excluded.message_count, token_count=excluded.token_count,
+           error=excluded.error, error_code=excluded.error_code, error_stage=excluded.error_stage,
+           message_count=excluded.message_count, token_count=excluded.token_count,
            request_headers_json=excluded.request_headers_json, response_headers_json=excluded.response_headers_json,
            request_body_json=excluded.request_body_json, response_body_json=excluded.response_body_json,
            updated_at=excluded.updated_at`,
@@ -366,7 +392,9 @@ export class StorageRepository {
         path: record.path,
         endpoint: record.path.split("?", 1)[0] ?? record.path,
         status: record.status,
-        error: record.errorCode,
+        error: record.errorMessage ?? null,
+        error_code: record.errorCode,
+        error_stage: record.errorStage ?? null,
         message_count: record.messageCount,
         token_count: record.tokenCount,
         request_headers_json: JSON.stringify(record.request.headers),
@@ -454,7 +482,7 @@ function recordSummary(row: RecordRow): RecordSummary {
     method: row.method,
     path: row.path,
     status: row.status,
-    errorCode: row.error,
+    errorCode: row.error_code ?? row.error,
     messageCount: row.message_count,
     tokenCount: row.token_count,
   };

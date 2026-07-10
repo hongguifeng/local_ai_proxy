@@ -3,7 +3,7 @@ import type { CapturedPayload } from "@llm-proxy/contracts";
 import { redactHeaders, sanitizeJsonValue } from "./redaction.js";
 
 export type SafeCapturedContent = Readonly<{
-  headers: Readonly<Record<string, readonly string[]>>;
+  headers: Record<string, string[]>;
   body: CapturedPayload;
 }>;
 

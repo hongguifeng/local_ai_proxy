@@ -52,11 +52,12 @@ describe("storage migrations", () => {
   it("opens a Python-compatible v1 schema without replaying migration", () => {
     const database = new Database(":memory:");
     try {
-      database.exec("CREATE TABLE schema_meta(key TEXT PRIMARY KEY, value TEXT NOT NULL)");
+      database.exec(loadMigrations()[0]?.sql ?? "");
       database.prepare("INSERT INTO schema_meta(key, value) VALUES ('schema_version', '1')").run();
       configureDatabase(database);
-      expect(migrateDatabase(database)).toBe(1);
+      expect(migrateDatabase(database)).toBe(2);
       expect(database.prepare("SELECT value FROM schema_meta WHERE key = 'schema_migrated_at'").get()).toBeDefined();
+      expect(database.prepare("SELECT error_code, error_stage FROM records LIMIT 1").columns()).toHaveLength(2);
     } finally {
       database.close();
     }
@@ -115,6 +116,7 @@ describe("storage migrations", () => {
   it("loads immutable sequential SQL migration assets", () => {
     expect(loadMigrations().map(({ version, name }) => ({ version, name }))).toEqual([
       { version: 1, name: "001_initial.sql" },
+      { version: 2, name: "002_error_details.sql" },
     ]);
   });
 });

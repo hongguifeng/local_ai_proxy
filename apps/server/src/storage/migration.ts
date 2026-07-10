@@ -3,7 +3,7 @@ import { dirname } from "node:path";
 
 import Database from "better-sqlite3";
 
-export const STORAGE_SCHEMA_VERSION = 1;
+export const STORAGE_SCHEMA_VERSION = 2;
 
 export type SqlMigration = Readonly<{ version: number; name: string; sql: string }>;
 
@@ -24,6 +24,11 @@ export function loadMigrations(): readonly SqlMigration[] {
       version: 1,
       name: "001_initial.sql",
       sql: readFileSync(new URL("./migrations/001_initial.sql", import.meta.url), "utf8"),
+    },
+    {
+      version: 2,
+      name: "002_error_details.sql",
+      sql: readFileSync(new URL("./migrations/002_error_details.sql", import.meta.url), "utf8"),
     },
   ];
 }

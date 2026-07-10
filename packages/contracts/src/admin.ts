@@ -84,6 +84,8 @@ export const CapturedPayloadSchema = z.discriminatedUnion("kind", [
 ]);
 
 export const RecordDetailSchema = RecordSummarySchema.extend({
+  errorStage: z.string().max(80).nullable().optional(),
+  errorMessage: z.string().max(2_000).nullable().optional(),
   client: z.strictObject({ host: z.string(), port: z.number().int().min(0).max(65_535) }),
   proxy: z.strictObject({ id: EntityIdSchema, name: z.string() }),
   target: z.strictObject({ id: EntityIdSchema, name: z.string(), url: z.url() }),

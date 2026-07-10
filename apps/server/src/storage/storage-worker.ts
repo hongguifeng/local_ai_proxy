@@ -9,6 +9,7 @@ import {
 
 import { openStorageDatabase, readSchemaVersion } from "./migration.js";
 import { StorageRepository } from "./repository.js";
+import { TrafficRecordWriter } from "./traffic-record-writer.js";
 
 if (!parentPort) throw new Error("Storage worker requires a parent port");
 const port: NonNullable<typeof parentPort> = parentPort;
@@ -20,6 +21,7 @@ try {
   if (typeof data.databasePath !== "string") throw new TypeError("Missing database path");
   database = openStorageDatabase(data.databasePath);
   const repository = new StorageRepository(database);
+  const trafficWriter = new TrafficRecordWriter(repository);
   port.postMessage({ kind: "ready" });
   port.on("message", (input: unknown) => {
     if (isForcedExit(input)) {
@@ -35,7 +37,7 @@ try {
       if (requestId) postError(requestId, "INVALID_WORKER_REQUEST", "Storage worker request is invalid");
       return;
     }
-    handleRequest(parsed.data, repository);
+    handleRequest(parsed.data, repository, trafficWriter);
   });
 } catch {
   port.postMessage({
@@ -45,7 +47,11 @@ try {
   port.close();
 }
 
-function handleRequest(request: StorageWorkerRequest, repository: StorageRepository): void {
+function handleRequest(
+  request: StorageWorkerRequest,
+  repository: StorageRepository,
+  trafficWriter: TrafficRecordWriter,
+): void {
   try {
     let result: unknown;
     if (request.kind === "migrate") result = { schemaVersion: readSchemaVersion(requireDatabase()), threadId };
@@ -56,8 +62,8 @@ function handleRequest(request: StorageWorkerRequest, repository: StorageReposit
     else if (request.kind === "getRecord") result = repository.getRecord(request.recordId);
     else if (request.kind === "writeTraffic") {
       const record = hydrateTransferredPayloads(request.record, request.transferredPayloads);
-      repository.upsertRecord(record, { task: "", request: "", response: "", error: record.errorCode ?? "" });
-      result = { written: true };
+      const assignment = trafficWriter.write(record);
+      result = { written: true, taskId: assignment.task.id, sequence: assignment.sequence };
     } else if (request.kind === "cleanup") {
       result = { deleted: repository.deleteTasks(request.taskIds ?? []) };
     } else if (request.kind === "drain") result = { drained: true };
