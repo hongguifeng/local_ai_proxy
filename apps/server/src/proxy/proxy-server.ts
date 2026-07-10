@@ -9,6 +9,7 @@ import type { TrafficEvent } from "../storage/traffic-events.js";
 import { CaptureTap, type CaptureTapResult, type StreamObserver } from "./capture-tap.js";
 import { buildUpstreamRequestHeaders, rawHeadersToPairs, removeHopByHopHeaders, type HeaderPair } from "./headers.js";
 import { routeAndTransformRequest, selectTargetByModel } from "./routing.js";
+import { TargetAgentPool, type AgentPoolDiagnostics, type TargetAgentPoolOptions } from "./target-agent-pool.js";
 import { joinTargetPath } from "./target-url.js";
 
 export interface ProxyRequestContext {
@@ -32,6 +33,8 @@ export interface ProxyServerOptions {
   onResponseCaptured?: (context: ProxyRequestContext, result: CaptureTapResult) => void;
   onRequestOutcome?: (context: ProxyRequestContext, outcome: ProxyRequestOutcome) => void;
   trafficSink?: TrafficEventSink;
+  agentPool?: TargetAgentPool;
+  agentOptions?: TargetAgentPoolOptions;
 }
 
 export interface TrafficEventSink {
@@ -46,6 +49,8 @@ export interface ProxyRequestOutcome {
 export class ProxyServer {
   readonly #options: ProxyServerOptions;
   readonly #server: http.Server;
+  readonly #agentPool: TargetAgentPool;
+  readonly #ownsAgentPool: boolean;
   #address: AddressInfo | null = null;
 
   public constructor(options: ProxyServerOptions) {
@@ -58,6 +63,8 @@ export class ProxyServer {
     if (!Number.isSafeInteger(options.totalRequestTimeoutMs) || options.totalRequestTimeoutMs < 1)
       throw new RangeError("Invalid total request timeout");
     this.#options = options;
+    this.#agentPool = options.agentPool ?? new TargetAgentPool(options.agentOptions);
+    this.#ownsAgentPool = options.agentPool === undefined;
     this.#server = http.createServer((request, response) => {
       this.#handle(request, response);
     });
@@ -91,7 +98,10 @@ export class ProxyServer {
   }
 
   public async stop(): Promise<void> {
-    if (!this.#server.listening) return;
+    if (!this.#server.listening) {
+      if (this.#ownsAgentPool) this.#agentPool.destroy();
+      return;
+    }
     this.#server.closeAllConnections();
     await new Promise<void>((resolvePromise, rejectPromise) => {
       this.#server.close((error) => {
@@ -100,10 +110,15 @@ export class ProxyServer {
       });
     });
     this.#address = null;
+    if (this.#ownsAgentPool) this.#agentPool.destroy();
   }
 
   public get address(): AddressInfo | null {
     return this.#address;
+  }
+
+  public agentDiagnostics(): AgentPoolDiagnostics {
+    return this.#agentPool.diagnostics();
   }
 
   #handle(request: http.IncomingMessage, response: http.ServerResponse): void {
@@ -217,7 +232,7 @@ export class ProxyServer {
     }
     const upstream = transport.request(
       targetUrl,
-      { method, headers: flattenHeaders(headers), signal: control.signal },
+      { method, headers: flattenHeaders(headers), signal: control.signal, agent: this.#agentPool.agentFor(target) },
       (upstreamResponse) => {
         clearTimeout(responseHeadersTimer);
         clearTimeout(connectTimer);

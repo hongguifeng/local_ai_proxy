@@ -76,7 +76,7 @@ python -m mypy
 | 5.4 response 管线与背压 | 已完成 | 本任务提交 | 136 项 Node 测试；100 MiB hash；SSE 首块与慢客户端背压 |
 | 5.5 取消和超时 | 已完成 | 本任务提交 | 140 项 Node 测试；connect/header/idle/total；取消单终态 |
 | 5.6 traffic 生命周期接入 | 已完成 | 本任务提交 | 143 项 Node 测试；全 event 生命周期；脱敏与 degraded 隔离 |
-| 5.7 连接池和资源释放 | 未开始 |  |  |
+| 5.7 连接池和资源释放 | 已完成 | 本任务提交 | 145 项 Node 测试；per-origin Agent；socket 上限与 stop 归零 |
 | 5.8 协议故障集成测试 | 未开始 |  |  |
 | 6.1 RuntimeManager | 未开始 |  |  |
 | 6.2 原子配置替换 | 未开始 |  |  |
@@ -581,12 +581,12 @@ python -m mypy
 
 依赖：5.5。
 
-- [ ] 配置 per-origin keep-alive Agent。
-- [ ] 设置 max sockets、max free sockets 和 idle 生命周期。
-- [ ] 按 scheme/host/port 隔离。
-- [ ] runtime stop 时销毁 Agent。
-- [ ] 测试连接复用和目标切换。
-- [ ] 记录 active/free socket 诊断信息。
+- [x] 配置 per-origin keep-alive Agent。
+- [x] 设置 max sockets、max free sockets 和 idle 生命周期。
+- [x] 按 scheme/host/port 隔离。
+- [x] runtime stop 时销毁 Agent。
+- [x] 测试连接复用和目标切换。
+- [x] 记录 active/free socket 诊断信息。
 
 验收：压测中 socket 数不无界增长，shutdown 后无活动连接残留。
 
