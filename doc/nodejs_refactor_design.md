@@ -455,6 +455,7 @@ GET    /api/v1/tasks/export
 - 分页第一版可以使用 limit/offset；数据规模证明需要后再切 cursor，不提前复杂化。
 - bulk replace proxy 配置保持原子性，并返回每个 runtime 的实际状态。
 - ZIP 导出采用流式响应，不在内存中先构造完整文件。
+- ZIP 实现使用 `archiver`：其 Node `Readable` 输出可直接接入 HTTP 背压，支持逐 entry 压缩和主动 abort；导出器在每个 entry 消费完成后才读取下一条 record，避免压缩任务队列随数据量增长。
 - Fastify 设置 body limit、request timeout 和统一错误处理。
 - OpenAPI 文档可从 schema 生成，但不作为阻塞第一阶段的要求。
 

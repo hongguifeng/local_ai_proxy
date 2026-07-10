@@ -14,9 +14,13 @@
   },
   "dependencies": {
     "@llm-proxy/contracts": "workspace:*",
+    "archiver": "^8.0.0",
     "better-sqlite3": "12.4.1"
   },
   "devDependencies": {
-    "@types/better-sqlite3": "7.6.13"
+    "@types/archiver": "^8.0.0",
+    "@types/better-sqlite3": "7.6.13",
+    "@types/unzipper": "^0.10.11",
+    "unzipper": "^0.12.5"
   }
 }
