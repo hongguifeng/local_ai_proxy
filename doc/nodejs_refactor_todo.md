@@ -48,7 +48,7 @@ python -m mypy
 | 0.3 对照 fixture | 已完成 | 本任务提交 | `python scripts/export_python_fixtures.py --check`; 69 项测试 |
 | 0.4 协议基准测试工具 | 已完成 | 本任务提交 | 固定配置、JSON report、Python v0.2.0 基线；72 项测试 |
 | 1.1 pnpm workspace | 已完成 | 本任务提交 | Node 24.18.0 / pnpm 11.11.0；workspace install/test/build |
-| 1.2 TypeScript 与代码质量 | 未开始 |  |  |
+| 1.2 TypeScript 与代码质量 | 已完成 | 本任务提交 | lint/format/typecheck/test/coverage/build；server→web 边界 |
 | 1.3 Node CI 基线 | 未开始 |  |  |
 | 1.4 contracts 包 | 未开始 |  |  |
 | 1.5 server CLI 骨架 | 未开始 |  |  |
@@ -187,13 +187,13 @@ python -m mypy
 
 依赖：1.1。
 
-- [ ] 添加严格 `tsconfig.base.json`。
-- [ ] 配置 ESLint 与 TypeScript-aware rules。
-- [ ] 配置 Prettier，或在 ADR 中决定统一使用 Biome。
-- [ ] 配置 Vitest 和 coverage。
-- [ ] 配置 import 边界，阻止 server 反向依赖 web。
-- [ ] 添加未使用变量、floating promise、unsafe any 等规则。
-- [ ] 为 Windows/Unix 换行和 UTF-8 添加 EditorConfig。
+- [x] 添加严格 `tsconfig.base.json`。
+- [x] 配置 ESLint 与 TypeScript-aware rules。
+- [x] 配置 Prettier，或在 ADR 中决定统一使用 Biome。
+- [x] 配置 Vitest 和 coverage。
+- [x] 配置 import 边界，阻止 server 反向依赖 web。
+- [x] 添加未使用变量、floating promise、unsafe any 等规则。
+- [x] 为 Windows/Unix 换行和 UTF-8 添加 EditorConfig。
 
 验收：故意添加类型错误、未 await Promise 和格式错误时，对应命令会失败。
 
