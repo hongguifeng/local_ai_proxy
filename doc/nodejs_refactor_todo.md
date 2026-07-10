@@ -45,7 +45,7 @@ python -m mypy
 | --- | --- | --- | --- |
 | 0.1 产品决策与 ADR | 已完成 | 本任务提交 | 4 份 ADR；`python -m pytest` |
 | 0.2 Python 行为清单 | 已完成 | 本任务提交 | 代码与 66 项 Python 测试交叉核对 |
-| 0.3 对照 fixture | 未开始 |  |  |
+| 0.3 对照 fixture | 已完成 | 本任务提交 | `python scripts/export_python_fixtures.py --check`; 69 项测试 |
 | 0.4 协议基准测试工具 | 未开始 |  |  |
 | 1.1 pnpm workspace | 未开始 |  |  |
 | 1.2 TypeScript 与代码质量 | 未开始 |  |  |
@@ -143,14 +143,14 @@ python -m mypy
 
 依赖：0.2。
 
-- [ ] 建立语言无关的 JSON/binary fixture 目录。
-- [ ] 从 Python 测试提取 URL 拼接、路由、改写和脱敏样本。
-- [ ] 提取 OpenAI Responses/Chat/Completions SSE 样本。
-- [ ] 提取 Claude Messages SSE 样本。
-- [ ] 提取任务匹配输入和期望 assignment。
-- [ ] 保存重复 header、gzip、无效 JSON 和非 UTF-8 body 样本。
-- [ ] 为 fixture 增加 schema 和说明。
-- [ ] 确保预期输出不是由待测 Node 实现动态生成。
+- [x] 建立语言无关的 JSON/binary fixture 目录。
+- [x] 从 Python 测试提取 URL 拼接、路由、改写和脱敏样本。
+- [x] 提取 OpenAI Responses/Chat/Completions SSE 样本。
+- [x] 提取 Claude Messages SSE 样本。
+- [x] 提取任务匹配输入和期望 assignment。
+- [x] 保存重复 header、gzip、无效 JSON 和非 UTF-8 body 样本。
+- [x] 为 fixture 增加 schema 和说明。
+- [x] 确保预期输出不是由待测 Node 实现动态生成。
 
 验收：Python fixture exporter 可重复运行，fixture diff 稳定；Node 测试可以直接读取。
 

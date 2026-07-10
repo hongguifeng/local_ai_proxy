@@ -1,0 +1,8 @@
+data: {"choices":[{"delta":{"reasoning_content":"think "}}]}
+
+data: {"choices":[{"delta":{"content":"Hello"}}]}
+
+data: {"choices":[{"delta":{"text":" world"},"finish_reason":"stop"}],"usage":{"total_tokens":9}}
+
+data: [DONE]
+

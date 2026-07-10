@@ -1,0 +1,22 @@
+{
+  "$schema": "../schema/fixture-set.schema.json",
+  "headers": [
+    [
+      "Set-Cookie",
+      "a=1"
+    ],
+    [
+      "Set-Cookie",
+      "b=2"
+    ],
+    [
+      "X-Test",
+      "one"
+    ],
+    [
+      "X-Test",
+      "two"
+    ]
+  ],
+  "kind": "header-pairs"
+}

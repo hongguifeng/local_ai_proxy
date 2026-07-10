@@ -1,0 +1,21 @@
+{
+  "formatVersion": 1,
+  "sha256": {
+    "binary/invalid-utf8.bin": "949e59a0c2f0cc4de96d3243cf8f2e2d40a7c3ed0dec090416f45f185c11fb2f",
+    "binary/malformed.json": "be0f192ebdea0b808908c8885922b540570ab83b35865717a10f1a129855a265",
+    "binary/payload.json.gz": "dd02226f62cac070ccb3409983b1ab2aca82293c7754b1560d8e9ba5425dc10f",
+    "proxy/cases.json": "a65e5c882313513569d93fd3d51c476368af1c7ca821f588c50728c3e73d5029",
+    "proxy/duplicate-headers.json": "dbae3c2b1a3e004f17c1bfe0585669dcd4c90506be050bfa7364a8ee60c21711",
+    "schema/fixture-set.schema.json": "8857ea6821ec2f0a2a2f86d0f6faf7e232e04caf710df09f660cd800ffb3b0c4",
+    "streams/claude-messages.expected.json": "ff9d244277498bca8ba5510d5e34fbb09c3e7101df6afab0120829ffabbee636",
+    "streams/claude-messages.sse": "d88c6c07fdb6733bba3a6cd4129d8b4ca7736808d58434d89ba8b8d8f2b3522a",
+    "streams/openai-chat.expected.json": "bd6045ffa94d089e73efc52893a61e7965f050e2811698aca5614b45e5b4cd81",
+    "streams/openai-chat.sse": "97c400ae8d96bfbe96fcbab164895cc96c26194ff85b33eda48554411dfc0b03",
+    "streams/openai-completions.expected.json": "ed3169111580009a49f04b5491883a06b5b91a2cf2dbd1316b8187517c64750a",
+    "streams/openai-completions.sse": "f5a6114db29444aea0d5dd829f7e3399900e424067b9064afd260b86bc307b59",
+    "streams/openai-responses.expected.json": "053299f2bb8f6b0259be8bc995fffe5cff441844903f3e12d6d6dce0b740866e",
+    "streams/openai-responses.sse": "41d5a9261df22a1ccebb6f91dc6793e899606aea40a52cc1cb1529a5476b672e",
+    "tasks/cases.json": "6b451b379f2fbfdaa2d1b03b3015b84ce3103f6b93b1b4ffa11b7a118ef9be99"
+  },
+  "source": "python-v0.2.0"
+}

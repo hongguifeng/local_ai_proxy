@@ -1,0 +1,15 @@
+{
+  "$id": "https://llm-proxy.local/schemas/fixture-set.schema.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": true,
+  "properties": {
+    "kind": {
+      "type": "string"
+    }
+  },
+  "required": [
+    "kind"
+  ],
+  "title": "LLM Proxy language-neutral fixture set",
+  "type": "object"
+}

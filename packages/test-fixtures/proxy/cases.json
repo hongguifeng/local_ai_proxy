@@ -1,0 +1,118 @@
+{
+  "$schema": "../schema/fixture-set.schema.json",
+  "fieldTransform": {
+    "expectedBase64": "eyJtb2RlbCI6ImRlbW8iLCJtZXRhZGF0YSI6eyJzb3VyY2UiOiJmaXh0dXJlIn0sInN0cmVhbSI6dHJ1ZX0=",
+    "expectedInjected": [
+      "metadata",
+      "stream"
+    ],
+    "expectedStripped": [
+      "temperature"
+    ],
+    "inject": {
+      "metadata": {
+        "source": "fixture"
+      },
+      "stream": true
+    },
+    "inputBase64": "eyJtb2RlbCI6ImRlbW8iLCJ0ZW1wZXJhdHVyZSI6MC4yLCJtZXRhZGF0YSI6eyJvbGQiOnRydWV9fQ==",
+    "strip": [
+      "missing",
+      "temperature"
+    ]
+  },
+  "kind": "proxy",
+  "modelExtraction": [
+    {
+      "bodyBase64": "eyJtb2RlbCI6ImRlbW8ifQ==",
+      "expectedModel": "demo"
+    },
+    {
+      "bodyBase64": "eyJtb2RlbCI6MTIzfQ==",
+      "expectedModel": null
+    },
+    {
+      "bodyBase64": "bm90IGpzb24=",
+      "expectedModel": null
+    },
+    {
+      "bodyBase64": "WzEsMl0=",
+      "expectedModel": null
+    }
+  ],
+  "modelRewrite": {
+    "expectedBase64": "eyJtb2RlbCI6InVwc3RyZWFtLWRlbW8iLCJtZXNzYWdlcyI6W119",
+    "inputBase64": "eyJtb2RlbCI6ImRlbW8iLCJtZXNzYWdlcyI6W119",
+    "upstreamModel": "upstream-demo"
+  },
+  "pathJoin": [
+    {
+      "basePath": "/v1",
+      "expected": "/v1/chat/completions",
+      "requestPath": "/chat/completions"
+    },
+    {
+      "basePath": "/v1",
+      "expected": "/v1/models?limit=10",
+      "requestPath": "/v1/models?limit=10"
+    },
+    {
+      "basePath": "/v1",
+      "expected": "/v1/v10/models",
+      "requestPath": "/v10/models"
+    },
+    {
+      "basePath": "/api/v1",
+      "expected": "/api/v1/models",
+      "requestPath": "models"
+    },
+    {
+      "basePath": "",
+      "expected": "/v1/responses?stream=true",
+      "requestPath": "/v1/responses?stream=true"
+    }
+  ],
+  "redaction": {
+    "expectedHeaders": {
+      "Accept": [
+        "*/*"
+      ],
+      "Authorization": [
+        "[redacted]"
+      ],
+      "X-API-Key": [
+        "[redacted]"
+      ]
+    },
+    "expectedJson": {
+      "model": "demo",
+      "nested": {
+        "ok": true,
+        "password": "[redacted]"
+      }
+    },
+    "headers": {
+      "Accept": [
+        "*/*"
+      ],
+      "Authorization": [
+        "Bearer secret"
+      ],
+      "X-API-Key": [
+        "sk-secret"
+      ]
+    },
+    "json": {
+      "model": "demo",
+      "nested": {
+        "ok": true,
+        "password": "secret"
+      }
+    }
+  },
+  "targetSelection": {
+    "expectedTargetId": "mapped",
+    "expectedUpstreamModel": "upstream-demo",
+    "requestModel": "demo"
+  }
+}

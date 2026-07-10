@@ -1,0 +1,146 @@
+{
+  "$schema": "../schema/fixture-set.schema.json",
+  "cases": [
+    {
+      "expectedSequences": [
+        1,
+        1
+      ],
+      "expectedTaskRelation": [
+        "same"
+      ],
+      "name": "pending record is promoted in place",
+      "requests": [
+        {
+          "bodyPending": true,
+          "event": "request_received",
+          "recordId": "req_1"
+        },
+        {
+          "body": {
+            "input": "hello",
+            "model": "gpt-5"
+          },
+          "event": "request_finished",
+          "path": "/v1/responses",
+          "recordId": "req_1"
+        }
+      ]
+    },
+    {
+      "expectedSequences": [
+        1,
+        2
+      ],
+      "expectedTaskRelation": [
+        "same"
+      ],
+      "name": "previous response continues Responses task",
+      "requests": [
+        {
+          "body": {
+            "input": "hello",
+            "model": "gpt-5"
+          },
+          "path": "/v1/responses",
+          "recordId": "req_1",
+          "responseIds": [
+            "resp_1"
+          ]
+        },
+        {
+          "body": {
+            "input": "next",
+            "model": "gpt-5",
+            "previous_response_id": "resp_1"
+          },
+          "path": "/v1/responses",
+          "recordId": "req_2"
+        }
+      ]
+    },
+    {
+      "expectedSequences": [
+        1,
+        2
+      ],
+      "expectedTaskRelation": [
+        "same"
+      ],
+      "name": "conversation context continues Claude task",
+      "requests": [
+        {
+          "body": {
+            "conversation_id": "conv_1",
+            "messages": [
+              {
+                "content": "a",
+                "role": "user"
+              }
+            ],
+            "model": "claude"
+          },
+          "path": "/v1/messages",
+          "recordId": "req_1"
+        },
+        {
+          "body": {
+            "conversation_id": "conv_1",
+            "messages": [
+              {
+                "content": "a",
+                "role": "user"
+              },
+              {
+                "content": "b",
+                "role": "user"
+              }
+            ],
+            "model": "claude"
+          },
+          "path": "/v1/messages",
+          "recordId": "req_2"
+        }
+      ]
+    },
+    {
+      "expectedSequences": [
+        1,
+        1
+      ],
+      "expectedTaskRelation": [
+        "different"
+      ],
+      "name": "model change starts a new task",
+      "requests": [
+        {
+          "body": {
+            "messages": [
+              {
+                "content": "hello",
+                "role": "user"
+              }
+            ],
+            "model": "model-a"
+          },
+          "path": "/v1/chat/completions",
+          "recordId": "req_1"
+        },
+        {
+          "body": {
+            "messages": [
+              {
+                "content": "hello",
+                "role": "user"
+              }
+            ],
+            "model": "model-b"
+          },
+          "path": "/v1/chat/completions",
+          "recordId": "req_2"
+        }
+      ]
+    }
+  ],
+  "kind": "task-assignment"
+}

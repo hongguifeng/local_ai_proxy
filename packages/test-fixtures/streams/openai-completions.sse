@@ -1,0 +1,6 @@
+data: {"id":"cmpl_1","choices":[{"text":"Hello","finish_reason":null}]}
+
+data: {"id":"cmpl_1","choices":[{"text":" world","finish_reason":"stop"}],"usage":{"total_tokens":4}}
+
+data: [DONE]
+

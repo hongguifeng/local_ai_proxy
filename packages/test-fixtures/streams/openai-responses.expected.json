@@ -1,0 +1,33 @@
+{
+  "$schema": "../schema/fixture-set.schema.json",
+  "expected": {
+    "stream_summary": {
+      "content": "Hello",
+      "done_seen": true,
+      "event_count": 6,
+      "finish_reasons": [
+        "completed"
+      ],
+      "reasoning": "Think",
+      "response": {
+        "id": "resp_1",
+        "status": "completed"
+      },
+      "response_tool_calls": [
+        {
+          "arguments": "{\"q\":\"docs\"}",
+          "arguments_json": {
+            "q": "docs"
+          },
+          "call_id": "call_1",
+          "item_id": "item_1"
+        }
+      ],
+      "usage": {
+        "input_tokens": 3,
+        "output_tokens": 2
+      }
+    }
+  },
+  "kind": "stream-summary"
+}

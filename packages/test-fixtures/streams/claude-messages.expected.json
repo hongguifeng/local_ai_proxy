@@ -1,0 +1,39 @@
+{
+  "$schema": "../schema/fixture-set.schema.json",
+  "expected": {
+    "stream_summary": {
+      "claude_tool_calls": [
+        {
+          "id": "toolu_1",
+          "index": 2,
+          "input": {
+            "q": "docs"
+          },
+          "name": "lookup",
+          "type": "tool_use"
+        }
+      ],
+      "content": "Hello",
+      "done_seen": true,
+      "event_count": 6,
+      "finish_reasons": [
+        "end_turn"
+      ],
+      "reasoning": "plan ",
+      "response": {
+        "id": "msg_1",
+        "model": "claude-sonnet-4",
+        "role": "assistant",
+        "type": "message",
+        "usage": {
+          "input_tokens": 8
+        }
+      },
+      "usage": {
+        "input_tokens": 8,
+        "output_tokens": 5
+      }
+    }
+  },
+  "kind": "stream-summary"
+}

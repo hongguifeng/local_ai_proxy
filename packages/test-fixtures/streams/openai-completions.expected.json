@@ -1,0 +1,17 @@
+{
+  "$schema": "../schema/fixture-set.schema.json",
+  "expected": {
+    "stream_summary": {
+      "content": "Hello world",
+      "done_seen": true,
+      "event_count": 2,
+      "finish_reasons": [
+        "stop"
+      ],
+      "usage": {
+        "total_tokens": 4
+      }
+    }
+  },
+  "kind": "stream-summary"
+}
