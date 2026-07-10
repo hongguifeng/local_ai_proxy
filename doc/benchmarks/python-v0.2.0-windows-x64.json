@@ -1,0 +1,101 @@
+{
+  "reportVersion": 1,
+  "baseUrl": "http://127.0.0.1:13269",
+  "cases": [
+    {
+      "name": "fixed-64k",
+      "mode": "fixed",
+      "status": 200,
+      "firstByteMs": 1.926,
+      "firstSseEventMs": null,
+      "totalMs": 2.391,
+      "receivedBytes": 65536,
+      "abortedByClient": false,
+      "error": null
+    },
+    {
+      "name": "chunked-64k",
+      "mode": "chunked",
+      "status": 200,
+      "firstByteMs": 17.632,
+      "firstSseEventMs": null,
+      "totalMs": 20.441,
+      "receivedBytes": 65536,
+      "abortedByClient": false,
+      "error": null
+    },
+    {
+      "name": "sse-first-event",
+      "mode": "sse",
+      "status": 200,
+      "firstByteMs": 14.889,
+      "firstSseEventMs": 35.136,
+      "totalMs": 96.487,
+      "receivedBytes": 158,
+      "abortedByClient": false,
+      "error": null
+    },
+    {
+      "name": "delayed-first-byte",
+      "mode": "fixed",
+      "status": 200,
+      "firstByteMs": 52.117,
+      "firstSseEventMs": null,
+      "totalMs": 52.231,
+      "receivedBytes": 1024,
+      "abortedByClient": false,
+      "error": null
+    },
+    {
+      "name": "slow-consumer",
+      "mode": "chunked",
+      "status": 200,
+      "firstByteMs": 1.673,
+      "firstSseEventMs": null,
+      "totalMs": 81.805,
+      "receivedBytes": 131072,
+      "abortedByClient": false,
+      "error": null
+    },
+    {
+      "name": "client-abort",
+      "mode": "chunked",
+      "status": 200,
+      "firstByteMs": 1.78,
+      "firstSseEventMs": null,
+      "totalMs": 1.871,
+      "receivedBytes": 16384,
+      "abortedByClient": true,
+      "error": null
+    },
+    {
+      "name": "upstream-disconnect",
+      "mode": "disconnect",
+      "status": 200,
+      "firstByteMs": 1.593,
+      "firstSseEventMs": null,
+      "totalMs": 1.962,
+      "receivedBytes": 32768,
+      "abortedByClient": false,
+      "error": null
+    },
+    {
+      "name": "malformed-response",
+      "mode": "malformed",
+      "status": 502,
+      "firstByteMs": 1.185,
+      "firstSseEventMs": null,
+      "totalMs": 1.188,
+      "receivedBytes": 332,
+      "abortedByClient": false,
+      "error": null
+    }
+  ],
+  "implementation": "python-v0.2.0",
+  "environment": {
+    "python": "3.11.0",
+    "platform": "Windows-10-10.0.26100-SP0",
+    "machine": "AMD64"
+  },
+  "note": "Reference measurement only; it is not a minimum Node.js performance target."
+}

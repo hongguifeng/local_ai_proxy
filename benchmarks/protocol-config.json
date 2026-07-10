@@ -1,0 +1,55 @@
+{
+  "cases": [
+    {
+      "name": "fixed-64k",
+      "mode": "fixed",
+      "size": 65536
+    },
+    {
+      "name": "chunked-64k",
+      "mode": "chunked",
+      "size": 65536,
+      "chunks": 8,
+      "interval_ms": 2
+    },
+    {
+      "name": "sse-first-event",
+      "mode": "sse",
+      "chunks": 4,
+      "interval_ms": 20,
+      "readBytes": 32
+    },
+    {
+      "name": "delayed-first-byte",
+      "mode": "fixed",
+      "size": 1024,
+      "delay_ms": 50
+    },
+    {
+      "name": "slow-consumer",
+      "mode": "chunked",
+      "size": 131072,
+      "chunks": 16,
+      "slowReadMs": 2,
+      "readBytes": 4096
+    },
+    {
+      "name": "client-abort",
+      "mode": "chunked",
+      "size": 1048576,
+      "chunks": 64,
+      "abortAfterBytes": 16384,
+      "readBytes": 4096
+    },
+    {
+      "name": "upstream-disconnect",
+      "mode": "disconnect",
+      "size": 65536
+    },
+    {
+      "name": "malformed-response",
+      "mode": "malformed"
+    }
+  ]
+}
+

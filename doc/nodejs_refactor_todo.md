@@ -46,7 +46,7 @@ python -m mypy
 | 0.1 产品决策与 ADR | 已完成 | 本任务提交 | 4 份 ADR；`python -m pytest` |
 | 0.2 Python 行为清单 | 已完成 | 本任务提交 | 代码与 66 项 Python 测试交叉核对 |
 | 0.3 对照 fixture | 已完成 | 本任务提交 | `python scripts/export_python_fixtures.py --check`; 69 项测试 |
-| 0.4 协议基准测试工具 | 未开始 |  |  |
+| 0.4 协议基准测试工具 | 已完成 | 本任务提交 | 固定配置、JSON report、Python v0.2.0 基线；72 项测试 |
 | 1.1 pnpm workspace | 未开始 |  |  |
 | 1.2 TypeScript 与代码质量 | 未开始 |  |  |
 | 1.3 Node CI 基线 | 未开始 |  |  |
@@ -158,12 +158,12 @@ python -m mypy
 
 依赖：0.2。
 
-- [ ] 编写可配置的本地 upstream fixture server。
-- [ ] 支持固定长度、chunked、SSE、延迟、断流和 malformed response。
-- [ ] 编写客户端测试工具，测首字节、首 SSE event、总耗时和接收 bytes。
-- [ ] 支持慢速消费和中途断开。
-- [ ] 记录 Python 基线，但不把原型性能设为最低目标。
-- [ ] 固定 benchmark 配置和结果输出格式。
+- [x] 编写可配置的本地 upstream fixture server。
+- [x] 支持固定长度、chunked、SSE、延迟、断流和 malformed response。
+- [x] 编写客户端测试工具，测首字节、首 SSE event、总耗时和接收 bytes。
+- [x] 支持慢速消费和中途断开。
+- [x] 记录 Python 基线，但不把原型性能设为最低目标。
+- [x] 固定 benchmark 配置和结果输出格式。
 
 验收：同一命令可针对任意 base URL 执行，输出机器可读 JSON 报告。
 
