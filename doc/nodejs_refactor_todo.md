@@ -53,7 +53,7 @@ python -m mypy
 | 1.4 contracts 包 | 已完成 | 本任务提交 | 10 项 Node 测试；100% coverage；server/web 导入验证 |
 | 1.5 server CLI 骨架 | 已完成 | 本任务提交 | 21 项 Node 测试；build `--help`/`--version` smoke |
 | 2.1 配置 schema | 已完成 | 本任务提交 | 26 项 Node 测试；immutable snapshot；字段路径错误 |
-| 2.2 配置仓库与原子写入 | 未开始 |  |  |
+| 2.2 配置仓库与原子写入 | 已完成 | 本任务提交 | 34 项 Node 测试；atomic fsync/rename；失败恢复 |
 | 2.3 URL 与 header 领域逻辑 | 未开始 |  |  |
 | 2.4 路由与 request 变换 | 未开始 |  |  |
 | 2.5 脱敏与 payload 表示 | 未开始 |  |  |
@@ -259,14 +259,14 @@ python -m mypy
 
 依赖：2.1。
 
-- [ ] 实现配置文件大小限制和 JSON 读取。
-- [ ] 实现不存在文件时的默认配置。
-- [ ] 实现同目录临时文件、flush、原子 rename。
-- [ ] 保存失败时不破坏原文件。
-- [ ] 对 Windows rename/占用错误提供可诊断信息。
-- [ ] 限制配置文件权限。
-- [ ] 添加并发保存串行化。
-- [ ] 增加损坏 JSON、磁盘错误和中断写测试。
+- [x] 实现配置文件大小限制和 JSON 读取。
+- [x] 实现不存在文件时的默认配置。
+- [x] 实现同目录临时文件、flush、原子 rename。
+- [x] 保存失败时不破坏原文件。
+- [x] 对 Windows rename/占用错误提供可诊断信息。
+- [x] 限制配置文件权限。
+- [x] 添加并发保存串行化。
+- [x] 增加损坏 JSON、磁盘错误和中断写测试。
 
 验收：故障注入下原配置始终可恢复；保存后重新读取结果通过 schema。
 
