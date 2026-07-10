@@ -22,6 +22,7 @@ describe("ProxyServer", () => {
       port: 0,
       proxy: runtimeProxy(`http://127.0.0.1:${upstream.port.toString()}`),
       maxRequestBodyBytes: 1024,
+      requestCaptureBytes: 1024,
       responseCaptureBytes: 1024,
       totalRequestTimeoutMs: 30_000,
       createRequestId: () => `request-${(contexts.length + 1).toString()}`,
@@ -52,6 +53,7 @@ describe("ProxyServer", () => {
       port: 0,
       proxy: runtimeProxy(`http://127.0.0.1:${upstream.port.toString()}`),
       maxRequestBodyBytes: 1024,
+      requestCaptureBytes: 1024,
       responseCaptureBytes: 1024,
       totalRequestTimeoutMs: 30_000,
     });
@@ -71,6 +73,7 @@ describe("ProxyServer", () => {
       port: 0,
       proxy: runtimeProxy("http://127.0.0.1:1"),
       maxRequestBodyBytes: 1024,
+      requestCaptureBytes: 1024,
       responseCaptureBytes: 1024,
       totalRequestTimeoutMs: 30_000,
     });
@@ -101,6 +104,7 @@ describe("ProxyServer", () => {
         },
       ]),
       maxRequestBodyBytes: 1024,
+      requestCaptureBytes: 1024,
       responseCaptureBytes: 1024,
       totalRequestTimeoutMs: 30_000,
     });
@@ -134,6 +138,7 @@ describe("ProxyServer", () => {
       port: 0,
       proxy: runtimeProxy(`http://127.0.0.1:${upstream.port.toString()}`),
       maxRequestBodyBytes: 10,
+      requestCaptureBytes: 10,
       responseCaptureBytes: 1024,
       totalRequestTimeoutMs: 30_000,
     });
@@ -155,6 +160,7 @@ describe("ProxyServer", () => {
       port: 0,
       proxy: runtimeProxy(`http://127.0.0.1:${upstream.port.toString()}`),
       maxRequestBodyBytes: 1024,
+      requestCaptureBytes: 1024,
       responseCaptureBytes: 1024,
       totalRequestTimeoutMs: 30_000,
     });
@@ -175,6 +181,7 @@ describe("ProxyServer", () => {
       port: 0,
       proxy: runtimeProxy(`http://127.0.0.1:${upstream.port.toString()}`),
       maxRequestBodyBytes: 1024,
+      requestCaptureBytes: 1024,
       responseCaptureBytes: 1024,
       totalRequestTimeoutMs: 30_000,
     });
@@ -197,6 +204,7 @@ describe("ProxyServer", () => {
         ],
       }),
       maxRequestBodyBytes: 1024,
+      requestCaptureBytes: 1024,
       responseCaptureBytes: 1024,
       totalRequestTimeoutMs: 30_000,
     });

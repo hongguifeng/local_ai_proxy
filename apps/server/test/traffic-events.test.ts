@@ -107,6 +107,25 @@ describe("traffic event folding and transaction", () => {
     );
   });
 
+  it("preserves aborted and timed_out terminal outcomes", () => {
+    for (const outcome of ["aborted", "timed_out"] as const) {
+      const reducer = new TrafficEventReducer();
+      reducer.apply(acceptedEvent());
+      expect(
+        reducer.apply({
+          kind: "error",
+          requestId: "request-1",
+          timestamp,
+          code: outcome === "aborted" ? "CLIENT_ABORTED" : "UPSTREAM_IDLE_TIMEOUT",
+          stage: "response_body",
+          safeMessage: "request ended",
+          outcome,
+          durationMs: 5,
+        }),
+      ).toMatchObject({ event: outcome });
+    }
+  });
+
   it("rolls back task, record, FTS, and links when any assignment write fails", () => {
     const database = openStorageDatabase(":memory:");
     try {

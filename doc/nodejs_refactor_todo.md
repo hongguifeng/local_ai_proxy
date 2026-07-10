@@ -75,7 +75,7 @@ python -m mypy
 | 5.3 header 转发规则 | 已完成 | 本任务提交 | 132 项 Node 测试；raw 重复 header；双向 hop-by-hop 过滤 |
 | 5.4 response 管线与背压 | 已完成 | 本任务提交 | 136 项 Node 测试；100 MiB hash；SSE 首块与慢客户端背压 |
 | 5.5 取消和超时 | 已完成 | 本任务提交 | 140 项 Node 测试；connect/header/idle/total；取消单终态 |
-| 5.6 traffic 生命周期接入 | 未开始 |  |  |
+| 5.6 traffic 生命周期接入 | 已完成 | 本任务提交 | 143 项 Node 测试；全 event 生命周期；脱敏与 degraded 隔离 |
 | 5.7 连接池和资源释放 | 未开始 |  |  |
 | 5.8 协议故障集成测试 | 未开始 |  |  |
 | 6.1 RuntimeManager | 未开始 |  |  |
@@ -567,13 +567,13 @@ python -m mypy
 
 依赖：5.5、4.6。
 
-- [ ] accepted 后尽早提交初始 event。
-- [ ] body/routing 后更新 target 和 request metadata。
-- [ ] response headers 后记录 status/header latency。
-- [ ] finish/abort/timeout/error 恰好提交一个终态。
-- [ ] 记录 observed/captured/truncated bytes。
-- [ ] storage degraded 不改变代理响应。
-- [ ] 为不记录日志的 target 提供 no-op sink。
+- [x] accepted 后尽早提交初始 event。
+- [x] body/routing 后更新 target 和 request metadata。
+- [x] response headers 后记录 status/header latency。
+- [x] finish/abort/timeout/error 恰好提交一个终态。
+- [x] 记录 observed/captured/truncated bytes。
+- [x] storage degraded 不改变代理响应。
+- [x] 为不记录日志的 target 提供 no-op sink。
 
 验收：所有协议集成场景都有数据库断言；事件重复不会产生重复 record。
 

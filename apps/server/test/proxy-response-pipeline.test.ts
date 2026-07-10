@@ -146,6 +146,7 @@ async function setup(
     port: 0,
     proxy: runtime,
     maxRequestBodyBytes: 1024,
+    requestCaptureBytes: 1024,
     responseCaptureBytes: 1024,
     totalRequestTimeoutMs: 30_000,
     ...overrides,

@@ -42,6 +42,7 @@ export type TrafficEvent =
         code: string;
         stage: string;
         safeMessage: string;
+        outcome?: "failed" | "aborted" | "timed_out";
         durationMs: number;
         status?: number | null;
       }>);
@@ -91,7 +92,8 @@ export class TrafficEventReducer {
       return record;
     }
     if (!existing) return null;
-    if (STAGE_ORDER[event.kind] < STAGE_ORDER[existing.stage] || isTerminal(existing.stage)) return existing.record;
+    if (isTerminal(existing.stage)) return existing.record;
+    if (event.kind !== "body_read" && STAGE_ORDER[event.kind] < STAGE_ORDER[existing.stage]) return existing.record;
 
     let record = existing.record;
     if (event.kind === "body_read") {
@@ -122,7 +124,7 @@ export class TrafficEventReducer {
     } else {
       record = {
         ...record,
-        event: "failed",
+        event: event.outcome ?? "failed",
         timestamp: event.timestamp,
         durationMs: event.durationMs,
         status: event.status ?? record.status,
@@ -131,7 +133,8 @@ export class TrafficEventReducer {
         errorMessage: safeMessage(event.safeMessage),
       };
     }
-    this.#states.set(event.requestId, { record, stage: event.kind });
+    const stage = STAGE_ORDER[event.kind] < STAGE_ORDER[existing.stage] ? existing.stage : event.kind;
+    this.#states.set(event.requestId, { record, stage });
     return record;
   }
 

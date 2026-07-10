@@ -5,6 +5,7 @@ import type { AddressInfo } from "node:net";
 import { pipeline } from "node:stream/promises";
 
 import type { RuntimeProxy, RuntimeTarget } from "../config/schema.js";
+import type { TrafficEvent } from "../storage/traffic-events.js";
 import { CaptureTap, type CaptureTapResult, type StreamObserver } from "./capture-tap.js";
 import { buildUpstreamRequestHeaders, rawHeadersToPairs, removeHopByHopHeaders, type HeaderPair } from "./headers.js";
 import { routeAndTransformRequest, selectTargetByModel } from "./routing.js";
@@ -22,6 +23,7 @@ export interface ProxyServerOptions {
   port: number;
   proxy: RuntimeProxy;
   maxRequestBodyBytes: number;
+  requestCaptureBytes: number;
   responseCaptureBytes: number;
   totalRequestTimeoutMs: number;
   createRequestId?: () => string;
@@ -29,6 +31,11 @@ export interface ProxyServerOptions {
   createResponseObserver?: (context: ProxyRequestContext, contentType: string | undefined) => StreamObserver | null;
   onResponseCaptured?: (context: ProxyRequestContext, result: CaptureTapResult) => void;
   onRequestOutcome?: (context: ProxyRequestContext, outcome: ProxyRequestOutcome) => void;
+  trafficSink?: TrafficEventSink;
+}
+
+export interface TrafficEventSink {
+  emit(event: TrafficEvent): void | Promise<void>;
 }
 
 export interface ProxyRequestOutcome {
@@ -44,6 +51,8 @@ export class ProxyServer {
   public constructor(options: ProxyServerOptions) {
     if (!Number.isSafeInteger(options.maxRequestBodyBytes) || options.maxRequestBodyBytes < 1)
       throw new RangeError("Invalid request body limit");
+    if (!Number.isSafeInteger(options.requestCaptureBytes) || options.requestCaptureBytes < 0)
+      throw new RangeError("Invalid request capture limit");
     if (!Number.isSafeInteger(options.responseCaptureBytes) || options.responseCaptureBytes < 0)
       throw new RangeError("Invalid response capture limit");
     if (!Number.isSafeInteger(options.totalRequestTimeoutMs) || options.totalRequestTimeoutMs < 1)
@@ -107,8 +116,10 @@ export class ProxyServer {
       acceptedAt: new Date().toISOString(),
     };
     this.#options.onRequest?.(context);
+    const traffic = new RequestTraffic(context, request, this.#options.proxy, this.#options.trafficSink);
     const control = new RequestControl(this.#options.totalRequestTimeoutMs, (outcome) => {
       this.#options.onRequestOutcome?.(context, outcome);
+      if (outcome.kind !== "finished") traffic.terminate(outcome);
       if (outcome.kind === "timed_out" && !response.headersSent && !response.destroyed) {
         respondUpstreamError(response, context.requestId, outcome.code ?? "REQUEST_TOTAL_TIMEOUT", 504);
       }
@@ -120,7 +131,7 @@ export class ProxyServer {
       if (!response.writableFinished) control.terminate("aborted", "DOWNSTREAM_CLOSED");
     });
     if (shouldBufferJson(request.headers)) {
-      void this.#handleBuffered(request, response, context, control).catch(() => {
+      void this.#handleBuffered(request, response, context, control, traffic).catch(() => {
         control.terminate("failed", "REQUEST_BODY_FAILED");
         if (!response.headersSent) response.writeHead(400).end();
         else response.destroy();
@@ -128,8 +139,14 @@ export class ProxyServer {
       return;
     }
     const target = selectTargetByModel(this.#options.proxy, null).target;
-    const upstream = this.#createUpstream(request, response, target, method, path, context, control);
-    request.pipe(upstream);
+    traffic.routed(target);
+    const upstream = this.#createUpstream(request, response, target, method, path, context, control, traffic);
+    const requestTap = new CaptureTap(this.#options.requestCaptureBytes);
+    requestTap.once("finish", () => {
+      const result = requestTap.result();
+      traffic.body(rawHeadersToRecord(request.rawHeaders), result.captured, result.observedBytes);
+    });
+    request.pipe(requestTap).pipe(upstream);
   }
 
   async #handleBuffered(
@@ -137,6 +154,7 @@ export class ProxyServer {
     response: http.ServerResponse,
     context: ProxyRequestContext,
     control: RequestControl,
+    traffic: RequestTraffic,
   ): Promise<void> {
     const declared = parseContentLength(request.headers["content-length"]);
     if (declared !== null && declared > this.#options.maxRequestBodyBytes) {
@@ -150,6 +168,12 @@ export class ProxyServer {
       return;
     }
     const routed = routeAndTransformRequest(this.#options.proxy, body);
+    traffic.body(
+      rawHeadersToRecord(request.rawHeaders),
+      body.subarray(0, this.#options.requestCaptureBytes),
+      body.byteLength,
+    );
+    traffic.routed(routed.target);
     const upstream = this.#createUpstream(
       request,
       response,
@@ -158,6 +182,7 @@ export class ProxyServer {
       context.path,
       context,
       control,
+      traffic,
       routed.body.byteLength,
     );
     upstream.end(routed.body);
@@ -171,6 +196,7 @@ export class ProxyServer {
     path: string,
     context: ProxyRequestContext,
     control: RequestControl,
+    traffic: RequestTraffic,
     bodyLength?: number,
   ): http.ClientRequest {
     const targetUrl = new URL(joinTargetPath(target.endpoint.basePath, path), target.endpoint.origin);
@@ -201,6 +227,7 @@ export class ProxyServer {
           upstreamResponse.statusMessage,
           flattenHeaders(responseHeaders),
         );
+        traffic.headers(upstreamResponse.statusCode ?? 502, rawHeadersToRecord(upstreamResponse.rawHeaders));
         const contentType = upstreamResponse.headers["content-type"];
         const tap = new CaptureTap(
           this.#options.responseCaptureBytes,
@@ -223,6 +250,7 @@ export class ProxyServer {
         void pipeline(upstreamResponse, tap, response).then(
           () => {
             this.#options.onResponseCaptured?.(context, tap.result());
+            traffic.finished(upstreamResponse.statusCode ?? 502, tap.result());
             control.terminate("finished", null);
           },
           () => {
@@ -307,6 +335,110 @@ class RequestControl {
   }
 }
 
+class RequestTraffic {
+  readonly #context: ProxyRequestContext;
+  readonly #sink: TrafficEventSink | undefined;
+  readonly #startedAt = performance.now();
+  #status = 502;
+  #terminal = false;
+
+  public constructor(
+    context: ProxyRequestContext,
+    request: http.IncomingMessage,
+    proxy: RuntimeProxy,
+    sink: TrafficEventSink | undefined,
+  ) {
+    this.#context = context;
+    this.#sink = sink;
+    this.#emit({
+      kind: "accepted",
+      requestId: context.requestId,
+      timestamp: context.acceptedAt,
+      method: context.method,
+      path: context.path,
+      client: { host: request.socket.remoteAddress ?? "unknown", port: request.socket.remotePort ?? 0 },
+      proxy: { id: proxy.id, name: proxy.name },
+      requestHeaders: rawHeadersToRecord(request.rawHeaders),
+    });
+  }
+
+  public body(headers: Readonly<Record<string, string[]>>, captured: Uint8Array, observedBytes: number): void {
+    this.#emit({
+      kind: "body_read",
+      requestId: this.#context.requestId,
+      timestamp: now(),
+      headers,
+      captured,
+      observedBytes,
+    });
+  }
+
+  public routed(target: RuntimeTarget): void {
+    this.#emit({
+      kind: "routed",
+      requestId: this.#context.requestId,
+      timestamp: now(),
+      target: { id: target.id, name: target.name, url: target.url },
+    });
+  }
+
+  public headers(status: number, headers: Readonly<Record<string, string[]>>): void {
+    this.#status = status;
+    this.#emit({
+      kind: "headers",
+      requestId: this.#context.requestId,
+      timestamp: now(),
+      status,
+      headers,
+    });
+  }
+
+  public finished(status: number, result: CaptureTapResult): void {
+    if (this.#terminal) return;
+    this.#terminal = true;
+    const counts = summaryCounts(result.summary);
+    this.#emit({
+      kind: "finished",
+      requestId: this.#context.requestId,
+      timestamp: now(),
+      status,
+      captured: result.captured,
+      observedBytes: result.observedBytes,
+      durationMs: this.#duration(),
+      ...counts,
+    });
+  }
+
+  public terminate(outcome: ProxyRequestOutcome): void {
+    if (this.#terminal) return;
+    this.#terminal = true;
+    this.#emit({
+      kind: "error",
+      requestId: this.#context.requestId,
+      timestamp: now(),
+      code: outcome.code ?? "UPSTREAM_FAILED",
+      stage: stageFromCode(outcome.code),
+      safeMessage: outcome.kind === "timed_out" ? "Upstream timed out" : "Proxy request did not complete",
+      outcome: outcome.kind === "finished" ? "failed" : outcome.kind,
+      durationMs: this.#duration(),
+      status: this.#status,
+    });
+  }
+
+  #duration(): number {
+    return Math.max(0, performance.now() - this.#startedAt);
+  }
+
+  #emit(event: TrafficEvent): void {
+    try {
+      const pending = this.#sink?.emit(event);
+      if (pending && typeof pending.then === "function") void pending.catch(() => undefined);
+    } catch {
+      // Traffic logging is best-effort and must not affect proxying.
+    }
+  }
+}
+
 function shouldBufferJson(headers: http.IncomingHttpHeaders): boolean {
   const encoding = headers["content-encoding"]?.trim().toLowerCase();
   if (encoding && encoding !== "identity") return false;
@@ -352,4 +484,34 @@ function respondUpstreamError(response: http.ServerResponse, requestId: string, 
 
 function flattenHeaders(headers: readonly HeaderPair[]): string[] {
   return headers.flatMap(([name, value]) => [name, value]);
+}
+
+function rawHeadersToRecord(rawHeaders: readonly string[]): Record<string, string[]> {
+  const result: Record<string, string[]> = {};
+  for (const [name, value] of rawHeadersToPairs(rawHeaders)) {
+    const normalized = name.toLowerCase();
+    (result[normalized] ??= []).push(value);
+  }
+  return result;
+}
+
+function summaryCounts(summary: unknown): { messageCount?: number; tokenCount?: number } {
+  if (!summary || typeof summary !== "object") return {};
+  const messageCount =
+    "messageCount" in summary && typeof summary.messageCount === "number" ? summary.messageCount : null;
+  const tokenCount = "tokenCount" in summary && typeof summary.tokenCount === "number" ? summary.tokenCount : null;
+  return { ...(messageCount === null ? {} : { messageCount }), ...(tokenCount === null ? {} : { tokenCount }) };
+}
+
+function stageFromCode(code: string | null): string {
+  if (!code) return "unknown";
+  if (code.includes("CONNECT")) return "connect";
+  if (code.includes("HEADERS")) return "response_headers";
+  if (code.includes("IDLE") || code.includes("BODY")) return "response_body";
+  if (code.includes("CLIENT") || code.includes("DOWNSTREAM")) return "downstream";
+  return "request";
+}
+
+function now(): string {
+  return new Date().toISOString();
 }
