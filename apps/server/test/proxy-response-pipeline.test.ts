@@ -147,6 +147,7 @@ async function setup(
     proxy: runtime,
     maxRequestBodyBytes: 1024,
     responseCaptureBytes: 1024,
+    totalRequestTimeoutMs: 30_000,
     ...overrides,
   });
   const address = await proxy.start();

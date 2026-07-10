@@ -23,10 +23,17 @@ export interface ProxyServerOptions {
   proxy: RuntimeProxy;
   maxRequestBodyBytes: number;
   responseCaptureBytes: number;
+  totalRequestTimeoutMs: number;
   createRequestId?: () => string;
   onRequest?: (context: ProxyRequestContext) => void;
   createResponseObserver?: (context: ProxyRequestContext, contentType: string | undefined) => StreamObserver | null;
   onResponseCaptured?: (context: ProxyRequestContext, result: CaptureTapResult) => void;
+  onRequestOutcome?: (context: ProxyRequestContext, outcome: ProxyRequestOutcome) => void;
+}
+
+export interface ProxyRequestOutcome {
+  kind: "finished" | "aborted" | "timed_out" | "failed";
+  code: string | null;
 }
 
 export class ProxyServer {
@@ -39,6 +46,8 @@ export class ProxyServer {
       throw new RangeError("Invalid request body limit");
     if (!Number.isSafeInteger(options.responseCaptureBytes) || options.responseCaptureBytes < 0)
       throw new RangeError("Invalid response capture limit");
+    if (!Number.isSafeInteger(options.totalRequestTimeoutMs) || options.totalRequestTimeoutMs < 1)
+      throw new RangeError("Invalid total request timeout");
     this.#options = options;
     this.#server = http.createServer((request, response) => {
       this.#handle(request, response);
@@ -98,15 +107,28 @@ export class ProxyServer {
       acceptedAt: new Date().toISOString(),
     };
     this.#options.onRequest?.(context);
+    const control = new RequestControl(this.#options.totalRequestTimeoutMs, (outcome) => {
+      this.#options.onRequestOutcome?.(context, outcome);
+      if (outcome.kind === "timed_out" && !response.headersSent && !response.destroyed) {
+        respondUpstreamError(response, context.requestId, outcome.code ?? "REQUEST_TOTAL_TIMEOUT", 504);
+      }
+    });
+    request.once("aborted", () => {
+      control.terminate("aborted", "CLIENT_ABORTED");
+    });
+    response.once("close", () => {
+      if (!response.writableFinished) control.terminate("aborted", "DOWNSTREAM_CLOSED");
+    });
     if (shouldBufferJson(request.headers)) {
-      void this.#handleBuffered(request, response, context).catch(() => {
+      void this.#handleBuffered(request, response, context, control).catch(() => {
+        control.terminate("failed", "REQUEST_BODY_FAILED");
         if (!response.headersSent) response.writeHead(400).end();
         else response.destroy();
       });
       return;
     }
     const target = selectTargetByModel(this.#options.proxy, null).target;
-    const upstream = this.#createUpstream(request, response, target, method, path, context);
+    const upstream = this.#createUpstream(request, response, target, method, path, context, control);
     request.pipe(upstream);
   }
 
@@ -114,6 +136,7 @@ export class ProxyServer {
     request: http.IncomingMessage,
     response: http.ServerResponse,
     context: ProxyRequestContext,
+    control: RequestControl,
   ): Promise<void> {
     const declared = parseContentLength(request.headers["content-length"]);
     if (declared !== null && declared > this.#options.maxRequestBodyBytes) {
@@ -134,6 +157,7 @@ export class ProxyServer {
       context.method,
       context.path,
       context,
+      control,
       routed.body.byteLength,
     );
     upstream.end(routed.body);
@@ -146,6 +170,7 @@ export class ProxyServer {
     method: string,
     path: string,
     context: ProxyRequestContext,
+    control: RequestControl,
     bodyLength?: number,
   ): http.ClientRequest {
     const targetUrl = new URL(joinTargetPath(target.endpoint.basePath, path), target.endpoint.origin);
@@ -164,36 +189,121 @@ export class ProxyServer {
       });
       headers.push(["Content-Length", bodyLength.toString()]);
     }
-    const upstream = transport.request(targetUrl, { method, headers: flattenHeaders(headers) }, (upstreamResponse) => {
-      const responseHeaders = removeHopByHopHeaders(rawHeadersToPairs(upstreamResponse.rawHeaders));
-      response.writeHead(
-        upstreamResponse.statusCode ?? 502,
-        upstreamResponse.statusMessage,
-        flattenHeaders(responseHeaders),
-      );
-      const contentType = upstreamResponse.headers["content-type"];
-      const tap = new CaptureTap(
-        this.#options.responseCaptureBytes,
-        this.#options.createResponseObserver?.(context, contentType) ?? null,
-      );
-      void pipeline(upstreamResponse, tap, response).then(
-        () => {
-          this.#options.onResponseCaptured?.(context, tap.result());
-        },
-        () => {
-          this.#options.onResponseCaptured?.(context, tap.result());
-          response.destroy();
-        },
-      );
+    const upstream = transport.request(
+      targetUrl,
+      { method, headers: flattenHeaders(headers), signal: control.signal },
+      (upstreamResponse) => {
+        clearTimeout(responseHeadersTimer);
+        clearTimeout(connectTimer);
+        const responseHeaders = removeHopByHopHeaders(rawHeadersToPairs(upstreamResponse.rawHeaders));
+        response.writeHead(
+          upstreamResponse.statusCode ?? 502,
+          upstreamResponse.statusMessage,
+          flattenHeaders(responseHeaders),
+        );
+        const contentType = upstreamResponse.headers["content-type"];
+        const tap = new CaptureTap(
+          this.#options.responseCaptureBytes,
+          this.#options.createResponseObserver?.(context, contentType) ?? null,
+        );
+        let idleTimer = setTimeout(() => {
+          control.terminate("timed_out", "UPSTREAM_IDLE_TIMEOUT");
+        }, target.timeouts.idleMs);
+        const resetIdle = (): void => {
+          clearTimeout(idleTimer);
+          idleTimer = setTimeout(() => {
+            control.terminate("timed_out", "UPSTREAM_IDLE_TIMEOUT");
+          }, target.timeouts.idleMs);
+        };
+        upstreamResponse.on("data", resetIdle);
+        control.addCleanup(() => {
+          clearTimeout(idleTimer);
+          upstreamResponse.off("data", resetIdle);
+        });
+        void pipeline(upstreamResponse, tap, response).then(
+          () => {
+            this.#options.onResponseCaptured?.(context, tap.result());
+            control.terminate("finished", null);
+          },
+          () => {
+            this.#options.onResponseCaptured?.(context, tap.result());
+            if (!control.terminated) control.terminate("failed", "UPSTREAM_BODY_FAILED");
+            response.destroy();
+          },
+        );
+      },
+    );
+    const connectTimer = setTimeout(() => {
+      control.terminate("timed_out", "UPSTREAM_CONNECT_TIMEOUT");
+    }, target.timeouts.connectMs);
+    const responseHeadersTimer = setTimeout(() => {
+      control.terminate("timed_out", "UPSTREAM_HEADERS_TIMEOUT");
+    }, target.timeouts.responseHeadersMs);
+    upstream.on("socket", (socket) => {
+      if (!socket.connecting) clearTimeout(connectTimer);
+      else {
+        const event = target.endpoint.protocol === "https:" ? "secureConnect" : "connect";
+        const onConnect = (): void => {
+          clearTimeout(connectTimer);
+        };
+        socket.once(event, onConnect);
+        control.addCleanup(() => socket.off(event, onConnect));
+      }
+    });
+    control.addCleanup(() => {
+      clearTimeout(connectTimer);
+      clearTimeout(responseHeadersTimer);
     });
     upstream.on("error", () => {
-      if (!response.headersSent) {
-        response.writeHead(502, { "content-type": "application/json" });
-        response.end('{"error":"upstream_unavailable"}');
-      } else response.destroy();
+      if (!control.terminated) control.terminate("failed", "UPSTREAM_UNAVAILABLE");
+      if (!response.headersSent && control.outcome?.kind !== "aborted") {
+        const status = control.outcome?.kind === "timed_out" ? 504 : 502;
+        respondUpstreamError(response, context.requestId, control.outcome?.code ?? "UPSTREAM_UNAVAILABLE", status);
+      } else if (response.headersSent && !response.writableEnded) response.destroy();
     });
-    request.on("aborted", () => upstream.destroy());
     return upstream;
+  }
+}
+
+class RequestControl {
+  readonly #controller = new AbortController();
+  readonly #cleanups: (() => void)[] = [];
+  readonly #onOutcome: (outcome: ProxyRequestOutcome) => void;
+  #outcome: ProxyRequestOutcome | null = null;
+
+  public constructor(totalTimeoutMs: number, onOutcome: (outcome: ProxyRequestOutcome) => void) {
+    this.#onOutcome = onOutcome;
+    const timer = setTimeout(() => {
+      this.terminate("timed_out", "REQUEST_TOTAL_TIMEOUT");
+    }, totalTimeoutMs);
+    this.#cleanups.push(() => {
+      clearTimeout(timer);
+    });
+  }
+
+  public get signal(): AbortSignal {
+    return this.#controller.signal;
+  }
+
+  public get terminated(): boolean {
+    return this.#outcome !== null;
+  }
+
+  public get outcome(): ProxyRequestOutcome | null {
+    return this.#outcome;
+  }
+
+  public addCleanup(cleanup: () => void): void {
+    if (this.terminated) cleanup();
+    else this.#cleanups.push(cleanup);
+  }
+
+  public terminate(kind: ProxyRequestOutcome["kind"], code: string | null): void {
+    if (this.#outcome) return;
+    this.#outcome = { kind, code };
+    for (const cleanup of this.#cleanups.splice(0)) cleanup();
+    if (kind !== "finished") this.#controller.abort();
+    this.#onOutcome(this.#outcome);
   }
 }
 
@@ -228,6 +338,16 @@ async function readBody(request: http.IncomingMessage, limit: number): Promise<B
 function respondTooLarge(response: http.ServerResponse): void {
   response.writeHead(413, { "content-type": "application/json", connection: "close" });
   response.end('{"error":"request_body_too_large"}');
+}
+
+function respondUpstreamError(response: http.ServerResponse, requestId: string, code: string, status: 502 | 504): void {
+  response.writeHead(status, { "content-type": "application/json" });
+  response.end(
+    JSON.stringify({
+      error: { code, message: status === 504 ? "Upstream timed out" : "Upstream unavailable" },
+      requestId,
+    }),
+  );
 }
 
 function flattenHeaders(headers: readonly HeaderPair[]): string[] {

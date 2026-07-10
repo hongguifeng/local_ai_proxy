@@ -23,6 +23,7 @@ describe("ProxyServer", () => {
       proxy: runtimeProxy(`http://127.0.0.1:${upstream.port.toString()}`),
       maxRequestBodyBytes: 1024,
       responseCaptureBytes: 1024,
+      totalRequestTimeoutMs: 30_000,
       createRequestId: () => `request-${(contexts.length + 1).toString()}`,
       onRequest: (context) => contexts.push(context),
     });
@@ -52,6 +53,7 @@ describe("ProxyServer", () => {
       proxy: runtimeProxy(`http://127.0.0.1:${upstream.port.toString()}`),
       maxRequestBodyBytes: 1024,
       responseCaptureBytes: 1024,
+      totalRequestTimeoutMs: 30_000,
     });
     cleanup.push(() => proxy.stop());
     const address = await proxy.start();
@@ -70,10 +72,15 @@ describe("ProxyServer", () => {
       proxy: runtimeProxy("http://127.0.0.1:1"),
       maxRequestBodyBytes: 1024,
       responseCaptureBytes: 1024,
+      totalRequestTimeoutMs: 30_000,
     });
     cleanup.push(() => proxy.stop());
     const address = await proxy.start();
-    expect(await request(address.port, "GET", "/")).toEqual({ status: 502, body: '{"error":"upstream_unavailable"}' });
+    const result = await request(address.port, "GET", "/");
+    expect(result.status).toBe(502);
+    expect(JSON.parse(result.body)).toMatchObject({
+      error: { code: "UPSTREAM_UNAVAILABLE", message: "Upstream unavailable" },
+    });
   });
 
   it("routes and transforms supported JSON then fixes framing headers", async () => {
@@ -95,6 +102,7 @@ describe("ProxyServer", () => {
       ]),
       maxRequestBodyBytes: 1024,
       responseCaptureBytes: 1024,
+      totalRequestTimeoutMs: 30_000,
     });
     cleanup.push(() => proxy.stop());
     const address = await proxy.start();
@@ -127,6 +135,7 @@ describe("ProxyServer", () => {
       proxy: runtimeProxy(`http://127.0.0.1:${upstream.port.toString()}`),
       maxRequestBodyBytes: 10,
       responseCaptureBytes: 1024,
+      totalRequestTimeoutMs: 30_000,
     });
     cleanup.push(() => proxy.stop());
     const address = await proxy.start();
@@ -147,6 +156,7 @@ describe("ProxyServer", () => {
       proxy: runtimeProxy(`http://127.0.0.1:${upstream.port.toString()}`),
       maxRequestBodyBytes: 1024,
       responseCaptureBytes: 1024,
+      totalRequestTimeoutMs: 30_000,
     });
     cleanup.push(() => proxy.stop());
     const address = await proxy.start();
@@ -166,6 +176,7 @@ describe("ProxyServer", () => {
       proxy: runtimeProxy(`http://127.0.0.1:${upstream.port.toString()}`),
       maxRequestBodyBytes: 1024,
       responseCaptureBytes: 1024,
+      totalRequestTimeoutMs: 30_000,
     });
     cleanup.push(() => proxy.stop());
     const address = await proxy.start();
@@ -187,6 +198,7 @@ describe("ProxyServer", () => {
       }),
       maxRequestBodyBytes: 1024,
       responseCaptureBytes: 1024,
+      totalRequestTimeoutMs: 30_000,
     });
     cleanup.push(() => proxy.stop());
     const address = await proxy.start();

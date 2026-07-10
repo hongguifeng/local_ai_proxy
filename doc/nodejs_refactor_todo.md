@@ -74,7 +74,7 @@ python -m mypy
 | 5.2 request body 与路由 | 已完成 | 本任务提交 | 131 项 Node 测试；chunked/limit/路由改写；非 JSON 流式直通 |
 | 5.3 header 转发规则 | 已完成 | 本任务提交 | 132 项 Node 测试；raw 重复 header；双向 hop-by-hop 过滤 |
 | 5.4 response 管线与背压 | 已完成 | 本任务提交 | 136 项 Node 测试；100 MiB hash；SSE 首块与慢客户端背压 |
-| 5.5 取消和超时 | 未开始 |  |  |
+| 5.5 取消和超时 | 已完成 | 本任务提交 | 140 项 Node 测试；connect/header/idle/total；取消单终态 |
 | 5.6 traffic 生命周期接入 | 未开始 |  |  |
 | 5.7 连接池和资源释放 | 未开始 |  |  |
 | 5.8 协议故障集成测试 | 未开始 |  |  |
@@ -553,13 +553,13 @@ python -m mypy
 
 依赖：5.4。
 
-- [ ] 建立单 request AbortController。
-- [ ] 客户端 request aborted 时取消上游。
-- [ ] downstream close-before-finish 时取消上游。
-- [ ] 实现 connect/header/idle/total timeout。
-- [ ] headers 未发送时返回结构化 502/504。
-- [ ] headers 已发送时销毁流并记录终态。
-- [ ] 清理所有 timer 和 event listener。
+- [x] 建立单 request AbortController。
+- [x] 客户端 request aborted 时取消上游。
+- [x] downstream close-before-finish 时取消上游。
+- [x] 实现 connect/header/idle/total timeout。
+- [x] headers 未发送时返回结构化 502/504。
+- [x] headers 已发送时销毁流并记录终态。
+- [x] 清理所有 timer 和 event listener。
 
 验收：每种终止路径没有悬挂 socket/timer；错误状态和 code 可区分。
 
