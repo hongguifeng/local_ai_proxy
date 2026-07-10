@@ -77,6 +77,8 @@
 
 ## 4. 当前行为基线
 
+外部行为的迁移分类、示例和禁止复制项见 [`python_behavior_inventory.md`](./python_behavior_inventory.md)。该清单是阶段 0 的黑盒对照入口，优先级高于 Python 内部函数签名。
+
 重构前需要把 Python 实现中有产品意义的行为固化为黑盒测试和 fixture：
 
 - 任意常见 HTTP method 和 path 的目标 URL 拼接。
