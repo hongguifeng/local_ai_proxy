@@ -54,7 +54,7 @@ python -m mypy
 | 1.5 server CLI 骨架 | 已完成 | 本任务提交 | 21 项 Node 测试；build `--help`/`--version` smoke |
 | 2.1 配置 schema | 已完成 | 本任务提交 | 26 项 Node 测试；immutable snapshot；字段路径错误 |
 | 2.2 配置仓库与原子写入 | 已完成 | 本任务提交 | 34 项 Node 测试；atomic fsync/rename；失败恢复 |
-| 2.3 URL 与 header 领域逻辑 | 未开始 |  |  |
+| 2.3 URL 与 header 领域逻辑 | 已完成 | 本任务提交 | 41 项 Node 测试；语言无关 fixture；header 注入拒绝 |
 | 2.4 路由与 request 变换 | 未开始 |  |  |
 | 2.5 脱敏与 payload 表示 | 未开始 |  |  |
 | 2.6 endpoint 与 record 摘要 | 未开始 |  |  |
@@ -274,13 +274,13 @@ python -m mypy
 
 依赖：0.3、1.2。
 
-- [ ] 实现 target URL parse 和 path/query 拼接。
-- [ ] 实现固定 hop-by-hop header 删除。
-- [ ] 解析 `Connection` 动态 token 并删除对应 header。
-- [ ] 实现 Host 和 `X-Forwarded-*` 规则。
-- [ ] 实现 target header/API key 覆盖优先级。
-- [ ] 保留 header 多值和不可合并 header。
-- [ ] 对 header injection 和非法字符依赖 Node API 拒绝并测试。
+- [x] 实现 target URL parse 和 path/query 拼接。
+- [x] 实现固定 hop-by-hop header 删除。
+- [x] 解析 `Connection` 动态 token 并删除对应 header。
+- [x] 实现 Host 和 `X-Forwarded-*` 规则。
+- [x] 实现 target header/API key 覆盖优先级。
+- [x] 保留 header 多值和不可合并 header。
+- [x] 对 header injection 和非法字符依赖 Node API 拒绝并测试。
 
 验收：语言无关 fixture 全部通过，覆盖 IPv6、默认端口、base path 和重复 header。
 
