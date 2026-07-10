@@ -43,7 +43,7 @@ python -m mypy
 
 | 任务 | 状态 | 提交 | 验证/备注 |
 | --- | --- | --- | --- |
-| 0.1 产品决策与 ADR | 未开始 |  |  |
+| 0.1 产品决策与 ADR | 已完成 | 本任务提交 | 4 份 ADR；`python -m pytest` |
 | 0.2 Python 行为清单 | 未开始 |  |  |
 | 0.3 对照 fixture | 未开始 |  |  |
 | 0.4 协议基准测试工具 | 未开始 |  |  |
@@ -113,14 +113,14 @@ python -m mypy
 
 依赖：无。
 
-- [ ] 确认正式支持的 OS 和 CPU 架构。
-- [ ] 确认是否必须提供 Windows 单文件 exe。
-- [ ] 确认是否迁移现有 `traffic.db` 和 `proxies.json`。
-- [ ] 确认 admin 是否允许非 loopback 访问。
-- [ ] 确认 request/response 默认捕获上限和 retention 默认值。
-- [ ] 确认 UI 第一阶段复用现状，还是同期引入框架。
-- [ ] 为 SQLite driver/Worker、代理 HTTP API、桌面外壳分别建立 ADR。
-- [ ] ADR 写清候选方案、决策、原因和重新评估条件。
+- [x] 确认正式支持的 OS 和 CPU 架构。
+- [x] 确认是否必须提供 Windows 单文件 exe。
+- [x] 确认是否迁移现有 `traffic.db` 和 `proxies.json`。
+- [x] 确认 admin 是否允许非 loopback 访问。
+- [x] 确认 request/response 默认捕获上限和 retention 默认值。
+- [x] 确认 UI 第一阶段复用现状，还是同期引入框架。
+- [x] 为 SQLite driver/Worker、代理 HTTP API、桌面外壳分别建立 ADR。
+- [x] ADR 写清候选方案、决策、原因和重新评估条件。
 
 验收：设计文档中列出的所有产品决策都有明确答案，或有负责人和最晚决策阶段。
 

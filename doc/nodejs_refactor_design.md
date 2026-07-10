@@ -692,14 +692,18 @@ SQLite 数据迁移采用一次性命令，例如 `llm-proxy migrate`。迁移�
 
 ## 25. 需要在实施前确认的产品决策
 
-以下事项不会阻塞基础脚手架，但必须在对应阶段开始前确认：
+阶段 0.1 已固定以下首发决策，完整取舍见 [`adr/0001-product-scope.md`](./adr/0001-product-scope.md)：
 
-- 是否需要迁移现有 `traffic.db` 和 `proxies.json` 用户数据。
-- 正式支持的平台和 CPU 架构。
-- Windows 是否必须保持单文件 exe。
-- admin 是否需要远程访问。
-- 原始 body 默认捕获上限和默认日志保留期。
-- 是否将 Web UI 同期迁移为框架项目。
-- 是否在首个正式版本提供操作系统凭据存储。
+- 正式支持 Windows 10/11 x64 和主流 glibc Linux x64；其他系统和 ARM64 暂不承诺。
+- Windows 发布便携目录，不要求单文件 exe。
+- 通过一次性工具迁移现有 `traffic.db` 和 `proxies.json`，不做长期双写。
+- admin 默认仅允许 loopback；非 loopback 必须同时显式允许并配置认证 token。
+- request/response 原始内容默认各捕获 8 MiB，硬上限各 64 MiB；日志默认保留 30 天。
+- UI 第一阶段复用现有工作流并迁移到 Vite + TypeScript，不同期引入前端框架。
+- 首个正式版本不提供操作系统凭据存储，使用受权限保护的本地配置且不通过 API 回显 secret。
 
-这些决策应通过短 ADR 记录，ADR 只解释有实际取舍的决策，不为每个实现细节创建文档。
+相关架构决策：
+
+- [`adr/0002-sqlite-worker.md`](./adr/0002-sqlite-worker.md)：`better-sqlite3` 和每个 `log_root` 独占的 Worker。
+- [`adr/0003-proxy-http-api.md`](./adr/0003-proxy-http-api.md)：数据面使用 Node 核心 HTTP API，管理面使用 Fastify。
+- [`adr/0004-desktop-shell.md`](./adr/0004-desktop-shell.md)：首发采用便携目录，托盘保持为可替换薄外壳。
