@@ -57,7 +57,7 @@ python -m mypy
 | 2.3 URL 与 header 领域逻辑 | 已完成 | 本任务提交 | 41 项 Node 测试；语言无关 fixture；header 注入拒绝 |
 | 2.4 路由与 request 变换 | 已完成 | 本任务提交 | 51 项 Node 测试；fixture 驱动；无效 body 字节保持 |
 | 2.5 脱敏与 payload 表示 | 已完成 | 本任务提交 | 57 项 Node 测试；有界清洗；Worker 前强制脱敏 |
-| 2.6 endpoint 与 record 摘要 | 未开始 |  |  |
+| 2.6 endpoint 与 record 摘要 | 已完成 | 本任务提交 | 66 项 Node 测试；有界 fingerprint；恶意 payload 容错 |
 | 3.1 SSE 增量解析器 | 未开始 |  |  |
 | 3.2 OpenAI 流式摘要 | 未开始 |  |  |
 | 3.3 Claude 流式摘要 | 未开始 |  |  |
@@ -315,12 +315,12 @@ python -m mypy
 
 依赖：2.5、0.3。
 
-- [ ] 迁移 endpoint kind 判断。
-- [ ] 迁移 message count 和 token count 提取。
-- [ ] 迁移 request/response ID 和 context key 提取。
-- [ ] 迁移 fingerprint、boundary fingerprint 和 user message 摘要。
-- [ ] 所有递归/数组遍历设置最大深度和最大项数。
-- [ ] 为异常 payload 保证不抛出到代理管线。
+- [x] 迁移 endpoint kind 判断。
+- [x] 迁移 message count 和 token count 提取。
+- [x] 迁移 request/response ID 和 context key 提取。
+- [x] 迁移 fingerprint、boundary fingerprint 和 user message 摘要。
+- [x] 所有递归/数组遍历设置最大深度和最大项数。
+- [x] 为异常 payload 保证不抛出到代理管线。
 
 验收：现有 record/task fixture 全部通过，恶意深层 JSON 测试在有限时间和内存内完成。
 
