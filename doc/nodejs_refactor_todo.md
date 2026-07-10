@@ -71,7 +71,7 @@ python -m mypy
 | 4.7 查询、清理和维护 | 已完成 | 本任务提交 | 121 项 Node 测试；多库稳定分页；批次 retention 与维护 RPC |
 | 4.8 流式 ZIP 导出 | 已完成 | 本任务提交 | 124 项 Node 测试；5,000 records 有界导出；取消与并发限制 |
 | 5.1 单 proxy HTTP 骨架 | 已完成 | 本任务提交 | 127 项 Node 测试；真实 upstream GET/POST/HEAD；ephemeral port |
-| 5.2 request body 与路由 | 未开始 |  |  |
+| 5.2 request body 与路由 | 已完成 | 本任务提交 | 131 项 Node 测试；chunked/limit/路由改写；非 JSON 流式直通 |
 | 5.3 header 转发规则 | 未开始 |  |  |
 | 5.4 response 管线与背压 | 未开始 |  |  |
 | 5.5 取消和超时 | 未开始 |  |  |
@@ -511,13 +511,13 @@ python -m mypy
 
 依赖：5.1、2.4。
 
-- [ ] 支持 `Content-Length` 和 chunked body。
-- [ ] 实现 body limit 和 413。
-- [ ] 仅对支持的 JSON content type/encoding 改写。
-- [ ] 选择 target 后构造 upstream request。
-- [ ] 改写 body 后修正长度和 transfer encoding。
-- [ ] body read 期间处理 abort 和 socket error。
-- [ ] 不需检查 body 时提供直接流式路径。
+- [x] 支持 `Content-Length` 和 chunked body。
+- [x] 实现 body limit 和 413。
+- [x] 仅对支持的 JSON content type/encoding 改写。
+- [x] 选择 target 后构造 upstream request。
+- [x] 改写 body 后修正长度和 transfer encoding。
+- [x] body read 期间处理 abort 和 socket error。
+- [x] 不需检查 body 时提供直接流式路径。
 
 验收：chunked、无效 JSON、非 JSON、大 body 和中途断开集成测试通过。
 
