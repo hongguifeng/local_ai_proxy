@@ -61,7 +61,7 @@ python -m mypy
 | 3.1 SSE 增量解析器 | 已完成 | 本任务提交 | 71 项 Node 测试；随机/逐字节 chunk；有界诊断 |
 | 3.2 OpenAI 流式摘要 | 已完成 | 本任务提交 | 76 项 Node 测试；三类 fixture；全局容量限制 |
 | 3.3 Claude 流式摘要 | 已完成 | 本任务提交 | 80 项 Node 测试；乱序/缺失容错；共享容量限制 |
-| 3.4 有界 capture tap | 未开始 |  |  |
+| 3.4 有界 capture tap | 已完成 | 本任务提交 | 85 项 Node 测试；100 MiB 流；旁路失败隔离 |
 | 4.1 migration 基础设施 | 未开始 |  |  |
 | 4.2 SQLite repository | 未开始 |  |  |
 | 4.3 Worker RPC | 未开始 |  |  |
@@ -369,12 +369,12 @@ python -m mypy
 
 依赖：3.2、3.3。
 
-- [ ] 实现不修改原始 bytes 的 Transform/Tap。
-- [ ] 记录 observed bytes 和 captured bytes。
-- [ ] 达到 raw capture 上限后停止复制但继续统计。
-- [ ] SSE summarizer 可在 raw capture 截断后继续增量消费。
-- [ ] summarizer 慢或失败时不能阻塞主管线。
-- [ ] 添加 100 MiB 合成流内存测试。
+- [x] 实现不修改原始 bytes 的 Transform/Tap。
+- [x] 记录 observed bytes 和 captured bytes。
+- [x] 达到 raw capture 上限后停止复制但继续统计。
+- [x] SSE summarizer 可在 raw capture 截断后继续增量消费。
+- [x] summarizer 慢或失败时不能阻塞主管线。
+- [x] 添加 100 MiB 合成流内存测试。
 
 验收：输出 bytes 与输入逐字节一致；捕获内存不超过配置上限加固定开销。
 
