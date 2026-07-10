@@ -24,6 +24,7 @@ export const StorageWorkerRequestSchema = z.discriminatedUnion("kind", [
   WorkerRequestBaseSchema.extend({
     kind: z.literal("listRecords"),
     taskId: EntityIdSchema,
+    query: z.string().max(1_000).default(""),
     pagination: PaginationSchema,
   }),
   WorkerRequestBaseSchema.extend({ kind: z.literal("getRecord"), recordId: EntityIdSchema }),
@@ -31,6 +32,12 @@ export const StorageWorkerRequestSchema = z.discriminatedUnion("kind", [
     kind: z.literal("cleanup"),
     taskIds: z.array(EntityIdSchema).max(10_000).optional(),
     olderThanDays: z.number().int().min(0).max(3_650).optional(),
+    keepLatest: z.number().int().min(0).max(100_000).optional(),
+    batchSize: z.number().int().min(1).max(1_000).default(250),
+  }),
+  WorkerRequestBaseSchema.extend({
+    kind: z.literal("maintenance"),
+    operation: z.enum(["checkpoint", "optimize", "integrityCheck"]),
   }),
   WorkerRequestBaseSchema.extend({ kind: z.literal("drain") }),
   WorkerRequestBaseSchema.extend({ kind: z.literal("close") }),

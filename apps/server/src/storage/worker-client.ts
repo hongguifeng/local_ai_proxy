@@ -74,8 +74,8 @@ export class StorageWorkerClient {
     return this.request({ kind: "listTasks", query, pagination: { limit, offset } });
   }
 
-  public async listRecords(taskId: string, limit = 50, offset = 0): Promise<unknown> {
-    return this.request({ kind: "listRecords", taskId, pagination: { limit, offset } });
+  public async listRecords(taskId: string, limit = 50, offset = 0, query = ""): Promise<unknown> {
+    return this.request({ kind: "listRecords", taskId, query, pagination: { limit, offset } });
   }
 
   public async getRecord(recordId: string): Promise<unknown> {
@@ -97,6 +97,19 @@ export class StorageWorkerClient {
 
   public async drain(): Promise<void> {
     await this.request({ kind: "drain" });
+  }
+
+  public async cleanup(options: {
+    taskIds?: string[];
+    olderThanDays?: number;
+    keepLatest?: number;
+    batchSize?: number;
+  }): Promise<unknown> {
+    return this.request({ kind: "cleanup", batchSize: 250, ...options });
+  }
+
+  public async maintenance(operation: "checkpoint" | "optimize" | "integrityCheck"): Promise<unknown> {
+    return this.request({ kind: "maintenance", operation });
   }
 
   public async forceRestart(): Promise<void> {

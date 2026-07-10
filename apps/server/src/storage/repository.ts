@@ -55,6 +55,19 @@ export interface RecentTaskQuery {
   limit: number;
 }
 
+export interface CleanupOptions {
+  taskIds?: readonly string[];
+  olderThanDays?: number;
+  keepLatest?: number;
+  batchSize?: number;
+  now?: Date;
+}
+
+export interface CleanupResult {
+  deleted: number;
+  batches: number;
+}
+
 interface TaskRow {
   id: string;
   kind: TaskSummary["kind"];
@@ -271,10 +284,15 @@ export class StorageRepository {
     });
   }
 
-  public listRecords(taskId: string, limit: number, offset: number): RecordListResponse {
+  public listRecords(taskId: string, limit: number, offset: number, query = ""): RecordListResponse {
     assertPagination(limit, offset);
+    const trimmed = query.trim();
+    const parameters = trimmed ? { taskId, query: ftsQuery(trimmed), limit, offset } : { taskId, limit, offset };
+    const where = trimmed
+      ? "WHERE r.task_id = @taskId AND EXISTS (SELECT 1 FROM record_search s WHERE s.record_id = r.id AND record_search MATCH @query)"
+      : "WHERE r.task_id = @taskId";
     const total = (
-      this.#database.prepare("SELECT COUNT(*) AS count FROM records WHERE task_id = ?").get(taskId) as {
+      this.#database.prepare(`SELECT COUNT(*) AS count FROM records r ${where}`).get(parameters) as {
         count: number;
       }
     ).count;
@@ -282,9 +300,9 @@ export class StorageRepository {
       .prepare(
         `SELECT id, task_id, sequence, event, timestamp, duration_ms, method, path, status, error, error_code, error_stage,
                 message_count, token_count
-         FROM records WHERE task_id = ? ORDER BY sequence LIMIT ? OFFSET ?`,
+         FROM records r ${where} ORDER BY sequence LIMIT @limit OFFSET @offset`,
       )
-      .all(taskId, limit, offset) as RecordRow[];
+      .all(parameters) as RecordRow[];
     return RecordListResponseSchema.parse({
       total,
       limit,
@@ -346,6 +364,70 @@ export class StorageRepository {
       this.#database.prepare(`DELETE FROM record_search WHERE task_id IN (${placeholders})`).run(...taskIds);
       return this.#database.prepare(`DELETE FROM tasks WHERE id IN (${placeholders})`).run(...taskIds).changes;
     })();
+  }
+
+  public cleanup(options: CleanupOptions): CleanupResult {
+    const batchSize = options.batchSize ?? 250;
+    if (!Number.isSafeInteger(batchSize) || batchSize < 1 || batchSize > 1_000)
+      throw new RangeError("Invalid cleanup batch size");
+    if (options.taskIds && options.taskIds.length > 10_000) throw new RangeError("Too many task IDs");
+    if (options.olderThanDays !== undefined && (!Number.isInteger(options.olderThanDays) || options.olderThanDays < 0))
+      throw new RangeError("Invalid retention days");
+    if (options.keepLatest !== undefined && (!Number.isInteger(options.keepLatest) || options.keepLatest < 0))
+      throw new RangeError("Invalid keepLatest");
+
+    const cutoff =
+      options.olderThanDays === undefined
+        ? null
+        : new Date((options.now ?? new Date()).getTime() - options.olderThanDays * 86_400_000).toISOString();
+    const clauses: string[] = [];
+    const parameters: unknown[] = [];
+    if (options.taskIds) {
+      if (options.taskIds.length === 0) return { deleted: 0, batches: 0 };
+      clauses.push(`id IN (${options.taskIds.map(() => "?").join(",")})`);
+      parameters.push(...options.taskIds);
+    }
+    if (cutoff) {
+      clauses.push("last_seen_at < ?");
+      parameters.push(cutoff);
+    }
+    if (options.keepLatest) {
+      clauses.push(
+        `id NOT IN (
+          SELECT id FROM tasks ORDER BY COALESCE(last_response_at, last_seen_at, started_at) DESC, id LIMIT ?
+        )`,
+      );
+      parameters.push(options.keepLatest);
+    }
+    const where = clauses.length > 0 ? `WHERE ${clauses.join(" AND ")}` : "";
+    const selectBatch = this.#database.prepare(
+      `SELECT id FROM tasks ${where}
+       ORDER BY COALESCE(last_response_at, last_seen_at, started_at), id LIMIT ?`,
+    );
+    let deleted = 0;
+    let batches = 0;
+    let ids = (selectBatch.all(...parameters, batchSize) as { id: string }[]).map((row) => row.id);
+    while (ids.length > 0) {
+      deleted += this.deleteTasks(ids);
+      batches += 1;
+      ids = (selectBatch.all(...parameters, batchSize) as { id: string }[]).map((row) => row.id);
+    }
+    return { deleted, batches };
+  }
+
+  public checkpoint(): unknown {
+    return this.#database.pragma("wal_checkpoint(PASSIVE)");
+  }
+
+  public optimize(): void {
+    this.#database.exec("PRAGMA optimize");
+  }
+
+  public integrityCheck(): { ok: boolean; messages: string[] } {
+    const messages = (this.#database.pragma("integrity_check") as { integrity_check: string }[]).map(
+      (row) => row.integrity_check,
+    );
+    return { ok: messages.length === 1 && messages[0] === "ok", messages };
   }
 
   #upsertRecordRow(record: RecordDetail): void {

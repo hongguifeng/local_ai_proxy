@@ -58,14 +58,30 @@ function handleRequest(
     else if (request.kind === "listTasks")
       result = repository.listTasks(request.query, request.pagination.limit, request.pagination.offset);
     else if (request.kind === "listRecords")
-      result = repository.listRecords(request.taskId, request.pagination.limit, request.pagination.offset);
+      result = repository.listRecords(
+        request.taskId,
+        request.pagination.limit,
+        request.pagination.offset,
+        request.query,
+      );
     else if (request.kind === "getRecord") result = repository.getRecord(request.recordId);
     else if (request.kind === "writeTraffic") {
       const record = hydrateTransferredPayloads(request.record, request.transferredPayloads);
       const assignment = trafficWriter.write(record);
       result = { written: true, taskId: assignment.task.id, sequence: assignment.sequence };
     } else if (request.kind === "cleanup") {
-      result = { deleted: repository.deleteTasks(request.taskIds ?? []) };
+      result = repository.cleanup({
+        ...(request.taskIds ? { taskIds: request.taskIds } : {}),
+        ...(request.olderThanDays === undefined ? {} : { olderThanDays: request.olderThanDays }),
+        ...(request.keepLatest === undefined ? {} : { keepLatest: request.keepLatest }),
+        batchSize: request.batchSize,
+      });
+    } else if (request.kind === "maintenance") {
+      if (request.operation === "checkpoint") result = { checkpoint: repository.checkpoint() };
+      else if (request.operation === "optimize") {
+        repository.optimize();
+        result = { optimized: true };
+      } else result = repository.integrityCheck();
     } else if (request.kind === "drain") result = { drained: true };
     else {
       postResponse({ requestId: request.requestId, ok: true, result: { closed: true } });

@@ -68,7 +68,7 @@ python -m mypy
 | 4.4 有界存储队列 | 已完成 | 本任务提交 | 108 项 Node 测试；10 万 producer；typed degradation |
 | 4.5 任务匹配迁移 | 已完成 | 本任务提交 | 112 项 Node 测试；fixture 全通过；24h/50 候选上限 |
 | 4.6 traffic event 写入事务 | 已完成 | 本任务提交 | 116 项 Node 测试；72 项 Python 测试；原子写入与幂等重试 |
-| 4.7 查询、清理和维护 | 未开始 |  |  |
+| 4.7 查询、清理和维护 | 已完成 | 本任务提交 | 121 项 Node 测试；多库稳定分页；批次 retention 与维护 RPC |
 | 4.8 流式 ZIP 导出 | 未开始 |  |  |
 | 5.1 单 proxy HTTP 骨架 | 未开始 |  |  |
 | 5.2 request body 与路由 | 未开始 |  |  |
@@ -470,12 +470,12 @@ python -m mypy
 
 依赖：4.6。
 
-- [ ] 实现跨多个 log root 的稳定合并分页。
-- [ ] 实现 task/record 搜索。
-- [ ] 实现按 task、天数和保留最新数量清理。
-- [ ] 实现 checkpoint、optimize 和 integrity check 操作。
-- [ ] 大清理分批执行，避免长事务冻结写入。
-- [ ] 明确多 log root 部分失败的返回模型。
+- [x] 实现跨多个 log root 的稳定合并分页。
+- [x] 实现 task/record 搜索。
+- [x] 实现按 task、天数和保留最新数量清理。
+- [x] 实现 checkpoint、optimize 和 integrity check 操作。
+- [x] 大清理分批执行，避免长事务冻结写入。
+- [x] 明确多 log root 部分失败的返回模型。
 
 验收：多库排序和分页无重复/遗漏；清理后 records、links、FTS 一致。
 

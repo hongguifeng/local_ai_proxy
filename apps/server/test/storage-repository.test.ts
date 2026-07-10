@@ -78,6 +78,8 @@ describe("StorageRepository", () => {
       expect(repository.getRecord("record-1")).toMatchObject({ status: 201, tokenCount: 9 });
       expect(repository.listTasks("new", 50, 0).total).toBe(1);
       expect(repository.listTasks("old", 50, 0).total).toBe(0);
+      expect(repository.listRecords("task-1", 50, 0, "new").records).toHaveLength(1);
+      expect(repository.listRecords("task-1", 50, 0, "old").records).toHaveLength(0);
 
       database.exec("DROP TABLE record_search");
       expect(() => {
@@ -131,6 +133,41 @@ describe("StorageRepository", () => {
       expect(() => repository.deleteTasks(Array.from({ length: 10_001 }, (_, index) => String(index)))).toThrow(
         RangeError,
       );
+    });
+  });
+
+  it("cleans retention candidates in bounded batches and preserves relational indexes", () => {
+    usingDatabase((repository, database) => {
+      for (let index = 1; index <= 5; index += 1) {
+        const day = `2026-07-0${index.toString()}T00:00:00.000Z`;
+        const taskId = `task-${index.toString()}`;
+        repository.upsertTask(
+          task(taskId, { startedAt: day, lastSeenAt: day, lastResponseAt: day, createdAt: day, updatedAt: day }),
+        );
+        repository.upsertRecord(
+          { ...record(`record-${index.toString()}`, taskId), timestamp: day },
+          { task: "searchable", request: "", response: "", error: "" },
+        );
+        repository.upsertResponseLink({ value: `response-${index.toString()}`, taskId, createdAt: day });
+      }
+
+      expect(
+        repository.cleanup({ olderThanDays: 1, keepLatest: 1, batchSize: 2, now: new Date("2026-07-11T00:00:00Z") }),
+      ).toEqual({ deleted: 4, batches: 2 });
+      expect(repository.listTasks("", 50, 0).tasks.map((value) => value.id)).toEqual(["task-5"]);
+      expect(database.prepare("SELECT COUNT(*) count FROM records").get()).toEqual({ count: 1 });
+      expect(database.prepare("SELECT COUNT(*) count FROM response_links").get()).toEqual({ count: 1 });
+      expect(database.prepare("SELECT COUNT(*) count FROM record_search").get()).toEqual({ count: 1 });
+    });
+  });
+
+  it("runs checkpoint, optimize, and integrity maintenance", () => {
+    usingDatabase((repository) => {
+      expect(repository.checkpoint()).toBeDefined();
+      expect(() => {
+        repository.optimize();
+      }).not.toThrow();
+      expect(repository.integrityCheck()).toEqual({ ok: true, messages: ["ok"] });
     });
   });
 

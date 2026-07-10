@@ -20,6 +20,13 @@ describe("storage Worker RPC", () => {
     expect(migration.schemaVersion).toBe(2);
     expect(migration.threadId).toBeGreaterThan(0);
     await expect(client.listTasks()).resolves.toMatchObject({ total: 0, tasks: [] });
+    await expect(client.cleanup({ olderThanDays: 30, keepLatest: 10, batchSize: 5 })).resolves.toEqual({
+      deleted: 0,
+      batches: 0,
+    });
+    await expect(client.maintenance("integrityCheck")).resolves.toEqual({ ok: true, messages: ["ok"] });
+    await expect(client.maintenance("checkpoint")).resolves.toHaveProperty("checkpoint");
+    await expect(client.maintenance("optimize")).resolves.toEqual({ optimized: true });
     await expect(client.drain()).resolves.toBeUndefined();
     await client.close();
     await expect(client.listTasks()).rejects.toMatchObject({ code: "STORAGE_CLOSED" });
