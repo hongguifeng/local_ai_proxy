@@ -1,0 +1,11 @@
+{
+  "name": "@llm-proxy/web",
+  "version": "0.3.0-dev",
+  "private": true,
+  "description": "LLM Proxy web administration UI",
+  "type": "module",
+  "engines": {
+    "node": ">=24.0.0 <25"
+  }
+}
+

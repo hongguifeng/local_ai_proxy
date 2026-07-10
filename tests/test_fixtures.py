@@ -15,7 +15,7 @@ class LanguageNeutralFixtureTests(unittest.TestCase):
         expected_paths = {
             path.relative_to(FIXTURE_ROOT).as_posix()
             for path in FIXTURE_ROOT.rglob("*")
-            if path.is_file() and path.name not in {"README.md", "manifest.json"}
+            if path.is_file() and path.name not in {"README.md", "package.json", "manifest.json"}
         }
         self.assertEqual(set(manifest["sha256"]), expected_paths)
         for relative, expected_hash in manifest["sha256"].items():
@@ -27,7 +27,8 @@ class LanguageNeutralFixtureTests(unittest.TestCase):
         documents = [
             path
             for path in FIXTURE_ROOT.rglob("*.json")
-            if path.name not in {"manifest.json", "fixture-set.schema.json"} and path.parent.name != "binary"
+            if path.name not in {"manifest.json", "package.json", "fixture-set.schema.json"}
+            and path.parent.name != "binary"
         ]
         self.assertGreater(len(documents), 4)
         for path in documents:
@@ -47,4 +48,3 @@ class LanguageNeutralFixtureTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
-

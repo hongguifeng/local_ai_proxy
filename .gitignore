@@ -5,3 +5,9 @@ __pycache__/
 build/
 dist/
 *.spec
+node_modules/
+.pnpm-store/
+coverage/
+*.tsbuildinfo
+apps/*/dist/
+packages/*/dist/

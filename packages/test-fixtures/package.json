@@ -1,0 +1,19 @@
+{
+  "name": "@llm-proxy/test-fixtures",
+  "version": "0.3.0-dev",
+  "private": true,
+  "description": "Language-neutral behavior fixtures for LLM Proxy",
+  "type": "module",
+  "engines": {
+    "node": ">=24.0.0 <25"
+  },
+  "files": [
+    "binary",
+    "proxy",
+    "schema",
+    "streams",
+    "tasks",
+    "manifest.json"
+  ]
+}
+

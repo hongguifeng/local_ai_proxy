@@ -19,6 +19,7 @@ from llm_proxy.target import join_target_path
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 DEFAULT_OUTPUT = REPO_ROOT / "packages" / "test-fixtures"
+PACKAGE_METADATA = {"README.md", "package.json"}
 
 
 def write_json(path: Path, value: object) -> None:
@@ -233,7 +234,7 @@ def _base64(value: bytes) -> str:
 def export(root: Path) -> None:
     if root.exists():
         for child in root.iterdir():
-            if child.name == "README.md":
+            if child.name in PACKAGE_METADATA:
                 continue
             if child.is_dir():
                 shutil.rmtree(child)
@@ -258,7 +259,7 @@ def export(root: Path) -> None:
     hashes = {
         path.relative_to(root).as_posix(): hashlib.sha256(path.read_bytes()).hexdigest()
         for path in sorted(root.rglob("*"))
-        if path.is_file() and path.name not in {"README.md", "manifest.json"}
+        if path.is_file() and path.name not in PACKAGE_METADATA | {"manifest.json"}
     }
     write_json(root / "manifest.json", {"formatVersion": 1, "source": "python-v0.2.0", "sha256": hashes})
 
@@ -268,10 +269,14 @@ def check(expected: Path) -> bool:
         actual = Path(temporary) / "test-fixtures"
         export(actual)
         expected_files = {
-            path.relative_to(expected) for path in expected.rglob("*") if path.is_file() and path.name != "README.md"
+            path.relative_to(expected)
+            for path in expected.rglob("*")
+            if path.is_file() and path.name not in PACKAGE_METADATA
         }
         actual_files = {
-            path.relative_to(actual) for path in actual.rglob("*") if path.is_file() and path.name != "README.md"
+            path.relative_to(actual)
+            for path in actual.rglob("*")
+            if path.is_file() and path.name not in PACKAGE_METADATA
         }
         if expected_files != actual_files:
             return False

@@ -47,7 +47,7 @@ python -m mypy
 | 0.2 Python 行为清单 | 已完成 | 本任务提交 | 代码与 66 项 Python 测试交叉核对 |
 | 0.3 对照 fixture | 已完成 | 本任务提交 | `python scripts/export_python_fixtures.py --check`; 69 项测试 |
 | 0.4 协议基准测试工具 | 已完成 | 本任务提交 | 固定配置、JSON report、Python v0.2.0 基线；72 项测试 |
-| 1.1 pnpm workspace | 未开始 |  |  |
+| 1.1 pnpm workspace | 已完成 | 本任务提交 | Node 24.18.0 / pnpm 11.11.0；workspace install/test/build |
 | 1.2 TypeScript 与代码质量 | 未开始 |  |  |
 | 1.3 Node CI 基线 | 未开始 |  |  |
 | 1.4 contracts 包 | 未开始 |  |  |
@@ -173,13 +173,13 @@ python -m mypy
 
 依赖：0.1。
 
-- [ ] 添加根 `package.json`，声明 `packageManager` 和 Node engines。
-- [ ] 添加 `pnpm-workspace.yaml`。
-- [ ] 创建 `apps/server`、`apps/web`、`packages/contracts`、`packages/test-fixtures`。
-- [ ] 添加 `.nvmrc` 或 `.node-version`，固定 Node 24。
-- [ ] 创建最小 build/test scripts。
-- [ ] 提交 `pnpm-lock.yaml`。
-- [ ] 配置 `.gitignore`，不忽略现有 Python 必需文件。
+- [x] 添加根 `package.json`，声明 `packageManager` 和 Node engines。
+- [x] 添加 `pnpm-workspace.yaml`。
+- [x] 创建 `apps/server`、`apps/web`、`packages/contracts`、`packages/test-fixtures`。
+- [x] 添加 `.nvmrc` 或 `.node-version`，固定 Node 24。
+- [x] 创建最小 build/test scripts。
+- [x] 提交 `pnpm-lock.yaml`。
+- [x] 配置 `.gitignore`，不忽略现有 Python 必需文件。
 
 验收：全新 checkout 执行 `corepack enable`、`pnpm install --frozen-lockfile`、`pnpm build` 成功。
 
