@@ -77,7 +77,7 @@ python -m mypy
 | 5.5 取消和超时 | 已完成 | 本任务提交 | 140 项 Node 测试；connect/header/idle/total；取消单终态 |
 | 5.6 traffic 生命周期接入 | 已完成 | 本任务提交 | 143 项 Node 测试；全 event 生命周期；脱敏与 degraded 隔离 |
 | 5.7 连接池和资源释放 | 已完成 | 本任务提交 | 145 项 Node 测试；per-origin Agent；socket 上限与 stop 归零 |
-| 5.8 协议故障集成测试 | 未开始 |  |  |
+| 5.8 协议故障集成测试 | 已完成 | 本任务提交 | 150 项 Node 测试；raw 故障注入；混合并发与 active shutdown |
 | 6.1 RuntimeManager | 未开始 |  |  |
 | 6.2 原子配置替换 | 未开始 |  |  |
 | 6.3 优雅启动和关闭 | 未开始 |  |  |
@@ -594,14 +594,14 @@ python -m mypy
 
 依赖：5.1-5.7、0.4。
 
-- [ ] 上游拒绝连接。
-- [ ] DNS/TLS/证书错误。
-- [ ] header timeout 和 idle timeout。
-- [ ] headers 后立即断开和半截 chunk。
-- [ ] malformed status/header。
-- [ ] 客户端慢读和中途断开。
-- [ ] 并发 SSE 与普通请求混合。
-- [ ] shutdown 中存在 active stream。
+- [x] 上游拒绝连接。
+- [x] DNS/TLS/证书错误。
+- [x] header timeout 和 idle timeout。
+- [x] headers 后立即断开和半截 chunk。
+- [x] malformed status/header。
+- [x] 客户端慢读和中途断开。
+- [x] 并发 SSE 与普通请求混合。
+- [x] shutdown 中存在 active stream。
 
 验收：测试无随机 sleep 依赖，重复运行稳定；所有资源在测试结束后关闭。
 

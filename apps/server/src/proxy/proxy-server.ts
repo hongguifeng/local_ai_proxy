@@ -143,7 +143,7 @@ export class ProxyServer {
       control.terminate("aborted", "CLIENT_ABORTED");
     });
     response.once("close", () => {
-      if (!response.writableFinished) control.terminate("aborted", "DOWNSTREAM_CLOSED");
+      if (!response.writableFinished) control.markDownstreamClosed();
     });
     if (shouldBufferJson(request.headers)) {
       void this.#handleBuffered(request, response, context, control, traffic).catch(() => {
@@ -248,6 +248,16 @@ export class ProxyServer {
           this.#options.responseCaptureBytes,
           this.#options.createResponseObserver?.(context, contentType) ?? null,
         );
+        let upstreamBodyFailed = false;
+        const markUpstreamBodyFailed = (): void => {
+          upstreamBodyFailed = true;
+        };
+        upstreamResponse.once("aborted", markUpstreamBodyFailed);
+        upstreamResponse.once("error", markUpstreamBodyFailed);
+        const removeBodyFailureListeners = (): void => {
+          upstreamResponse.off("aborted", markUpstreamBodyFailed);
+          upstreamResponse.off("error", markUpstreamBodyFailed);
+        };
         let idleTimer = setTimeout(() => {
           control.terminate("timed_out", "UPSTREAM_IDLE_TIMEOUT");
         }, target.timeouts.idleMs);
@@ -264,13 +274,18 @@ export class ProxyServer {
         });
         void pipeline(upstreamResponse, tap, response).then(
           () => {
+            removeBodyFailureListeners();
             this.#options.onResponseCaptured?.(context, tap.result());
             traffic.finished(upstreamResponse.statusCode ?? 502, tap.result());
             control.terminate("finished", null);
           },
           () => {
+            removeBodyFailureListeners();
             this.#options.onResponseCaptured?.(context, tap.result());
-            if (!control.terminated) control.terminate("failed", "UPSTREAM_BODY_FAILED");
+            if (!control.terminated) {
+              if (upstreamBodyFailed) control.terminate("failed", "UPSTREAM_BODY_FAILED");
+              else control.terminate("aborted", "DOWNSTREAM_CLOSED");
+            }
             response.destroy();
           },
         );
@@ -298,7 +313,8 @@ export class ProxyServer {
       clearTimeout(responseHeadersTimer);
     });
     upstream.on("error", () => {
-      if (!control.terminated) control.terminate("failed", "UPSTREAM_UNAVAILABLE");
+      if (!control.terminated)
+        control.terminate("failed", response.headersSent ? "UPSTREAM_BODY_FAILED" : "UPSTREAM_UNAVAILABLE");
       if (!response.headersSent && control.outcome?.kind !== "aborted") {
         const status = control.outcome?.kind === "timed_out" ? 504 : 502;
         respondUpstreamError(response, context.requestId, control.outcome?.code ?? "UPSTREAM_UNAVAILABLE", status);
@@ -339,6 +355,12 @@ class RequestControl {
   public addCleanup(cleanup: () => void): void {
     if (this.terminated) cleanup();
     else this.#cleanups.push(cleanup);
+  }
+
+  public markDownstreamClosed(): void {
+    setImmediate(() => {
+      if (!this.terminated) this.terminate("aborted", "DOWNSTREAM_CLOSED");
+    });
   }
 
   public terminate(kind: ProxyRequestOutcome["kind"], code: string | null): void {
