@@ -15,8 +15,8 @@
     "format": "prettier --write package.json pnpm-workspace.yaml pnpm-lock.yaml tsconfig.base.json tsconfig.json eslint.config.mjs vitest.config.ts \"apps/**/*.{ts,json}\" \"packages/contracts/**/*.{ts,json}\" packages/test-fixtures/package.json",
     "format:check": "prettier --check package.json pnpm-workspace.yaml pnpm-lock.yaml tsconfig.base.json tsconfig.json eslint.config.mjs vitest.config.ts \"apps/**/*.{ts,json}\" \"packages/contracts/**/*.{ts,json}\" packages/test-fixtures/package.json",
     "lint": "eslint . --max-warnings 0",
-    "test": "vitest run",
-    "test:coverage": "vitest run --coverage",
+    "test": "pnpm --filter @llm-proxy/contracts build && pnpm --filter @llm-proxy/server build && vitest run",
+    "test:coverage": "pnpm --filter @llm-proxy/contracts build && pnpm --filter @llm-proxy/server build && vitest run --coverage",
     "typecheck": "pnpm -r --if-present typecheck"
   },
   "devDependencies": {

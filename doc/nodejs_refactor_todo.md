@@ -64,7 +64,7 @@ python -m mypy
 | 3.4 有界 capture tap | 已完成 | 本任务提交 | 85 项 Node 测试；100 MiB 流；旁路失败隔离 |
 | 4.1 migration 基础设施 | 已完成 | 本任务提交 | 91 项 Node 测试；Python v1 兼容；事务回滚 |
 | 4.2 SQLite repository | 已完成 | 本任务提交 | 97 项 Node 测试；事务/FTS/级联；10 万行计划 |
-| 4.3 Worker RPC | 未开始 |  |  |
+| 4.3 Worker RPC | 已完成 | 本任务提交 | 103 项 Node 测试；transferable；fatal/restart/registry |
 | 4.4 有界存储队列 | 未开始 |  |  |
 | 4.5 任务匹配迁移 | 未开始 |  |  |
 | 4.6 traffic event 写入事务 | 未开始 |  |  |
@@ -412,15 +412,15 @@ python -m mypy
 
 依赖：4.2、1.4。
 
-- [ ] Worker 独占 `better-sqlite3` connection。
-- [ ] 实现按规范化绝对 `log_root` 复用 Worker 的 registry 和引用计数。
-- [ ] 定义 request/response discriminated union。
-- [ ] 实现 request ID、Promise correlation 和 operation timeout。
-- [ ] 校验进出 Worker 的消息。
-- [ ] binary payload 使用 transferable，禁止 structured clone 复制第二份大 body。
-- [ ] 实现 start、ready、drain、close、fatal 生命周期。
-- [ ] 捕获 Worker exit/error 并拒绝 pending Promise。
-- [ ] 增加异常 statement、强制 exit 和 shutdown 测试。
+- [x] Worker 独占 `better-sqlite3` connection。
+- [x] 实现按规范化绝对 `log_root` 复用 Worker 的 registry 和引用计数。
+- [x] 定义 request/response discriminated union。
+- [x] 实现 request ID、Promise correlation 和 operation timeout。
+- [x] 校验进出 Worker 的消息。
+- [x] binary payload 使用 transferable，禁止 structured clone 复制第二份大 body。
+- [x] 实现 start、ready、drain、close、fatal 生命周期。
+- [x] 捕获 Worker exit/error 并拒绝 pending Promise。
+- [x] 增加异常 statement、强制 exit 和 shutdown 测试。
 
 验收：主线程测试可证明所有 SQLite 调用只发生在 Worker；相同 `log_root` 只创建一个 Worker；大 binary 消息转移所有权而不复制；Worker crash 不产生悬挂 Promise。
 

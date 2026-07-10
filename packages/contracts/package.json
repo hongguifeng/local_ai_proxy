@@ -5,7 +5,10 @@
   "description": "Runtime schemas and shared DTOs for LLM Proxy",
   "type": "module",
   "exports": {
-    ".": "./src/index.ts"
+    ".": {
+      "types": "./src/index.ts",
+      "default": "./dist/index.js"
+    }
   },
   "engines": {
     "node": ">=24.0.0 <25"
