@@ -34,13 +34,24 @@ export const RetentionConfigSchema = z.strictObject({
   days: z.number().int().min(0).max(3_650).default(DEFAULT_RETENTION_DAYS),
 });
 
+export const TargetUrlSchema = z.url().superRefine((value, context) => {
+  const url = new URL(value);
+  if (url.protocol !== "http:" && url.protocol !== "https:") {
+    context.addIssue({ code: "custom", message: "Target URL must use HTTP or HTTPS" });
+  }
+  if (url.username || url.password) {
+    context.addIssue({ code: "custom", message: "Target URL must not contain credentials" });
+  }
+  if (url.search || url.hash) {
+    context.addIssue({ code: "custom", message: "Target URL must not contain a query or fragment" });
+  }
+});
+
 export const TargetConfigSchema = z.strictObject({
   id: EntityIdSchema,
   name: z.string().trim().min(1).max(200),
   enabled: z.boolean().default(true),
-  url: z.url().refine((value) => value.startsWith("http://") || value.startsWith("https://"), {
-    message: "Target URL must use HTTP or HTTPS",
-  }),
+  url: TargetUrlSchema,
   targetApiKey: z.string().max(16_384).default(""),
   headers: z.array(HeaderOverrideSchema).max(100).default([]),
   stripRequestFields: z.array(z.string().min(1).max(256)).max(100).default([]),
@@ -61,7 +72,7 @@ export const ProxyConfigSchema = z
     name: z.string().trim().min(1).max(200),
     enabled: z.boolean().default(false),
     listenHost: z.string().trim().min(1).max(253).default("127.0.0.1"),
-    listenPort: z.number().int().min(0).max(65_535).default(1234),
+    listenPort: z.number().int().min(1).max(65_535).default(1234),
     accessLog: z.boolean().default(false),
     targets: z.array(TargetConfigSchema).min(1).max(100),
     defaultTargetId: EntityIdSchema,
@@ -95,6 +106,19 @@ export const ProxyConfigSchema = z
         code: "custom",
         path: ["defaultTargetId"],
         message: "Default target does not exist",
+      });
+    } else if (!proxy.targets.find((target) => target.id === proxy.defaultTargetId)?.enabled) {
+      context.addIssue({
+        code: "custom",
+        path: ["defaultTargetId"],
+        message: "Default target must be enabled",
+      });
+    }
+    if (proxy.enabled && !proxy.targets.some((target) => target.enabled)) {
+      context.addIssue({
+        code: "custom",
+        path: ["targets"],
+        message: "An enabled proxy requires at least one enabled target",
       });
     }
   });

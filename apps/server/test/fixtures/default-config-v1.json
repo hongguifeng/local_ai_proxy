@@ -1,0 +1,12 @@
+{
+  "version": 1,
+  "proxies": [],
+  "capture": {
+    "maxRequestBodyBytes": 33554432,
+    "requestBytes": 8388608,
+    "responseBytes": 8388608
+  },
+  "retention": {
+    "days": 30
+  }
+}

@@ -1,7 +1,7 @@
 import { z } from "zod";
 
 import { EntityIdSchema, PaginationSchema, TimestampSchema } from "./common.js";
-import { HeaderOverrideSchema, ModelMappingSchema, TimeoutConfigSchema } from "./config.js";
+import { HeaderOverrideSchema, ModelMappingSchema, TargetUrlSchema, TimeoutConfigSchema } from "./config.js";
 
 export const SecretStateSchema = z.strictObject({
   configured: z.boolean(),
@@ -12,7 +12,7 @@ export const PublicTargetSchema = z.strictObject({
   id: EntityIdSchema,
   name: z.string(),
   enabled: z.boolean(),
-  url: z.url(),
+  url: TargetUrlSchema,
   apiKey: SecretStateSchema,
   headers: z.array(HeaderOverrideSchema),
   stripRequestFields: z.array(z.string()),

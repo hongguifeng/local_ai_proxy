@@ -52,7 +52,7 @@ python -m mypy
 | 1.3 Node CI 基线 | 已完成 | 本任务提交 | YAML 校验；本地 `CI=true` 生成 JUnit/coverage |
 | 1.4 contracts 包 | 已完成 | 本任务提交 | 10 项 Node 测试；100% coverage；server/web 导入验证 |
 | 1.5 server CLI 骨架 | 已完成 | 本任务提交 | 21 项 Node 测试；build `--help`/`--version` smoke |
-| 2.1 配置 schema | 未开始 |  |  |
+| 2.1 配置 schema | 已完成 | 本任务提交 | 26 项 Node 测试；immutable snapshot；字段路径错误 |
 | 2.2 配置仓库与原子写入 | 未开始 |  |  |
 | 2.3 URL 与 header 领域逻辑 | 未开始 |  |  |
 | 2.4 路由与 request 变换 | 未开始 |  |  |
@@ -245,13 +245,13 @@ python -m mypy
 
 依赖：1.4、0.3。
 
-- [ ] 定义 proxy、target、model mapping 和 timeout schema。
-- [ ] 定义 request/response capture limit。
-- [ ] 校验唯一 ID、default target、URL、port 和 timeout 范围。
-- [ ] 区分持久化配置与不可变 runtime snapshot。
-- [ ] 为默认配置建立 fixture。
-- [ ] 输出可定位到字段路径的错误。
-- [ ] 明确 unknown keys 是拒绝还是剥离，并测试。
+- [x] 定义 proxy、target、model mapping 和 timeout schema。
+- [x] 定义 request/response capture limit。
+- [x] 校验唯一 ID、default target、URL、port 和 timeout 范围。
+- [x] 区分持久化配置与不可变 runtime snapshot。
+- [x] 为默认配置建立 fixture。
+- [x] 输出可定位到字段路径的错误。
+- [x] 明确 unknown keys 是拒绝还是剥离，并测试。
 
 验收：覆盖正常、边界和跨字段错误；所有 runtime 配置只来自 parse 后的值。
 
