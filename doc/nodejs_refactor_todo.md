@@ -65,7 +65,7 @@ python -m mypy
 | 4.1 migration 基础设施 | 已完成 | 本任务提交 | 91 项 Node 测试；Python v1 兼容；事务回滚 |
 | 4.2 SQLite repository | 已完成 | 本任务提交 | 97 项 Node 测试；事务/FTS/级联；10 万行计划 |
 | 4.3 Worker RPC | 已完成 | 本任务提交 | 103 项 Node 测试；transferable；fatal/restart/registry |
-| 4.4 有界存储队列 | 未开始 |  |  |
+| 4.4 有界存储队列 | 已完成 | 本任务提交 | 108 项 Node 测试；10 万 producer；typed degradation |
 | 4.5 任务匹配迁移 | 未开始 |  |  |
 | 4.6 traffic event 写入事务 | 未开始 |  |  |
 | 4.7 查询、清理和维护 | 未开始 |  |  |
@@ -428,13 +428,13 @@ python -m mypy
 
 依赖：4.3。
 
-- [ ] 限制 pending message count 和估算 bytes。
-- [ ] 对同一 request 合并可丢弃的中间状态。
-- [ ] final/error event 高于 pending update 优先级。
-- [ ] queue full 时返回 typed degraded result。
-- [ ] 记录 depth、wait、commit、dropped 和 coalesced 指标。
-- [ ] 实现限频 warning。
-- [ ] 压测生产者快于 SQLite 时的稳定行为。
+- [x] 限制 pending message count 和估算 bytes。
+- [x] 对同一 request 合并可丢弃的中间状态。
+- [x] final/error event 高于 pending update 优先级。
+- [x] queue full 时返回 typed degraded result。
+- [x] 记录 depth、wait、commit、dropped 和 coalesced 指标。
+- [x] 实现限频 warning。
+- [x] 压测生产者快于 SQLite 时的稳定行为。
 
 验收：队列内存有界；满载时代理调用方可继续且能观察日志降级。
 
