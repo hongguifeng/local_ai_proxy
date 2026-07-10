@@ -35,11 +35,23 @@ importers:
         specifier: 4.1.10
         version: 4.1.10(@types/node@26.1.1)(@vitest/coverage-v8@4.1.10)(vite@8.1.4(@types/node@26.1.1))
 
-  apps/server: {}
+  apps/server:
+    dependencies:
+      "@llm-proxy/contracts":
+        specifier: workspace:*
+        version: link:../../packages/contracts
 
-  apps/web: {}
+  apps/web:
+    dependencies:
+      "@llm-proxy/contracts":
+        specifier: workspace:*
+        version: link:../../packages/contracts
 
-  packages/contracts: {}
+  packages/contracts:
+    dependencies:
+      zod:
+        specifier: 4.4.3
+        version: 4.4.3
 
   packages/test-fixtures: {}
 
@@ -1107,6 +1119,10 @@ packages:
       { integrity: sha512-rVksvsnNCdJ/ohGc6xgPwyN8eheCxsiLM8mxuE/t/mOVqJewPuO1miLpTHQiRgTKCLexL4MeAFVagts7HmNZ2Q== }
     engines: { node: ">=10" }
 
+  zod@4.4.3:
+    resolution:
+      { integrity: sha512-ytENFjIJFl2UwYglde2jchW2Hwm4GJFLDiSXWdTrJQBIN9Fcyp7n4DhxJEiWNAJMV1/BqWfW/kkg71UDcHJyTQ== }
+
 snapshots:
   "@babel/helper-string-parser@7.29.7": {}
 
@@ -1881,3 +1897,5 @@ snapshots:
   word-wrap@1.2.5: {}
 
   yocto-queue@0.1.0: {}
+
+  zod@4.4.3: {}

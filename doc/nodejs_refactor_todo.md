@@ -50,7 +50,7 @@ python -m mypy
 | 1.1 pnpm workspace | 已完成 | 本任务提交 | Node 24.18.0 / pnpm 11.11.0；workspace install/test/build |
 | 1.2 TypeScript 与代码质量 | 已完成 | 本任务提交 | lint/format/typecheck/test/coverage/build；server→web 边界 |
 | 1.3 Node CI 基线 | 已完成 | 本任务提交 | YAML 校验；本地 `CI=true` 生成 JUnit/coverage |
-| 1.4 contracts 包 | 未开始 |  |  |
+| 1.4 contracts 包 | 已完成 | 本任务提交 | 10 项 Node 测试；100% coverage；server/web 导入验证 |
 | 1.5 server CLI 骨架 | 未开始 |  |  |
 | 2.1 配置 schema | 未开始 |  |  |
 | 2.2 配置仓库与原子写入 | 未开始 |  |  |
@@ -215,14 +215,14 @@ python -m mypy
 
 依赖：1.2、0.2。
 
-- [ ] 定义通用 ID、timestamp、分页和 error schema。
-- [ ] 定义配置 v1 schema。
-- [ ] 定义 proxy public DTO，排除 secret。
-- [ ] 定义 task list、record list、record detail DTO。
-- [ ] 定义 storage Worker message schema。
-- [ ] 从 schema 推导 TypeScript 类型。
-- [ ] 增加有效和无效输入测试。
-- [ ] 保证 package 同时可供 server 和 web 使用。
+- [x] 定义通用 ID、timestamp、分页和 error schema。
+- [x] 定义配置 v1 schema。
+- [x] 定义 proxy public DTO，排除 secret。
+- [x] 定义 task list、record list、record detail DTO。
+- [x] 定义 storage Worker message schema。
+- [x] 从 schema 推导 TypeScript 类型。
+- [x] 增加有效和无效输入测试。
+- [x] 保证 package 同时可供 server 和 web 使用。
 
 验收：contract round-trip 测试通过，无重复手写 DTO interface。
 
