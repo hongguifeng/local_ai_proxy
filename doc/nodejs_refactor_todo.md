@@ -59,7 +59,7 @@ python -m mypy
 | 2.5 脱敏与 payload 表示 | 已完成 | 本任务提交 | 57 项 Node 测试；有界清洗；Worker 前强制脱敏 |
 | 2.6 endpoint 与 record 摘要 | 已完成 | 本任务提交 | 66 项 Node 测试；有界 fingerprint；恶意 payload 容错 |
 | 3.1 SSE 增量解析器 | 已完成 | 本任务提交 | 71 项 Node 测试；随机/逐字节 chunk；有界诊断 |
-| 3.2 OpenAI 流式摘要 | 未开始 |  |  |
+| 3.2 OpenAI 流式摘要 | 已完成 | 本任务提交 | 76 项 Node 测试；三类 fixture；全局容量限制 |
 | 3.3 Claude 流式摘要 | 未开始 |  |  |
 | 3.4 有界 capture tap | 未开始 |  |  |
 | 4.1 migration 基础设施 | 未开始 |  |  |
@@ -344,12 +344,12 @@ python -m mypy
 
 依赖：3.1、2.6、0.3。
 
-- [ ] 迁移 Responses API 文本、reasoning、tool call、usage 摘要。
-- [ ] 迁移 Chat/Completions delta 摘要。
-- [ ] 支持 `[DONE]` 和未知 event。
-- [ ] 设置文本、tool arguments、event 数和总摘要上限。
-- [ ] 保留 parser warning/truncated metadata。
-- [ ] 覆盖 web search 等特殊 event fixture。
+- [x] 迁移 Responses API 文本、reasoning、tool call、usage 摘要。
+- [x] 迁移 Chat/Completions delta 摘要。
+- [x] 支持 `[DONE]` 和未知 event。
+- [x] 设置文本、tool arguments、event 数和总摘要上限。
+- [x] 保留 parser warning/truncated metadata。
+- [x] 覆盖 web search 等特殊 event fixture。
 
 验收：OpenAI fixture 输出稳定；超长 stream 内存不随总事件文本无界增长。
 
