@@ -63,7 +63,7 @@ python -m mypy
 | 3.3 Claude 流式摘要 | 已完成 | 本任务提交 | 80 项 Node 测试；乱序/缺失容错；共享容量限制 |
 | 3.4 有界 capture tap | 已完成 | 本任务提交 | 85 项 Node 测试；100 MiB 流；旁路失败隔离 |
 | 4.1 migration 基础设施 | 已完成 | 本任务提交 | 91 项 Node 测试；Python v1 兼容；事务回滚 |
-| 4.2 SQLite repository | 未开始 |  |  |
+| 4.2 SQLite repository | 已完成 | 本任务提交 | 97 项 Node 测试；事务/FTS/级联；10 万行计划 |
 | 4.3 Worker RPC | 未开始 |  |  |
 | 4.4 有界存储队列 | 未开始 |  |  |
 | 4.5 任务匹配迁移 | 未开始 |  |  |
@@ -398,13 +398,13 @@ python -m mypy
 
 依赖：4.1、1.4、2.6。
 
-- [ ] 实现 task/record/link/FTS upsert。
-- [ ] 实现 record 状态更新的单事务方法。
-- [ ] 实现 task/record list 和 detail 查询。
-- [ ] 实现 response/context lookup 和 recent task query。
-- [ ] 实现参数化搜索和 limit/offset 边界。
-- [ ] 实现级联删除和 FTS 同事务清理。
-- [ ] repository 返回 contract DTO，不暴露 driver 类型。
+- [x] 实现 task/record/link/FTS upsert。
+- [x] 实现 record 状态更新的单事务方法。
+- [x] 实现 task/record list 和 detail 查询。
+- [x] 实现 response/context lookup 和 recent task query。
+- [x] 实现参数化搜索和 limit/offset 边界。
+- [x] 实现级联删除和 FTS 同事务清理。
+- [x] repository 返回 contract DTO，不暴露 driver 类型。
 
 验收：repository 组件测试覆盖事务回滚、外键、FTS 和 10 万行基本查询计划。
 
