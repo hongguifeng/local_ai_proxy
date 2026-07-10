@@ -56,7 +56,7 @@ python -m mypy
 | 2.2 配置仓库与原子写入 | 已完成 | 本任务提交 | 34 项 Node 测试；atomic fsync/rename；失败恢复 |
 | 2.3 URL 与 header 领域逻辑 | 已完成 | 本任务提交 | 41 项 Node 测试；语言无关 fixture；header 注入拒绝 |
 | 2.4 路由与 request 变换 | 已完成 | 本任务提交 | 51 项 Node 测试；fixture 驱动；无效 body 字节保持 |
-| 2.5 脱敏与 payload 表示 | 未开始 |  |  |
+| 2.5 脱敏与 payload 表示 | 已完成 | 本任务提交 | 57 项 Node 测试；有界清洗；Worker 前强制脱敏 |
 | 2.6 endpoint 与 record 摘要 | 未开始 |  |  |
 | 3.1 SSE 增量解析器 | 未开始 |  |  |
 | 3.2 OpenAI 流式摘要 | 未开始 |  |  |
@@ -302,12 +302,12 @@ python -m mypy
 
 依赖：1.4、0.3。
 
-- [ ] 定义 binary/text/JSON/truncated payload union。
-- [ ] 实现 request/response body 安全表示。
-- [ ] 实现大小和深度受限的 JSON 脱敏。
-- [ ] 实现大小写不敏感 header 脱敏。
-- [ ] 处理循环引用不可出现的边界和极深 JSON。
-- [ ] 确保 secret 在 enqueue 到 Worker 之前已被移除。
+- [x] 定义 binary/text/JSON/truncated payload union。
+- [x] 实现 request/response body 安全表示。
+- [x] 实现大小和深度受限的 JSON 脱敏。
+- [x] 实现大小写不敏感 header 脱敏。
+- [x] 处理循环引用不可出现的边界和极深 JSON。
+- [x] 确保 secret 在 enqueue 到 Worker 之前已被移除。
 
 验收：fixture 通过；测试断言 API key 和常见 secret 不进入数据库消息。
 
