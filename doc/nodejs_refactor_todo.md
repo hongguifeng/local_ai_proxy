@@ -49,7 +49,7 @@ python -m mypy
 | 0.4 协议基准测试工具 | 已完成 | 本任务提交 | 固定配置、JSON report、Python v0.2.0 基线；72 项测试 |
 | 1.1 pnpm workspace | 已完成 | 本任务提交 | Node 24.18.0 / pnpm 11.11.0；workspace install/test/build |
 | 1.2 TypeScript 与代码质量 | 已完成 | 本任务提交 | lint/format/typecheck/test/coverage/build；server→web 边界 |
-| 1.3 Node CI 基线 | 未开始 |  |  |
+| 1.3 Node CI 基线 | 已完成 | 本任务提交 | YAML 校验；本地 `CI=true` 生成 JUnit/coverage |
 | 1.4 contracts 包 | 未开始 |  |  |
 | 1.5 server CLI 骨架 | 未开始 |  |  |
 | 2.1 配置 schema | 未开始 |  |  |
@@ -201,13 +201,13 @@ python -m mypy
 
 依赖：1.1、1.2。
 
-- [ ] 新增 Node CI workflow。
-- [ ] Linux 执行 install、lint、format、typecheck、test、build。
-- [ ] Windows 至少执行 install、test、build。
-- [ ] 使用 pnpm store cache，并以 lockfile 为 key。
-- [ ] 配置 workflow concurrency，取消同分支旧任务。
-- [ ] 上传测试报告和 coverage artifact。
-- [ ] Python CI 在迁移期继续运行。
+- [x] 新增 Node CI workflow。
+- [x] Linux 执行 install、lint、format、typecheck、test、build。
+- [x] Windows 至少执行 install、test、build。
+- [x] 使用 pnpm store cache，并以 lockfile 为 key。
+- [x] 配置 workflow concurrency，取消同分支旧任务。
+- [x] 上传测试报告和 coverage artifact。
+- [x] Python CI 在迁移期继续运行。
 
 验收：CI 在 Linux/Windows 均通过；任一质量门槛失败会阻止合并。
 
