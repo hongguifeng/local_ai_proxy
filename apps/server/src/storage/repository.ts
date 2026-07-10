@@ -10,6 +10,9 @@ import {
 } from "@llm-proxy/contracts";
 import type Database from "better-sqlite3";
 
+import type { ExistingRecordAssignment, TaskMatchState } from "../tasks/task-matcher.js";
+import { sanitizeJsonValue } from "../proxy/redaction.js";
+
 export interface TaskWrite {
   id: string;
   kind: TaskSummary["kind"];
@@ -62,6 +65,18 @@ interface TaskRow {
   last_seen_at: string;
   request_count: number;
   pending_request_only: number;
+}
+
+interface TaskStateRow extends TaskRow {
+  anchor: string | null;
+  last_response_at: string | null;
+  match_confidence: number;
+  match_strategy_version: number;
+  fingerprints_json: string;
+  boundary_fingerprints_json: string;
+  last_user_messages_json: string;
+  created_at: string;
+  updated_at: string;
 }
 
 interface RecordRow {
@@ -161,6 +176,45 @@ export class StorageRepository {
 
   public taskIdForContext(contextKey: string): string | null {
     return this.#lookupLink("context_links", "context_key", contextKey);
+  }
+
+  public assignmentForRecord(recordId: string): ExistingRecordAssignment | null {
+    const row = this.#database.prepare("SELECT task_id, sequence FROM records WHERE id = ?").get(recordId) as
+      { task_id: string; sequence: number } | undefined;
+    return row ? { taskId: row.task_id, sequence: row.sequence } : null;
+  }
+
+  public getTaskState(taskId: string): TaskMatchState | null {
+    const row = this.#database.prepare("SELECT * FROM tasks WHERE id = ?").get(taskId) as TaskStateRow | undefined;
+    return row ? taskState(row) : null;
+  }
+
+  public recordCount(taskId: string): number {
+    return (
+      this.#database.prepare("SELECT COUNT(*) AS count FROM records WHERE task_id = ?").get(taskId) as { count: number }
+    ).count;
+  }
+
+  public nextSequence(taskId: string): number {
+    const row = this.#database
+      .prepare("SELECT COALESCE(MAX(sequence), 0) + 1 AS sequence FROM records WHERE task_id = ?")
+      .get(taskId) as { sequence: number };
+    return row.sequence;
+  }
+
+  public recentTaskStates(query: RecentTaskQuery): readonly TaskMatchState[] {
+    if (!Number.isSafeInteger(query.limit) || query.limit < 1 || query.limit > 200)
+      throw new RangeError("Invalid limit");
+    return (
+      this.#database
+        .prepare(
+          `SELECT * FROM tasks
+           WHERE last_seen_at >= @since AND kind = @kind AND endpoint = @endpoint
+             AND ((@model IS NULL AND model IS NULL) OR model = @model)
+           ORDER BY last_seen_at DESC LIMIT @limit`,
+        )
+        .all(query) as TaskStateRow[]
+    ).map(taskState);
   }
 
   public listTasks(query: string, limit: number, offset: number): TaskListResponse {
@@ -368,6 +422,27 @@ function taskSummary(row: TaskRow): TaskSummary {
   };
 }
 
+function taskState(row: TaskStateRow): TaskMatchState {
+  const users = sanitizeJsonValue(parseJson(row.last_user_messages_json, []), {
+    maxDepth: 16,
+    maxItems: 1_000,
+    maxStringBytes: 64 * 1024,
+  });
+  return {
+    ...taskSummary(row),
+    endpoint: row.endpoint ?? "/",
+    anchor: row.anchor ?? "",
+    lastResponseAt: row.last_response_at,
+    matchConfidence: row.match_confidence,
+    matchStrategyVersion: row.match_strategy_version,
+    fingerprints: stringRecord(parseJson(row.fingerprints_json, {})),
+    boundaryFingerprints: stringRecord(parseJson(row.boundary_fingerprints_json, {})),
+    lastUserMessages: Array.isArray(users) ? users : [],
+    createdAt: row.created_at,
+    updatedAt: row.updated_at,
+  };
+}
+
 function recordSummary(row: RecordRow): RecordSummary {
   return {
     id: row.id,
@@ -396,6 +471,13 @@ function parseJson(text: string | null, fallback: unknown): unknown {
   } catch {
     return fallback;
   }
+}
+
+function stringRecord(value: unknown): Record<string, string> {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return {};
+  return Object.fromEntries(
+    Object.entries(value).filter((entry): entry is [string, string] => typeof entry[1] === "string"),
+  );
 }
 
 function assertPagination(limit: number, offset: number): void {

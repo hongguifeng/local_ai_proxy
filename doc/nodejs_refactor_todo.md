@@ -66,7 +66,7 @@ python -m mypy
 | 4.2 SQLite repository | 已完成 | 本任务提交 | 97 项 Node 测试；事务/FTS/级联；10 万行计划 |
 | 4.3 Worker RPC | 已完成 | 本任务提交 | 103 项 Node 测试；transferable；fatal/restart/registry |
 | 4.4 有界存储队列 | 已完成 | 本任务提交 | 108 项 Node 测试；10 万 producer；typed degradation |
-| 4.5 任务匹配迁移 | 未开始 |  |  |
+| 4.5 任务匹配迁移 | 已完成 | 本任务提交 | 112 项 Node 测试；fixture 全通过；24h/50 候选上限 |
 | 4.6 traffic event 写入事务 | 未开始 |  |  |
 | 4.7 查询、清理和维护 | 未开始 |  |  |
 | 4.8 流式 ZIP 导出 | 未开始 |  |  |
@@ -442,13 +442,13 @@ python -m mypy
 
 依赖：4.2、2.6、0.3。
 
-- [ ] 迁移 pending task promotion。
-- [ ] 迁移 request ID、previous response ID、context key 匹配。
-- [ ] 迁移带时间窗口的 heuristic matching。
-- [ ] 输出 confidence、reason 和 strategy version。
-- [ ] recent query 设置显式 limit 和索引。
-- [ ] 覆盖并发相似 task 不串组的测试。
-- [ ] 对 fixture 差异逐项确认，不用兼容 shim 掩盖。
+- [x] 迁移 pending task promotion。
+- [x] 迁移 request ID、previous response ID、context key 匹配。
+- [x] 迁移带时间窗口的 heuristic matching。
+- [x] 输出 confidence、reason 和 strategy version。
+- [x] recent query 设置显式 limit 和索引。
+- [x] 覆盖并发相似 task 不串组的测试。
+- [x] 对 fixture 差异逐项确认，不用兼容 shim 掩盖。
 
 验收：已确认的 task fixture 全部通过；算法不扫描无界历史。
 
