@@ -58,7 +58,7 @@ python -m mypy
 | 2.4 路由与 request 变换 | 已完成 | 本任务提交 | 51 项 Node 测试；fixture 驱动；无效 body 字节保持 |
 | 2.5 脱敏与 payload 表示 | 已完成 | 本任务提交 | 57 项 Node 测试；有界清洗；Worker 前强制脱敏 |
 | 2.6 endpoint 与 record 摘要 | 已完成 | 本任务提交 | 66 项 Node 测试；有界 fingerprint；恶意 payload 容错 |
-| 3.1 SSE 增量解析器 | 未开始 |  |  |
+| 3.1 SSE 增量解析器 | 已完成 | 本任务提交 | 71 项 Node 测试；随机/逐字节 chunk；有界诊断 |
 | 3.2 OpenAI 流式摘要 | 未开始 |  |  |
 | 3.3 Claude 流式摘要 | 未开始 |  |  |
 | 3.4 有界 capture tap | 未开始 |  |  |
@@ -330,13 +330,13 @@ python -m mypy
 
 依赖：1.2、0.3。
 
-- [ ] 实现 bytes 到 UTF-8 增量 decode。
-- [ ] 支持 LF、CRLF、空行 event 分隔。
-- [ ] 支持多行 `data:`、`event:`、`id:` 和 comment。
-- [ ] 支持 event 跨 chunk、多个 event 同 chunk。
-- [ ] 设置单行、单 event 和 parser buffer 上限。
-- [ ] malformed event 产生诊断但不抛出到转发管线。
-- [ ] 增加随机 chunk boundary property test。
+- [x] 实现 bytes 到 UTF-8 增量 decode。
+- [x] 支持 LF、CRLF、空行 event 分隔。
+- [x] 支持多行 `data:`、`event:`、`id:` 和 comment。
+- [x] 支持 event 跨 chunk、多个 event 同 chunk。
+- [x] 设置单行、单 event 和 parser buffer 上限。
+- [x] malformed event 产生诊断但不抛出到转发管线。
+- [x] 增加随机 chunk boundary property test。
 
 验收：对同一 SSE bytes 的任意合理 chunk 划分产生相同事件序列。
 
