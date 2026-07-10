@@ -9,6 +9,7 @@
   },
   "scripts": {
     "build": "tsc -p tsconfig.build.json",
+    "start": "node dist/cli.js",
     "typecheck": "tsc -p tsconfig.json"
   },
   "dependencies": {

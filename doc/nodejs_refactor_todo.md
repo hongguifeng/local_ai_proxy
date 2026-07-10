@@ -51,7 +51,7 @@ python -m mypy
 | 1.2 TypeScript 与代码质量 | 已完成 | 本任务提交 | lint/format/typecheck/test/coverage/build；server→web 边界 |
 | 1.3 Node CI 基线 | 已完成 | 本任务提交 | YAML 校验；本地 `CI=true` 生成 JUnit/coverage |
 | 1.4 contracts 包 | 已完成 | 本任务提交 | 10 项 Node 测试；100% coverage；server/web 导入验证 |
-| 1.5 server CLI 骨架 | 未开始 |  |  |
+| 1.5 server CLI 骨架 | 已完成 | 本任务提交 | 21 项 Node 测试；build `--help`/`--version` smoke |
 | 2.1 配置 schema | 未开始 |  |  |
 | 2.2 配置仓库与原子写入 | 未开始 |  |  |
 | 2.3 URL 与 header 领域逻辑 | 未开始 |  |  |
@@ -230,12 +230,12 @@ python -m mypy
 
 依赖：1.1、1.2、1.4。
 
-- [ ] 创建 `main()` composition root。
-- [ ] 实现最小 CLI 参数解析和 `--help`、`--version`。
-- [ ] 定义 process exit code。
-- [ ] 添加 abort signal 和 shutdown hook 骨架。
-- [ ] 输出机器可识别的 ready/error 日志。
-- [ ] 避免 import 时产生监听端口等副作用。
+- [x] 创建 `main()` composition root。
+- [x] 实现最小 CLI 参数解析和 `--help`、`--version`。
+- [x] 定义 process exit code。
+- [x] 添加 abort signal 和 shutdown hook 骨架。
+- [x] 输出机器可识别的 ready/error 日志。
+- [x] 避免 import 时产生监听端口等副作用。
 
 验收：CLI 可启动、响应信号并退出；单元测试可调用 composition root 而不结束测试进程。
 
