@@ -4,6 +4,7 @@ import * as https from "node:https";
 import type { AddressInfo } from "node:net";
 
 import type { RuntimeProxy, RuntimeTarget } from "../config/schema.js";
+import { buildUpstreamRequestHeaders, rawHeadersToPairs, removeHopByHopHeaders, type HeaderPair } from "./headers.js";
 import { routeAndTransformRequest, selectTargetByModel } from "./routing.js";
 import { joinTargetPath } from "./target-url.js";
 
@@ -98,7 +99,7 @@ export class ProxyServer {
       return;
     }
     const target = selectTargetByModel(this.#options.proxy, null).target;
-    const upstream = this.#createUpstream(request, response, target, method, path, request.headers);
+    const upstream = this.#createUpstream(request, response, target, method, path);
     request.pipe(upstream);
   }
 
@@ -119,9 +120,14 @@ export class ProxyServer {
       return;
     }
     const routed = routeAndTransformRequest(this.#options.proxy, body);
-    const headers = { ...request.headers, "content-length": routed.body.byteLength.toString() };
-    delete headers["transfer-encoding"];
-    const upstream = this.#createUpstream(request, response, routed.target, context.method, context.path, headers);
+    const upstream = this.#createUpstream(
+      request,
+      response,
+      routed.target,
+      context.method,
+      context.path,
+      routed.body.byteLength,
+    );
     upstream.end(routed.body);
   }
 
@@ -131,12 +137,31 @@ export class ProxyServer {
     target: RuntimeTarget,
     method: string,
     path: string,
-    headers: http.OutgoingHttpHeaders,
+    bodyLength?: number,
   ): http.ClientRequest {
     const targetUrl = new URL(joinTargetPath(target.endpoint.basePath, path), target.endpoint.origin);
     const transport = targetUrl.protocol === "https:" ? https : http;
-    const upstream = transport.request(targetUrl, { method, headers }, (upstreamResponse) => {
-      response.writeHead(upstreamResponse.statusCode ?? 502, upstreamResponse.statusMessage, upstreamResponse.headers);
+    let headers = buildUpstreamRequestHeaders(
+      rawHeadersToPairs(request.rawHeaders),
+      target.endpoint,
+      { remoteAddress: request.socket.remoteAddress ?? "unknown", incomingProtocol: "http" },
+      target.headers.map((header) => [header.name, header.value]),
+      target.targetApiKey,
+    );
+    if (bodyLength !== undefined) {
+      headers = headers.filter(([name]) => {
+        const normalized = name.toLowerCase();
+        return normalized !== "content-length" && normalized !== "transfer-encoding";
+      });
+      headers.push(["Content-Length", bodyLength.toString()]);
+    }
+    const upstream = transport.request(targetUrl, { method, headers: flattenHeaders(headers) }, (upstreamResponse) => {
+      const responseHeaders = removeHopByHopHeaders(rawHeadersToPairs(upstreamResponse.rawHeaders));
+      response.writeHead(
+        upstreamResponse.statusCode ?? 502,
+        upstreamResponse.statusMessage,
+        flattenHeaders(responseHeaders),
+      );
       upstreamResponse.pipe(response);
     });
     upstream.on("error", () => {
@@ -181,4 +206,8 @@ async function readBody(request: http.IncomingMessage, limit: number): Promise<B
 function respondTooLarge(response: http.ServerResponse): void {
   response.writeHead(413, { "content-type": "application/json", connection: "close" });
   response.end('{"error":"request_body_too_large"}');
+}
+
+function flattenHeaders(headers: readonly HeaderPair[]): string[] {
+  return headers.flatMap(([name, value]) => [name, value]);
 }

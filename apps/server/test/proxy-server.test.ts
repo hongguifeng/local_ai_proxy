@@ -165,6 +165,51 @@ describe("ProxyServer", () => {
     await abortBody(address.port);
     await expect(request(address.port, "GET", "/after-abort")).resolves.toMatchObject({ status: 200 });
   });
+
+  it("applies request header precedence and preserves filtered repeated response headers", async () => {
+    const upstream = await jsonUpstream("headers");
+    const proxy = new ProxyServer({
+      host: "127.0.0.1",
+      port: 0,
+      proxy: runtimeProxy(`http://127.0.0.1:${upstream.port.toString()}`, [], {
+        targetApiKey: "secret-key",
+        headers: [
+          { name: "X-Multi", value: "configured-one" },
+          { name: "X-Multi", value: "configured-two" },
+        ],
+      }),
+      maxRequestBodyBytes: 1024,
+    });
+    cleanup.push(() => proxy.stop());
+    const address = await proxy.start();
+    const result = await requestRaw(address.port, [
+      "Host",
+      "client.example",
+      "Connection",
+      "keep-alive, X-Remove",
+      "X-Remove",
+      "private",
+      "X-Forwarded-For",
+      "spoofed",
+      "Authorization",
+      "Bearer client",
+      "X-Multi",
+      "client-one",
+      "X-Multi",
+      "client-two",
+    ]);
+    const echoed = JSON.parse(result.body) as { rawHeaders: string[] };
+    const incoming = rawHeaderMap(echoed.rawHeaders);
+    expect(incoming.get("host")).toEqual([`127.0.0.1:${upstream.port.toString()}`]);
+    expect(incoming.get("authorization")).toEqual(["Bearer secret-key"]);
+    expect(incoming.get("x-multi")).toEqual(["configured-one", "configured-two"]);
+    expect(incoming.get("x-forwarded-for")).toEqual(["127.0.0.1"]);
+    expect(incoming.get("x-forwarded-host")).toEqual(["client.example"]);
+    expect(incoming.has("x-remove")).toBe(false);
+    const returned = rawHeaderMap(result.rawHeaders);
+    expect(returned.get("set-cookie")).toEqual(["a=1", "b=2"]);
+    expect(returned.has("x-response-private")).toBe(false);
+  });
 });
 
 async function fixtureUpstream(): Promise<AddressInfo> {
@@ -195,14 +240,19 @@ async function jsonUpstream(label: string): Promise<AddressInfo> {
     const chunks: Buffer[] = [];
     request.on("data", (chunk: Buffer) => chunks.push(chunk));
     request.on("end", () => {
+      const rawBody = Buffer.concat(chunks).toString("utf8");
+      response.setHeader("set-cookie", ["a=1", "b=2"]);
+      response.setHeader("connection", "X-Response-Private");
+      response.setHeader("x-response-private", "remove");
       response.setHeader("content-type", "application/json");
       response.end(
         JSON.stringify({
           label,
           url: request.url,
-          body: JSON.parse(Buffer.concat(chunks).toString("utf8")) as unknown,
+          body: rawBody ? (JSON.parse(rawBody) as unknown) : null,
           contentLength: request.headers["content-length"] ?? null,
           transferEncoding: request.headers["transfer-encoding"] ?? null,
+          rawHeaders: request.rawHeaders,
         }),
       );
     });
@@ -267,6 +317,27 @@ async function requestChunks(
   });
 }
 
+async function requestRaw(
+  port: number,
+  headers: string[],
+): Promise<{ status: number; body: string; rawHeaders: string[] }> {
+  return new Promise((resolvePromise, rejectPromise) => {
+    const outgoing = http.request({ host: "127.0.0.1", port, method: "GET", path: "/headers", headers }, (response) => {
+      const chunks: Buffer[] = [];
+      response.on("data", (chunk: Buffer) => chunks.push(chunk));
+      response.on("end", () => {
+        resolvePromise({
+          status: response.statusCode ?? 0,
+          body: Buffer.concat(chunks).toString(),
+          rawHeaders: response.rawHeaders,
+        });
+      });
+    });
+    outgoing.on("error", rejectPromise);
+    outgoing.end();
+  });
+}
+
 async function raw(port: number, requestText: string): Promise<string> {
   return new Promise((resolvePromise, rejectPromise) => {
     const socket = net.connect(port, "127.0.0.1", () => {
@@ -297,7 +368,11 @@ async function abortBody(port: number): Promise<void> {
   await new Promise<void>((resolvePromise) => setImmediate(resolvePromise));
 }
 
-function runtimeProxy(url: string, additionalTargets: readonly Record<string, unknown>[] = []) {
+function runtimeProxy(
+  url: string,
+  additionalTargets: readonly Record<string, unknown>[] = [],
+  defaultOverrides: Readonly<Record<string, unknown>> = {},
+) {
   return (
     createRuntimeConfigSnapshot({
       version: 1,
@@ -310,11 +385,23 @@ function runtimeProxy(url: string, additionalTargets: readonly Record<string, un
           listenPort: 1234,
           accessLog: false,
           defaultTargetId: "target-1",
-          targets: [{ id: "target-1", name: "Target", enabled: true, url }, ...additionalTargets],
+          targets: [{ id: "target-1", name: "Target", enabled: true, url, ...defaultOverrides }, ...additionalTargets],
         },
       ],
     }).proxies[0] ?? fail("Expected runtime proxy")
   );
+}
+
+function rawHeaderMap(rawHeaders: readonly string[]): Map<string, string[]> {
+  const result = new Map<string, string[]>();
+  for (let index = 0; index < rawHeaders.length; index += 2) {
+    const name = rawHeaders[index]?.toLowerCase() ?? fail("Missing header name");
+    const value = rawHeaders[index + 1] ?? fail("Missing header value");
+    const values = result.get(name) ?? [];
+    values.push(value);
+    result.set(name, values);
+  }
+  return result;
 }
 
 function closeServer(server: http.Server): Promise<void> {

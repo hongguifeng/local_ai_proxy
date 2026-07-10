@@ -72,7 +72,7 @@ python -m mypy
 | 4.8 流式 ZIP 导出 | 已完成 | 本任务提交 | 124 项 Node 测试；5,000 records 有界导出；取消与并发限制 |
 | 5.1 单 proxy HTTP 骨架 | 已完成 | 本任务提交 | 127 项 Node 测试；真实 upstream GET/POST/HEAD；ephemeral port |
 | 5.2 request body 与路由 | 已完成 | 本任务提交 | 131 项 Node 测试；chunked/limit/路由改写；非 JSON 流式直通 |
-| 5.3 header 转发规则 | 未开始 |  |  |
+| 5.3 header 转发规则 | 已完成 | 本任务提交 | 132 项 Node 测试；raw 重复 header；双向 hop-by-hop 过滤 |
 | 5.4 response 管线与背压 | 未开始 |  |  |
 | 5.5 取消和超时 | 未开始 |  |  |
 | 5.6 traffic 生命周期接入 | 未开始 |  |  |
@@ -525,13 +525,13 @@ python -m mypy
 
 依赖：5.2、2.3。
 
-- [ ] 接入 request header transform。
-- [ ] 接入 response hop-by-hop header transform。
-- [ ] 保留重复 header 和 `Set-Cookie`。
-- [ ] 正确处理已有 `X-Forwarded-For`。
-- [ ] 测试 IPv4/IPv6 Host。
-- [ ] 测试 `Connection: foo` 动态删除 `Foo`。
-- [ ] 确保 secret header 不进入运行日志。
+- [x] 接入 request header transform。
+- [x] 接入 response hop-by-hop header transform。
+- [x] 保留重复 header 和 `Set-Cookie`。
+- [x] 正确处理已有 `X-Forwarded-For`。
+- [x] 测试 IPv4/IPv6 Host。
+- [x] 测试 `Connection: foo` 动态删除 `Foo`。
+- [x] 确保 secret header 不进入运行日志。
 
 验收：raw upstream 捕获的 header 与 fixture 一致，response header 不被错误合并。
 
