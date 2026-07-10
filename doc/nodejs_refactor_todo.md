@@ -70,7 +70,7 @@ python -m mypy
 | 4.6 traffic event 写入事务 | 已完成 | 本任务提交 | 116 项 Node 测试；72 项 Python 测试；原子写入与幂等重试 |
 | 4.7 查询、清理和维护 | 已完成 | 本任务提交 | 121 项 Node 测试；多库稳定分页；批次 retention 与维护 RPC |
 | 4.8 流式 ZIP 导出 | 已完成 | 本任务提交 | 124 项 Node 测试；5,000 records 有界导出；取消与并发限制 |
-| 5.1 单 proxy HTTP 骨架 | 未开始 |  |  |
+| 5.1 单 proxy HTTP 骨架 | 已完成 | 本任务提交 | 127 项 Node 测试；真实 upstream GET/POST/HEAD；ephemeral port |
 | 5.2 request body 与路由 | 未开始 |  |  |
 | 5.3 header 转发规则 | 未开始 |  |  |
 | 5.4 response 管线与背压 | 未开始 |  |  |
@@ -498,12 +498,12 @@ python -m mypy
 
 依赖：1.5、2.3。
 
-- [ ] 使用 `node:http` 创建可注入依赖的 ProxyServer。
-- [ ] 支持常见 method、原始 path 和 query。
-- [ ] 生成 request ID 和最小 request context。
-- [ ] 对 unsupported upgrade/CONNECT 明确拒绝。
-- [ ] 监听 error 和 clientError，避免进程崩溃。
-- [ ] 提供 ephemeral port 测试入口。
+- [x] 使用 `node:http` 创建可注入依赖的 ProxyServer。
+- [x] 支持常见 method、原始 path 和 query。
+- [x] 生成 request ID 和最小 request context。
+- [x] 对 unsupported upgrade/CONNECT 明确拒绝。
+- [x] 监听 error 和 clientError，避免进程崩溃。
+- [x] 提供 ephemeral port 测试入口。
 
 验收：真实 upstream 集成测试能完成 GET/POST/HEAD，不依赖 Fastify。
 
