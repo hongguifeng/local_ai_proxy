@@ -60,7 +60,7 @@ python -m mypy
 | 2.6 endpoint 与 record 摘要 | 已完成 | 本任务提交 | 66 项 Node 测试；有界 fingerprint；恶意 payload 容错 |
 | 3.1 SSE 增量解析器 | 已完成 | 本任务提交 | 71 项 Node 测试；随机/逐字节 chunk；有界诊断 |
 | 3.2 OpenAI 流式摘要 | 已完成 | 本任务提交 | 76 项 Node 测试；三类 fixture；全局容量限制 |
-| 3.3 Claude 流式摘要 | 未开始 |  |  |
+| 3.3 Claude 流式摘要 | 已完成 | 本任务提交 | 80 项 Node 测试；乱序/缺失容错；共享容量限制 |
 | 3.4 有界 capture tap | 未开始 |  |  |
 | 4.1 migration 基础设施 | 未开始 |  |  |
 | 4.2 SQLite repository | 未开始 |  |  |
@@ -357,11 +357,11 @@ python -m mypy
 
 依赖：3.1、2.6、0.3。
 
-- [ ] 迁移 message start/delta/stop。
-- [ ] 迁移 text、thinking 和 tool use。
-- [ ] 迁移 input/output token usage。
-- [ ] 处理未知 content block 和乱序/缺失 event。
-- [ ] 应用与 OpenAI 相同的容量约束和诊断模型。
+- [x] 迁移 message start/delta/stop。
+- [x] 迁移 text、thinking 和 tool use。
+- [x] 迁移 input/output token usage。
+- [x] 处理未知 content block 和乱序/缺失 event。
+- [x] 应用与 OpenAI 相同的容量约束和诊断模型。
 
 验收：Claude fixture 输出稳定，malformed stream 不影响原始 bytes 转发。
 
