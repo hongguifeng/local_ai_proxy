@@ -8,11 +8,15 @@
     "node": ">=24.0.0 <25"
   },
   "scripts": {
-    "build": "tsc -p tsconfig.build.json",
+    "build": "tsc -p tsconfig.build.json && node scripts/copy-assets.mjs",
     "start": "node dist/cli.js",
     "typecheck": "tsc -p tsconfig.json"
   },
   "dependencies": {
-    "@llm-proxy/contracts": "workspace:*"
+    "@llm-proxy/contracts": "workspace:*",
+    "better-sqlite3": "12.4.1"
+  },
+  "devDependencies": {
+    "@types/better-sqlite3": "7.6.13"
   }
 }

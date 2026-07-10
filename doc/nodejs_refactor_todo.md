@@ -62,7 +62,7 @@ python -m mypy
 | 3.2 OpenAI 流式摘要 | 已完成 | 本任务提交 | 76 项 Node 测试；三类 fixture；全局容量限制 |
 | 3.3 Claude 流式摘要 | 已完成 | 本任务提交 | 80 项 Node 测试；乱序/缺失容错；共享容量限制 |
 | 3.4 有界 capture tap | 已完成 | 本任务提交 | 85 项 Node 测试；100 MiB 流；旁路失败隔离 |
-| 4.1 migration 基础设施 | 未开始 |  |  |
+| 4.1 migration 基础设施 | 已完成 | 本任务提交 | 91 项 Node 测试；Python v1 兼容；事务回滚 |
 | 4.2 SQLite repository | 未开始 |  |  |
 | 4.3 Worker RPC | 未开始 |  |  |
 | 4.4 有界存储队列 | 未开始 |  |  |
@@ -384,13 +384,13 @@ python -m mypy
 
 依赖：1.5、0.1。
 
-- [ ] 确认 Node v1 schema 和当前 SQLite schema 的关系。
-- [ ] 创建顺序化 SQL migration 文件。
-- [ ] 实现 schema version 读取和事务 migration。
-- [ ] 拒绝比程序更新的未知 schema。
-- [ ] migration 失败时回滚并给出安全错误。
-- [ ] 验证 WAL、foreign keys、busy timeout、synchronous。
-- [ ] 添加空库、逐版本升级和损坏库测试。
+- [x] 确认 Node v1 schema 和当前 SQLite schema 的关系。
+- [x] 创建顺序化 SQL migration 文件。
+- [x] 实现 schema version 读取和事务 migration。
+- [x] 拒绝比程序更新的未知 schema。
+- [x] migration 失败时回滚并给出安全错误。
+- [x] 验证 WAL、foreign keys、busy timeout、synchronous。
+- [x] 添加空库、逐版本升级和损坏库测试。
 
 验收：每个受支持的旧版本都能升级到最新；失败不会留下半迁移状态。
 
