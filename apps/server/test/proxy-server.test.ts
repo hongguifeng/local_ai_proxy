@@ -22,6 +22,7 @@ describe("ProxyServer", () => {
       port: 0,
       proxy: runtimeProxy(`http://127.0.0.1:${upstream.port.toString()}`),
       maxRequestBodyBytes: 1024,
+      responseCaptureBytes: 1024,
       createRequestId: () => `request-${(contexts.length + 1).toString()}`,
       onRequest: (context) => contexts.push(context),
     });
@@ -50,6 +51,7 @@ describe("ProxyServer", () => {
       port: 0,
       proxy: runtimeProxy(`http://127.0.0.1:${upstream.port.toString()}`),
       maxRequestBodyBytes: 1024,
+      responseCaptureBytes: 1024,
     });
     cleanup.push(() => proxy.stop());
     const address = await proxy.start();
@@ -67,6 +69,7 @@ describe("ProxyServer", () => {
       port: 0,
       proxy: runtimeProxy("http://127.0.0.1:1"),
       maxRequestBodyBytes: 1024,
+      responseCaptureBytes: 1024,
     });
     cleanup.push(() => proxy.stop());
     const address = await proxy.start();
@@ -91,6 +94,7 @@ describe("ProxyServer", () => {
         },
       ]),
       maxRequestBodyBytes: 1024,
+      responseCaptureBytes: 1024,
     });
     cleanup.push(() => proxy.stop());
     const address = await proxy.start();
@@ -122,6 +126,7 @@ describe("ProxyServer", () => {
       port: 0,
       proxy: runtimeProxy(`http://127.0.0.1:${upstream.port.toString()}`),
       maxRequestBodyBytes: 10,
+      responseCaptureBytes: 1024,
     });
     cleanup.push(() => proxy.stop());
     const address = await proxy.start();
@@ -141,6 +146,7 @@ describe("ProxyServer", () => {
       port: 0,
       proxy: runtimeProxy(`http://127.0.0.1:${upstream.port.toString()}`),
       maxRequestBodyBytes: 1024,
+      responseCaptureBytes: 1024,
     });
     cleanup.push(() => proxy.stop());
     const address = await proxy.start();
@@ -159,6 +165,7 @@ describe("ProxyServer", () => {
       port: 0,
       proxy: runtimeProxy(`http://127.0.0.1:${upstream.port.toString()}`),
       maxRequestBodyBytes: 1024,
+      responseCaptureBytes: 1024,
     });
     cleanup.push(() => proxy.stop());
     const address = await proxy.start();
@@ -179,6 +186,7 @@ describe("ProxyServer", () => {
         ],
       }),
       maxRequestBodyBytes: 1024,
+      responseCaptureBytes: 1024,
     });
     cleanup.push(() => proxy.stop());
     const address = await proxy.start();

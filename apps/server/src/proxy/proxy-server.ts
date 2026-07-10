@@ -2,8 +2,10 @@ import { randomUUID } from "node:crypto";
 import * as http from "node:http";
 import * as https from "node:https";
 import type { AddressInfo } from "node:net";
+import { pipeline } from "node:stream/promises";
 
 import type { RuntimeProxy, RuntimeTarget } from "../config/schema.js";
+import { CaptureTap, type CaptureTapResult, type StreamObserver } from "./capture-tap.js";
 import { buildUpstreamRequestHeaders, rawHeadersToPairs, removeHopByHopHeaders, type HeaderPair } from "./headers.js";
 import { routeAndTransformRequest, selectTargetByModel } from "./routing.js";
 import { joinTargetPath } from "./target-url.js";
@@ -20,8 +22,11 @@ export interface ProxyServerOptions {
   port: number;
   proxy: RuntimeProxy;
   maxRequestBodyBytes: number;
+  responseCaptureBytes: number;
   createRequestId?: () => string;
   onRequest?: (context: ProxyRequestContext) => void;
+  createResponseObserver?: (context: ProxyRequestContext, contentType: string | undefined) => StreamObserver | null;
+  onResponseCaptured?: (context: ProxyRequestContext, result: CaptureTapResult) => void;
 }
 
 export class ProxyServer {
@@ -32,6 +37,8 @@ export class ProxyServer {
   public constructor(options: ProxyServerOptions) {
     if (!Number.isSafeInteger(options.maxRequestBodyBytes) || options.maxRequestBodyBytes < 1)
       throw new RangeError("Invalid request body limit");
+    if (!Number.isSafeInteger(options.responseCaptureBytes) || options.responseCaptureBytes < 0)
+      throw new RangeError("Invalid response capture limit");
     this.#options = options;
     this.#server = http.createServer((request, response) => {
       this.#handle(request, response);
@@ -99,7 +106,7 @@ export class ProxyServer {
       return;
     }
     const target = selectTargetByModel(this.#options.proxy, null).target;
-    const upstream = this.#createUpstream(request, response, target, method, path);
+    const upstream = this.#createUpstream(request, response, target, method, path, context);
     request.pipe(upstream);
   }
 
@@ -126,6 +133,7 @@ export class ProxyServer {
       routed.target,
       context.method,
       context.path,
+      context,
       routed.body.byteLength,
     );
     upstream.end(routed.body);
@@ -137,6 +145,7 @@ export class ProxyServer {
     target: RuntimeTarget,
     method: string,
     path: string,
+    context: ProxyRequestContext,
     bodyLength?: number,
   ): http.ClientRequest {
     const targetUrl = new URL(joinTargetPath(target.endpoint.basePath, path), target.endpoint.origin);
@@ -162,7 +171,20 @@ export class ProxyServer {
         upstreamResponse.statusMessage,
         flattenHeaders(responseHeaders),
       );
-      upstreamResponse.pipe(response);
+      const contentType = upstreamResponse.headers["content-type"];
+      const tap = new CaptureTap(
+        this.#options.responseCaptureBytes,
+        this.#options.createResponseObserver?.(context, contentType) ?? null,
+      );
+      void pipeline(upstreamResponse, tap, response).then(
+        () => {
+          this.#options.onResponseCaptured?.(context, tap.result());
+        },
+        () => {
+          this.#options.onResponseCaptured?.(context, tap.result());
+          response.destroy();
+        },
+      );
     });
     upstream.on("error", () => {
       if (!response.headersSent) {

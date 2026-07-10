@@ -73,7 +73,7 @@ python -m mypy
 | 5.1 单 proxy HTTP 骨架 | 已完成 | 本任务提交 | 127 项 Node 测试；真实 upstream GET/POST/HEAD；ephemeral port |
 | 5.2 request body 与路由 | 已完成 | 本任务提交 | 131 项 Node 测试；chunked/limit/路由改写；非 JSON 流式直通 |
 | 5.3 header 转发规则 | 已完成 | 本任务提交 | 132 项 Node 测试；raw 重复 header；双向 hop-by-hop 过滤 |
-| 5.4 response 管线与背压 | 未开始 |  |  |
+| 5.4 response 管线与背压 | 已完成 | 本任务提交 | 136 项 Node 测试；100 MiB hash；SSE 首块与慢客户端背压 |
 | 5.5 取消和超时 | 未开始 |  |  |
 | 5.6 traffic 生命周期接入 | 未开始 |  |  |
 | 5.7 连接池和资源释放 | 未开始 |  |  |
@@ -539,13 +539,13 @@ python -m mypy
 
 依赖：5.3、3.4。
 
-- [ ] 使用 pipeline 将 upstream response 写到 downstream。
-- [ ] 接入有界 capture 和 stream summarizer。
-- [ ] 支持 fixed-length、chunked、connection-close body。
-- [ ] 支持 SSE 首 event 立即到达。
-- [ ] 透明转发 gzip bytes。
-- [ ] 正确处理 HEAD/204/304。
-- [ ] 用慢客户端证明背压生效。
+- [x] 使用 pipeline 将 upstream response 写到 downstream。
+- [x] 接入有界 capture 和 stream summarizer。
+- [x] 支持 fixed-length、chunked、connection-close body。
+- [x] 支持 SSE 首 event 立即到达。
+- [x] 透明转发 gzip bytes。
+- [x] 正确处理 HEAD/204/304。
+- [x] 用慢客户端证明背压生效。
 
 验收：100 MiB response hash 完全一致，进程内存不保存完整 body；SSE 首 event 不等待结束。
 
