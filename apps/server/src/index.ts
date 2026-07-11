@@ -4,6 +4,7 @@ export * from "./config/atomic-write.js";
 export * from "./config/repository.js";
 export * from "./lifecycle.js";
 export * from "./logging.js";
+export * from "./migration-tool.js";
 export * from "./fault-policy.js";
 export * from "./observability.js";
 export * from "./production-runtime.js";

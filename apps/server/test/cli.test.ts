@@ -45,6 +45,14 @@ function resolvedRuntime(overrides: Partial<ApplicationRuntime> = {}): Applicati
 }
 
 describe("CLI options", () => {
+  it("parses the one-time migration command", () => {
+    expect(parseCliArgs(["migrate", "--source", "python-data", "--target", "node-data"])).toEqual({
+      kind: "migrate",
+      source: "python-data",
+      target: "node-data",
+    });
+    expect(() => parseCliArgs(["migrate", "--source", "only-source"])).toThrow("requires --source and --target");
+  });
   it("parses defaults and environment overrides", () => {
     const action = parseCliArgs([], { LLM_PROXY_UI_PORT: "9090", LLM_PROXY_NO_BROWSER: "1" });
     expect(action).toEqual({
@@ -75,6 +83,43 @@ describe("CLI options", () => {
 });
 
 describe("main composition root", () => {
+  it("runs migration without creating a runtime and emits a safe result", async () => {
+    const context = dependencies(resolvedRuntime());
+    const migrate = vi.fn(() =>
+      Promise.resolve({
+        status: "migrated" as const,
+        configPath: "proxies.json",
+        databases: 1,
+        backupPath: "node-data/backup",
+      }),
+    );
+
+    await expect(
+      main(["migrate", "--source", "python-data", "--target", "node-data"], {
+        ...context.dependencies,
+        migrate,
+      }),
+    ).resolves.toBe(ExitCode.success);
+    expect(migrate).toHaveBeenCalledWith("python-data", "node-data");
+    expect(JSON.parse(context.stdout[0] ?? "{}")).toMatchObject({
+      event: "migration_complete",
+      status: "migrated",
+      databases: 1,
+    });
+  });
+
+  it("maps migration failures to a stable secret-free error", async () => {
+    const context = dependencies(resolvedRuntime());
+    await expect(
+      main(["migrate", "--source", "python-data", "--target", "node-data"], {
+        ...context.dependencies,
+        migrate: vi.fn(() => Promise.reject(new Error("private migration detail"))),
+      }),
+    ).resolves.toBe(ExitCode.runtimeError);
+    expect(JSON.parse(context.stderr[0] ?? "{}")).toMatchObject({ code: "MIGRATION_FAILED" });
+    expect(context.stderr.join("\n")).not.toContain("private migration detail");
+  });
+
   it("handles help and version without creating a runtime", async () => {
     const runtime = resolvedRuntime();
     const help = dependencies(runtime);

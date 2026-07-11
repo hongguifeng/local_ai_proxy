@@ -22,7 +22,10 @@ export type CliOptions = Readonly<{
 }>;
 
 export type CliAction =
-  Readonly<{ kind: "help" }> | Readonly<{ kind: "version" }> | Readonly<{ kind: "run"; options: CliOptions }>;
+  | Readonly<{ kind: "help" }>
+  | Readonly<{ kind: "version" }>
+  | Readonly<{ kind: "migrate"; source: string; target: string }>
+  | Readonly<{ kind: "run"; options: CliOptions }>;
 
 export class CliUsageError extends Error {
   public constructor(message: string, options?: ErrorOptions) {
@@ -73,6 +76,22 @@ export function parseCliArgs(
   args: readonly string[],
   environment: Readonly<Record<string, string | undefined>> = process.env,
 ): CliAction {
+  if (args[0] === "migrate") {
+    let migration;
+    try {
+      migration = parseArgs({
+        args: [...args.slice(1)],
+        strict: true,
+        allowPositionals: false,
+        options: { source: { type: "string" }, target: { type: "string" } },
+      });
+    } catch (error) {
+      throw new CliUsageError(error instanceof Error ? error.message : "Invalid migration arguments");
+    }
+    if (!migration.values.source || !migration.values.target)
+      throw new CliUsageError("migrate requires --source and --target");
+    return { kind: "migrate", source: migration.values.source, target: migration.values.target };
+  }
   const parsed = parseRawArgs(args, environment);
 
   if (parsed.values.help) {
@@ -118,6 +137,7 @@ export function renderHelp(): string {
   return `LLM Proxy ${VERSION}
 
 Usage: llm-proxy [options]
+       llm-proxy migrate --source <python-data-dir> --target <node-data-dir>
 
 Options:
   -h, --help                 Show this help text

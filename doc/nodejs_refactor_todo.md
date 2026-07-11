@@ -101,7 +101,7 @@ python -m mypy
 | 10.2 Windows 便携包 | 已完成 | 本任务提交 | Node 24.18 runtime+SQLite native+ZIP/checksum；中文路径 health/proxy smoke |
 | 10.3 托盘方案 spike | 已完成 | 本任务提交 | Electron/SEA/native ADR；选择 WinForms 薄壳；托盘仅管理独立 CLI |
 | 10.4 Release pipeline | 已完成 | 本任务提交 | tag clean build；metadata/SBOM/license/checksum/provenance；final smoke/release；可选签名 |
-| 11.1 数据迁移决策与工具 | 未开始 |  |  |
+| 11.1 数据迁移决策与工具 | 已完成 | 本任务提交 | 一次性迁移、原始备份、schema/重复执行/完整性校验、真实脱敏样本 |
 | 11.2 Node 主实现验收 | 未开始 |  |  |
 | 11.3 文档和运维手册 | 未开始 |  |  |
 | 11.4 删除 Python runtime | 未开始 |  |  |
@@ -932,13 +932,13 @@ python -m mypy
 
 依赖：4.1、2.1、0.1。
 
-- [ ] 若不迁移，文档明确新数据目录和备份方式。
-- [ ] 若迁移，设计 `llm-proxy migrate` 一次性命令。
-- [ ] 迁移前备份 `traffic.db` 和 config。
-- [ ] 检测源/目标 schema 和重复执行。
-- [ ] 迁移后运行 foreign key、integrity 和计数校验。
-- [ ] 失败不删除或修改唯一源数据。
-- [ ] 使用真实脱敏样本演练。
+- [x] 若不迁移，文档明确新数据目录和备份方式。
+- [x] 若迁移，设计 `llm-proxy migrate` 一次性命令。
+- [x] 迁移前备份 `traffic.db` 和 config。
+- [x] 检测源/目标 schema 和重复执行。
+- [x] 迁移后运行 foreign key、integrity 和计数校验。
+- [x] 失败不删除或修改唯一源数据。
+- [x] 使用真实脱敏样本演练。
 
 验收：迁移策略明确，不存在运行时长期双读/双写。
 

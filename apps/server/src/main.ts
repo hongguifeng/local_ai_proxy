@@ -8,6 +8,7 @@ import {
   type ExitCodeValue,
 } from "./cli-options.js";
 import { installShutdownHooks, type ApplicationRuntime, type SignalSource } from "./lifecycle.js";
+import { migrateData, type MigrationResult } from "./migration-tool.js";
 import { createProductionRuntime } from "./production-runtime.js";
 
 export type MainDependencies = Readonly<{
@@ -17,6 +18,7 @@ export type MainDependencies = Readonly<{
   stdout: (line: string) => void;
   stderr: (line: string) => void;
   openBrowser: (url: string) => Promise<void>;
+  migrate?: (source: string, target: string) => Promise<MigrationResult>;
 }>;
 
 export function createDefaultDependencies(): MainDependencies {
@@ -34,6 +36,7 @@ export function createDefaultDependencies(): MainDependencies {
       const browser = await import("./browser.js");
       await browser.openBrowser(url);
     },
+    migrate: migrateData,
   };
 }
 
@@ -57,6 +60,16 @@ export async function main(
   if (action.kind === "version") {
     dependencies.stdout(VERSION);
     return ExitCode.success;
+  }
+  if (action.kind === "migrate") {
+    try {
+      const result = await (dependencies.migrate ?? migrateData)(action.source, action.target);
+      dependencies.stdout(JSON.stringify({ event: "migration_complete", ...result }));
+      return ExitCode.success;
+    } catch {
+      dependencies.stderr(JSON.stringify({ event: "error", code: "MIGRATION_FAILED", message: "Migration failed" }));
+      return ExitCode.runtimeError;
+    }
   }
 
   const controller = new AbortController();
