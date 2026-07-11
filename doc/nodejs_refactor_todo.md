@@ -87,7 +87,7 @@ python -m mypy
 | 7.3 task/log 管理 API | 已完成 | 本任务提交 | 175 项 Node 测试；multi-root query/cleanup；流式 export |
 | 7.4 统一错误与安全边界 | 已完成 | 本任务提交 | 177 项 Node 测试；稳定 envelope；安全 headers；secret/path 隔离 |
 | 7.5 静态资源和浏览器启动 | 已完成 | 本任务提交 | 179 项 Node 测试；安全静态 root；cache 策略；ready 后浏览器 |
-| 8.1 现有 UI contract 迁移 | 未开始 |  |  |
+| 8.1 现有 UI contract 迁移 | 已完成 | 本任务提交 | 184 项 Node 测试；新 API client/controller；主要工作流与竞态保护 |
 | 8.2 Web TypeScript 构建 | 未开始 |  |  |
 | 8.3 secret 和错误状态 | 未开始 |  |  |
 | 8.4 浏览器关键流程测试 | 未开始 |  |  |
@@ -736,12 +736,12 @@ python -m mypy
 
 依赖：7.2、7.3。
 
-- [ ] 将现有页面接到 `/api/v1`。
-- [ ] 更新 proxy/task/record 字段映射。
-- [ ] 适配统一 error contract。
-- [ ] 保留现有主要工作流和布局。
-- [ ] 删除 Python admin API 的兼容调用。
-- [ ] 为分页、刷新和详情竞态增加保护。
+- [x] 将现有页面接到 `/api/v1`。
+- [x] 更新 proxy/task/record 字段映射。
+- [x] 适配统一 error contract。
+- [x] 保留现有主要工作流和布局。
+- [x] 删除 Python admin API 的兼容调用。
+- [x] 为分页、刷新和详情竞态增加保护。
 
 验收：人工和自动测试可以完成配置、启停、搜索、详情、导出和清理。
 
