@@ -80,7 +80,7 @@ python -m mypy
 | 5.8 协议故障集成测试 | 已完成 | 本任务提交 | 150 项 Node 测试；raw 故障注入；混合并发与 active shutdown |
 | 6.1 RuntimeManager | 已完成 | 本任务提交 | 154 项 Node 测试；独立启停；ephemeral port；安全失败状态 |
 | 6.2 原子配置替换 | 已完成 | 本任务提交 | 158 项 Node 测试；prepare/commit/rollback；并发串行化 |
-| 6.3 优雅启动和关闭 | 未开始 |  |  |
+| 6.3 优雅启动和关闭 | 已完成 | 本任务提交 | 161 项 Node 测试；有序 startup/shutdown；active grace/abort |
 | 6.4 runtime 故障恢复 | 未开始 |  |  |
 | 7.1 Fastify 管理面骨架 | 未开始 |  |  |
 | 7.2 proxy 管理 API | 未开始 |  |  |
@@ -638,13 +638,13 @@ python -m mypy
 
 依赖：6.2、4.3。
 
-- [ ] 按设计定义启动顺序和 ready 条件。
-- [ ] 处理 SIGINT/SIGTERM 和 Windows 支持的终止路径。
-- [ ] 停止接收新请求并 drain active requests。
-- [ ] 超过宽限期 abort active requests。
-- [ ] drain/close storage Worker。
-- [ ] 关闭 Agent、admin 和文件句柄。
-- [ ] 定义正常、配置错误、运行错误 exit code。
+- [x] 按设计定义启动顺序和 ready 条件。
+- [x] 处理 SIGINT/SIGTERM 和 Windows 支持的终止路径。
+- [x] 停止接收新请求并 drain active requests。
+- [x] 超过宽限期 abort active requests。
+- [x] drain/close storage Worker。
+- [x] 关闭 Agent、admin 和文件句柄。
+- [x] 定义正常、配置错误、运行错误 exit code。
 
 验收：集成测试在 active SSE 时触发关闭，进程在期限内退出且数据库状态一致。
 

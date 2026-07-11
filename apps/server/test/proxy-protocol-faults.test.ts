@@ -90,7 +90,7 @@ describe("ProxyServer protocol fault integration", () => {
     });
     await listen(upstream);
     cleanup.push(() => closeHttp(upstream));
-    const proxy = await startProxy(`http://127.0.0.1:${portOf(upstream).toString()}`);
+    const proxy = await startProxy(`http://127.0.0.1:${portOf(upstream).toString()}`, { shutdownGraceMs: 10 });
     const firstChunk = Promise.withResolvers<undefined>();
     const client = http.get({ host: "127.0.0.1", port: portOfProxy(proxy), path: "/active" }, (response) => {
       response.once("data", () => {

@@ -35,6 +35,7 @@ export interface ProxyServerOptions {
   trafficSink?: TrafficEventSink;
   agentPool?: TargetAgentPool;
   agentOptions?: TargetAgentPoolOptions;
+  shutdownGraceMs?: number;
 }
 
 export interface TrafficEventSink {
@@ -51,6 +52,8 @@ export class ProxyServer {
   readonly #server: http.Server;
   readonly #agentPool: TargetAgentPool;
   readonly #ownsAgentPool: boolean;
+  readonly #active = new Set<RequestControl>();
+  readonly #activeWaiters: (() => void)[] = [];
   #address: AddressInfo | null = null;
 
   public constructor(options: ProxyServerOptions) {
@@ -62,6 +65,11 @@ export class ProxyServer {
       throw new RangeError("Invalid response capture limit");
     if (!Number.isSafeInteger(options.totalRequestTimeoutMs) || options.totalRequestTimeoutMs < 1)
       throw new RangeError("Invalid total request timeout");
+    if (
+      options.shutdownGraceMs !== undefined &&
+      (!Number.isSafeInteger(options.shutdownGraceMs) || options.shutdownGraceMs < 0)
+    )
+      throw new RangeError("Invalid shutdown grace period");
     this.#options = options;
     this.#agentPool = options.agentPool ?? new TargetAgentPool(options.agentOptions);
     this.#ownsAgentPool = options.agentPool === undefined;
@@ -102,13 +110,21 @@ export class ProxyServer {
       if (this.#ownsAgentPool) this.#agentPool.destroy();
       return;
     }
-    this.#server.closeAllConnections();
-    await new Promise<void>((resolvePromise, rejectPromise) => {
+    const closed = new Promise<void>((resolvePromise, rejectPromise) => {
       this.#server.close((error) => {
         if (error) rejectPromise(error);
         else resolvePromise();
       });
     });
+    if (this.#active.size > 0) {
+      const drained = new Promise<void>((resolvePromise) => this.#activeWaiters.push(resolvePromise));
+      await waitForGrace(drained, this.#options.shutdownGraceMs ?? 10_000);
+    }
+    if (this.#active.size > 0) {
+      for (const control of this.#active) control.terminate("aborted", "SERVER_SHUTDOWN");
+      this.#server.closeAllConnections();
+    }
+    await closed;
     this.#address = null;
     if (this.#ownsAgentPool) this.#agentPool.destroy();
   }
@@ -133,12 +149,15 @@ export class ProxyServer {
     this.#options.onRequest?.(context);
     const traffic = new RequestTraffic(context, request, this.#options.proxy, this.#options.trafficSink);
     const control = new RequestControl(this.#options.totalRequestTimeoutMs, (outcome) => {
+      this.#active.delete(control);
+      if (this.#active.size === 0) for (const resolvePromise of this.#activeWaiters.splice(0)) resolvePromise();
       this.#options.onRequestOutcome?.(context, outcome);
       if (outcome.kind !== "finished") traffic.terminate(outcome);
       if (outcome.kind === "timed_out" && !response.headersSent && !response.destroyed) {
         respondUpstreamError(response, context.requestId, outcome.code ?? "REQUEST_TOTAL_TIMEOUT", 504);
       }
     });
+    this.#active.add(control);
     request.once("aborted", () => {
       control.terminate("aborted", "CLIENT_ABORTED");
     });
@@ -173,12 +192,14 @@ export class ProxyServer {
   ): Promise<void> {
     const declared = parseContentLength(request.headers["content-length"]);
     if (declared !== null && declared > this.#options.maxRequestBodyBytes) {
+      control.terminate("failed", "REQUEST_BODY_TOO_LARGE");
       respondTooLarge(response);
       request.resume();
       return;
     }
     const body = await readBody(request, this.#options.maxRequestBodyBytes);
     if (body === null) {
+      control.terminate("failed", "REQUEST_BODY_TOO_LARGE");
       respondTooLarge(response);
       return;
     }
@@ -551,4 +572,14 @@ function stageFromCode(code: string | null): string {
 
 function now(): string {
   return new Date().toISOString();
+}
+
+async function waitForGrace(drained: Promise<void>, graceMs: number): Promise<void> {
+  await new Promise<void>((resolvePromise) => {
+    const timer = setTimeout(resolvePromise, graceMs);
+    void drained.then(() => {
+      clearTimeout(timer);
+      resolvePromise();
+    });
+  });
 }
