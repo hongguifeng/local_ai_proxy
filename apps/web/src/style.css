@@ -257,6 +257,7 @@ main {
 .targets {
   display: flex;
   gap: 10px;
+  align-items: flex-start;
   overflow-x: auto;
   padding: 2px 2px 10px;
 }
@@ -307,7 +308,7 @@ main {
 }
 .logs-view.active {
   display: grid;
-  grid-template-columns: minmax(440px, 42%) 1fr;
+  grid-template-columns: var(--history-width, minmax(440px, 42%)) 6px minmax(0, 1fr);
 }
 .history-sidebar {
   min-width: 0;
@@ -315,6 +316,14 @@ main {
   grid-template-rows: auto auto 1fr;
   background: white;
   border-right: 1px solid #d5dde7;
+}
+.history-splitter {
+  background: #d5dde7;
+  cursor: col-resize;
+  touch-action: none;
+}
+.history-splitter:hover {
+  background: #9eb5c9;
 }
 .search-toolbar {
   display: grid;
@@ -426,11 +435,17 @@ main {
   margin: 0;
   font-size: 14px;
 }
+.pane-title > div {
+  display: flex;
+  gap: 6px;
+}
 .pane-title button {
   padding: 4px 8px;
   font-size: 11px;
 }
 .metadata {
+  max-height: 150px;
+  overflow: auto;
   padding: 7px 12px;
   color: #657080;
   background: #f0f4f8;
@@ -439,6 +454,9 @@ main {
     Consolas,
     monospace;
   overflow-wrap: anywhere;
+}
+.metadata[hidden] {
+  display: none;
 }
 .metadata:empty {
   display: none;
@@ -478,6 +496,9 @@ main {
   .logs-view.active {
     grid-template-columns: 1fr;
     grid-template-rows: minmax(330px, 46%) 1fr;
+  }
+  .history-splitter {
+    display: none;
   }
   .history-sidebar {
     border-right: 0;

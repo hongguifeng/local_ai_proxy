@@ -151,6 +151,22 @@ describe("AdminUiController workflows", () => {
       ],
     });
   });
+
+  it("keeps the default target enabled", async () => {
+    const client = new ApiClient(() => ok({ proxies: [proxy()] }));
+    const controller = new AdminUiController(client, () => undefined);
+    await controller.loadProxies();
+    controller.updateTarget("proxy-1", "target-1", { enabled: false });
+    expect(controller.state.proxies[0]?.targets[0]?.enabled).toBe(true);
+    controller.addTarget("proxy-1");
+    const secondTarget = controller.state.proxies[0]?.targets[1];
+    expect(secondTarget).toBeDefined();
+    if (!secondTarget) return;
+    controller.updateTarget("proxy-1", secondTarget.id, { enabled: false });
+    controller.setDefaultTarget("proxy-1", secondTarget.id);
+    expect(controller.state.proxies[0]?.defaultTargetId).toBe(secondTarget.id);
+    expect(controller.state.proxies[0]?.targets[1]?.enabled).toBe(true);
+  });
 });
 
 function ok(value: unknown): Promise<Response> {

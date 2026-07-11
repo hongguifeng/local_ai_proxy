@@ -160,6 +160,20 @@ export class AdminUiController {
     });
   }
 
+  public setDefaultTarget(proxyId: string, targetId: string): void {
+    this.#set({
+      proxies: this.#state.proxies.map((proxy) =>
+        proxy.id === proxyId
+          ? {
+              ...proxy,
+              defaultTargetId: targetId,
+              targets: proxy.targets.map((target) => (target.id === targetId ? { ...target, enabled: true } : target)),
+            }
+          : proxy,
+      ),
+    });
+  }
+
   public updateTarget(proxyId: string, targetId: string, values: Partial<Omit<PublicTarget, "id" | "apiKey">>): void {
     this.#state = {
       ...this.#state,
@@ -167,7 +181,15 @@ export class AdminUiController {
         proxy.id === proxyId
           ? {
               ...proxy,
-              targets: proxy.targets.map((target) => (target.id === targetId ? { ...target, ...values } : target)),
+              targets: proxy.targets.map((target) =>
+                target.id === targetId
+                  ? {
+                      ...target,
+                      ...values,
+                      ...(proxy.defaultTargetId === targetId && values.enabled === false ? { enabled: true } : {}),
+                    }
+                  : target,
+              ),
             }
           : proxy,
       ),

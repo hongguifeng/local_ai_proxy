@@ -30,6 +30,8 @@ const elements = {
   tasksPrev: required("tasks-prev") as HTMLButtonElement,
   tasksNext: required("tasks-next") as HTMLButtonElement,
   query: required("query") as HTMLInputElement,
+  logsView: required("logs-view"),
+  historySplitter: required("history-splitter"),
 };
 const controller = new AdminUiController(new ApiClient(), render);
 let selectedRecordId: string | null = null;
@@ -66,6 +68,14 @@ document.querySelectorAll<HTMLButtonElement>("[data-copy]").forEach((button) => 
     void navigator.clipboard.writeText(source.textContent);
   });
 });
+document.querySelectorAll<HTMLButtonElement>("[data-meta-toggle]").forEach((button) => {
+  button.addEventListener("click", () => {
+    const panel = button.dataset.metaToggle === "request" ? elements.requestMeta : elements.responseMeta;
+    panel.hidden = !panel.hidden;
+    button.classList.toggle("active", !panel.hidden);
+  });
+});
+installHistorySplitter();
 void refresh();
 
 async function refresh(): Promise<void> {
@@ -79,6 +89,23 @@ function activateView(tab: HTMLButtonElement): void {
   tab.classList.add("active");
   const view = tab.dataset.view;
   if (view) document.getElementById(view)?.classList.add("active");
+}
+
+function installHistorySplitter(): void {
+  let dragging = false;
+  elements.historySplitter.addEventListener("pointerdown", (event) => {
+    dragging = true;
+    elements.historySplitter.setPointerCapture(event.pointerId);
+  });
+  elements.historySplitter.addEventListener("pointermove", (event) => {
+    if (!dragging || window.innerWidth <= 900) return;
+    const bounds = elements.logsView.getBoundingClientRect();
+    const width = Math.max(360, Math.min(bounds.width - 420, event.clientX - bounds.left));
+    elements.logsView.style.setProperty("--history-width", `${String(width)}px`);
+  });
+  elements.historySplitter.addEventListener("pointerup", () => {
+    dragging = false;
+  });
 }
 
 function render(state: UiState): void {
@@ -180,7 +207,7 @@ function targetCard(proxy: PublicProxy, target: PublicTarget): HTMLElement {
       "默认",
       proxy.defaultTargetId === target.id,
       (checked) => {
-        if (checked) controller.updateProxy(proxy.id, { defaultTargetId: target.id });
+        if (checked) controller.setDefaultTarget(proxy.id, target.id);
       },
       "radio",
     ),
@@ -190,39 +217,37 @@ function targetCard(proxy: PublicProxy, target: PublicTarget): HTMLElement {
     labeledInput("转发地址", target.url, (value) => {
       controller.updateTarget(proxy.id, target.id, { url: value });
     }),
-    checkbox("启用目标", target.enabled, (checked) => {
-      controller.updateTarget(proxy.id, target.id, { enabled: checked });
-    }),
+    checkbox(
+      "启用目标",
+      target.enabled,
+      (checked) => {
+        controller.updateTarget(proxy.id, target.id, { enabled: checked });
+      },
+      "checkbox",
+      proxy.defaultTargetId === target.id,
+    ),
   );
   const secret = div("secret-row");
   const secretInput = document.createElement("input");
   secretInput.type = "password";
-  secretInput.placeholder = target.apiKey.configured ? `已配置 ${target.apiKey.masked ?? ""}` : "输入新的 API Key";
-  const secretAction = document.createElement("select");
-  for (const [value, label] of [
-    ["keep", "保持密钥"],
-    ["replace", "替换密钥"],
-    ["clear", "清除密钥"],
-  ] as const) {
-    const option = document.createElement("option");
-    option.value = value;
-    option.textContent = label;
-    secretAction.append(option);
-  }
-  const updateSecret = () => {
-    controller.setTargetSecret(
-      proxy.id,
-      target.id,
-      secretAction.value as "keep" | "replace" | "clear",
-      secretInput.value,
-    );
-  };
-  secretAction.addEventListener("change", updateSecret);
-  secretInput.addEventListener("input", () => {
-    secretAction.value = "replace";
-    updateSecret();
-  });
-  secret.append(field("API Key", secretInput), secretAction);
+  secretInput.placeholder = target.apiKey.configured
+    ? `已配置 ${target.apiKey.masked ?? ""}；留空并设置可清除`
+    : "输入新的 API Key";
+  secret.append(
+    field("API Key", secretInput),
+    button("设置", () => {
+      const value = secretInput.value;
+      controller.setTargetSecret(proxy.id, target.id, value ? "replace" : "clear", value);
+    }),
+  );
+
+  const mappings = labeledTextarea(
+    "模型映射（每行 监听模型 => 上游模型）",
+    mappingsText(target.modelMappings),
+    (value) => {
+      controller.updateTarget(proxy.id, target.id, { modelMappings: parseMappings(value) });
+    },
+  );
 
   const details = document.createElement("details");
   details.className = "target-options";
@@ -247,9 +272,6 @@ function targetCard(proxy: PublicProxy, target: PublicTarget): HTMLElement {
     checkbox("日志脱敏", target.redactLogs, (checked) => {
       controller.updateTarget(proxy.id, target.id, { redactLogs: checked });
     }),
-    labeledTextarea("模型映射（每行 监听模型 => 上游模型）", mappingsText(target.modelMappings), (value) => {
-      controller.updateTarget(proxy.id, target.id, { modelMappings: parseMappings(value) });
-    }),
   );
   details.append(summary, body);
   const actions = div("target-actions");
@@ -262,7 +284,7 @@ function targetCard(proxy: PublicProxy, target: PublicTarget): HTMLElement {
       "danger",
     ),
   );
-  card.append(head, main, secret, details, actions);
+  card.append(head, main, secret, mappings, details, actions);
   return card;
 }
 
@@ -285,9 +307,11 @@ function timeoutFields(proxyId: string, target: PublicTarget): HTMLElement {
 function taskButton(task: TaskSummary, logRoot: string, active: boolean): HTMLButtonElement {
   const control = historyButton(active);
   control.append(
-    text("history-title", task.model ?? task.kind),
-    text("history-meta", `${task.endpoint} · ${String(task.requestCount)} 个请求${task.pending ? " · 进行中" : ""}`),
-    text("history-meta", `${formatTime(task.lastSeenAt)} · ${task.target ?? "未路由"}`),
+    text("history-title", `${task.model ?? task.kind} · ${task.endpoint}`),
+    text(
+      "history-meta",
+      `${formatTime(task.lastSeenAt)} | ${String(task.requestCount)} 个请求 | ${task.pending ? "进行中" : (task.target ?? "未路由")}`,
+    ),
   );
   control.addEventListener("click", () => {
     selectedRecordId = null;
@@ -298,19 +322,29 @@ function taskButton(task: TaskSummary, logRoot: string, active: boolean): HTMLBu
 
 function recordButton(record: RecordSummary, active: boolean): HTMLButtonElement {
   const control = historyButton(active);
+  const counters = [
+    record.messageCount === null ? "" : `${String(record.messageCount)} 条消息`,
+    record.tokenCount === null ? "" : `${String(record.tokenCount)} tokens`,
+  ].filter(Boolean);
   control.append(
-    text("history-title", `#${String(record.sequence)} ${record.method} ${record.path}`),
-    text("history-meta", `${String(record.status ?? "等待")} · ${formatDuration(record.durationMs)} · ${record.event}`),
+    text("history-title", `${record.method} ${record.path}`),
     text(
       "history-meta",
-      `${formatTime(record.timestamp)}${record.tokenCount === null ? "" : ` · ${String(record.tokenCount)} tokens`}`,
+      `${formatTime(record.timestamp)} | ${statusText(record)} | ${formatDuration(record.durationMs)}`,
     ),
+    ...(counters.length > 0 ? [text("history-meta", counters.join(" | "))] : []),
   );
   control.addEventListener("click", () => {
     selectedRecordId = record.id;
     void controller.selectRecord(record.id);
   });
   return control;
+}
+
+function statusText(record: RecordSummary): string {
+  if (record.status !== null) return String(record.status);
+  if (record.errorCode) return record.errorCode;
+  return record.event === "request_received" ? "等待中" : record.event;
 }
 
 function renderDetail(detail: RecordDetail | null, loading: boolean): void {
@@ -389,12 +423,14 @@ function checkbox(
   checked: boolean,
   update: (checked: boolean) => void,
   type: "checkbox" | "radio" = "checkbox",
+  disabled = false,
 ): HTMLElement {
   const wrapper = document.createElement("label");
   wrapper.className = "check";
   const input = document.createElement("input");
   input.type = type;
   input.checked = checked;
+  input.disabled = disabled;
   input.addEventListener("change", () => {
     update(input.checked);
   });

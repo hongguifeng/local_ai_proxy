@@ -136,17 +136,35 @@ function record(taskId) {
 }
 function recordDetail(id) {
   const base = record(id.replace("record-", ""));
-  const empty = { kind: "empty", observedBytes: 0, capturedBytes: 0, truncated: false };
+  const requestValue = { model: id.includes("sse") ? "gpt-sse" : "gpt-normal", input: "hello from fixture" };
+  const responseText = id.includes("sse")
+    ? 'data: {"type":"response.completed","output_text":"fixture response"}\n\n'
+    : '{"output_text":"fixture response"}';
   return {
     ...base,
     id,
     client: { host: "127.0.0.1", port: 5000 },
     proxy: { id: "proxy-1", name: "Fixture Proxy" },
     target: { id: "target-1", name: "Fixture", url: "http://127.0.0.1:9999" },
-    request: { headers: {}, body: empty },
+    request: {
+      headers: { "content-type": ["application/json"] },
+      body: {
+        kind: "json",
+        value: requestValue,
+        observedBytes: JSON.stringify(requestValue).length,
+        capturedBytes: JSON.stringify(requestValue).length,
+        truncated: false,
+      },
+    },
     response: {
       headers: { "content-type": [id.includes("sse") ? "text/event-stream" : "application/json"] },
-      body: empty,
+      body: {
+        kind: "text",
+        text: responseText,
+        observedBytes: responseText.length,
+        capturedBytes: responseText.length,
+        truncated: false,
+      },
     },
   };
 }

@@ -63,23 +63,30 @@
               </section>
             </div>
           </aside>
+          <div id="history-splitter" class="history-splitter" aria-label="调整历史列表宽度"></div>
           <section class="detail-workspace">
             <div id="detail-summary" class="detail-summary">选择一条请求查看详情</div>
             <div class="payload-grid">
               <section class="payload-pane">
                 <div class="pane-title">
                   <h2>Request</h2>
-                  <button data-copy="request" type="button">复制</button>
+                  <div>
+                    <button data-meta-toggle="request" type="button">元信息</button>
+                    <button data-copy="request" type="button">复制</button>
+                  </div>
                 </div>
-                <div id="request-meta" class="metadata"></div>
+                <div id="request-meta" class="metadata" hidden></div>
                 <pre id="request-detail" class="json-view">暂无请求内容</pre>
               </section>
               <section class="payload-pane">
                 <div class="pane-title">
                   <h2>Response</h2>
-                  <button data-copy="response" type="button">复制</button>
+                  <div>
+                    <button data-meta-toggle="response" type="button">元信息</button>
+                    <button data-copy="response" type="button">复制</button>
+                  </div>
                 </div>
-                <div id="response-meta" class="metadata"></div>
+                <div id="response-meta" class="metadata" hidden></div>
                 <pre id="response-detail" class="json-view">暂无响应内容</pre>
               </section>
             </div>
