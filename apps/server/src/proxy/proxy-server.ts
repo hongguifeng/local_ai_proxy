@@ -5,6 +5,7 @@ import type { AddressInfo } from "node:net";
 import { pipeline } from "node:stream/promises";
 
 import type { RuntimeProxy, RuntimeTarget } from "../config/schema.js";
+import type { RuntimeLogger } from "../logging.js";
 import type { TrafficEvent } from "../storage/traffic-events.js";
 import { CaptureTap, type CaptureTapResult, type StreamObserver } from "./capture-tap.js";
 import { buildUpstreamRequestHeaders, rawHeadersToPairs, removeHopByHopHeaders, type HeaderPair } from "./headers.js";
@@ -36,6 +37,7 @@ export interface ProxyServerOptions {
   agentPool?: TargetAgentPool;
   agentOptions?: TargetAgentPoolOptions;
   shutdownGraceMs?: number;
+  logger?: RuntimeLogger;
 }
 
 export interface TrafficEventSink {
@@ -102,6 +104,9 @@ export class ProxyServer {
     const address = this.#server.address();
     if (!address || typeof address === "string") throw new Error("Proxy server has no TCP address");
     this.#address = address;
+    this.#options.logger
+      ?.child({ proxyId: this.#options.proxy.id })
+      .info({ event: "proxy_started", host: address.address, port: address.port }, "Proxy started");
     return address;
   }
 
@@ -127,6 +132,7 @@ export class ProxyServer {
     await closed;
     this.#address = null;
     if (this.#ownsAgentPool) this.#agentPool.destroy();
+    this.#options.logger?.child({ proxyId: this.#options.proxy.id }).info({ event: "proxy_stopped" }, "Proxy stopped");
   }
 
   public get address(): AddressInfo | null {
@@ -152,6 +158,9 @@ export class ProxyServer {
       this.#active.delete(control);
       if (this.#active.size === 0) for (const resolvePromise of this.#activeWaiters.splice(0)) resolvePromise();
       this.#options.onRequestOutcome?.(context, outcome);
+      this.#options.logger
+        ?.child({ requestId: context.requestId, proxyId: this.#options.proxy.id, targetId: traffic.targetId })
+        .info({ event: "request_completed", outcome: outcome.kind, code: outcome.code }, "Proxy request completed");
       if (outcome.kind !== "finished") traffic.terminate(outcome);
       if (outcome.kind === "timed_out" && !response.headersSent && !response.destroyed) {
         respondUpstreamError(response, context.requestId, outcome.code ?? "REQUEST_TOTAL_TIMEOUT", 504);
@@ -399,6 +408,11 @@ class RequestTraffic {
   readonly #startedAt = performance.now();
   #status = 502;
   #terminal = false;
+  #targetId: string | null = null;
+
+  public get targetId(): string | null {
+    return this.#targetId;
+  }
 
   public constructor(
     context: ProxyRequestContext,
@@ -432,6 +446,7 @@ class RequestTraffic {
   }
 
   public routed(target: RuntimeTarget): void {
+    this.#targetId = target.id;
     this.#emit({
       kind: "routed",
       requestId: this.#context.requestId,

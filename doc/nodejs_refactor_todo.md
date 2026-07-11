@@ -91,7 +91,7 @@ python -m mypy
 | 8.2 Web TypeScript 构建 | 已完成 | 本任务提交 | 185 项 Node 测试；Vite hashed build；无 prod sourcemap；响应式页面 |
 | 8.3 secret 和错误状态 | 已完成 | 本任务提交 | 188 项 Node 测试；secret 明确动作；stale/empty/loading；防重复与清理确认 |
 | 8.4 浏览器关键流程测试 | 已完成 | 本任务提交 | Playwright fixture E2E；proxy/log/cleanup/export；窄屏；失败 trace/screenshot |
-| 9.1 结构化运行日志 | 未开始 |  |  |
+| 9.1 结构化运行日志 | 已完成 | 本任务提交 | Pino JSON/pretty；child context；redaction；同类故障限频；190 项 Node 测试 |
 | 9.2 health 和内部指标 | 未开始 |  |  |
 | 9.3 安全加固 | 未开始 |  |  |
 | 9.4 容量和 retention | 未开始 |  |  |
@@ -791,12 +791,12 @@ python -m mypy
 
 依赖：5.6、7.1。
 
-- [ ] 接入 Pino。
-- [ ] request/proxy/target ID 使用 child logger context。
-- [ ] 定义启动、关闭、请求完成和组件故障 event。
-- [ ] 开发 pretty 输出与生产 JSON 分离。
-- [ ] 实现 secret/redaction 配置。
-- [ ] 限制同类错误日志频率。
+- [x] 接入 Pino。
+- [x] request/proxy/target ID 使用 child logger context。
+- [x] 定义启动、关闭、请求完成和组件故障 event。
+- [x] 开发 pretty 输出与生产 JSON 分离。
+- [x] 实现 secret/redaction 配置。
+- [x] 限制同类错误日志频率。
 
 验收：日志字段稳定可解析，测试 secret 永不出现。
 
