@@ -11,7 +11,7 @@ import { type Archiver, ZipArchive } from "archiver";
 
 export interface ExportSource {
   listTasks(query: string, limit: number, offset: number): Promise<unknown>;
-  listRecords(taskId: string, limit: number, offset: number): Promise<unknown>;
+  listRecords(taskId: string, limit: number, offset: number, query?: string): Promise<unknown>;
   getRecord(recordId: string): Promise<unknown>;
 }
 

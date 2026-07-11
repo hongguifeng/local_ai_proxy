@@ -84,7 +84,7 @@ python -m mypy
 | 6.4 runtime 故障恢复 | 已完成 | 本任务提交 | 166 项 Node 测试；degraded/failed health；有限退避恢复 |
 | 7.1 Fastify 管理面骨架 | 已完成 | 本任务提交 | 169 项 Node 测试；inject health；body/request 边界与 app 隔离 |
 | 7.2 proxy 管理 API | 已完成 | 本任务提交 | 172 项 Node 测试；masked secret；keep/replace/clear；原子更新 |
-| 7.3 task/log 管理 API | 未开始 |  |  |
+| 7.3 task/log 管理 API | 已完成 | 本任务提交 | 175 项 Node 测试；multi-root query/cleanup；流式 export |
 | 7.4 统一错误与安全边界 | 未开始 |  |  |
 | 7.5 静态资源和浏览器启动 | 未开始 |  |  |
 | 8.1 现有 UI contract 迁移 | 未开始 |  |  |
@@ -694,13 +694,13 @@ python -m mypy
 
 依赖：7.1、4.7、4.8。
 
-- [ ] 实现 task 分页搜索。
-- [ ] 实现 task 内 record 分页。
-- [ ] 实现 record detail。
-- [ ] 实现 cleanup。
-- [ ] 实现 streaming export。
-- [ ] 对 limit/offset/query 设置边界。
-- [ ] 多 log root 部分失败返回明确 details。
+- [x] 实现 task 分页搜索。
+- [x] 实现 task 内 record 分页。
+- [x] 实现 record detail。
+- [x] 实现 cleanup。
+- [x] 实现 streaming export。
+- [x] 对 limit/offset/query 设置边界。
+- [x] 多 log root 部分失败返回明确 details。
 
 验收：API 查询不在主线程执行 SQLite，导出取消能清理后台工作。
 
