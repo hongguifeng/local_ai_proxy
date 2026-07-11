@@ -401,6 +401,8 @@ PRAGMA synchronous = NORMAL;
 - 数据库层返回领域 DTO，不把 `better-sqlite3` row 或 statement 泄漏到上层。
 - 定期 checkpoint、optimize 和 retention 清理由显式维护任务触发。
 
+完整 request/response body 捕获会保存用户提示、模型回复及可能的个人或机密数据，也会使磁盘消耗近似随流量线性增长。生产环境应优先使用脱敏和截断，按数据分类选择更小的 capture 上限，并同时配置保留天数、最大 task 数和磁盘低水位。低水位触发后 storage health 降级并执行小批次清理；维护任务只在写队列空闲时运行，避免与高峰写入竞争。
+
 ### 11.3 队列过载策略
 
 必须配置并观测：

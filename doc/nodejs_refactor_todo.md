@@ -94,7 +94,7 @@ python -m mypy
 | 9.1 结构化运行日志 | 已完成 | 本任务提交 | Pino JSON/pretty；child context；redaction；同类故障限频；190 项 Node 测试 |
 | 9.2 health 和内部指标 | 已完成 | 本任务提交 | live/ready/degraded；bounded metrics adapter；storage/request/traffic；193 项 Node 测试 |
 | 9.3 安全加固 | 已完成 | 本任务提交 | token/origin/CORS；并发限制；0600 文件；注入测试；audit/license；196 项 Node 测试 |
-| 9.4 容量和 retention | 未开始 |  |  |
+| 9.4 容量和 retention | 已完成 | 本任务提交 | capture/queue 边界；idle retention；低磁盘降级；隐私成本；198 项 Node 测试 |
 | 9.5 性能基线与剖析 | 未开始 |  |  |
 | 9.6 故障注入测试 | 未开始 |  |  |
 | 10.1 CLI/npm 产物 | 未开始 |  |  |
@@ -832,12 +832,12 @@ python -m mypy
 
 依赖：4.7、9.2。
 
-- [ ] 确定 body capture 默认值和硬上限。
-- [ ] 确定 storage queue 默认值和硬上限。
-- [ ] 实现按天数/容量的 retention job。
-- [ ] 清理任务避免与高峰写入竞争。
-- [ ] 配置磁盘空间低水位告警/降级。
-- [ ] 文档说明完整 body 记录的隐私和磁盘成本。
+- [x] 确定 body capture 默认值和硬上限。
+- [x] 确定 storage queue 默认值和硬上限。
+- [x] 实现按天数/容量的 retention job。
+- [x] 清理任务避免与高峰写入竞争。
+- [x] 配置磁盘空间低水位告警/降级。
+- [x] 文档说明完整 body 记录的隐私和磁盘成本。
 
 验收：长时间合成负载下内存、队列和数据库增长符合配置。
 
