@@ -42,25 +42,14 @@
               <a id="export" hidden>导出 ZIP</a>
               <button id="cleanup" type="button" disabled>清理任务</button>
             </div>
-            <div class="history-columns">
-              <section>
-                <div class="column-title">
-                  <h2>任务</h2>
-                  <span id="task-count"></span>
-                </div>
-                <div id="tasks" class="history-list"></div>
-                <div class="pagination">
-                  <button id="tasks-prev" type="button">上一页</button>
-                  <button id="tasks-next" type="button">下一页</button>
-                </div>
-              </section>
-              <section>
-                <div class="column-title">
-                  <h2>请求</h2>
-                  <span id="record-count"></span>
-                </div>
-                <div id="records" class="history-list"></div>
-              </section>
+            <div class="column-title">
+              <h2>历史记录</h2>
+              <span id="task-count"></span>
+            </div>
+            <div id="history-tree" class="history-tree"></div>
+            <div class="pagination">
+              <button id="tasks-prev" type="button">上一页</button>
+              <button id="tasks-next" type="button">下一页</button>
             </div>
           </aside>
           <div id="history-splitter" class="history-splitter" aria-label="调整历史列表宽度"></div>
@@ -76,7 +65,7 @@
                   </div>
                 </div>
                 <div id="request-meta" class="metadata" hidden></div>
-                <pre id="request-detail" class="json-view">暂无请求内容</pre>
+                <div id="request-detail" class="json-view">暂无请求内容</div>
               </section>
               <section class="payload-pane">
                 <div class="pane-title">
@@ -87,7 +76,7 @@
                   </div>
                 </div>
                 <div id="response-meta" class="metadata" hidden></div>
-                <pre id="response-detail" class="json-view">暂无响应内容</pre>
+                <div id="response-detail" class="json-view">暂无响应内容</div>
               </section>
             </div>
           </section>

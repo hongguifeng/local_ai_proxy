@@ -15,10 +15,8 @@ const elements = {
   error: required("error"),
   notice: required("notice"),
   proxies: required("proxies"),
-  tasks: required("tasks"),
-  records: required("records"),
+  historyTree: required("history-tree"),
   taskCount: required("task-count"),
-  recordCount: required("record-count"),
   detailSummary: required("detail-summary"),
   requestMeta: required("request-meta"),
   responseMeta: required("response-meta"),
@@ -122,18 +120,10 @@ function render(state: UiState): void {
 
   const tasks = state.tasks?.tasks ?? [];
   elements.taskCount.textContent = state.tasks ? `${String(state.tasks.total)} 项` : "";
-  elements.tasks.replaceChildren(
+  elements.historyTree.replaceChildren(
     ...(tasks.length > 0
-      ? tasks.map(({ task, logRoot }) => taskButton(task, logRoot, state.selectedTask?.id === task.id))
+      ? tasks.map(({ task, logRoot }) => taskGroup(task, logRoot, state))
       : [empty(state.loading.tasks ? "正在加载任务…" : state.stale ? "任务数据可能已过期" : "没有匹配的任务")]),
-  );
-
-  const records = state.records?.records ?? [];
-  elements.recordCount.textContent = state.records ? `${String(state.records.total)} 项` : "";
-  elements.records.replaceChildren(
-    ...(records.length > 0
-      ? records.map((record) => recordButton(record, selectedRecordId === record.id))
-      : [empty(state.loading.records ? "正在加载请求…" : state.selectedTask ? "该任务没有请求记录" : "请先选择任务")]),
   );
   renderDetail(state.detail, state.loading.detail);
 
@@ -304,20 +294,35 @@ function timeoutFields(proxyId: string, target: PublicTarget): HTMLElement {
   return grid;
 }
 
-function taskButton(task: TaskSummary, logRoot: string, active: boolean): HTMLButtonElement {
-  const control = historyButton(active);
-  control.append(
+function taskGroup(task: TaskSummary, logRoot: string, state: UiState): HTMLElement {
+  const active = state.selectedTask?.id === task.id;
+  const group = document.createElement("section");
+  group.className = "history-group";
+  const head = document.createElement("button");
+  head.type = "button";
+  head.className = `history-group-head${active ? " active" : ""}`;
+  head.append(
+    text("history-caret", active ? "▾" : "▸"),
     text("history-title", `${task.model ?? task.kind} · ${task.endpoint}`),
     text(
       "history-meta",
       `${formatTime(task.lastSeenAt)} | ${String(task.requestCount)} 个请求 | ${task.pending ? "进行中" : (task.target ?? "未路由")}`,
     ),
   );
-  control.addEventListener("click", () => {
+  head.addEventListener("click", () => {
     selectedRecordId = null;
     void controller.selectTask(logRoot, task.id);
   });
-  return control;
+  group.append(head);
+  if (active) {
+    const records = div("history-group-records");
+    if (state.loading.records) records.append(text("history-group-placeholder", "正在加载请求…"));
+    else if (!state.records || state.records.records.length === 0)
+      records.append(text("history-group-placeholder", "该任务没有请求记录"));
+    else records.append(...state.records.records.map((record) => recordButton(record, selectedRecordId === record.id)));
+    group.append(records);
+  }
+  return group;
 }
 
 function recordButton(record: RecordSummary, active: boolean): HTMLButtonElement {
@@ -356,27 +361,182 @@ function renderDetail(detail: RecordDetail | null, loading: boolean): void {
     elements.detailSummary.textContent = "选择一条请求查看详情";
     elements.requestMeta.textContent = "";
     elements.responseMeta.textContent = "";
-    elements.requestDetail.textContent = "暂无请求内容";
-    elements.responseDetail.textContent = "暂无响应内容";
+    placeholder(elements.requestDetail, "暂无请求内容");
+    placeholder(elements.responseDetail, "暂无响应内容");
     return;
   }
   elements.detailSummary.textContent = `${detail.method} ${detail.path} · ${String(detail.status ?? "未完成")} · ${formatDuration(detail.durationMs)} · ${detail.proxy.name} → ${detail.target.name}`;
   elements.requestMeta.textContent = `客户端 ${detail.client.host}:${String(detail.client.port)}\nHeaders\n${headersText(detail.request.headers)}`;
-  elements.requestDetail.textContent = payloadText(detail.request.body);
+  renderJson(elements.requestDetail, payloadValue(detail.request.body, detail.request.headers, false));
   elements.responseMeta.textContent = detail.response
     ? `Headers\n${headersText(detail.response.headers)}`
     : "请求尚无响应";
-  elements.responseDetail.textContent = detail.response ? payloadText(detail.response.body) : "暂无响应内容";
+  if (detail.response)
+    renderJson(elements.responseDetail, payloadValue(detail.response.body, detail.response.headers, true));
+  else placeholder(elements.responseDetail, "暂无响应内容");
 }
 
-function payloadText(payload: CapturedPayload): string {
-  const suffix = payload.truncated
-    ? `\n\n[内容已截断：捕获 ${String(payload.capturedBytes)} / ${String(payload.observedBytes)} bytes]`
-    : "";
-  if (payload.kind === "empty") return `（空）${suffix}`;
-  if (payload.kind === "json") return `${JSON.stringify(payload.value, null, 2)}${suffix}`;
-  if (payload.kind === "text") return `${payload.text}${suffix}`;
-  return `[二进制内容，Base64]\n${payload.base64}${suffix}`;
+function payloadValue(
+  payload: CapturedPayload,
+  headers: Readonly<Record<string, readonly string[]>>,
+  aggregateStream: boolean,
+): unknown {
+  const capture = {
+    observedBytes: payload.observedBytes,
+    capturedBytes: payload.capturedBytes,
+    truncated: payload.truncated,
+  };
+  if (payload.kind === "empty") return { capture, body: null };
+  if (payload.kind === "json") return { capture, body: payload.value };
+  if (payload.kind === "binary") return { capture, body: { encoding: "base64", value: payload.base64 } };
+  if (aggregateStream && contentType(headers).includes("text/event-stream"))
+    return { capture, body: summarizeEventStream(payload.text) };
+  return { capture, body: payload.text };
+}
+
+function contentType(headers: Readonly<Record<string, readonly string[]>>): string {
+  return Object.entries(headers).find(([name]) => name.toLowerCase() === "content-type")?.[1]?.[0] ?? "";
+}
+
+function summarizeEventStream(textValue: string): Record<string, unknown> {
+  const content: string[] = [];
+  const reasoning: string[] = [];
+  const finishReasons = new Set<string>();
+  let usage: unknown;
+  let eventCount = 0;
+  let doneSeen = false;
+  for (const line of textValue.split(/\r?\n/u)) {
+    if (!line.startsWith("data:")) continue;
+    const data = line.slice(5).trim();
+    if (!data) continue;
+    if (data === "[DONE]") {
+      doneSeen = true;
+      continue;
+    }
+    let event: unknown;
+    try {
+      event = JSON.parse(data) as unknown;
+    } catch {
+      continue;
+    }
+    eventCount += 1;
+    collectStreamEvent(event, content, reasoning, finishReasons, (value) => {
+      usage = value;
+    });
+  }
+  return {
+    streamSummary: {
+      eventCount,
+      doneSeen,
+      ...(content.length > 0 ? { content: content.join("") } : {}),
+      ...(reasoning.length > 0 ? { reasoning: reasoning.join("") } : {}),
+      ...(finishReasons.size > 0 ? { finishReasons: [...finishReasons] } : {}),
+      ...(usage === undefined ? {} : { usage }),
+    },
+  };
+}
+
+function collectStreamEvent(
+  event: unknown,
+  content: string[],
+  reasoning: string[],
+  finishReasons: Set<string>,
+  setUsage: (value: unknown) => void,
+): void {
+  if (!event || typeof event !== "object") return;
+  const value = event as Record<string, unknown>;
+  const type = typeof value.type === "string" ? value.type : "";
+  const delta = value.delta;
+  if (typeof delta === "string") {
+    if (type.includes("reasoning") || type.includes("thinking")) reasoning.push(delta);
+    else content.push(delta);
+  } else if (delta && typeof delta === "object") {
+    const fields = delta as Record<string, unknown>;
+    if (typeof fields.text === "string") content.push(fields.text);
+    if (typeof fields.thinking === "string") reasoning.push(fields.thinking);
+    if (typeof fields.stop_reason === "string") finishReasons.add(fields.stop_reason);
+  }
+  if (typeof value.text === "string" && type.includes("text")) content.push(value.text);
+  if (typeof value.output_text === "string") content.push(value.output_text);
+  if (typeof value.finish_reason === "string") finishReasons.add(value.finish_reason);
+  if (typeof value.stop_reason === "string") finishReasons.add(value.stop_reason);
+  if (value.usage !== undefined) setUsage(value.usage);
+  if (value.response && typeof value.response === "object") {
+    const response = value.response as Record<string, unknown>;
+    if (response.usage !== undefined) setUsage(response.usage);
+    collectResponseOutput(response.output, content, reasoning);
+    if (typeof response.status === "string") finishReasons.add(response.status);
+  }
+}
+
+function collectResponseOutput(output: unknown, content: string[], reasoning: string[]): void {
+  if (!Array.isArray(output)) return;
+  for (const item of output) {
+    if (!item || typeof item !== "object") continue;
+    const value = item as Record<string, unknown>;
+    const target = value.type === "reasoning" ? reasoning : content;
+    if (typeof value.text === "string") target.push(value.text);
+    if (!Array.isArray(value.content)) continue;
+    for (const part of value.content) {
+      if (!part || typeof part !== "object") continue;
+      const textValue = (part as Record<string, unknown>).text;
+      if (typeof textValue === "string") target.push(textValue);
+    }
+  }
+}
+
+function renderJson(container: HTMLElement, value: unknown): void {
+  const root = div("json-node");
+  root.append(jsonNode(value, "", 0));
+  container.replaceChildren(root);
+}
+
+function jsonNode(value: unknown, key: string, depth: number): HTMLElement {
+  if (Array.isArray(value) || (value !== null && typeof value === "object")) {
+    const entries = Array.isArray(value)
+      ? value.map((item, index) => [String(index), item] as const)
+      : Object.entries(value);
+    const details = document.createElement("details");
+    details.open = depth < 2;
+    const summary = document.createElement("summary");
+    if (key) summary.append(jsonKey(key), ": ");
+    const start = Array.isArray(value) ? "[" : "{";
+    const end = Array.isArray(value) ? "]" : "}";
+    summary.append(start, text("json-muted", ` ${String(entries.length)} 项 `), end);
+    const children = div("json-children");
+    for (const [childKey, childValue] of entries) {
+      const row = div("json-row");
+      row.append(jsonNode(childValue, childKey, depth + 1));
+      children.append(row);
+    }
+    details.append(summary, children);
+    return details;
+  }
+  const row = document.createElement("span");
+  if (key) row.append(jsonKey(key), ": ");
+  if (typeof value === "string") {
+    if (value.length > 200 || value.includes("\n")) {
+      const details = document.createElement("details");
+      const summary = document.createElement("summary");
+      summary.append(text("json-string", JSON.stringify(value.slice(0, 140)) + (value.length > 140 ? "…" : "")));
+      const body = document.createElement("pre");
+      body.className = "json-long-string";
+      body.textContent = value;
+      details.append(summary, body);
+      row.append(details);
+    } else row.append(text("json-string", JSON.stringify(value)));
+  } else if (typeof value === "number") row.append(text("json-number", String(value)));
+  else if (typeof value === "boolean") row.append(text("json-boolean", String(value)));
+  else row.append(text("json-null", value === undefined ? "undefined" : "null"));
+  return row;
+}
+
+function jsonKey(key: string): HTMLElement {
+  return text("json-key", JSON.stringify(key));
+}
+
+function placeholder(container: HTMLElement, value: string): void {
+  container.replaceChildren(text("json-muted", value));
 }
 
 function labeledInput(label: string, value: string, update: (value: string) => void): HTMLElement {
