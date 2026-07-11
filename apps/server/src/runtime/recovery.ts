@@ -3,6 +3,9 @@ import type { RuntimeStatus } from "./runtime-manager.js";
 export type ComponentHealth = "ok" | "degraded" | "failed";
 
 export interface RuntimeHealthSnapshot {
+  live?: boolean;
+  ready?: boolean;
+  degraded?: boolean;
   status: ComponentHealth;
   storage: ComponentHealth;
   storageRestartAttempts: number;
@@ -55,6 +58,9 @@ export class RuntimeRecovery {
     const status =
       this.#storage === "failed" || failed > 0 ? "failed" : this.#storage === "degraded" ? "degraded" : "ok";
     return {
+      live: true,
+      ready: status !== "failed",
+      degraded: status === "degraded",
       status,
       storage: this.#storage,
       storageRestartAttempts: this.#attempts,

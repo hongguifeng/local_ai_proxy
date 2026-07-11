@@ -3,9 +3,11 @@ import { randomUUID } from "node:crypto";
 import Fastify, { type FastifyInstance } from "fastify";
 
 import type { RuntimeHealthSnapshot } from "../runtime/recovery.js";
+import type { InternalMetricsSnapshot } from "../observability.js";
 
 export interface AdminAppDependencies {
   health(): RuntimeHealthSnapshot;
+  metrics?: () => InternalMetricsSnapshot;
   registerRoutes?: (app: FastifyInstance) => void | Promise<void>;
 }
 
@@ -37,6 +39,9 @@ export function createAdminApp(dependencies: AdminAppDependencies, options: Admi
             additionalProperties: false,
             required: ["status", "storage", "storageRestartAttempts", "proxies"],
             properties: {
+              live: { type: "boolean" },
+              ready: { type: "boolean" },
+              degraded: { type: "boolean" },
               status: { enum: ["ok", "degraded", "failed"] },
               storage: { enum: ["ok", "degraded", "failed"] },
               storageRestartAttempts: { type: "integer", minimum: 0 },
@@ -57,6 +62,7 @@ export function createAdminApp(dependencies: AdminAppDependencies, options: Admi
     },
     () => dependencies.health(),
   );
+  if (dependencies.metrics) app.get("/api/v1/metrics", () => dependencies.metrics?.());
 
   for (const method of ["POST", "PUT", "PATCH", "DELETE"] as const) {
     app.route({

@@ -3,6 +3,38 @@ import { describe, expect, it } from "vitest";
 import { createAdminApp, DEFAULT_ADMIN_HOST } from "../src/admin/app.js";
 
 describe("admin app factory", () => {
+  it("exposes secret-free internal metrics through the adapter boundary", async () => {
+    const app = createAdminApp({
+      health: () => ({
+        status: "ok",
+        storage: "ok",
+        storageRestartAttempts: 0,
+        proxies: { configured: 0, running: 0, failed: 0 },
+      }),
+      metrics: () => ({
+        requests: { active: 1, completed: 2, aborted: 0, timedOut: 1, failed: 0 },
+        traffic: { requestBytes: 3, responseBytes: 4, truncated: 0 },
+        storage: {
+          depth: 0,
+          estimatedBytes: 0,
+          committed: 1,
+          failed: 0,
+          dropped: 0,
+          coalesced: 0,
+          lastWaitMs: 0,
+          maxWaitMs: 0,
+          lastCommitMs: 1,
+          maxCommitMs: 1,
+        },
+        labels: { tracked: 1, overflowed: 0 },
+      }),
+    });
+    const response = await app.inject({ method: "GET", url: "/api/v1/metrics" });
+    expect(response.statusCode).toBe(200);
+    expect(response.json()).toMatchObject({ requests: { active: 1 }, storage: { committed: 1 } });
+    expect(response.body).not.toContain("secret");
+    await app.close();
+  });
   it("returns health through inject with a stable request ID", async () => {
     const app = createAdminApp(
       {

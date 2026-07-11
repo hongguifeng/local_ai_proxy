@@ -139,6 +139,10 @@ export class ProxyServer {
     return this.#address;
   }
 
+  public get activeRequests(): number {
+    return this.#active.size;
+  }
+
   public agentDiagnostics(): AgentPoolDiagnostics {
     return this.#agentPool.diagnostics();
   }

@@ -55,6 +55,9 @@ describe("RuntimeRecovery", () => {
     const recovery = new RuntimeRecovery({ restart: () => Promise.resolve() });
     const proxies = [runtime("running"), runtime("failed")];
     expect(recovery.health(proxies)).toEqual({
+      live: true,
+      ready: false,
+      degraded: false,
       status: "failed",
       storage: "ok",
       storageRestartAttempts: 0,

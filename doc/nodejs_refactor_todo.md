@@ -92,7 +92,7 @@ python -m mypy
 | 8.3 secret 和错误状态 | 已完成 | 本任务提交 | 188 项 Node 测试；secret 明确动作；stale/empty/loading；防重复与清理确认 |
 | 8.4 浏览器关键流程测试 | 已完成 | 本任务提交 | Playwright fixture E2E；proxy/log/cleanup/export；窄屏；失败 trace/screenshot |
 | 9.1 结构化运行日志 | 已完成 | 本任务提交 | Pino JSON/pretty；child context；redaction；同类故障限频；190 项 Node 测试 |
-| 9.2 health 和内部指标 | 未开始 |  |  |
+| 9.2 health 和内部指标 | 已完成 | 本任务提交 | live/ready/degraded；bounded metrics adapter；storage/request/traffic；193 项 Node 测试 |
 | 9.3 安全加固 | 未开始 |  |  |
 | 9.4 容量和 retention | 未开始 |  |  |
 | 9.5 性能基线与剖析 | 未开始 |  |  |
@@ -804,12 +804,12 @@ python -m mypy
 
 依赖：9.1、6.4、4.4。
 
-- [ ] 区分 live、ready 和 degraded。
-- [ ] 报告 runtime configured/running/failed 数量。
-- [ ] 报告 storage queue depth、latency、dropped。
-- [ ] 统计 active request、abort、timeout、bytes 和 truncation。
-- [ ] 设置指标 label 基数上限，不以 path/request ID 作为聚合 label。
-- [ ] 为未来 OpenTelemetry/Prometheus 留 adapter 边界。
+- [x] 区分 live、ready 和 degraded。
+- [x] 报告 runtime configured/running/failed 数量。
+- [x] 报告 storage queue depth、latency、dropped。
+- [x] 统计 active request、abort、timeout、bytes 和 truncation。
+- [x] 设置指标 label 基数上限，不以 path/request ID 作为聚合 label。
+- [x] 为未来 OpenTelemetry/Prometheus 留 adapter 边界。
 
 验收：故障注入时 health/metrics 与真实状态一致，不返回 secret。
 
