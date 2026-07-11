@@ -99,7 +99,7 @@ python -m mypy
 | 9.6 故障注入测试 | 已完成 | 本任务提交 | 7 类 fault policy/matrix；真实 SQLite lock；恢复证据；200 项 Node 测试 |
 | 10.1 CLI/npm 产物 | 已完成 | 本任务提交 | exports/bin/tarballs；Web+migrations；独立中文路径 npm install/start/health/shutdown smoke |
 | 10.2 Windows 便携包 | 已完成 | 本任务提交 | Node 24.18 runtime+SQLite native+ZIP/checksum；中文路径 health/proxy smoke |
-| 10.3 托盘方案 spike | 未开始 |  |  |
+| 10.3 托盘方案 spike | 已完成 | 本任务提交 | Electron/SEA/native ADR；选择 WinForms 薄壳；托盘仅管理独立 CLI |
 | 10.4 Release pipeline | 未开始 |  |  |
 | 11.1 数据迁移决策与工具 | 未开始 |  |  |
 | 11.2 Node 主实现验收 | 未开始 |  |  |
@@ -902,13 +902,13 @@ python -m mypy
 
 依赖：10.2、0.1。
 
-- [ ] 分别验证 Electron、平台原生薄外壳、Node SEA 候选。
-- [ ] 测量安装体积、启动时间和空闲内存。
-- [ ] 验证启动/停止 server、打开 UI 和显示错误。
-- [ ] 验证 native addon、签名和 CI 构建。
-- [ ] 评估自动更新和多平台成本。
-- [ ] 写 ADR 并选择方案。
-- [ ] 实现选定方案的最小生产外壳。
+- [x] 分别验证 Electron、平台原生薄外壳、Node SEA 候选。
+- [x] 测量安装体积、启动时间和空闲内存。
+- [x] 验证启动/停止 server、打开 UI 和显示错误。
+- [x] 验证 native addon、签名和 CI 构建。
+- [x] 评估自动更新和多平台成本。
+- [x] 写 ADR 并选择方案。
+- [x] 实现选定方案的最小生产外壳。
 
 验收：托盘不包含代理业务逻辑，server 仍可独立 CLI 运行。
 

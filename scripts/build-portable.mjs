@@ -25,6 +25,8 @@ const npm = "npm.cmd";
 await exec(npm, ["install", "--omit=dev", ...archives], { cwd: join(stage, "app"), timeout: 120_000, shell: true });
 await cp(resolve("LICENSE"), join(stage, "LICENSE"));
 await cp(resolve("SECURITY.md"), join(stage, "SECURITY.md"));
+await cp(resolve("scripts/windows/tray.ps1"), join(stage, "tray.ps1"));
+await cp(resolve("scripts/windows/start-tray.cmd"), join(stage, "start-tray.cmd"));
 await writeFile(
   join(stage, "start.cmd"),
   '@echo off\r\nset "ROOT=%~dp0"\r\n"%ROOT%runtime\\node.exe" "%ROOT%app\\node_modules\\@llm-proxy\\server\\dist\\cli.js" --config-file "%ROOT%data\\config.json" --log-root "%ROOT%data\\logs" %*\r\n',

@@ -48,6 +48,11 @@ try {
   const launcher = await readFile(join(portable, "start.cmd"), "utf8");
   if (!launcher.includes("%~dp0") || !launcher.includes("runtime\\node.exe"))
     throw new Error("Portable launcher is not location-independent");
+  const tray = await readFile(join(portable, "tray.ps1"), "utf8");
+  if (!tray.includes("NotifyIcon") || !tray.includes("Open Admin UI") || !tray.includes("/api/v1/health"))
+    throw new Error("Tray shell is incomplete");
+  for (const forbidden of ["ProxyServer", "better-sqlite3", "routeAndTransformRequest"])
+    if (tray.includes(forbidden)) throw new Error("Tray shell contains server business logic");
   const bundledNode = join(portable, "runtime", "node.exe");
   const cli = join(portable, "app", "node_modules", "@llm-proxy", "server", "dist", "cli.js");
   const child = spawn(
