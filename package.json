@@ -17,6 +17,8 @@
     "lint": "eslint . --max-warnings 0",
     "test": "pnpm --filter @llm-proxy/contracts build && pnpm --filter @llm-proxy/server build && pnpm --filter @llm-proxy/web build && vitest run",
     "test:e2e": "pnpm --filter @llm-proxy/web build && playwright test",
+    "audit:security": "pnpm audit --prod --audit-level high",
+    "audit:licenses": "pnpm licenses list --prod --json",
     "test:coverage": "pnpm --filter @llm-proxy/contracts build && pnpm --filter @llm-proxy/server build && pnpm --filter @llm-proxy/web build && vitest run --coverage",
     "typecheck": "pnpm -r --if-present typecheck"
   },

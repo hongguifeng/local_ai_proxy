@@ -3,6 +3,102 @@ import { describe, expect, it } from "vitest";
 import { createAdminApp, DEFAULT_ADMIN_HOST } from "../src/admin/app.js";
 
 describe("admin app factory", () => {
+  it("requires a bearer token and rejects untrusted origins", async () => {
+    const app = createAdminApp(
+      {
+        health: () => ({
+          status: "ok",
+          storage: "ok",
+          storageRestartAttempts: 0,
+          proxies: { configured: 0, running: 0, failed: 0 },
+        }),
+      },
+      { adminToken: "admin-secret", allowedOrigins: ["https://admin.example"] },
+    );
+    expect((await app.inject({ method: "GET", url: "/api/v1/health" })).statusCode).toBe(401);
+    const rejected = await app.inject({
+      method: "GET",
+      url: "/api/v1/health",
+      headers: { authorization: "Bearer admin-secret", origin: "https://evil.example" },
+    });
+    expect(rejected.statusCode).toBe(403);
+    expect(rejected.body).not.toContain("admin-secret");
+    const allowed = await app.inject({
+      method: "GET",
+      url: "/api/v1/health",
+      headers: { authorization: "Bearer admin-secret", origin: "https://admin.example" },
+    });
+    expect(allowed.statusCode).toBe(200);
+    expect(allowed.headers["access-control-allow-origin"]).toBe("https://admin.example");
+    const preflight = await app.inject({
+      method: "OPTIONS",
+      url: "/api/v1/health",
+      headers: { origin: "https://admin.example" },
+    });
+    expect(preflight.statusCode).toBe(204);
+    await app.close();
+  });
+
+  it("bounds concurrent mutations", async () => {
+    let release!: () => void;
+    const waiting = new Promise<void>((resolve) => (release = resolve));
+    const app = createAdminApp(
+      {
+        health: () => ({
+          status: "ok",
+          storage: "ok",
+          storageRestartAttempts: 0,
+          proxies: { configured: 0, running: 0, failed: 0 },
+        }),
+        registerRoutes: (scope) => {
+          scope.post("/api/v1/mutate", async () => {
+            await waiting;
+            return { ok: true };
+          });
+        },
+      },
+      { maxConcurrentMutations: 1 },
+    );
+    await app.ready();
+    const first = app.inject({
+      method: "POST",
+      url: "/api/v1/mutate",
+      headers: { "content-type": "application/json" },
+      payload: {},
+    });
+    await new Promise((resolve) => setImmediate(resolve));
+    const second = await app.inject({
+      method: "POST",
+      url: "/api/v1/mutate",
+      headers: { "content-type": "application/json" },
+      payload: {},
+    });
+    expect(second.statusCode).toBe(429);
+    release();
+    expect((await first).statusCode).toBe(200);
+    await app.close();
+  });
+
+  it("normalizes control characters in public errors", async () => {
+    const app = createAdminApp({
+      health: () => ({
+        status: "ok",
+        storage: "ok",
+        storageRestartAttempts: 0,
+        proxies: { configured: 0, running: 0, failed: 0 },
+      }),
+      registerRoutes: (scope) => {
+        scope.get("/api/v1/injection", () => {
+          throw Object.assign(new Error("bad\r\nX-Injected: yes"), { statusCode: 400 });
+        });
+      },
+    });
+    const response = await app.inject({ method: "GET", url: "/api/v1/injection" });
+    expect(response.statusCode).toBe(400);
+    expect(response.json()).toMatchObject({ error: { message: "bad  X-Injected: yes" } });
+    expect(response.headers).not.toHaveProperty("x-injected");
+    await app.close();
+  });
   it("exposes secret-free internal metrics through the adapter boundary", async () => {
     const app = createAdminApp({
       health: () => ({

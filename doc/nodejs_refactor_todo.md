@@ -93,7 +93,7 @@ python -m mypy
 | 8.4 浏览器关键流程测试 | 已完成 | 本任务提交 | Playwright fixture E2E；proxy/log/cleanup/export；窄屏；失败 trace/screenshot |
 | 9.1 结构化运行日志 | 已完成 | 本任务提交 | Pino JSON/pretty；child context；redaction；同类故障限频；190 项 Node 测试 |
 | 9.2 health 和内部指标 | 已完成 | 本任务提交 | live/ready/degraded；bounded metrics adapter；storage/request/traffic；193 项 Node 测试 |
-| 9.3 安全加固 | 未开始 |  |  |
+| 9.3 安全加固 | 已完成 | 本任务提交 | token/origin/CORS；并发限制；0600 文件；注入测试；audit/license；196 项 Node 测试 |
 | 9.4 容量和 retention | 未开始 |  |  |
 | 9.5 性能基线与剖析 | 未开始 |  |  |
 | 9.6 故障注入测试 | 未开始 |  |  |
@@ -817,14 +817,14 @@ python -m mypy
 
 依赖：7.4、8.3、0.1。
 
-- [ ] 默认 admin/proxy loopback。
-- [ ] 非 loopback admin 要求显式 flag 和 token。
-- [ ] 配置 CORS allowlist 和 Origin 校验。
-- [ ] 限制配置更新、清理和导出并发。
-- [ ] 配置文件和数据库文件最小权限。
-- [ ] 增加 header/body/log injection 测试。
-- [ ] 执行依赖审计和 license 检查。
-- [ ] 建立安全问题报告说明。
+- [x] 默认 admin/proxy loopback。
+- [x] 非 loopback admin 要求显式 flag 和 token。
+- [x] 配置 CORS allowlist 和 Origin 校验。
+- [x] 限制配置更新、清理和导出并发。
+- [x] 配置文件和数据库文件最小权限。
+- [x] 增加 header/body/log injection 测试。
+- [x] 执行依赖审计和 license 检查。
+- [x] 建立安全问题报告说明。
 
 验收：安全测试覆盖远程 admin、CSRF、secret 泄漏和路径穿越。
 

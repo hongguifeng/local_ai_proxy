@@ -1,4 +1,4 @@
-import { mkdtempSync } from "node:fs";
+import { mkdtempSync, statSync } from "node:fs";
 import { rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -26,6 +26,7 @@ describe("storage migrations", () => {
     const root = temporaryRoot();
     const database = openStorageDatabase(join(root, "traffic.db"));
     try {
+      if (process.platform !== "win32") expect(statSync(join(root, "traffic.db")).mode & 0o777).toBe(0o600);
       expect(readSchemaVersion(database)).toBe(STORAGE_SCHEMA_VERSION);
       expect(database.pragma("journal_mode", { simple: true })).toBe("wal");
       expect(database.pragma("foreign_keys", { simple: true })).toBe(1);

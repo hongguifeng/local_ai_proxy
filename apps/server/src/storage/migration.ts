@@ -1,4 +1,4 @@
-import { mkdirSync, readFileSync } from "node:fs";
+import { chmodSync, mkdirSync, readFileSync } from "node:fs";
 import { dirname } from "node:path";
 
 import Database from "better-sqlite3";
@@ -34,10 +34,12 @@ export function loadMigrations(): readonly SqlMigration[] {
 }
 
 export function openStorageDatabase(databasePath: string): Database.Database {
-  mkdirSync(dirname(databasePath), { recursive: true });
+  const persistent = databasePath !== ":memory:" && !databasePath.startsWith("file:");
+  if (persistent) mkdirSync(dirname(databasePath), { recursive: true, mode: 0o700 });
   let database: Database.Database;
   try {
     database = new Database(databasePath);
+    if (persistent) chmodSync(databasePath, 0o600);
   } catch (error) {
     throw new DatabaseMigrationError("DATABASE_OPEN_FAILED", "Unable to open the traffic database", { cause: error });
   }
