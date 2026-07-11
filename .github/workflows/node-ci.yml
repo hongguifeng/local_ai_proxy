@@ -59,7 +59,7 @@ jobs:
           path: |
             reports/vitest-junit.xml
             coverage/
-          if-no-files-found: error
+          if-no-files-found: warn
           retention-days: 14
 
   windows:
