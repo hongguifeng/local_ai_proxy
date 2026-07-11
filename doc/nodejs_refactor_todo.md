@@ -104,7 +104,7 @@ python -m mypy
 | 11.1 数据迁移决策与工具 | 已完成 | 本任务提交 | 一次性迁移、原始备份、schema/重复执行/完整性校验、真实脱敏样本 |
 | 11.2 Node 主实现验收 | 已完成 | 本任务提交 | production composition；Node/Python 差异报告；207 unit/integration、Playwright、npm/portable smoke |
 | 11.3 文档和运维手册 | 已完成 | 本任务提交 | 中英文 quick start；配置参考；数据/备份/retention/排障/release/rollback 运维手册 |
-| 11.4 删除 Python runtime | 未开始 |  |  |
+| 11.4 删除 Python runtime | 已完成 | 本任务提交 | `python-runtime-final` tag；删除 Python package/入口/tests/workflow/scripts；仅 Node toolchain |
 | 11.5 最终发布候选验证 | 未开始 |  |  |
 
 ## 4. 阶段 0：决策与行为基线
@@ -974,12 +974,12 @@ python -m mypy
 
 依赖：11.2、11.3。
 
-- [ ] 打 release/tag 保存最后一个 Python 版本。
-- [ ] 删除 Python package、入口、tray launcher 和 pyproject。
-- [ ] 删除只服务 Python 的测试和 workflow。
-- [ ] 保留仍有价值的语言无关 fixture 和文档历史。
-- [ ] 更新 `.gitignore`、README 和贡献说明。
-- [ ] 确认仓库不存在两个正式启动入口。
+- [x] 打 release/tag 保存最后一个 Python 版本。
+- [x] 删除 Python package、入口、tray launcher 和 pyproject。
+- [x] 删除只服务 Python 的测试和 workflow。
+- [x] 保留仍有价值的语言无关 fixture 和文档历史。
+- [x] 更新 `.gitignore`、README 和贡献说明。
+- [x] 确认仓库不存在两个正式启动入口。
 
 验收：全新 checkout 只需 Node toolchain 即可开发、测试、构建和发布。
 
