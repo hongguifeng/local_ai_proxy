@@ -1,7 +1,13 @@
 import { z } from "zod";
 
 import { EntityIdSchema, PaginationSchema, TimestampSchema } from "./common.js";
-import { HeaderOverrideSchema, ModelMappingSchema, TargetUrlSchema, TimeoutConfigSchema } from "./config.js";
+import {
+  HeaderOverrideSchema,
+  ModelMappingSchema,
+  TargetConfigSchema,
+  TargetUrlSchema,
+  TimeoutConfigSchema,
+} from "./config.js";
 
 export const SecretStateSchema = z.strictObject({
   configured: z.boolean(),
@@ -42,6 +48,30 @@ export const PublicProxySchema = z.strictObject({
 });
 
 export const ProxyListResponseSchema = z.strictObject({ proxies: z.array(PublicProxySchema) });
+
+export const SecretUpdateSchema = z.discriminatedUnion("action", [
+  z.strictObject({ action: z.literal("keep") }),
+  z.strictObject({ action: z.literal("clear") }),
+  z.strictObject({ action: z.literal("replace"), value: z.string().min(1).max(16_384) }),
+]);
+
+export const AdminTargetUpdateSchema = TargetConfigSchema.omit({ targetApiKey: true }).extend({
+  apiKey: SecretUpdateSchema,
+});
+
+export const AdminProxyUpdateSchema = z.strictObject({
+  id: EntityIdSchema,
+  name: z.string().trim().min(1).max(200),
+  enabled: z.boolean().default(false),
+  listenHost: z.string().trim().min(1).max(253).default("127.0.0.1"),
+  listenPort: z.number().int().min(0).max(65_535).default(1234),
+  accessLog: z.boolean().default(false),
+  targets: z.array(AdminTargetUpdateSchema).min(1).max(100),
+  defaultTargetId: EntityIdSchema,
+});
+
+export const ProxyReplaceRequestSchema = z.strictObject({ proxies: z.array(AdminProxyUpdateSchema).max(100) });
+export const ProxyEnabledRequestSchema = z.strictObject({ enabled: z.boolean() });
 
 export const TaskSummarySchema = z.strictObject({
   id: EntityIdSchema,
@@ -111,6 +141,10 @@ export type SecretState = z.infer<typeof SecretStateSchema>;
 export type PublicTarget = z.infer<typeof PublicTargetSchema>;
 export type PublicProxy = z.infer<typeof PublicProxySchema>;
 export type ProxyListResponse = z.infer<typeof ProxyListResponseSchema>;
+export type SecretUpdate = z.infer<typeof SecretUpdateSchema>;
+export type AdminTargetUpdate = z.infer<typeof AdminTargetUpdateSchema>;
+export type AdminProxyUpdate = z.infer<typeof AdminProxyUpdateSchema>;
+export type ProxyReplaceRequest = z.infer<typeof ProxyReplaceRequestSchema>;
 export type TaskSummary = z.infer<typeof TaskSummarySchema>;
 export type RecordSummary = z.infer<typeof RecordSummarySchema>;
 export type CapturedPayload = z.infer<typeof CapturedPayloadSchema>;

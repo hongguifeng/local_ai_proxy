@@ -83,7 +83,7 @@ python -m mypy
 | 6.3 优雅启动和关闭 | 已完成 | 本任务提交 | 161 项 Node 测试；有序 startup/shutdown；active grace/abort |
 | 6.4 runtime 故障恢复 | 已完成 | 本任务提交 | 166 项 Node 测试；degraded/failed health；有限退避恢复 |
 | 7.1 Fastify 管理面骨架 | 已完成 | 本任务提交 | 169 项 Node 测试；inject health；body/request 边界与 app 隔离 |
-| 7.2 proxy 管理 API | 未开始 |  |  |
+| 7.2 proxy 管理 API | 已完成 | 本任务提交 | 172 项 Node 测试；masked secret；keep/replace/clear；原子更新 |
 | 7.3 task/log 管理 API | 未开始 |  |  |
 | 7.4 统一错误与安全边界 | 未开始 |  |  |
 | 7.5 静态资源和浏览器启动 | 未开始 |  |  |
@@ -680,13 +680,13 @@ python -m mypy
 
 依赖：7.1、6.2、1.4。
 
-- [ ] 实现 `GET /api/v1/proxies`。
-- [ ] 实现原子 `PUT /api/v1/proxies`。
-- [ ] 实现 `POST /api/v1/proxies/:id/enabled`。
-- [ ] response 隐藏完整 API key。
-- [ ] secret 空值/保持/清除语义明确。
-- [ ] 映射 schema/error 到稳定 API contract。
-- [ ] 覆盖端口冲突、非法配置和并发更新。
+- [x] 实现 `GET /api/v1/proxies`。
+- [x] 实现原子 `PUT /api/v1/proxies`。
+- [x] 实现 `POST /api/v1/proxies/:id/enabled`。
+- [x] response 隐藏完整 API key。
+- [x] secret 空值/保持/清除语义明确。
+- [x] 映射 schema/error 到稳定 API contract。
+- [x] 覆盖端口冲突、非法配置和并发更新。
 
 验收：API contract 测试通过，任何响应和日志都不包含测试 secret。
 

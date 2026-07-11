@@ -60,7 +60,7 @@ export function createAdminApp(dependencies: AdminAppDependencies, options: Admi
 
   app.setErrorHandler((error, request, reply) => {
     const statusCode = errorStatus(error);
-    const code = statusCode === 400 || statusCode === 413 ? "INVALID_REQUEST" : "ADMIN_REQUEST_FAILED";
+    const code = publicErrorCode(error, statusCode);
     void reply.status(statusCode).send({
       error: { code, message: statusCode >= 500 ? "Request failed" : errorMessage(error) },
       requestId: request.id,
@@ -73,6 +73,7 @@ export function createAdminApp(dependencies: AdminAppDependencies, options: Admi
 export const DEFAULT_ADMIN_HOST = "127.0.0.1";
 
 function errorStatus(error: unknown): number {
+  if (error && typeof error === "object" && "name" in error && error.name === "ZodError") return 400;
   if (error && typeof error === "object" && "statusCode" in error && typeof error.statusCode === "number")
     return error.statusCode >= 400 && error.statusCode <= 599 ? error.statusCode : 500;
   return 500;
@@ -80,4 +81,11 @@ function errorStatus(error: unknown): number {
 
 function errorMessage(error: unknown): string {
   return error instanceof Error ? error.message : "Invalid request";
+}
+
+function publicErrorCode(error: unknown, statusCode: number): string {
+  if (statusCode === 400 || statusCode === 413) return "INVALID_REQUEST";
+  if (error && typeof error === "object" && "code" in error && typeof error.code === "string")
+    return error.code.slice(0, 80);
+  return "ADMIN_REQUEST_FAILED";
 }
