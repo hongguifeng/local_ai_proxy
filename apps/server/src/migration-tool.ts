@@ -138,7 +138,7 @@ function convertPythonConfig(input: unknown) {
               responseHeadersMs: 60_000,
               idleMs: Math.max(1_000, Number(target.timeout ?? 600) * 1_000),
             },
-            logRoot: target.log_root === "" ? null : (target.log_root ?? null),
+            logRoot: target.log_root ?? null,
             redactLogs: target.redact_logs,
             modelMappings: target.model_mappings ?? [],
           };

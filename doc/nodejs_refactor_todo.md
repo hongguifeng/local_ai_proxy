@@ -103,7 +103,7 @@ python -m mypy
 | 10.4 Release pipeline | 已完成 | 本任务提交 | tag clean build；metadata/SBOM/license/checksum/provenance；final smoke/release；可选签名 |
 | 11.1 数据迁移决策与工具 | 已完成 | 本任务提交 | 一次性迁移、原始备份、schema/重复执行/完整性校验、真实脱敏样本 |
 | 11.2 Node 主实现验收 | 已完成 | 本任务提交 | production composition；Node/Python 差异报告；207 unit/integration、Playwright、npm/portable smoke |
-| 11.3 文档和运维手册 | 未开始 |  |  |
+| 11.3 文档和运维手册 | 已完成 | 本任务提交 | 中英文 quick start；配置参考；数据/备份/retention/排障/release/rollback 运维手册 |
 | 11.4 删除 Python runtime | 未开始 |  |  |
 | 11.5 最终发布候选验证 | 未开始 |  |  |
 
@@ -960,13 +960,13 @@ python -m mypy
 
 依赖：11.2。
 
-- [ ] 重写中英文安装和快速开始。
-- [ ] 更新目录结构和开发命令。
-- [ ] 记录配置 schema、默认值和示例。
-- [ ] 记录数据目录、备份、迁移、retention 和卸载。
-- [ ] 记录代理协议支持矩阵和限制。
-- [ ] 记录常见启动、端口、TLS、SQLite 和打包问题。
-- [ ] 记录 release 和回滚流程。
+- [x] 重写中英文安装和快速开始。
+- [x] 更新目录结构和开发命令。
+- [x] 记录配置 schema、默认值和示例。
+- [x] 记录数据目录、备份、迁移、retention 和卸载。
+- [x] 记录代理协议支持矩阵和限制。
+- [x] 记录常见启动、端口、TLS、SQLite 和打包问题。
+- [x] 记录 release 和回滚流程。
 
 验收：按文档可在干净环境完成开发启动和正式包运行。
 

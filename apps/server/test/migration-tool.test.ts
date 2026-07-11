@@ -38,7 +38,7 @@ describe("one-time Python data migration", () => {
               strip_request_fields: "metadata",
               inject_request_fields: "{}",
               timeout: 600,
-              log_root: "logs",
+              log_root: "",
               redact_logs: true,
               model_mappings: [],
             },
@@ -57,9 +57,10 @@ describe("one-time Python data migration", () => {
     expect(result).toMatchObject({ status: "migrated", databases: 1, configPath: "proxies.json" });
     expect(await readFile(join(target, "backup", "proxies.json"), "utf8")).toBe(JSON.stringify(config));
     const converted = JSON.parse(await readFile(join(target, "proxies.json"), "utf8")) as {
-      proxies: { targets: { targetApiKey: string }[] }[];
+      proxies: { targets: { targetApiKey: string; logRoot: string | null }[] }[];
     };
     expect(converted.proxies[0]?.targets[0]?.targetApiKey).toBe("sample-secret");
+    expect(converted.proxies[0]?.targets[0]?.logRoot).toBe("");
     const migrated = new Database(join(target, "logs", "traffic.db"));
     expect(readSchemaVersion(migrated)).toBe(2);
     migrated.close();
