@@ -79,7 +79,7 @@ python -m mypy
 | 5.7 连接池和资源释放 | 已完成 | 本任务提交 | 145 项 Node 测试；per-origin Agent；socket 上限与 stop 归零 |
 | 5.8 协议故障集成测试 | 已完成 | 本任务提交 | 150 项 Node 测试；raw 故障注入；混合并发与 active shutdown |
 | 6.1 RuntimeManager | 已完成 | 本任务提交 | 154 项 Node 测试；独立启停；ephemeral port；安全失败状态 |
-| 6.2 原子配置替换 | 未开始 |  |  |
+| 6.2 原子配置替换 | 已完成 | 本任务提交 | 158 项 Node 测试；prepare/commit/rollback；并发串行化 |
 | 6.3 优雅启动和关闭 | 未开始 |  |  |
 | 6.4 runtime 故障恢复 | 未开始 |  |  |
 | 7.1 Fastify 管理面骨架 | 未开始 |  |  |
@@ -624,13 +624,13 @@ python -m mypy
 
 依赖：6.1、2.2。
 
-- [ ] diff 当前和新配置。
-- [ ] 不变 runtime 不重启。
-- [ ] 对新增/变更监听执行 prepare。
-- [ ] prepare 全部成功后 commit 配置文件和 runtime snapshot。
-- [ ] 任一失败时回滚新 runtime 并保留旧状态。
-- [ ] 串行化并发配置更新。
-- [ ] 返回逐 proxy 应用结果。
+- [x] diff 当前和新配置。
+- [x] 不变 runtime 不重启。
+- [x] 对新增/变更监听执行 prepare。
+- [x] prepare 全部成功后 commit 配置文件和 runtime snapshot。
+- [x] 任一失败时回滚新 runtime 并保留旧状态。
+- [x] 串行化并发配置更新。
+- [x] 返回逐 proxy 应用结果。
 
 验收：端口冲突和保存失败不会造成旧代理停服或磁盘/内存配置不一致。
 
