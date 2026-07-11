@@ -58,13 +58,58 @@ export function createAdminApp(dependencies: AdminAppDependencies, options: Admi
     () => dependencies.health(),
   );
 
+  for (const method of ["POST", "PUT", "PATCH", "DELETE"] as const) {
+    app.route({
+      method,
+      url: "/api/v1/health",
+      handler: (request, reply) =>
+        reply
+          .status(405)
+          .send({ error: { code: "METHOD_NOT_ALLOWED", message: "Method not allowed" }, requestId: request.id }),
+    });
+  }
+
+  app.addHook("preValidation", (request, _reply, done) => {
+    const mutating = request.method === "POST" || request.method === "PUT" || request.method === "PATCH";
+    if (mutating && request.routeOptions.url !== "/api/v1/health") {
+      const contentType = request.headers["content-type"]?.split(";", 1)[0]?.trim().toLowerCase();
+      if (contentType !== "application/json") {
+        done(
+          Object.assign(new Error("Content-Type must be application/json"), {
+            statusCode: 415,
+            code: "UNSUPPORTED_MEDIA_TYPE",
+          }),
+        );
+        return;
+      }
+    }
+    done();
+  });
+
+  app.addHook("onSend", (_request, reply, payload, done) => {
+    void reply
+      .header("cache-control", "no-store")
+      .header("x-content-type-options", "nosniff")
+      .header("x-frame-options", "DENY")
+      .header("content-security-policy", "default-src 'none'; frame-ancestors 'none'")
+      .header("referrer-policy", "no-referrer");
+    done(null, payload);
+  });
+
   app.setErrorHandler((error, request, reply) => {
     const statusCode = errorStatus(error);
     const code = publicErrorCode(error, statusCode);
+    const details = validationDetails(error);
     void reply.status(statusCode).send({
       error: { code, message: statusCode >= 500 ? "Request failed" : errorMessage(error) },
+      ...(details ? { details } : {}),
       requestId: request.id,
     });
+  });
+  app.setNotFoundHandler((request, reply) => {
+    void reply
+      .status(404)
+      .send({ error: { code: "NOT_FOUND", message: "Route does not exist" }, requestId: request.id });
   });
   if (dependencies.registerRoutes) void app.register(async (scope) => dependencies.registerRoutes?.(scope));
   return app;
@@ -80,6 +125,7 @@ function errorStatus(error: unknown): number {
 }
 
 function errorMessage(error: unknown): string {
+  if (isZodError(error)) return "Request validation failed";
   return error instanceof Error ? error.message : "Invalid request";
 }
 
@@ -88,4 +134,28 @@ function publicErrorCode(error: unknown, statusCode: number): string {
   if (error && typeof error === "object" && "code" in error && typeof error.code === "string")
     return error.code.slice(0, 80);
   return "ADMIN_REQUEST_FAILED";
+}
+
+function validationDetails(error: unknown): { path?: (string | number)[]; message: string }[] | undefined {
+  if (!isZodError(error)) return undefined;
+  return error.issues.slice(0, 100).map((issue) => ({
+    path: issue.path.filter(
+      (value): value is string | number => typeof value === "string" || typeof value === "number",
+    ),
+    message: "Invalid value",
+  }));
+}
+
+function isZodError(error: unknown): error is {
+  name: "ZodError";
+  issues: readonly { path: readonly unknown[] }[];
+} {
+  return Boolean(
+    error &&
+    typeof error === "object" &&
+    "name" in error &&
+    error.name === "ZodError" &&
+    "issues" in error &&
+    Array.isArray(error.issues),
+  );
 }

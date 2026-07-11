@@ -85,7 +85,7 @@ python -m mypy
 | 7.1 Fastify 管理面骨架 | 已完成 | 本任务提交 | 169 项 Node 测试；inject health；body/request 边界与 app 隔离 |
 | 7.2 proxy 管理 API | 已完成 | 本任务提交 | 172 项 Node 测试；masked secret；keep/replace/clear；原子更新 |
 | 7.3 task/log 管理 API | 已完成 | 本任务提交 | 175 项 Node 测试；multi-root query/cleanup；流式 export |
-| 7.4 统一错误与安全边界 | 未开始 |  |  |
+| 7.4 统一错误与安全边界 | 已完成 | 本任务提交 | 177 项 Node 测试；稳定 envelope；安全 headers；secret/path 隔离 |
 | 7.5 静态资源和浏览器启动 | 未开始 |  |  |
 | 8.1 现有 UI contract 迁移 | 未开始 |  |  |
 | 8.2 Web TypeScript 构建 | 未开始 |  |  |
@@ -708,12 +708,12 @@ python -m mypy
 
 依赖：7.2、7.3。
 
-- [ ] 实现 `{ error, requestId }` contract。
-- [ ] 建立内部 error code 到 HTTP status 映射。
-- [ ] schema 错误返回字段路径但不泄漏 secret value。
-- [ ] 未知 error 记录 cause，对外返回通用 message。
-- [ ] 增加 404、405、content-type 和 malformed JSON 测试。
-- [ ] 设置安全 response headers。
+- [x] 实现 `{ error, requestId }` contract。
+- [x] 建立内部 error code 到 HTTP status 映射。
+- [x] schema 错误返回字段路径但不泄漏 secret value。
+- [x] 未知 error 记录 cause，对外返回通用 message。
+- [x] 增加 404、405、content-type 和 malformed JSON 测试。
+- [x] 设置安全 response headers。
 
 验收：错误快照不包含 stack、authorization、API key 或非必要绝对路径。
 

@@ -71,6 +71,11 @@ describe("proxy management API", () => {
       payload: { enabled: "yes" },
     });
     expect(invalid.statusCode).toBe(400);
+    expect(invalid.json()).toMatchObject({
+      error: { code: "INVALID_REQUEST", message: "Request validation failed" },
+      details: [{ path: ["enabled"], message: "Invalid value" }],
+    });
+    expect(invalid.body).not.toContain('"yes"');
     await app.close();
   });
 });
