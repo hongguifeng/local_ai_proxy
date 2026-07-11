@@ -1,6 +1,7 @@
 import { parseArgs } from "node:util";
+import { readFileSync } from "node:fs";
 
-export const VERSION = "0.3.0-dev";
+export const VERSION = loadVersion();
 
 export const ExitCode = {
   success: 0,
@@ -31,6 +32,17 @@ export class CliUsageError extends Error {
 }
 
 const LOOPBACK_HOSTS = new Set(["127.0.0.1", "::1", "localhost"]);
+
+function loadVersion(): string {
+  try {
+    const value = JSON.parse(readFileSync(new URL("./build-metadata.json", import.meta.url), "utf8")) as unknown;
+    if (value && typeof value === "object" && "version" in value && typeof value.version === "string")
+      return value.version;
+  } catch {
+    // Source and test execution use the development fallback.
+  }
+  return "0.3.0-dev";
+}
 
 function parseRawArgs(args: readonly string[], environment: Readonly<Record<string, string | undefined>>) {
   try {

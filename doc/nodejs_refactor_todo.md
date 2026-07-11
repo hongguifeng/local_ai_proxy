@@ -100,7 +100,7 @@ python -m mypy
 | 10.1 CLI/npm 产物 | 已完成 | 本任务提交 | exports/bin/tarballs；Web+migrations；独立中文路径 npm install/start/health/shutdown smoke |
 | 10.2 Windows 便携包 | 已完成 | 本任务提交 | Node 24.18 runtime+SQLite native+ZIP/checksum；中文路径 health/proxy smoke |
 | 10.3 托盘方案 spike | 已完成 | 本任务提交 | Electron/SEA/native ADR；选择 WinForms 薄壳；托盘仅管理独立 CLI |
-| 10.4 Release pipeline | 未开始 |  |  |
+| 10.4 Release pipeline | 已完成 | 本任务提交 | tag clean build；metadata/SBOM/license/checksum/provenance；final smoke/release；可选签名 |
 | 11.1 数据迁移决策与工具 | 未开始 |  |  |
 | 11.2 Node 主实现验收 | 未开始 |  |  |
 | 11.3 文档和运维手册 | 未开始 |  |  |
@@ -916,13 +916,13 @@ python -m mypy
 
 依赖：10.2，若首版含托盘则依赖 10.3。
 
-- [ ] tag 触发干净构建。
-- [ ] 注入 version、commit、build time。
-- [ ] 生成 SBOM、license 清单和 checksum。
-- [ ] 对最终 artifact 执行 smoke test。
-- [ ] 上传 GitHub Release artifact。
-- [ ] 保留构建日志和 provenance。
-- [ ] 有证书后加入 Windows code signing。
+- [x] tag 触发干净构建。
+- [x] 注入 version、commit、build time。
+- [x] 生成 SBOM、license 清单和 checksum。
+- [x] 对最终 artifact 执行 smoke test。
+- [x] 上传 GitHub Release artifact。
+- [x] 保留构建日志和 provenance。
+- [x] 有证书后加入 Windows code signing。
 
 验收：release 下载物与 CI 测试物完全相同，checksum 可验证。
 

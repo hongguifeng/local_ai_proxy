@@ -1,85 +1,94 @@
-name: Windows EXE
+name: Node Release
 
 on:
   push:
-    branches:
-      - "**"
-    tags:
-      - "v*"
-  pull_request:
+    tags: ["v*"]
   workflow_dispatch:
 
-jobs:
-  build-windows-tray:
-    name: Build Windows tray exe
-    runs-on: windows-latest
-    permissions:
-      contents: read
+permissions:
+  contents: write
+  id-token: write
+  attestations: write
 
+jobs:
+  build:
+    runs-on: windows-latest
+    timeout-minutes: 30
     steps:
       - uses: actions/checkout@v4
-
-      - uses: actions/setup-python@v5
+      - uses: pnpm/action-setup@v4
         with:
-          python-version: "3.12"
-
-      - name: Install build dependencies
+          version: 11.11.0
+          run_install: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: .node-version
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - name: Quality gates
         run: |
-          python -m pip install --upgrade pip
-          python -m pip install -e ".[tray]" pyinstaller
-
-      - name: Build tray executable
+          pnpm format:check
+          pnpm lint
+          pnpm typecheck
+          pnpm test
+          pnpm exec playwright install chromium
+          pnpm test:e2e
+      - name: Build release artifacts
+        env:
+          LLM_PROXY_RELEASE_VERSION: ${{ github.ref_name }}
+          LLM_PROXY_COMMIT: ${{ github.sha }}
         run: |
-          python -m PyInstaller `
-            --clean `
-            --onefile `
-            --windowed `
-            --name llm-proxy-tray `
-            --add-data "llm_proxy\static;llm_proxy\static" `
-            --collect-submodules pystray `
-            tray_launcher.py
-
-      - name: Create checksum
+          pnpm pack:portable
+          pnpm audit:security
+          pnpm audit:licenses | Out-File -Encoding utf8 release/licenses.json
+      - name: Generate SBOM
+        uses: anchore/sbom-action@v0
+        with:
+          path: release/portable/llm-proxy-portable
+          format: cyclonedx-json
+          output-file: release/sbom.cdx.json
+      - name: Optional Authenticode signing
+        if: ${{ secrets.WINDOWS_SIGNING_CERT != '' }}
+        shell: powershell
+        env:
+          CERT_BASE64: ${{ secrets.WINDOWS_SIGNING_CERT }}
+          CERT_PASSWORD: ${{ secrets.WINDOWS_SIGNING_PASSWORD }}
+        run: |
+          $cert = Join-Path $env:RUNNER_TEMP signing.pfx
+          [IO.File]::WriteAllBytes($cert, [Convert]::FromBase64String($env:CERT_BASE64))
+          signtool sign /fd SHA256 /f $cert /p $env:CERT_PASSWORD release/portable/llm-proxy-portable/runtime/node.exe
+          $zip = Get-ChildItem release/portable/*.zip | Select-Object -First 1
+          Remove-Item $zip.FullName
+          tar.exe -a -c -f $zip.FullName -C release/portable llm-proxy-portable
+          $hash = (Get-FileHash $zip.FullName -Algorithm SHA256).Hash.ToLowerInvariant()
+          "$hash  $($zip.Name)" | Set-Content "$($zip.FullName).sha256" -Encoding ascii
+      - name: Smoke exact final artifacts
+        run: |
+          pnpm smoke:npm
+          pnpm smoke:portable
+      - name: Record provenance inputs
         shell: powershell
         run: |
-          if (!(Test-Path "dist\llm-proxy-tray.exe")) {
-            throw "dist\llm-proxy-tray.exe was not created"
-          }
-          $hash = Get-FileHash "dist\llm-proxy-tray.exe" -Algorithm SHA256
-          "$($hash.Hash)  llm-proxy-tray.exe" | Set-Content "dist\llm-proxy-tray.exe.sha256" -Encoding ascii
-
-      - name: Upload build artifact
-        uses: actions/upload-artifact@v4
+          @{ version='${{ github.ref_name }}'; commit='${{ github.sha }}'; buildTime=(Get-Date).ToUniversalTime().ToString('o'); runId='${{ github.run_id }}' } | ConvertTo-Json | Set-Content release/build-provenance.json -Encoding utf8
+      - uses: actions/upload-artifact@v4
         with:
-          name: llm-proxy-tray-windows
-          path: |
-            dist/llm-proxy-tray.exe
-            dist/llm-proxy-tray.exe.sha256
+          name: release-${{ github.ref_name }}
+          path: release/
           if-no-files-found: error
-
-  release:
-    name: Publish GitHub Release
-    runs-on: ubuntu-latest
-    needs: build-windows-tray
-    if: startsWith(github.ref, 'refs/tags/v')
-    permissions:
-      contents: write
-
-    steps:
-      - name: Download Windows artifact
-        uses: actions/download-artifact@v4
+          retention-days: 30
+      - uses: actions/attest-build-provenance@v2
         with:
-          name: llm-proxy-tray-windows
-          path: release-assets
+          subject-path: release/portable/*.zip
 
-      - name: Create or update release
-        env:
+  publish:
+    needs: build
+    if: startsWith(github.ref, 'refs/tags/v')
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: release-${{ github.ref_name }}
+          path: release
+      - env:
           GH_TOKEN: ${{ github.token }}
-          GH_REPO: ${{ github.repository }}
-          TAG_NAME: ${{ github.ref_name }}
-        run: |
-          if gh release view "$TAG_NAME" >/dev/null 2>&1; then
-            gh release upload "$TAG_NAME" release-assets/* --clobber
-          else
-            gh release create "$TAG_NAME" release-assets/* --title "$TAG_NAME" --generate-notes
-          fi
+        run: gh release create "${{ github.ref_name }}" release/portable/*.zip release/portable/*.sha256 release/npm/*.tgz release/licenses.json release/sbom.cdx.json release/build-provenance.json --verify-tag --generate-notes
