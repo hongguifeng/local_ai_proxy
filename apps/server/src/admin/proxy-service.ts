@@ -11,9 +11,9 @@ import type { RuntimeManager, RuntimeStatus } from "../runtime/runtime-manager.j
 
 export class AdminProxyService {
   readonly #config: AtomicRuntimeConfig;
-  readonly #runtimes: RuntimeManager;
+  readonly #runtimes: Pick<RuntimeManager, "list">;
 
-  public constructor(config: AtomicRuntimeConfig, runtimes: RuntimeManager) {
+  public constructor(config: AtomicRuntimeConfig, runtimes: Pick<RuntimeManager, "list">) {
     this.#config = config;
     this.#runtimes = runtimes;
   }

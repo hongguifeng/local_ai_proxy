@@ -1,5 +1,7 @@
 # LLM Proxy
 
+> The production implementation is Node.js 24 + TypeScript. The former Python runtime is retained only until the migration cleanup step and is not the default development or release entry.
+
 English | [中文](README.cn.md)
 
 LLM Proxy is a local web console for managing OpenAI-compatible and Claude Messages-style LLM proxy traffic. Create one or more local proxy endpoints, route each endpoint to one or more upstream APIs by request model, and inspect complete request/response history from the browser.
@@ -59,7 +61,9 @@ Each upstream target keeps its own timeout, log directory, upstream headers, and
 Start the web console:
 
 ```powershell
-python -m llm_proxy
+pnpm install --frozen-lockfile
+pnpm build
+node apps/server/dist/cli.js --no-browser
 ```
 
 Or on Windows, run:

@@ -108,7 +108,17 @@ export class StorageWriteQueue {
       }
     }
 
-    if (priority === "final") this.#evictPendingUntilFits(estimatedBytes);
+    if (priority === "final") {
+      const pendingIndex = this.#pending.findIndex((entry) => entry.event.record.id === event.record.id);
+      if (pendingIndex !== -1) {
+        const superseded = this.#pending.splice(pendingIndex, 1)[0];
+        if (superseded) {
+          this.#pendingBytes -= superseded.estimatedBytes;
+          this.#coalesced += 1;
+        }
+      }
+      this.#evictPendingUntilFits(estimatedBytes);
+    }
     if (!this.#fits(estimatedBytes)) return this.#degraded("STORAGE_QUEUE_FULL");
     const entry: QueueEntry = { event, estimatedBytes, enqueuedAt: this.#now(), priority };
     (priority === "final" ? this.#final : this.#pending).push(entry);

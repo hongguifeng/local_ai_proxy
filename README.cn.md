@@ -1,5 +1,7 @@
 # LLM Proxy
 
+> 正式主实现为 Node.js 24 + TypeScript。旧 Python runtime 仅保留到迁移清理步骤，不再是默认开发或发布入口。
+
 [English](README.md) | 中文
 
 LLM Proxy 是一个以 Web 控制台为核心的本地 LLM 代理管理工具。你可以创建一个或多个本地代理入口，按请求里的模型名称把同一个入口路由到一个或多个 OpenAI-compatible 或 Claude Messages 风格的上游 API，并在浏览器中查看完整的请求、响应和任务历史。

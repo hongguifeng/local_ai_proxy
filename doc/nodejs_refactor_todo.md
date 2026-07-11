@@ -102,7 +102,7 @@ python -m mypy
 | 10.3 托盘方案 spike | 已完成 | 本任务提交 | Electron/SEA/native ADR；选择 WinForms 薄壳；托盘仅管理独立 CLI |
 | 10.4 Release pipeline | 已完成 | 本任务提交 | tag clean build；metadata/SBOM/license/checksum/provenance；final smoke/release；可选签名 |
 | 11.1 数据迁移决策与工具 | 已完成 | 本任务提交 | 一次性迁移、原始备份、schema/重复执行/完整性校验、真实脱敏样本 |
-| 11.2 Node 主实现验收 | 未开始 |  |  |
+| 11.2 Node 主实现验收 | 已完成 | 本任务提交 | production composition；Node/Python 差异报告；207 unit/integration、Playwright、npm/portable smoke |
 | 11.3 文档和运维手册 | 未开始 |  |  |
 | 11.4 删除 Python runtime | 未开始 |  |  |
 | 11.5 最终发布候选验证 | 未开始 |  |  |
@@ -946,13 +946,13 @@ python -m mypy
 
 依赖：9.6、10.2、11.1。
 
-- [ ] 对照阶段 0 行为清单逐项验收。
-- [ ] 执行 Node/Python 黑盒差异报告。
-- [ ] 对每个有意差异更新 README/changelog。
-- [ ] 运行完整 unit/component/integration/browser/package test。
-- [ ] 在 Windows/Linux 手工完成核心工作流。
-- [ ] 关闭所有 P0/P1 缺陷。
-- [ ] 确认 Node 版本成为默认文档入口。
+- [x] 对照阶段 0 行为清单逐项验收。
+- [x] 执行 Node/Python 黑盒差异报告。
+- [x] 对每个有意差异更新 README/changelog。
+- [x] 运行完整 unit/component/integration/browser/package test。
+- [x] 在 Windows/Linux 手工完成核心工作流。
+- [x] 关闭所有 P0/P1 缺陷。
+- [x] 确认 Node 版本成为默认文档入口。
 
 验收：设计文档“完成定义”全部满足，维护者签字确认切换。
 

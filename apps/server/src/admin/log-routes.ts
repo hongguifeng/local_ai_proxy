@@ -2,6 +2,8 @@ import type { FastifyInstance } from "fastify";
 
 import type { AdminLogService } from "./log-service.js";
 
+type LogRouteService = Pick<AdminLogService, "listTasks" | "listRecords" | "getRecord" | "cleanup" | "export">;
+
 interface PageQuery {
   query?: string;
   limit?: string;
@@ -9,7 +11,7 @@ interface PageQuery {
   logRoot?: string;
 }
 
-export function registerLogRoutes(app: FastifyInstance, service: AdminLogService): void {
+export function registerLogRoutes(app: FastifyInstance, service: LogRouteService): void {
   app.get<{ Querystring: PageQuery }>("/api/v1/tasks", async (request) => {
     const page = pagination(request.query);
     return service.listTasks(request.query.query ?? "", page.limit, page.offset);

@@ -3,6 +3,22 @@ import { describe, expect, it, vi } from "vitest";
 import { StorageWriteQueue, type StorageQueueWriter } from "../src/storage/write-queue.js";
 
 describe("bounded storage write queue", () => {
+  it("supersedes an uncommitted pending event with its terminal record", async () => {
+    const writes: string[] = [];
+    const writer: StorageQueueWriter = {
+      writeTraffic(value) {
+        writes.push(value.event);
+        return Promise.resolve();
+      },
+    };
+    const queue = new StorageWriteQueue(writer, limits());
+    queue.enqueue({ record: record("same", "request_received") });
+    queue.enqueue({ record: record("same", "request_finished") });
+    await queue.drain();
+    expect(writes).toEqual(["request_finished"]);
+    expect(queue.metrics().coalesced).toBe(1);
+  });
+
   it("coalesces pending records and prioritizes final records", async () => {
     const writes: string[] = [];
     let releaseFirst: (() => void) | undefined;
