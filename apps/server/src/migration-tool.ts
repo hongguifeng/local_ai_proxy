@@ -1,4 +1,5 @@
 import { createHash, randomUUID } from "node:crypto";
+import { createReadStream } from "node:fs";
 import { cp, mkdir, readFile, readdir, rename, rm, stat, writeFile } from "node:fs/promises";
 import { dirname, join, relative, resolve } from "node:path";
 
@@ -177,8 +178,9 @@ async function migrationFiles(root: string): Promise<string[]> {
 }
 async function hash(path: string): Promise<string> {
   const info = await stat(path);
-  const content = await readFile(path);
-  return createHash("sha256").update(String(info.size)).update(content).digest("hex");
+  const digest = createHash("sha256").update(String(info.size));
+  for await (const chunk of createReadStream(path)) digest.update(chunk);
+  return digest.digest("hex");
 }
 async function fileHashes(root: string, files: readonly string[]): Promise<Record<string, string>> {
   const values: Record<string, string> = {};
