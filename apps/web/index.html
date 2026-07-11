@@ -17,7 +17,10 @@
       <section class="panel">
         <div class="section-title">
           <h1>代理</h1>
-          <button id="save-proxies" type="button">保存配置</button>
+          <div>
+            <button id="add-proxy" type="button">添加代理</button
+            ><button id="save-proxies" type="button">保存配置</button>
+          </div>
         </div>
         <div id="proxies" class="cards"></div>
       </section>
@@ -30,6 +33,9 @@
           <div>
             <h2>任务</h2>
             <div id="tasks" class="list"></div>
+            <div class="pagination">
+              <button id="tasks-prev" type="button">上一页</button><button id="tasks-next" type="button">下一页</button>
+            </div>
           </div>
           <div>
             <h2>请求</h2>

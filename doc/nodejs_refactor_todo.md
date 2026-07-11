@@ -90,7 +90,7 @@ python -m mypy
 | 8.1 现有 UI contract 迁移 | 已完成 | 本任务提交 | 184 项 Node 测试；新 API client/controller；主要工作流与竞态保护 |
 | 8.2 Web TypeScript 构建 | 已完成 | 本任务提交 | 185 项 Node 测试；Vite hashed build；无 prod sourcemap；响应式页面 |
 | 8.3 secret 和错误状态 | 已完成 | 本任务提交 | 188 项 Node 测试；secret 明确动作；stale/empty/loading；防重复与清理确认 |
-| 8.4 浏览器关键流程测试 | 未开始 |  |  |
+| 8.4 浏览器关键流程测试 | 已完成 | 本任务提交 | Playwright fixture E2E；proxy/log/cleanup/export；窄屏；失败 trace/screenshot |
 | 9.1 结构化运行日志 | 未开始 |  |  |
 | 9.2 health 和内部指标 | 未开始 |  |  |
 | 9.3 安全加固 | 未开始 |  |  |
@@ -775,13 +775,13 @@ python -m mypy
 
 依赖：8.3。
 
-- [ ] 配置 Playwright。
-- [ ] 测试创建/修改 proxy。
-- [ ] 测试启停和运行状态。
-- [ ] 通过 fixture upstream 产生普通/SSE 日志。
-- [ ] 测试 task 搜索、分页和 detail。
-- [ ] 测试 cleanup 和 export 下载。
-- [ ] 覆盖窄屏基本可用性。
+- [x] 配置 Playwright。
+- [x] 测试创建/修改 proxy。
+- [x] 测试启停和运行状态。
+- [x] 通过 fixture upstream 产生普通/SSE 日志。
+- [x] 测试 task 搜索、分页和 detail。
+- [x] 测试 cleanup 和 export 下载。
+- [x] 覆盖窄屏基本可用性。
 
 验收：浏览器测试在 CI 稳定运行，失败保留 screenshot/trace。
 

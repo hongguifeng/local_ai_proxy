@@ -60,6 +60,45 @@ export class AdminUiController {
     });
   }
 
+  public addProxy(): void {
+    const suffix = crypto.randomUUID();
+    this.#set({
+      proxies: [
+        ...this.#state.proxies,
+        {
+          id: `proxy-${suffix}`,
+          name: "新代理",
+          enabled: false,
+          listenHost: "127.0.0.1",
+          listenPort: 0,
+          accessLog: true,
+          defaultTargetId: `target-${suffix}`,
+          targets: [
+            {
+              id: `target-${suffix}`,
+              name: "默认目标",
+              enabled: true,
+              url: "http://127.0.0.1:8000",
+              apiKey: { configured: false },
+              headers: [],
+              stripRequestFields: [],
+              injectRequestFields: {},
+              timeouts: { connectMs: 10_000, responseHeadersMs: 60_000, idleMs: 600_000 },
+              logRoot: null,
+              redactLogs: true,
+              modelMappings: [],
+            },
+          ],
+          runtime: { state: "configured", actualListenPort: null },
+        },
+      ],
+    });
+  }
+
+  public updateProxy(id: string, values: { name?: string; listenPort?: number }): void {
+    this.#set({ proxies: this.#state.proxies.map((proxy) => (proxy.id === id ? { ...proxy, ...values } : proxy)) });
+  }
+
   public async saveProxies(): Promise<void> {
     await this.#mutation(async () => {
       const result = await this.#api.replaceProxies({

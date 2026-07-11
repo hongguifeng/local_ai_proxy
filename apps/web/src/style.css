@@ -69,6 +69,11 @@ main {
   justify-content: space-between;
   gap: 0.75rem;
 }
+.section-title > div,
+.pagination {
+  display: flex;
+  gap: 0.5rem;
+}
 h1,
 h2 {
   margin: 0 0 0.75rem;
@@ -95,6 +100,17 @@ h2 {
 }
 .card small {
   color: #8fa1be;
+}
+.card > input:not([type="checkbox"]) {
+  min-width: 0;
+  border: 1px solid #334158;
+  border-radius: 8px;
+  background: #0c1422;
+  color: inherit;
+  padding: 0.5rem;
+}
+.pagination {
+  margin-top: 0.5rem;
 }
 .secret {
   grid-column: 1 / -1;

@@ -32,7 +32,7 @@ export default tseslint.config(
       globals: globals.node,
       parserOptions: {
         projectService: {
-          allowDefaultProject: ["vitest.config.ts"],
+          allowDefaultProject: ["vitest.config.ts", "playwright.config.ts", "apps/web/e2e/*.ts"],
         },
         tsconfigRootDir: import.meta.dirname,
       },

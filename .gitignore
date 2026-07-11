@@ -8,6 +8,8 @@ dist/
 node_modules/
 .pnpm-store/
 coverage/
+test-results/
+playwright-report/
 reports/
 *.tsbuildinfo
 apps/*/dist/

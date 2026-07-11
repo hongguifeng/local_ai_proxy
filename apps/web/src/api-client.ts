@@ -14,7 +14,7 @@ export type FetchLike = (input: string, init?: RequestInit) => Promise<Response>
 export class ApiClient {
   readonly #fetch: FetchLike;
 
-  public constructor(fetcher: FetchLike = fetch) {
+  public constructor(fetcher: FetchLike = (input, init) => fetch(input, init)) {
     this.#fetch = fetcher;
   }
 

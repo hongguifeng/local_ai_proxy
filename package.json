@@ -12,15 +12,17 @@
   "scripts": {
     "build": "pnpm -r --if-present build",
     "check:node": "node scripts/check-node-version.mjs",
-    "format": "prettier --write package.json pnpm-workspace.yaml pnpm-lock.yaml tsconfig.base.json tsconfig.json eslint.config.mjs vitest.config.ts \"apps/**/*.{ts,json,html,css}\" \"packages/contracts/**/*.{ts,json}\" packages/test-fixtures/package.json",
-    "format:check": "prettier --check package.json pnpm-workspace.yaml pnpm-lock.yaml tsconfig.base.json tsconfig.json eslint.config.mjs vitest.config.ts \"apps/**/*.{ts,json,html,css}\" \"packages/contracts/**/*.{ts,json}\" packages/test-fixtures/package.json",
+    "format": "prettier --write package.json pnpm-workspace.yaml pnpm-lock.yaml tsconfig.base.json tsconfig.json eslint.config.mjs vitest.config.ts playwright.config.ts \"apps/**/*.{ts,mjs,json,html,css}\" \"packages/contracts/**/*.{ts,json}\" packages/test-fixtures/package.json",
+    "format:check": "prettier --check package.json pnpm-workspace.yaml pnpm-lock.yaml tsconfig.base.json tsconfig.json eslint.config.mjs vitest.config.ts playwright.config.ts \"apps/**/*.{ts,mjs,json,html,css}\" \"packages/contracts/**/*.{ts,json}\" packages/test-fixtures/package.json",
     "lint": "eslint . --max-warnings 0",
     "test": "pnpm --filter @llm-proxy/contracts build && pnpm --filter @llm-proxy/server build && pnpm --filter @llm-proxy/web build && vitest run",
+    "test:e2e": "pnpm --filter @llm-proxy/web build && playwright test",
     "test:coverage": "pnpm --filter @llm-proxy/contracts build && pnpm --filter @llm-proxy/server build && pnpm --filter @llm-proxy/web build && vitest run --coverage",
     "typecheck": "pnpm -r --if-present typecheck"
   },
   "devDependencies": {
     "@eslint/js": "10.0.1",
+    "@playwright/test": "1.55.0",
     "@types/node": "26.1.1",
     "@vitest/coverage-v8": "4.1.10",
     "eslint": "10.6.0",

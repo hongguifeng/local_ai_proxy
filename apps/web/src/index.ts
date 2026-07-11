@@ -12,12 +12,25 @@ const elements = {
   export: required("export") as HTMLAnchorElement,
   cleanup: required("cleanup") as HTMLButtonElement,
   save: required("save-proxies") as HTMLButtonElement,
+  tasksPrev: required("tasks-prev") as HTMLButtonElement,
+  tasksNext: required("tasks-next") as HTMLButtonElement,
   query: required("query") as HTMLInputElement,
 };
 const controller = new AdminUiController(new ApiClient(), render);
 
 required("refresh").addEventListener("click", () => void refresh());
 elements.save.addEventListener("click", () => void controller.saveProxies());
+required("add-proxy").addEventListener("click", () => {
+  controller.addProxy();
+});
+elements.tasksPrev.addEventListener(
+  "click",
+  () => void controller.searchTasks(elements.query.value, Math.max(0, (controller.state.tasks?.offset ?? 0) - 50)),
+);
+elements.tasksNext.addEventListener(
+  "click",
+  () => void controller.searchTasks(elements.query.value, (controller.state.tasks?.offset ?? 0) + 50),
+);
 required("task-search").addEventListener("submit", (event) => {
   event.preventDefault();
   void controller.searchTasks(elements.query.value);
@@ -37,6 +50,8 @@ function render(state: UiState): void {
   elements.notice.hidden = state.notice === null;
   elements.notice.textContent = state.notice ?? "";
   elements.save.disabled = state.loading.mutation;
+  elements.tasksPrev.disabled = state.loading.tasks || !state.tasks || state.tasks.offset === 0;
+  elements.tasksNext.disabled = state.loading.tasks || !state.tasks?.hasMore;
   elements.proxies.replaceChildren(...state.proxies.map(proxyCard));
   const taskButtons = (state.tasks?.tasks ?? []).map(({ task, logRoot }) =>
     listButton(
@@ -87,7 +102,22 @@ function proxyCard(proxy: UiState["proxies"][number]): HTMLElement {
   toggle.type = "checkbox";
   toggle.checked = proxy.enabled;
   toggle.addEventListener("change", () => void controller.toggleProxy(proxy.id, toggle.checked));
-  card.append(title, status, address, toggle);
+  const name = document.createElement("input");
+  name.value = proxy.name;
+  name.setAttribute("aria-label", `${proxy.name} 名称`);
+  name.addEventListener("input", () => {
+    controller.updateProxy(proxy.id, { name: name.value });
+  });
+  const port = document.createElement("input");
+  port.type = "number";
+  port.min = "0";
+  port.max = "65535";
+  port.value = String(proxy.listenPort);
+  port.setAttribute("aria-label", `${proxy.name} 端口`);
+  port.addEventListener("input", () => {
+    controller.updateProxy(proxy.id, { listenPort: Number(port.value) });
+  });
+  card.append(title, status, address, toggle, name, port);
   for (const target of proxy.targets) {
     const secret = document.createElement("div");
     secret.className = "secret";
