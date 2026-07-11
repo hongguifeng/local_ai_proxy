@@ -78,7 +78,7 @@ python -m mypy
 | 5.6 traffic 生命周期接入 | 已完成 | 本任务提交 | 143 项 Node 测试；全 event 生命周期；脱敏与 degraded 隔离 |
 | 5.7 连接池和资源释放 | 已完成 | 本任务提交 | 145 项 Node 测试；per-origin Agent；socket 上限与 stop 归零 |
 | 5.8 协议故障集成测试 | 已完成 | 本任务提交 | 150 项 Node 测试；raw 故障注入；混合并发与 active shutdown |
-| 6.1 RuntimeManager | 未开始 |  |  |
+| 6.1 RuntimeManager | 已完成 | 本任务提交 | 154 项 Node 测试；独立启停；ephemeral port；安全失败状态 |
 | 6.2 原子配置替换 | 未开始 |  |  |
 | 6.3 优雅启动和关闭 | 未开始 |  |  |
 | 6.4 runtime 故障恢复 | 未开始 |  |  |
@@ -611,12 +611,12 @@ python -m mypy
 
 依赖：5.8、2.1。
 
-- [ ] 按 proxy ID 管理 server/runtime 状态。
-- [ ] 支持 start、stop、restart 和 list。
-- [ ] 支持配置端口 0 并返回 actual port 供测试。
-- [ ] 防止重复 ID 和监听冲突。
-- [ ] 状态区分 configured、starting、running、stopping、failed。
-- [ ] 错误包含安全化的 listen address 和 code。
+- [x] 按 proxy ID 管理 server/runtime 状态。
+- [x] 支持 start、stop、restart 和 list。
+- [x] 支持配置端口 0 并返回 actual port 供测试。
+- [x] 防止重复 ID 和监听冲突。
+- [x] 状态区分 configured、starting、running、stopping、failed。
+- [x] 错误包含安全化的 listen address 和 code。
 
 验收：多个 proxy 可同时监听、独立启停，单个失败不终止其他 proxy。
 

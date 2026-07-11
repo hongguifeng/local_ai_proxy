@@ -72,7 +72,7 @@ export const ProxyConfigSchema = z
     name: z.string().trim().min(1).max(200),
     enabled: z.boolean().default(false),
     listenHost: z.string().trim().min(1).max(253).default("127.0.0.1"),
-    listenPort: z.number().int().min(1).max(65_535).default(1234),
+    listenPort: z.number().int().min(0).max(65_535).default(1234),
     accessLog: z.boolean().default(false),
     targets: z.array(TargetConfigSchema).min(1).max(100),
     defaultTargetId: EntityIdSchema,
@@ -147,14 +147,14 @@ export const ConfigV1Schema = z
       }
       proxyIds.add(proxy.id);
       const listener = [proxy.listenHost.toLowerCase(), proxy.listenPort].join(":");
-      if (listeners.has(listener)) {
+      if (proxy.listenPort !== 0 && listeners.has(listener)) {
         context.addIssue({
           code: "custom",
           path: ["proxies", index, "listenPort"],
           message: `Duplicate listen address: ${listener}`,
         });
       }
-      listeners.add(listener);
+      if (proxy.listenPort !== 0) listeners.add(listener);
     }
   });
 

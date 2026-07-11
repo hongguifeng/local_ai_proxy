@@ -23,7 +23,7 @@ export const PublicTargetSchema = z.strictObject({
   modelMappings: z.array(ModelMappingSchema),
 });
 
-export const ProxyRuntimeStateSchema = z.enum(["stopped", "starting", "running", "stopping", "failed"]);
+export const ProxyRuntimeStateSchema = z.enum(["configured", "starting", "running", "stopping", "failed"]);
 
 export const PublicProxySchema = z.strictObject({
   id: EntityIdSchema,

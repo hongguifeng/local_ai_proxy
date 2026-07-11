@@ -131,7 +131,7 @@ describe("admin contracts", () => {
           modelMappings: [],
         },
       ],
-      runtime: { state: "stopped", actualListenPort: null },
+      runtime: { state: "configured", actualListenPort: null },
     };
     const parsed = ProxyListResponseSchema.parse({ proxies: [publicProxy] });
     expect(parsed.proxies[0]?.targets[0]?.apiKey.configured).toBe(true);
