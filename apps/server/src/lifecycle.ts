@@ -11,6 +11,11 @@ export type SignalSource = Readonly<{
   off: (event: "SIGINT" | "SIGTERM", listener: () => void) => unknown;
 }>;
 
+export type FatalSource = Readonly<{
+  once: (event: "uncaughtException" | "unhandledRejection", listener: () => void) => unknown;
+  off: (event: "uncaughtException" | "unhandledRejection", listener: () => void) => unknown;
+}>;
+
 export function createScaffoldRuntime(options: CliOptions): ApplicationRuntime {
   void options;
   return {
@@ -31,6 +36,18 @@ export function installShutdownHooks(controller: AbortController, source: Signal
   return () => {
     source.off("SIGINT", abort);
     source.off("SIGTERM", abort);
+  };
+}
+
+export function installFatalHooks(controller: AbortController, source: FatalSource = process): () => void {
+  const abort = (): void => {
+    if (!controller.signal.aborted) controller.abort();
+  };
+  source.once("uncaughtException", abort);
+  source.once("unhandledRejection", abort);
+  return () => {
+    source.off("uncaughtException", abort);
+    source.off("unhandledRejection", abort);
   };
 }
 

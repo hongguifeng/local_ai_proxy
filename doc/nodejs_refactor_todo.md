@@ -81,7 +81,7 @@ python -m mypy
 | 6.1 RuntimeManager | 已完成 | 本任务提交 | 154 项 Node 测试；独立启停；ephemeral port；安全失败状态 |
 | 6.2 原子配置替换 | 已完成 | 本任务提交 | 158 项 Node 测试；prepare/commit/rollback；并发串行化 |
 | 6.3 优雅启动和关闭 | 已完成 | 本任务提交 | 161 项 Node 测试；有序 startup/shutdown；active grace/abort |
-| 6.4 runtime 故障恢复 | 未开始 |  |  |
+| 6.4 runtime 故障恢复 | 已完成 | 本任务提交 | 166 项 Node 测试；degraded/failed health；有限退避恢复 |
 | 7.1 Fastify 管理面骨架 | 未开始 |  |  |
 | 7.2 proxy 管理 API | 未开始 |  |  |
 | 7.3 task/log 管理 API | 未开始 |  |  |
@@ -652,12 +652,12 @@ python -m mypy
 
 依赖：6.3、4.4。
 
-- [ ] Worker crash 进入 storage degraded。
-- [ ] 实现有限次数、带退避的 Worker 重启。
-- [ ] listen server error 更新单个 runtime 状态。
-- [ ] fatal process error 触发全局关闭。
-- [ ] 防止无限重启循环和日志风暴。
-- [ ] health 反映 degraded/failed 组件。
+- [x] Worker crash 进入 storage degraded。
+- [x] 实现有限次数、带退避的 Worker 重启。
+- [x] listen server error 更新单个 runtime 状态。
+- [x] fatal process error 触发全局关闭。
+- [x] 防止无限重启循环和日志风暴。
+- [x] health 反映 degraded/failed 组件。
 
 验收：故障注入结果确定且可观测，不存在静默停止记录或假健康。
 

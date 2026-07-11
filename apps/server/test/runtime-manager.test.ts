@@ -90,6 +90,19 @@ describe("RuntimeManager", () => {
     expect(manager.list()[0]).toMatchObject({ state: "configured" });
     await expect(manager.start("missing")).rejects.toBeInstanceOf(RuntimeOperationError);
   });
+
+  it("marks only the failed listener with a sanitized runtime code", () => {
+    const proxies = runtimeProxies([
+      { id: "one", enabled: true, listenPort: 1001 },
+      { id: "two", enabled: true, listenPort: 1002 },
+    ]);
+    const manager = new RuntimeManager(proxies, nodeServerFactory);
+    manager.markFailed("one", "LISTEN FAILED!\nsecret");
+    expect(manager.list()).toEqual([
+      expect.objectContaining({ id: "one", state: "failed", errorCode: "LISTEN_FAILED__secret" }),
+      expect.objectContaining({ id: "two", state: "configured", errorCode: null }),
+    ]);
+  });
 });
 
 function runtimeProxies(

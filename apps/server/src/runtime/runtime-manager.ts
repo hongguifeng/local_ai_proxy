@@ -147,6 +147,15 @@ export class RuntimeManager {
     await Promise.allSettled([...this.#entries.keys()].map(async (id) => this.stop(id)));
   }
 
+  public markFailed(proxyId: string, code: string): void {
+    const runtime = this.#entries.get(proxyId);
+    if (!runtime) return;
+    runtime.state = "failed";
+    runtime.errorCode = safeCode(code);
+    runtime.errorAddress = safeAddress(runtime.proxy.listenHost, runtime.proxy.listenPort);
+    runtime.actualListenPort = null;
+  }
+
   #enqueue(proxyId: string, operation: (runtime: RuntimeEntry) => Promise<void>): Promise<void> {
     const runtime = this.#entries.get(proxyId);
     if (!runtime) return Promise.reject(new RuntimeOperationError("PROXY_NOT_FOUND", null, "Proxy does not exist"));
@@ -220,4 +229,8 @@ function safeAddress(host: string, port: number): string {
 function errorCode(error: unknown): string {
   if (error && typeof error === "object" && "code" in error && typeof error.code === "string") return error.code;
   return "LISTEN_FAILED";
+}
+
+function safeCode(code: string): string {
+  return code.replaceAll(/[^A-Za-z0-9_.:-]/gu, "_").slice(0, 80) || "RUNTIME_FAILED";
 }
