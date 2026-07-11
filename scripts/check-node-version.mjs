@@ -7,4 +7,3 @@ if (actualMajor !== expectedMajor) {
 } else {
   console.log(`Node.js runtime OK: ${process.version}`);
 }
-

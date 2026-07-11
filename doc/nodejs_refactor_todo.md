@@ -95,7 +95,7 @@ python -m mypy
 | 9.2 health 和内部指标 | 已完成 | 本任务提交 | live/ready/degraded；bounded metrics adapter；storage/request/traffic；193 项 Node 测试 |
 | 9.3 安全加固 | 已完成 | 本任务提交 | token/origin/CORS；并发限制；0600 文件；注入测试；audit/license；196 项 Node 测试 |
 | 9.4 容量和 retention | 已完成 | 本任务提交 | capture/queue 边界；idle retention；低磁盘降级；隐私成本；198 项 Node 测试 |
-| 9.5 性能基线与剖析 | 未开始 |  |  |
+| 9.5 性能基线与剖析 | 已完成 | 本任务提交 | 可复现 benchmark；100 SSE/60s；JSON/storage/100MiB/100k；CPU/heap/event-loop 报告 |
 | 9.6 故障注入测试 | 未开始 |  |  |
 | 10.1 CLI/npm 产物 | 未开始 |  |  |
 | 10.2 Windows 便携包 | 未开始 |  |  |
@@ -845,14 +845,14 @@ python -m mypy
 
 依赖：5.8、9.2、0.4。
 
-- [ ] 执行普通 JSON throughput/latency benchmark。
-- [ ] 执行 100 并发 SSE 60 秒 benchmark。
-- [ ] 执行 100 MiB 响应内存测试。
-- [ ] 执行慢客户端测试。
-- [ ] 执行 storage queue/commit benchmark。
-- [ ] 执行 10 万 tasks 查询 benchmark。
-- [ ] 使用 event loop delay、CPU 和 heap profile 定位瓶颈。
-- [ ] 保存报告，不做没有测量依据的优化。
+- [x] 执行普通 JSON throughput/latency benchmark。
+- [x] 执行 100 并发 SSE 60 秒 benchmark。
+- [x] 执行 100 MiB 响应内存测试。
+- [x] 执行慢客户端测试。
+- [x] 执行 storage queue/commit benchmark。
+- [x] 执行 10 万 tasks 查询 benchmark。
+- [x] 使用 event loop delay、CPU 和 heap profile 定位瓶颈。
+- [x] 保存报告，不做没有测量依据的优化。
 
 验收：设计文档中的性能不变量全部满足，报告可在同类机器复现。
 
