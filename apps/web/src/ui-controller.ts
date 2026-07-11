@@ -55,6 +55,24 @@ export class AdminUiController {
     });
   }
 
+  public async saveProxies(): Promise<void> {
+    await this.#mutation(async () => {
+      const result = await this.#api.replaceProxies({
+        proxies: this.#state.proxies.map((proxy) => ({
+          id: proxy.id,
+          name: proxy.name,
+          enabled: proxy.enabled,
+          listenHost: proxy.listenHost,
+          listenPort: proxy.listenPort,
+          accessLog: proxy.accessLog,
+          defaultTargetId: proxy.defaultTargetId,
+          targets: proxy.targets.map((target) => ({ ...target, apiKey: { action: "keep" } })),
+        })),
+      });
+      this.#set({ proxies: result.proxies });
+    });
+  }
+
   public async searchTasks(query: string, offset = 0): Promise<void> {
     await this.#load("tasks", async () => {
       const result = await this.#requests.tasks.run(async (signal) => this.#api.tasks(query, 50, offset, signal));

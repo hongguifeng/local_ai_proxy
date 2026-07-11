@@ -1,0 +1,49 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="color-scheme" content="dark light" />
+    <title>LLM Proxy</title>
+  </head>
+  <body>
+    <header class="topbar">
+      <div><strong>LLM Proxy</strong><span>Node.js Admin</span></div>
+      <button id="refresh" type="button">刷新</button>
+    </header>
+    <div id="error" class="error" hidden></div>
+    <main>
+      <section class="panel">
+        <div class="section-title">
+          <h1>代理</h1>
+          <button id="save-proxies" type="button">保存配置</button>
+        </div>
+        <div id="proxies" class="cards"></div>
+      </section>
+      <section class="panel logs">
+        <div class="section-title"><h1>流量任务</h1></div>
+        <form id="task-search" class="search">
+          <input id="query" placeholder="模型、路径、内容…" /><button>搜索</button>
+        </form>
+        <div class="log-grid">
+          <div>
+            <h2>任务</h2>
+            <div id="tasks" class="list"></div>
+          </div>
+          <div>
+            <h2>请求</h2>
+            <div id="records" class="list"></div>
+          </div>
+          <div class="detail">
+            <div class="detail-actions">
+              <h2>详情</h2>
+              <a id="export" hidden>导出 ZIP</a><button id="cleanup" type="button" disabled>清理任务</button>
+            </div>
+            <pre id="detail">选择一条请求查看详情</pre>
+          </div>
+        </div>
+      </section>
+    </main>
+    <script type="module" src="/src/index.ts"></script>
+  </body>
+</html>

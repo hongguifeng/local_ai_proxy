@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { ErrorEnvelopeSchema } from "@llm-proxy/contracts";
 
-import { webPackageName } from "../src/index.js";
+import { webPackageName } from "../src/package.js";
 
 describe("web toolchain", () => {
   it("loads an ESM TypeScript module", () => {

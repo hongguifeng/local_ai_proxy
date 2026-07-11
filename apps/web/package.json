@@ -8,10 +8,13 @@
     "node": ">=24.0.0 <25"
   },
   "scripts": {
-    "build": "tsc -p tsconfig.build.json",
+    "build": "vite build",
     "typecheck": "tsc -p tsconfig.json"
   },
   "dependencies": {
     "@llm-proxy/contracts": "workspace:*"
+  },
+  "devDependencies": {
+    "vite": "^8.1.4"
   }
 }

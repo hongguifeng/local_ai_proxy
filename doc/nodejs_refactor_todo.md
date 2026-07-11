@@ -88,7 +88,7 @@ python -m mypy
 | 7.4 统一错误与安全边界 | 已完成 | 本任务提交 | 177 项 Node 测试；稳定 envelope；安全 headers；secret/path 隔离 |
 | 7.5 静态资源和浏览器启动 | 已完成 | 本任务提交 | 179 项 Node 测试；安全静态 root；cache 策略；ready 后浏览器 |
 | 8.1 现有 UI contract 迁移 | 已完成 | 本任务提交 | 184 项 Node 测试；新 API client/controller；主要工作流与竞态保护 |
-| 8.2 Web TypeScript 构建 | 未开始 |  |  |
+| 8.2 Web TypeScript 构建 | 已完成 | 本任务提交 | 185 项 Node 测试；Vite hashed build；无 prod sourcemap；响应式页面 |
 | 8.3 secret 和错误状态 | 未开始 |  |  |
 | 8.4 浏览器关键流程测试 | 未开始 |  |  |
 | 9.1 结构化运行日志 | 未开始 |  |  |
@@ -749,12 +749,12 @@ python -m mypy
 
 依赖：8.1、1.4。
 
-- [ ] 把 Web 入口迁移到 TypeScript。
-- [ ] 引入统一 API client。
-- [ ] 使用共享 contract parse server response。
-- [ ] 消除隐式全局状态和 inline event handler。
-- [ ] 是否引入 React 依据 ADR 执行。
-- [ ] 配置生产 source map 策略。
+- [x] 把 Web 入口迁移到 TypeScript。
+- [x] 引入统一 API client。
+- [x] 使用共享 contract parse server response。
+- [x] 消除隐式全局状态和 inline event handler。
+- [x] 是否引入 React 依据 ADR 执行。
+- [x] 配置生产 source map 策略。
 
 验收：Web build 无 TypeScript error，API response shape 变化会在类型或 schema 测试中失败。
 

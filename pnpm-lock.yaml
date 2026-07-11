@@ -71,6 +71,10 @@ importers:
       "@llm-proxy/contracts":
         specifier: workspace:*
         version: link:../../packages/contracts
+    devDependencies:
+      vite:
+        specifier: ^8.1.4
+        version: 8.1.4(@types/node@26.1.1)(tsx@4.20.6)
 
   packages/contracts:
     dependencies:
