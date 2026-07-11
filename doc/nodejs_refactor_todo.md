@@ -105,7 +105,7 @@ python -m mypy
 | 11.2 Node 主实现验收 | 已完成 | 本任务提交 | production composition；Node/Python 差异报告；207 unit/integration、Playwright、npm/portable smoke |
 | 11.3 文档和运维手册 | 已完成 | 本任务提交 | 中英文 quick start；配置参考；数据/备份/retention/排障/release/rollback 运维手册 |
 | 11.4 删除 Python runtime | 已完成 | 本任务提交 | `python-runtime-final` tag；删除 Python package/入口/tests/workflow/scripts；仅 Node toolchain |
-| 11.5 最终发布候选验证 | 未开始 |  |  |
+| 11.5 最终发布候选验证 | 已完成 | 本任务提交 | RC tag 构建；Windows/Linux smoke；用户批准缩短混合 soak；迁移/回滚；checksum/SBOM/license/清理审计 |
 
 ## 4. 阶段 0：决策与行为基线
 
@@ -987,13 +987,13 @@ python -m mypy
 
 依赖：11.4、10.4。
 
-- [ ] 从 release candidate tag 构建全部产物。
-- [ ] 干净 Windows/Linux 环境 smoke test。
-- [ ] 执行 60 分钟混合普通/SSE soak test。
-- [ ] 执行升级/迁移和回滚演练。
-- [ ] 验证 checksum、SBOM 和 license。
-- [ ] 检查数据库、socket、Worker 和临时文件清理。
-- [ ] 发布已知限制和 release notes。
+- [x] 从 release candidate tag 构建全部产物。
+- [x] 干净 Windows/Linux 环境 smoke test。
+- [x] 执行混合普通/SSE soak test（用户明确批准不等待完整 60 分钟）。
+- [x] 执行升级/迁移和回滚演练。
+- [x] 验证 checksum、SBOM 和 license。
+- [x] 检查数据库、socket、Worker 和临时文件清理。
+- [x] 发布已知限制和 release notes。
 
 验收：候选版本无阻塞缺陷，所有 artifact 与文档一致，可发布正式 Node.js 版本。
 

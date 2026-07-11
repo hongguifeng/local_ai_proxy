@@ -6,6 +6,7 @@ import { join, resolve } from "node:path";
 import { promisify } from "node:util";
 
 const exec = promisify(execFile);
+const expectedVersion = (process.env.LLM_PROXY_RELEASE_VERSION ?? "0.3.0-dev").replace(/^v/u, "");
 const release = resolve("release/npm");
 const archives = (await readdir(release)).filter((name) => name.endsWith(".tgz"));
 const contracts = archives.find((name) => name.includes("contracts"));
@@ -20,7 +21,7 @@ try {
   const cli = join(root, "node_modules", "@llm-proxy", "server", "dist", "cli.js");
   const help = await exec(process.execPath, [cli, "--help"], { cwd: root });
   const version = await exec(process.execPath, [cli, "--version"], { cwd: root });
-  if (!help.stdout.includes("Usage: llm-proxy") || !version.stdout.includes("0.3.0-dev"))
+  if (!help.stdout.includes("Usage: llm-proxy") || version.stdout.trim() !== expectedVersion)
     throw new Error("CLI smoke failed");
   const port = await freePort();
   const child = spawn(

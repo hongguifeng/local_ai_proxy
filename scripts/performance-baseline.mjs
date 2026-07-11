@@ -7,6 +7,7 @@ import { ProxyServer } from "../apps/server/dist/proxy/proxy-server.js";
 import { StorageWriteQueue } from "../apps/server/dist/storage/write-queue.js";
 
 const durationMs = Number(process.env.LLM_PROXY_SSE_BENCHMARK_MS ?? 60_000);
+const mixedIntervalMs = Number(process.env.LLM_PROXY_MIXED_INTERVAL_MS ?? 100);
 const eventLoop = monitorEventLoopDelay({ resolution: 20 });
 eventLoop.enable();
 const cpuStart = cpuUsage();
@@ -66,8 +67,19 @@ await Promise.all(
 );
 const jsonElapsed = performance.now() - jsonStarted;
 const sseStarted = performance.now();
+let stopMixed = false;
+let mixedRequests = 0;
+const mixed = Array.from({ length: 10 }, async () => {
+  while (!stopMixed) {
+    await jsonRequest(proxyPort);
+    mixedRequests += 1;
+    await delay(mixedIntervalMs);
+  }
+});
 const sse = Array.from({ length: 100 }, () => sseRequest(proxyPort, durationMs));
 await Promise.all(sse);
+stopMixed = true;
+await Promise.all(mixed);
 const sseElapsed = performance.now() - sseStarted;
 const storageStarted = performance.now();
 const queue = new StorageWriteQueue(
@@ -97,7 +109,14 @@ console.log(
         p95Ms: percentile(latencies, 0.95),
         p99Ms: percentile(latencies, 0.99),
       },
-      sse: { concurrency: 100, targetDurationMs: durationMs, elapsedMs: sseElapsed },
+      mixedSoak: {
+        sseConcurrency: 100,
+        ordinaryConcurrency: 10,
+        ordinaryIntervalMs: mixedIntervalMs,
+        ordinaryRequests: mixedRequests,
+        targetDurationMs: durationMs,
+        elapsedMs: sseElapsed,
+      },
       storageQueue: {
         events: 10_000,
         elapsedMs: storageElapsed,
@@ -153,4 +172,7 @@ function sseRequest(port, duration) {
 }
 function percentile(values, fraction) {
   return values[Math.min(values.length - 1, Math.floor(values.length * fraction))] ?? 0;
+}
+function delay(milliseconds) {
+  return new Promise((resolve) => setTimeout(resolve, milliseconds));
 }
