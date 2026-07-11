@@ -179,7 +179,7 @@ async function migrationFiles(root: string): Promise<string[]> {
 async function hash(path: string): Promise<string> {
   const info = await stat(path);
   const digest = createHash("sha256").update(String(info.size));
-  for await (const chunk of createReadStream(path)) digest.update(chunk);
+  for await (const chunk of createReadStream(path) as AsyncIterable<Buffer>) digest.update(chunk);
   return digest.digest("hex");
 }
 async function fileHashes(root: string, files: readonly string[]): Promise<Record<string, string>> {
