@@ -12,6 +12,7 @@ body {
 }
 button,
 input,
+select,
 a {
   font: inherit;
 }
@@ -95,6 +96,28 @@ h2 {
 .card small {
   color: #8fa1be;
 }
+.secret {
+  grid-column: 1 / -1;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto minmax(12rem, 1fr);
+  align-items: center;
+  gap: 0.5rem;
+  padding-top: 0.5rem;
+  border-top: 1px solid #283246;
+}
+.secret span {
+  color: #b7c4d8;
+  overflow-wrap: anywhere;
+}
+.secret select,
+.secret input {
+  min-width: 0;
+  border: 1px solid #334158;
+  border-radius: 8px;
+  background: #0c1422;
+  color: inherit;
+  padding: 0.5rem;
+}
 .status {
   font-size: 0.72rem;
   text-transform: uppercase;
@@ -149,12 +172,29 @@ pre {
   overflow-wrap: anywhere;
   font-size: 0.78rem;
 }
-.error {
+.error,
+.notice {
   margin: 1rem 1rem 0;
   padding: 0.75rem;
+  border-radius: 9px;
+}
+.error {
   border: 1px solid #7f1d1d;
   background: #3f1218;
-  border-radius: 9px;
+}
+.notice {
+  border: 1px solid #166534;
+  background: #12351f;
+}
+.error,
+.notice,
+.message {
+  overflow-wrap: anywhere;
+  word-break: break-word;
+}
+.message {
+  margin: 0;
+  color: #8fa1be;
 }
 @media (max-width: 900px) {
   .log-grid {
@@ -182,5 +222,8 @@ pre {
   }
   .search {
     flex-direction: column;
+  }
+  .secret {
+    grid-template-columns: 1fr;
   }
 }

@@ -33,6 +33,7 @@ describe("AdminUiController workflows", () => {
     expect(controller.exportUrl()).toBe("/api/v1/tasks/export?logRoot=root-a");
     await controller.cleanupSelected();
     expect(calls).toContain("POST /api/v1/tasks/cleanup");
+    expect(controller.state.notice).toBe("任务已清理");
   });
 
   it("surfaces the unified public error message without exposing unknown details", async () => {
@@ -44,6 +45,65 @@ describe("AdminUiController workflows", () => {
     const controller = new AdminUiController(client, () => undefined);
     await controller.loadProxies();
     expect(controller.state.error).toBe("Safe message");
+    expect(controller.state.stale).toBe(true);
+  });
+
+  it("sends explicit secret updates once without retaining saved secret values", async () => {
+    const bodies: unknown[] = [];
+    let release!: () => void;
+    const pending = new Promise<void>((resolve) => (release = resolve));
+    const client = new ApiClient(async (_path, init) => {
+      if (init?.method === "PUT") {
+        if (typeof init.body !== "string") throw new TypeError("Expected JSON request body");
+        bodies.push(JSON.parse(init.body) as unknown);
+        await pending;
+      }
+      return ok({ proxies: [proxy()] });
+    });
+    const controller = new AdminUiController(client, () => undefined);
+    await controller.loadProxies();
+    controller.setTargetSecret("proxy-1", "target-1", "replace", "new-secret");
+    const first = controller.saveProxies();
+    const duplicate = controller.saveProxies();
+    release();
+    await Promise.all([first, duplicate]);
+    expect(bodies).toHaveLength(1);
+    expect(bodies[0]).toMatchObject({
+      proxies: [{ targets: [{ apiKey: { action: "replace", value: "new-secret" } }] }],
+    });
+    expect(JSON.stringify(controller.state)).not.toContain("new-secret");
+    expect(controller.state.notice).toBe("配置已保存");
+  });
+
+  it("keeps existing data when refresh fails and reports it as stale", async () => {
+    let fail = false;
+    const client = new ApiClient(() =>
+      fail ? Promise.reject(new Error("private detail")) : ok({ proxies: [proxy()] }),
+    );
+    const controller = new AdminUiController(client, () => undefined);
+    await controller.loadProxies();
+    fail = true;
+    await controller.loadProxies();
+    expect(controller.state.proxies).toHaveLength(1);
+    expect(controller.state.stale).toBe(true);
+    expect(controller.state.error).toBe("Request failed");
+  });
+
+  it("sends an explicit clear action without a secret value", async () => {
+    let body: unknown;
+    const client = new ApiClient((_path, init) => {
+      if (init?.method === "PUT") {
+        if (typeof init.body !== "string") throw new TypeError("Expected JSON request body");
+        body = JSON.parse(init.body) as unknown;
+      }
+      return ok({ proxies: [proxy()] });
+    });
+    const controller = new AdminUiController(client, () => undefined);
+    await controller.loadProxies();
+    controller.setTargetSecret("proxy-1", "target-1", "clear");
+    await controller.saveProxies();
+    expect(body).toMatchObject({ proxies: [{ targets: [{ apiKey: { action: "clear" } }] }] });
+    expect(JSON.stringify(body)).not.toContain("value");
   });
 });
 
@@ -93,5 +153,34 @@ function detail() {
     target: { id: "target-1", name: "Target", url: "https://example.com" },
     request: { headers: {}, body: empty },
     response: { headers: {}, body: empty },
+  };
+}
+
+function proxy() {
+  return {
+    id: "proxy-1",
+    name: "Proxy",
+    enabled: true,
+    listenHost: "127.0.0.1",
+    listenPort: 8080,
+    accessLog: true,
+    defaultTargetId: "target-1",
+    targets: [
+      {
+        id: "target-1",
+        name: "Target",
+        enabled: true,
+        url: "https://example.com",
+        apiKey: { configured: true, masked: "...cret" },
+        headers: [],
+        stripRequestFields: [],
+        injectRequestFields: {},
+        timeouts: { connectMs: 1_000, responseHeadersMs: 1_000, idleMs: 1_000 },
+        logRoot: null,
+        redactLogs: true,
+        modelMappings: [],
+      },
+    ],
+    runtime: { state: "running", actualListenPort: 8080 },
   };
 }

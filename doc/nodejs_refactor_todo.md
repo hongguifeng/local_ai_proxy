@@ -89,7 +89,7 @@ python -m mypy
 | 7.5 静态资源和浏览器启动 | 已完成 | 本任务提交 | 179 项 Node 测试；安全静态 root；cache 策略；ready 后浏览器 |
 | 8.1 现有 UI contract 迁移 | 已完成 | 本任务提交 | 184 项 Node 测试；新 API client/controller；主要工作流与竞态保护 |
 | 8.2 Web TypeScript 构建 | 已完成 | 本任务提交 | 185 项 Node 测试；Vite hashed build；无 prod sourcemap；响应式页面 |
-| 8.3 secret 和错误状态 | 未开始 |  |  |
+| 8.3 secret 和错误状态 | 已完成 | 本任务提交 | 188 项 Node 测试；secret 明确动作；stale/empty/loading；防重复与清理确认 |
 | 8.4 浏览器关键流程测试 | 未开始 |  |  |
 | 9.1 结构化运行日志 | 未开始 |  |  |
 | 9.2 health 和内部指标 | 未开始 |  |  |
@@ -762,12 +762,12 @@ python -m mypy
 
 依赖：8.2、7.4。
 
-- [ ] UI 不回填完整 API key。
-- [ ] 实现保持、替换和清除 secret 的明确交互。
-- [ ] 为列表/详情提供 loading、empty、error、stale 状态。
-- [ ] 配置保存期间防止重复提交。
-- [ ] destructive cleanup 需要确认和结果反馈。
-- [ ] 长错误文本不会破坏布局。
+- [x] UI 不回填完整 API key。
+- [x] 实现保持、替换和清除 secret 的明确交互。
+- [x] 为列表/详情提供 loading、empty、error、stale 状态。
+- [x] 配置保存期间防止重复提交。
+- [x] destructive cleanup 需要确认和结果反馈。
+- [x] 长错误文本不会破坏布局。
 
 验收：浏览器网络记录和 DOM 中都找不到已保存 secret。
 

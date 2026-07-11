@@ -4,23 +4,27 @@ import { AdminUiController, type UiState } from "./ui-controller.js";
 
 const elements = {
   error: required("error"),
+  notice: required("notice"),
   proxies: required("proxies"),
   tasks: required("tasks"),
   records: required("records"),
   detail: required("detail"),
   export: required("export") as HTMLAnchorElement,
   cleanup: required("cleanup") as HTMLButtonElement,
+  save: required("save-proxies") as HTMLButtonElement,
   query: required("query") as HTMLInputElement,
 };
 const controller = new AdminUiController(new ApiClient(), render);
 
 required("refresh").addEventListener("click", () => void refresh());
-required("save-proxies").addEventListener("click", () => void controller.saveProxies());
+elements.save.addEventListener("click", () => void controller.saveProxies());
 required("task-search").addEventListener("submit", (event) => {
   event.preventDefault();
   void controller.searchTasks(elements.query.value);
 });
-elements.cleanup.addEventListener("click", () => void controller.cleanupSelected());
+elements.cleanup.addEventListener("click", () => {
+  if (window.confirm("确定要永久清理所选任务及其请求记录吗？")) void controller.cleanupSelected();
+});
 void refresh();
 
 async function refresh(): Promise<void> {
@@ -30,24 +34,39 @@ async function refresh(): Promise<void> {
 function render(state: UiState): void {
   elements.error.hidden = state.error === null;
   elements.error.textContent = state.error ?? "";
+  elements.notice.hidden = state.notice === null;
+  elements.notice.textContent = state.notice ?? "";
+  elements.save.disabled = state.loading.mutation;
   elements.proxies.replaceChildren(...state.proxies.map(proxyCard));
+  const taskButtons = (state.tasks?.tasks ?? []).map(({ task, logRoot }) =>
+    listButton(
+      `${task.model ?? task.kind} · ${String(task.requestCount)} 请求`,
+      () => void controller.selectTask(logRoot, task.id),
+    ),
+  );
   elements.tasks.replaceChildren(
-    ...(state.tasks?.tasks ?? []).map(({ task, logRoot }) =>
-      listButton(
-        `${task.model ?? task.kind} · ${String(task.requestCount)} 请求`,
-        () => void controller.selectTask(logRoot, task.id),
-      ),
+    ...(taskButtons.length > 0
+      ? taskButtons
+      : [message(state.loading.tasks ? "正在加载任务…" : state.stale ? "任务数据可能已过期" : "没有匹配的任务")]),
+  );
+  const recordButtons = (state.records?.records ?? []).map((record) =>
+    listButton(
+      `#${String(record.sequence)} ${record.method} ${String(record.status ?? "…")}`,
+      () => void controller.selectRecord(record.id),
     ),
   );
   elements.records.replaceChildren(
-    ...(state.records?.records ?? []).map((record) =>
-      listButton(
-        `#${String(record.sequence)} ${record.method} ${String(record.status ?? "…")}`,
-        () => void controller.selectRecord(record.id),
-      ),
-    ),
+    ...(recordButtons.length > 0
+      ? recordButtons
+      : [
+          message(state.loading.records ? "正在加载请求…" : state.selectedTask ? "该任务没有请求记录" : "请先选择任务"),
+        ]),
   );
-  elements.detail.textContent = state.detail ? JSON.stringify(state.detail, null, 2) : "选择一条请求查看详情";
+  elements.detail.textContent = state.loading.detail
+    ? "正在加载详情…"
+    : state.detail
+      ? JSON.stringify(state.detail, null, 2)
+      : "选择一条请求查看详情";
   const exportUrl = controller.exportUrl(elements.query.value);
   elements.export.hidden = exportUrl === null;
   if (exportUrl) elements.export.href = exportUrl;
@@ -69,7 +88,44 @@ function proxyCard(proxy: UiState["proxies"][number]): HTMLElement {
   toggle.checked = proxy.enabled;
   toggle.addEventListener("change", () => void controller.toggleProxy(proxy.id, toggle.checked));
   card.append(title, status, address, toggle);
+  for (const target of proxy.targets) {
+    const secret = document.createElement("div");
+    secret.className = "secret";
+    const label = document.createElement("span");
+    label.textContent = `${target.name} API key：${target.apiKey.configured ? (target.apiKey.masked ?? "已配置") : "未配置"}`;
+    const action = document.createElement("select");
+    for (const [value, text] of [
+      ["keep", "保持"],
+      ["replace", "替换"],
+      ["clear", "清除"],
+    ] as const) {
+      const option = document.createElement("option");
+      option.value = value;
+      option.textContent = text;
+      action.append(option);
+    }
+    const input = document.createElement("input");
+    input.type = "password";
+    input.autocomplete = "new-password";
+    input.placeholder = "输入新的 API key";
+    input.hidden = true;
+    const update = () => {
+      input.hidden = action.value !== "replace";
+      controller.setTargetSecret(proxy.id, target.id, action.value as "keep" | "replace" | "clear", input.value);
+    };
+    action.addEventListener("change", update);
+    input.addEventListener("input", update);
+    secret.append(label, action, input);
+    card.append(secret);
+  }
   return card;
+}
+
+function message(text: string): HTMLElement {
+  const element = document.createElement("p");
+  element.className = "message";
+  element.textContent = text;
+  return element;
 }
 
 function listButton(text: string, action: () => void): HTMLButtonElement {

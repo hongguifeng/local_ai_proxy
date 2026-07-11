@@ -11,6 +11,8 @@ export interface UiState {
   selectedTask: { id: string; logRoot: string } | null;
   loading: Readonly<Record<"proxies" | "tasks" | "records" | "detail" | "mutation", boolean>>;
   error: string | null;
+  notice: string | null;
+  stale: boolean;
 }
 
 export class AdminUiController {
@@ -22,6 +24,7 @@ export class AdminUiController {
     records: new LatestRequest(),
     detail: new LatestRequest(),
   };
+  readonly #secretUpdates = new Map<string, { action: "keep" | "clear" | "replace"; value?: string }>();
   #state: UiState = {
     proxies: [],
     tasks: null,
@@ -30,6 +33,8 @@ export class AdminUiController {
     selectedTask: null,
     loading: { proxies: false, tasks: false, records: false, detail: false, mutation: false },
     error: null,
+    notice: null,
+    stale: false,
   };
 
   public constructor(api: ApiClient, notify: (state: UiState) => void) {
@@ -66,11 +71,29 @@ export class AdminUiController {
           listenPort: proxy.listenPort,
           accessLog: proxy.accessLog,
           defaultTargetId: proxy.defaultTargetId,
-          targets: proxy.targets.map((target) => ({ ...target, apiKey: { action: "keep" } })),
+          targets: proxy.targets.map((target) => ({
+            ...target,
+            apiKey: this.#secretUpdates.get(secretKey(proxy.id, target.id)) ?? { action: "keep" },
+          })),
         })),
       });
       this.#set({ proxies: result.proxies });
+      this.#secretUpdates.clear();
+      this.#set({ notice: "配置已保存" });
     });
+  }
+
+  public setTargetSecret(
+    proxyId: string,
+    targetId: string,
+    action: "keep" | "clear" | "replace",
+    value?: string,
+  ): void {
+    const update = {
+      action,
+      ...(action === "replace" && value ? { value } : {}),
+    } as const;
+    this.#secretUpdates.set(secretKey(proxyId, targetId), update);
   }
 
   public async searchTasks(query: string, offset = 0): Promise<void> {
@@ -112,6 +135,7 @@ export class AdminUiController {
     await this.#mutation(async () => {
       await this.#api.cleanup({ logRoots: [selected.logRoot], taskIds: [selected.id] });
       await this.searchTasks("");
+      this.#set({ notice: "任务已清理" });
     });
   }
 
@@ -119,15 +143,18 @@ export class AdminUiController {
     this.#loading(key, true);
     try {
       await operation();
+      this.#set({ error: null, stale: false });
     } catch (error) {
-      this.#set({ error: publicMessage(error) });
+      this.#set({ error: publicMessage(error), stale: true });
     } finally {
       this.#loading(key, false);
     }
   }
 
   async #mutation(operation: () => Promise<void>): Promise<void> {
+    if (this.#state.loading.mutation) return;
     this.#loading("mutation", true);
+    this.#set({ error: null, notice: null });
     try {
       await operation();
     } catch (error) {
@@ -145,6 +172,10 @@ export class AdminUiController {
     this.#state = { ...this.#state, ...values };
     this.#notify(this.#state);
   }
+}
+
+function secretKey(proxyId: string, targetId: string): string {
+  return `${proxyId}\u0000${targetId}`;
 }
 
 function publicMessage(error: unknown): string {
