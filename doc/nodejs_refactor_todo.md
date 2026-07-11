@@ -86,7 +86,7 @@ python -m mypy
 | 7.2 proxy 管理 API | 已完成 | 本任务提交 | 172 项 Node 测试；masked secret；keep/replace/clear；原子更新 |
 | 7.3 task/log 管理 API | 已完成 | 本任务提交 | 175 项 Node 测试；multi-root query/cleanup；流式 export |
 | 7.4 统一错误与安全边界 | 已完成 | 本任务提交 | 177 项 Node 测试；稳定 envelope；安全 headers；secret/path 隔离 |
-| 7.5 静态资源和浏览器启动 | 未开始 |  |  |
+| 7.5 静态资源和浏览器启动 | 已完成 | 本任务提交 | 179 项 Node 测试；安全静态 root；cache 策略；ready 后浏览器 |
 | 8.1 现有 UI contract 迁移 | 未开始 |  |  |
 | 8.2 Web TypeScript 构建 | 未开始 |  |  |
 | 8.3 secret 和错误状态 | 未开始 |  |  |
@@ -721,12 +721,12 @@ python -m mypy
 
 依赖：7.1。
 
-- [ ] 服务 Vite build 产物。
-- [ ] HTML 使用 no-cache，hash asset 使用 immutable cache。
-- [ ] 防止静态路径穿越。
-- [ ] CLI 支持 `--no-browser` 和延迟打开。
-- [ ] 只有 admin ready 后打开浏览器。
-- [ ] 浏览器打开失败只警告，不结束服务。
+- [x] 服务 Vite build 产物。
+- [x] HTML 使用 no-cache，hash asset 使用 immutable cache。
+- [x] 防止静态路径穿越。
+- [x] CLI 支持 `--no-browser` 和延迟打开。
+- [x] 只有 admin ready 后打开浏览器。
+- [x] 浏览器打开失败只警告，不结束服务。
 
 验收：生产 build 可直接启动并打开 UI；静态资源 MIME 和 cache header 正确。
 

@@ -86,12 +86,18 @@ export function createAdminApp(dependencies: AdminAppDependencies, options: Admi
     done();
   });
 
-  app.addHook("onSend", (_request, reply, payload, done) => {
+  app.addHook("onSend", (request, reply, payload, done) => {
+    const api = request.url.startsWith("/api/");
+    if (api) void reply.header("cache-control", "no-store");
     void reply
-      .header("cache-control", "no-store")
       .header("x-content-type-options", "nosniff")
       .header("x-frame-options", "DENY")
-      .header("content-security-policy", "default-src 'none'; frame-ancestors 'none'")
+      .header(
+        "content-security-policy",
+        api
+          ? "default-src 'none'; frame-ancestors 'none'"
+          : "default-src 'self'; connect-src 'self'; frame-ancestors 'none'",
+      )
       .header("referrer-policy", "no-referrer");
     done(null, payload);
   });

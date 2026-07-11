@@ -20,6 +20,7 @@ export type MainDependencies = Readonly<{
   signalSource: SignalSource;
   stdout: (line: string) => void;
   stderr: (line: string) => void;
+  openBrowser: (url: string) => Promise<void>;
 }>;
 
 export function createDefaultDependencies(): MainDependencies {
@@ -32,6 +33,10 @@ export function createDefaultDependencies(): MainDependencies {
     },
     stderr: (line) => {
       console.error(line);
+    },
+    openBrowser: async (url) => {
+      const browser = await import("./browser.js");
+      await browser.openBrowser(url);
     },
   };
 }
@@ -74,6 +79,15 @@ export async function main(
         logRoot: action.options.logRoot,
       }),
     );
+    if (!action.options.noBrowser) {
+      try {
+        await dependencies.openBrowser(`http://${browserHost(action.options.host)}:${action.options.port.toString()}/`);
+      } catch {
+        dependencies.stderr(
+          JSON.stringify({ event: "warning", code: "BROWSER_OPEN_FAILED", message: "Could not open browser" }),
+        );
+      }
+    }
     await runtime.wait(controller.signal);
     return ExitCode.success;
   } catch {
@@ -89,4 +103,9 @@ export async function main(
       dependencies.stderr(JSON.stringify({ event: "error", code: "SHUTDOWN_ERROR", message: "Shutdown failed" }));
     }
   }
+}
+
+function browserHost(host: string): string {
+  if (host === "0.0.0.0" || host === "::") return "127.0.0.1";
+  return host.includes(":") && !host.startsWith("[") ? `[${host}]` : host;
 }

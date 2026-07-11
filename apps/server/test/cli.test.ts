@@ -26,6 +26,7 @@ function dependencies(runtime: ApplicationRuntime): {
       stderr: (line) => {
         stderr.push(line);
       },
+      openBrowser: vi.fn(() => Promise.resolve()),
     },
     stdout,
     stderr,
@@ -103,6 +104,27 @@ describe("main composition root", () => {
     expect(runtime.start).toHaveBeenCalledOnce();
     expect(runtime.wait).toHaveBeenCalledOnce();
     expect(runtime.stop).toHaveBeenCalledOnce();
+  });
+
+  it("opens the browser only after ready, supports --no-browser, and isolates open failures", async () => {
+    const runtime = resolvedRuntime();
+    const opened = dependencies(runtime);
+    await expect(main([], opened.dependencies)).resolves.toBe(ExitCode.success);
+    expect(opened.dependencies.openBrowser).toHaveBeenCalledWith("http://127.0.0.1:8088/");
+
+    const disabled = dependencies(runtime);
+    await expect(main(["--no-browser"], disabled.dependencies)).resolves.toBe(ExitCode.success);
+    expect(disabled.dependencies.openBrowser).not.toHaveBeenCalled();
+
+    const failed = dependencies(runtime);
+    await expect(
+      main([], {
+        ...failed.dependencies,
+        openBrowser: vi.fn(() => Promise.reject(new Error("private browser failure"))),
+      }),
+    ).resolves.toBe(ExitCode.success);
+    expect(JSON.parse(failed.stderr[0] ?? "{}")).toMatchObject({ code: "BROWSER_OPEN_FAILED" });
+    expect(failed.stderr.join("\n")).not.toContain("private browser failure");
   });
 
   it("maps startup/runtime errors and still attempts shutdown", async () => {
