@@ -98,7 +98,7 @@ python -m mypy
 | 9.5 性能基线与剖析 | 已完成 | 本任务提交 | 可复现 benchmark；100 SSE/60s；JSON/storage/100MiB/100k；CPU/heap/event-loop 报告 |
 | 9.6 故障注入测试 | 已完成 | 本任务提交 | 7 类 fault policy/matrix；真实 SQLite lock；恢复证据；200 项 Node 测试 |
 | 10.1 CLI/npm 产物 | 已完成 | 本任务提交 | exports/bin/tarballs；Web+migrations；独立中文路径 npm install/start/health/shutdown smoke |
-| 10.2 Windows 便携包 | 未开始 |  |  |
+| 10.2 Windows 便携包 | 已完成 | 本任务提交 | Node 24.18 runtime+SQLite native+ZIP/checksum；中文路径 health/proxy smoke |
 | 10.3 托盘方案 spike | 未开始 |  |  |
 | 10.4 Release pipeline | 未开始 |  |  |
 | 11.1 数据迁移决策与工具 | 未开始 |  |  |
@@ -889,12 +889,12 @@ python -m mypy
 
 依赖：10.1。
 
-- [ ] 固定并打包 Node runtime。
-- [ ] 打包平台匹配的 SQLite native addon。
-- [ ] 包含 JS、静态资源、migration、license 和启动脚本。
-- [ ] 处理包含空格和非 ASCII 的安装路径。
-- [ ] 生成 checksum。
-- [ ] 在干净 Windows runner 启动 health、代理一次请求并关闭。
+- [x] 固定并打包 Node runtime。
+- [x] 打包平台匹配的 SQLite native addon。
+- [x] 包含 JS、静态资源、migration、license 和启动脚本。
+- [x] 处理包含空格和非 ASCII 的安装路径。
+- [x] 生成 checksum。
+- [x] 在干净 Windows runner 启动 health、代理一次请求并关闭。
 
 验收：解压即用，无需系统预装 Node/Python，不从源码目录加载文件。
 

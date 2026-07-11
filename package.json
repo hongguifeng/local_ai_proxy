@@ -13,6 +13,8 @@
     "build": "pnpm --filter @llm-proxy/contracts build && pnpm --filter @llm-proxy/web build && pnpm --filter @llm-proxy/server build",
     "pack:npm": "node scripts/prepare-release-dir.mjs && pnpm build && pnpm --filter @llm-proxy/contracts pack --pack-destination release/npm && pnpm --filter @llm-proxy/server pack --pack-destination release/npm",
     "smoke:npm": "node scripts/npm-smoke.mjs",
+    "pack:portable": "pnpm pack:npm && node scripts/build-portable.mjs",
+    "smoke:portable": "node scripts/portable-smoke.mjs",
     "check:node": "node scripts/check-node-version.mjs",
     "format": "prettier --write package.json pnpm-workspace.yaml pnpm-lock.yaml tsconfig.base.json tsconfig.json eslint.config.mjs vitest.config.ts playwright.config.ts \"scripts/**/*.mjs\" \"apps/**/*.{ts,mjs,json,html,css}\" \"packages/contracts/**/*.{ts,json}\" packages/test-fixtures/package.json",
     "format:check": "prettier --check package.json pnpm-workspace.yaml pnpm-lock.yaml tsconfig.base.json tsconfig.json eslint.config.mjs vitest.config.ts playwright.config.ts \"scripts/**/*.mjs\" \"apps/**/*.{ts,mjs,json,html,css}\" \"packages/contracts/**/*.{ts,json}\" packages/test-fixtures/package.json",
