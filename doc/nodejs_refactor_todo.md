@@ -96,7 +96,7 @@ python -m mypy
 | 9.3 安全加固 | 已完成 | 本任务提交 | token/origin/CORS；并发限制；0600 文件；注入测试；audit/license；196 项 Node 测试 |
 | 9.4 容量和 retention | 已完成 | 本任务提交 | capture/queue 边界；idle retention；低磁盘降级；隐私成本；198 项 Node 测试 |
 | 9.5 性能基线与剖析 | 已完成 | 本任务提交 | 可复现 benchmark；100 SSE/60s；JSON/storage/100MiB/100k；CPU/heap/event-loop 报告 |
-| 9.6 故障注入测试 | 未开始 |  |  |
+| 9.6 故障注入测试 | 已完成 | 本任务提交 | 7 类 fault policy/matrix；真实 SQLite lock；恢复证据；200 项 Node 测试 |
 | 10.1 CLI/npm 产物 | 未开始 |  |  |
 | 10.2 Windows 便携包 | 未开始 |  |  |
 | 10.3 托盘方案 spike | 未开始 |  |  |
@@ -860,13 +860,13 @@ python -m mypy
 
 依赖：9.1-9.5。
 
-- [ ] SQLite busy/locked。
-- [ ] Worker crash/restart 失败。
-- [ ] 磁盘满和只读目录。
-- [ ] 配置 rename 失败。
-- [ ] 上游 socket/TLS/DNS 故障。
-- [ ] 关闭过程中持续新连接。
-- [ ] 日志队列持续过载。
+- [x] SQLite busy/locked。
+- [x] Worker crash/restart 失败。
+- [x] 磁盘满和只读目录。
+- [x] 配置 rename 失败。
+- [x] 上游 socket/TLS/DNS 故障。
+- [x] 关闭过程中持续新连接。
+- [x] 日志队列持续过载。
 
 验收：每个故障都有预期 outcome、health 状态、运行日志和恢复方式。
 
