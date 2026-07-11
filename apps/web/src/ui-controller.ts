@@ -1,4 +1,10 @@
-import type { ProxyListResponse, RecordDetail, RecordListResponse } from "@llm-proxy/contracts";
+import type {
+  PublicProxy,
+  PublicTarget,
+  ProxyListResponse,
+  RecordDetail,
+  RecordListResponse,
+} from "@llm-proxy/contracts";
 
 import { ApiError, type ApiClient, type TaskPage } from "./api-client.js";
 import { LatestRequest } from "./request-state.js";
@@ -95,8 +101,77 @@ export class AdminUiController {
     });
   }
 
-  public updateProxy(id: string, values: { name?: string; listenPort?: number }): void {
-    this.#set({ proxies: this.#state.proxies.map((proxy) => (proxy.id === id ? { ...proxy, ...values } : proxy)) });
+  public updateProxy(
+    id: string,
+    values: Partial<Pick<PublicProxy, "name" | "listenHost" | "listenPort" | "accessLog" | "defaultTargetId">>,
+  ): void {
+    this.#state = {
+      ...this.#state,
+      proxies: this.#state.proxies.map((proxy) => (proxy.id === id ? { ...proxy, ...values } : proxy)),
+    };
+  }
+
+  public removeProxy(id: string): void {
+    this.#set({ proxies: this.#state.proxies.filter((proxy) => proxy.id !== id) });
+  }
+
+  public addTarget(proxyId: string): void {
+    const id = `target-${crypto.randomUUID()}`;
+    this.#set({
+      proxies: this.#state.proxies.map((proxy) =>
+        proxy.id === proxyId
+          ? {
+              ...proxy,
+              targets: [
+                ...proxy.targets,
+                {
+                  id,
+                  name: "新目标",
+                  enabled: true,
+                  url: "http://127.0.0.1:8000",
+                  apiKey: { configured: false },
+                  headers: [],
+                  stripRequestFields: [],
+                  injectRequestFields: {},
+                  timeouts: { connectMs: 10_000, responseHeadersMs: 60_000, idleMs: 600_000 },
+                  logRoot: null,
+                  redactLogs: true,
+                  modelMappings: [],
+                },
+              ],
+            }
+          : proxy,
+      ),
+    });
+  }
+
+  public removeTarget(proxyId: string, targetId: string): void {
+    this.#set({
+      proxies: this.#state.proxies.map((proxy) => {
+        if (proxy.id !== proxyId || proxy.targets.length <= 1) return proxy;
+        const targets = proxy.targets.filter((target) => target.id !== targetId);
+        return {
+          ...proxy,
+          targets,
+          defaultTargetId:
+            proxy.defaultTargetId === targetId ? (targets[0]?.id ?? proxy.defaultTargetId) : proxy.defaultTargetId,
+        };
+      }),
+    });
+  }
+
+  public updateTarget(proxyId: string, targetId: string, values: Partial<Omit<PublicTarget, "id" | "apiKey">>): void {
+    this.#state = {
+      ...this.#state,
+      proxies: this.#state.proxies.map((proxy) =>
+        proxy.id === proxyId
+          ? {
+              ...proxy,
+              targets: proxy.targets.map((target) => (target.id === targetId ? { ...target, ...values } : target)),
+            }
+          : proxy,
+      ),
+    };
   }
 
   public async saveProxies(): Promise<void> {

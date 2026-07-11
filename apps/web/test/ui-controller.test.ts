@@ -105,6 +105,52 @@ describe("AdminUiController workflows", () => {
     expect(body).toMatchObject({ proxies: [{ targets: [{ apiKey: { action: "clear" } }] }] });
     expect(JSON.stringify(body)).not.toContain("value");
   });
+
+  it("edits and saves the complete proxy and target configuration", async () => {
+    let body: unknown;
+    const client = new ApiClient((_path, init) => {
+      if (init?.method === "PUT") {
+        if (typeof init.body !== "string") throw new TypeError("Expected JSON request body");
+        body = JSON.parse(init.body) as unknown;
+      }
+      return ok({ proxies: [proxy()] });
+    });
+    const controller = new AdminUiController(client, () => undefined);
+    await controller.loadProxies();
+    controller.updateProxy("proxy-1", { listenHost: "0.0.0.0", listenPort: 9000, accessLog: false });
+    controller.updateTarget("proxy-1", "target-1", {
+      url: "https://api.example.com",
+      headers: [{ name: "x-client", value: "llm-proxy" }],
+      stripRequestFields: ["metadata"],
+      injectRequestFields: { stream: true },
+      timeouts: { connectMs: 2_000, responseHeadersMs: 3_000, idleMs: 4_000 },
+      logRoot: "logs/target",
+      redactLogs: false,
+      modelMappings: [{ listen: "model-a", upstream: "model-b" }],
+    });
+    await controller.saveProxies();
+    expect(body).toMatchObject({
+      proxies: [
+        {
+          listenHost: "0.0.0.0",
+          listenPort: 9000,
+          accessLog: false,
+          targets: [
+            {
+              url: "https://api.example.com",
+              headers: [{ name: "x-client", value: "llm-proxy" }],
+              stripRequestFields: ["metadata"],
+              injectRequestFields: { stream: true },
+              timeouts: { connectMs: 2_000, responseHeadersMs: 3_000, idleMs: 4_000 },
+              logRoot: "logs/target",
+              redactLogs: false,
+              modelMappings: [{ listen: "model-a", upstream: "model-b" }],
+            },
+          ],
+        },
+      ],
+    });
+  });
 });
 
 function ok(value: unknown): Promise<Response> {

@@ -3,54 +3,90 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <meta name="color-scheme" content="dark light" />
     <title>LLM Proxy</title>
   </head>
   <body>
-    <header class="topbar">
-      <div><strong>LLM Proxy</strong><span>Node.js Admin</span></div>
-      <button id="refresh" type="button">刷新</button>
-    </header>
-    <div id="error" class="error" hidden></div>
-    <div id="notice" class="notice" hidden></div>
-    <main>
-      <section class="panel">
-        <div class="section-title">
-          <h1>代理</h1>
-          <div>
-            <button id="add-proxy" type="button">添加代理</button
-            ><button id="save-proxies" type="button">保存配置</button>
-          </div>
-        </div>
-        <div id="proxies" class="cards"></div>
-      </section>
-      <section class="panel logs">
-        <div class="section-title"><h1>流量任务</h1></div>
-        <form id="task-search" class="search">
-          <input id="query" placeholder="模型、路径、内容…" /><button>搜索</button>
-        </form>
-        <div class="log-grid">
-          <div>
-            <h2>任务</h2>
-            <div id="tasks" class="list"></div>
-            <div class="pagination">
-              <button id="tasks-prev" type="button">上一页</button><button id="tasks-next" type="button">下一页</button>
+    <div class="app-shell">
+      <header class="topbar">
+        <div class="brand"><strong>LLM Proxy</strong><span>Node.js Admin</span></div>
+        <nav class="tabs" aria-label="主导航">
+          <button class="tab active" data-view="proxies-view" type="button">监听转发</button>
+          <button class="tab" data-view="logs-view" type="button">历史记录</button>
+        </nav>
+        <button id="refresh" type="button">刷新</button>
+      </header>
+      <div id="error" class="banner error" hidden></div>
+      <div id="notice" class="banner notice" hidden></div>
+      <main>
+        <section id="proxies-view" class="view active">
+          <div class="view-toolbar">
+            <div>
+              <h1>监听转发</h1>
+              <p>配置本地监听地址、上游目标和请求转换规则。</p>
+            </div>
+            <div class="toolbar-actions">
+              <button id="add-proxy" type="button">＋ 添加代理</button>
+              <button id="save-proxies" class="primary" type="button">保存配置</button>
             </div>
           </div>
-          <div>
-            <h2>请求</h2>
-            <div id="records" class="list"></div>
-          </div>
-          <div class="detail">
-            <div class="detail-actions">
-              <h2>详情</h2>
-              <a id="export" hidden>导出 ZIP</a><button id="cleanup" type="button" disabled>清理任务</button>
+          <div id="proxies" class="proxy-grid"></div>
+        </section>
+
+        <section id="logs-view" class="view logs-view">
+          <aside class="history-sidebar">
+            <form id="task-search" class="search-toolbar">
+              <input id="query" placeholder="搜索模型、路径、内容或 ID" />
+              <button type="submit">搜索</button>
+            </form>
+            <div class="history-actions">
+              <a id="export" hidden>导出 ZIP</a>
+              <button id="cleanup" type="button" disabled>清理任务</button>
             </div>
-            <pre id="detail">选择一条请求查看详情</pre>
-          </div>
-        </div>
-      </section>
-    </main>
+            <div class="history-columns">
+              <section>
+                <div class="column-title">
+                  <h2>任务</h2>
+                  <span id="task-count"></span>
+                </div>
+                <div id="tasks" class="history-list"></div>
+                <div class="pagination">
+                  <button id="tasks-prev" type="button">上一页</button>
+                  <button id="tasks-next" type="button">下一页</button>
+                </div>
+              </section>
+              <section>
+                <div class="column-title">
+                  <h2>请求</h2>
+                  <span id="record-count"></span>
+                </div>
+                <div id="records" class="history-list"></div>
+              </section>
+            </div>
+          </aside>
+          <section class="detail-workspace">
+            <div id="detail-summary" class="detail-summary">选择一条请求查看详情</div>
+            <div class="payload-grid">
+              <section class="payload-pane">
+                <div class="pane-title">
+                  <h2>Request</h2>
+                  <button data-copy="request" type="button">复制</button>
+                </div>
+                <div id="request-meta" class="metadata"></div>
+                <pre id="request-detail" class="json-view">暂无请求内容</pre>
+              </section>
+              <section class="payload-pane">
+                <div class="pane-title">
+                  <h2>Response</h2>
+                  <button data-copy="response" type="button">复制</button>
+                </div>
+                <div id="response-meta" class="metadata"></div>
+                <pre id="response-detail" class="json-view">暂无响应内容</pre>
+              </section>
+            </div>
+          </section>
+        </section>
+      </main>
+    </div>
     <script type="module" src="/src/index.ts"></script>
   </body>
 </html>
