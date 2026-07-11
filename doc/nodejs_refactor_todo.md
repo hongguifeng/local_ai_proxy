@@ -82,7 +82,7 @@ python -m mypy
 | 6.2 原子配置替换 | 已完成 | 本任务提交 | 158 项 Node 测试；prepare/commit/rollback；并发串行化 |
 | 6.3 优雅启动和关闭 | 已完成 | 本任务提交 | 161 项 Node 测试；有序 startup/shutdown；active grace/abort |
 | 6.4 runtime 故障恢复 | 已完成 | 本任务提交 | 166 项 Node 测试；degraded/failed health；有限退避恢复 |
-| 7.1 Fastify 管理面骨架 | 未开始 |  |  |
+| 7.1 Fastify 管理面骨架 | 已完成 | 本任务提交 | 169 项 Node 测试；inject health；body/request 边界与 app 隔离 |
 | 7.2 proxy 管理 API | 未开始 |  |  |
 | 7.3 task/log 管理 API | 未开始 |  |  |
 | 7.4 统一错误与安全边界 | 未开始 |  |  |
@@ -667,12 +667,12 @@ python -m mypy
 
 依赖：1.5、6.3。
 
-- [ ] 创建 Fastify app factory，依赖显式注入。
-- [ ] 添加 `/api/v1/health`。
-- [ ] 设置 request body limit、request ID 和超时。
-- [ ] 配置 schema serializer 和统一 error handler。
-- [ ] 默认 bind loopback。
-- [ ] 使用 inject 测试，不要求真实端口。
+- [x] 创建 Fastify app factory，依赖显式注入。
+- [x] 添加 `/api/v1/health`。
+- [x] 设置 request body limit、request ID 和超时。
+- [x] 配置 schema serializer 和统一 error handler。
+- [x] 默认 bind loopback。
+- [x] 使用 inject 测试，不要求真实端口。
 
 验收：app 可在测试中创建/关闭多次，无全局单例污染。
 

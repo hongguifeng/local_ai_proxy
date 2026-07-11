@@ -15,7 +15,8 @@
   "dependencies": {
     "@llm-proxy/contracts": "workspace:*",
     "archiver": "^8.0.0",
-    "better-sqlite3": "12.4.1"
+    "better-sqlite3": "12.4.1",
+    "fastify": "^5.10.0"
   },
   "devDependencies": {
     "@types/archiver": "^8.0.0",
