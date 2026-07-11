@@ -9,6 +9,8 @@ describe("Vite production build", () => {
     const assets = await readdir(new URL("assets/", dist));
     expect(html).toContain("LLM Proxy");
     expect(html).not.toContain("crossorigin");
+    expect(html).not.toContain('type="module"');
+    expect(html).toContain("<script defer");
     expect(assets.some((name) => /index-[A-Za-z0-9_-]+\.js$/u.test(name))).toBe(true);
     expect(assets.some((name) => /index-[A-Za-z0-9_-]+\.css$/u.test(name))).toBe(true);
     expect(assets.every((name) => !name.endsWith(".map"))).toBe(true);

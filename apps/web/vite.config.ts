@@ -6,9 +6,9 @@ export default defineConfig({
       name: "same-origin-assets",
       enforce: "post",
       transformIndexHtml(html) {
-        return html.replaceAll(" crossorigin", "");
+        return html.replaceAll(" crossorigin", "").replace(' type="module"', " defer");
       },
     },
   ],
-  build: { sourcemap: false, target: "es2024", assetsDir: "assets" },
+  build: { sourcemap: false, target: "es2022", assetsDir: "assets" },
 });
