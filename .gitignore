@@ -10,6 +10,7 @@ node_modules/
 coverage/
 test-results/
 playwright-report/
+release/
 reports/
 *.tsbuildinfo
 apps/*/dist/

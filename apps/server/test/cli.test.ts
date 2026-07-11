@@ -5,6 +5,7 @@ import { describe, expect, it, vi } from "vitest";
 import { ExitCode, parseCliArgs, VERSION } from "../src/cli-options.js";
 import { createScaffoldRuntime, waitForAbort, type ApplicationRuntime, type SignalSource } from "../src/lifecycle.js";
 import { createDefaultDependencies, main, type MainDependencies } from "../src/main.js";
+import { createProductionRuntime } from "../src/production-runtime.js";
 
 function dependencies(runtime: ApplicationRuntime): {
   dependencies: MainDependencies;
@@ -173,7 +174,7 @@ describe("scaffold lifecycle", () => {
     aborted.abort();
     await expect(runtime.wait(aborted.signal)).resolves.toBeUndefined();
     await expect(runtime.stop()).resolves.toBeUndefined();
-    expect(createDefaultDependencies().createRuntime).toBe(createScaffoldRuntime);
+    expect(createDefaultDependencies().createRuntime).toBe(createProductionRuntime);
     await expect(import("../src/cli.js")).resolves.toBeDefined();
   });
 

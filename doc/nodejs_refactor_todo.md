@@ -97,7 +97,7 @@ python -m mypy
 | 9.4 容量和 retention | 已完成 | 本任务提交 | capture/queue 边界；idle retention；低磁盘降级；隐私成本；198 项 Node 测试 |
 | 9.5 性能基线与剖析 | 已完成 | 本任务提交 | 可复现 benchmark；100 SSE/60s；JSON/storage/100MiB/100k；CPU/heap/event-loop 报告 |
 | 9.6 故障注入测试 | 已完成 | 本任务提交 | 7 类 fault policy/matrix；真实 SQLite lock；恢复证据；200 项 Node 测试 |
-| 10.1 CLI/npm 产物 | 未开始 |  |  |
+| 10.1 CLI/npm 产物 | 已完成 | 本任务提交 | exports/bin/tarballs；Web+migrations；独立中文路径 npm install/start/health/shutdown smoke |
 | 10.2 Windows 便携包 | 未开始 |  |  |
 | 10.3 托盘方案 spike | 未开始 |  |  |
 | 10.4 Release pipeline | 未开始 |  |  |
@@ -876,12 +876,12 @@ python -m mypy
 
 依赖：8.4、9.3。
 
-- [ ] 定义 package exports 和 bin。
-- [ ] build 产物不依赖 TypeScript 源文件。
-- [ ] 包含 Web 静态资源和 migration。
-- [ ] 验证安装后的工作目录/数据目录语义。
-- [ ] `--help`、`--version`、启动和关闭 smoke test。
-- [ ] 检查 npm package contents 和 license。
+- [x] 定义 package exports 和 bin。
+- [x] build 产物不依赖 TypeScript 源文件。
+- [x] 包含 Web 静态资源和 migration。
+- [x] 验证安装后的工作目录/数据目录语义。
+- [x] `--help`、`--version`、启动和关闭 smoke test。
+- [x] 检查 npm package contents 和 license。
 
 验收：从生成的 tarball 安装，不引用 workspace 源路径即可运行。
 

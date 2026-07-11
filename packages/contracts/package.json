@@ -1,15 +1,20 @@
 {
   "name": "@llm-proxy/contracts",
   "version": "0.3.0-dev",
-  "private": true,
+  "private": false,
   "description": "Runtime schemas and shared DTOs for LLM Proxy",
   "type": "module",
   "exports": {
     ".": {
-      "types": "./src/index.ts",
+      "types": "./dist/index.d.ts",
       "default": "./dist/index.js"
     }
   },
+  "types": "./dist/index.d.ts",
+  "files": [
+    "dist",
+    "LICENSE"
+  ],
   "engines": {
     "node": ">=24.0.0 <25"
   },

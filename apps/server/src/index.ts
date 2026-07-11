@@ -6,6 +6,7 @@ export * from "./lifecycle.js";
 export * from "./logging.js";
 export * from "./fault-policy.js";
 export * from "./observability.js";
+export * from "./production-runtime.js";
 export * from "./storage/capacity.js";
 export * from "./main.js";
 export * from "./proxy/headers.js";

@@ -1,9 +1,25 @@
 {
   "name": "@llm-proxy/server",
   "version": "0.3.0-dev",
-  "private": true,
+  "private": false,
   "description": "LLM Proxy data plane and admin server",
   "type": "module",
+  "bin": {
+    "llm-proxy": "./dist/cli.js"
+  },
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    }
+  },
+  "types": "./dist/index.d.ts",
+  "files": [
+    "dist",
+    "README.md",
+    "LICENSE",
+    "SECURITY.md"
+  ],
   "engines": {
     "node": ">=24.0.0 <25"
   },

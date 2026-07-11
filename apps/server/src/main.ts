@@ -7,12 +7,8 @@ import {
   type CliOptions,
   type ExitCodeValue,
 } from "./cli-options.js";
-import {
-  createScaffoldRuntime,
-  installShutdownHooks,
-  type ApplicationRuntime,
-  type SignalSource,
-} from "./lifecycle.js";
+import { installShutdownHooks, type ApplicationRuntime, type SignalSource } from "./lifecycle.js";
+import { createProductionRuntime } from "./production-runtime.js";
 
 export type MainDependencies = Readonly<{
   createRuntime: (options: CliOptions) => ApplicationRuntime;
@@ -25,7 +21,7 @@ export type MainDependencies = Readonly<{
 
 export function createDefaultDependencies(): MainDependencies {
   return {
-    createRuntime: createScaffoldRuntime,
+    createRuntime: createProductionRuntime,
     environment: process.env,
     signalSource: process,
     stdout: (line) => {
