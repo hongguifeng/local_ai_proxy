@@ -198,4 +198,41 @@ describe("TrafficRepository.upsertRecord", () => {
     });
     repository.close();
   });
+
+  it("updates an existing pending record in place", async () => {
+    const root = await mkdtemp(path.join(os.tmpdir(), "llm-proxy-pending-record-"));
+    temporaryDirectories.push(root);
+    const repository = new TrafficRepository(root, { now: () => "2026-07-18T00:00:00.000+00:00" });
+    repository.upsertTask({ id: "task-1", match_strategy_version: 4 });
+    repository.upsertRecord({
+      id: "record-1",
+      task_id: "task-1",
+      event: "request_received",
+      method: "POST",
+      path: "/v1/responses",
+      created_at: "2026-07-18T00:00:00.000+00:00",
+    });
+
+    const updated = repository.upsertRecord({
+      id: "record-1",
+      task_id: "task-1",
+      event: "request_finished",
+      method: "POST",
+      path: "/v1/responses",
+      status: 200,
+      response_body: { id: "resp_final" },
+      created_at: "must-not-replace",
+      updated_at: "2026-07-18T00:01:00.000+00:00",
+    });
+
+    expect(updated).toMatchObject({
+      id: "record-1",
+      event: "request_finished",
+      status: 200,
+      response_body_json: '{"id":"resp_final"}',
+      created_at: "2026-07-18T00:00:00.000+00:00",
+      updated_at: "2026-07-18T00:01:00.000+00:00",
+    });
+    repository.close();
+  });
 });
