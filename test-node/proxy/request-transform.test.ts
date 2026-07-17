@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest";
 import {
   parseInjectRequestFields,
   parseStripRequestFields,
+  transformRequestJsonFields,
 } from "../../src/proxy/request-transform.js";
 
 describe("parseStripRequestFields", () => {
@@ -45,4 +46,26 @@ describe("parseInjectRequestFields", () => {
       );
     },
   );
+});
+
+describe("transformRequestJsonFields", () => {
+  it("strips fields before injecting final replacement values", () => {
+    const original = Buffer.from(
+      '{"temperature":0.8,"model":"demo","metadata":{"source":"client"}}',
+    );
+
+    const result = transformRequestJsonFields(original, new Set(["temperature", "metadata"]), {
+      metadata: { source: "proxy" },
+      stream: true,
+    });
+
+    expect(JSON.parse(Buffer.from(result.body).toString("utf8"))).toEqual({
+      model: "demo",
+      metadata: { source: "proxy" },
+      stream: true,
+    });
+    expect(result.strippedFields).toEqual(["metadata", "temperature"]);
+    expect(result.injectedFields).toEqual(["metadata", "stream"]);
+    expect(Buffer.from(original).toString("utf8")).toContain('"source":"client"');
+  });
 });

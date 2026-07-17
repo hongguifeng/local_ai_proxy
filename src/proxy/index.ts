@@ -1,4 +1,9 @@
-export { parseInjectRequestFields, parseStripRequestFields } from "./request-transform.js";
+export {
+  parseInjectRequestFields,
+  parseStripRequestFields,
+  transformRequestJsonFields,
+  type RequestTransformResult,
+} from "./request-transform.js";
 export {
   requestModelFromBody,
   rewriteRequestModel,
