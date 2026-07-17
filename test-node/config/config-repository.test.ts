@@ -1,5 +1,15 @@
 import { spawnSync } from "node:child_process";
-import { mkdir, mkdtemp, open, readdir, readFile, rm, unlink, writeFile } from "node:fs/promises";
+import {
+  copyFile,
+  mkdir,
+  mkdtemp,
+  open,
+  readdir,
+  readFile,
+  rm,
+  unlink,
+  writeFile,
+} from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
@@ -110,9 +120,11 @@ describe("ConfigRepository.save", () => {
       },
     };
     const fileSystem = {
+      copyFile: () => Promise.reject(missingFileError()),
       mkdir: () => Promise.resolve(undefined),
       open: () => Promise.resolve(handle),
       readFile: () => Promise.resolve(""),
+      readdir: () => Promise.resolve([]),
       rename: () => {
         calls.push("rename");
         return Promise.resolve();
@@ -135,15 +147,18 @@ describe("ConfigRepository.save", () => {
     const configPath = path.join(directory, "proxies.json");
     await writeFile(configPath, "old configuration", "utf8");
     const fileSystem = {
+      copyFile,
       mkdir,
       open,
       readFile,
+      readdir,
       rename: () => Promise.reject(new Error("fixture rename failure")),
       unlink,
     } as ConfigFileSystem;
     const repository = new ConfigRepository(configPath, "logs", {
       createId: () => "fixture-id",
       fileSystem,
+      now: () => new Date("2026-07-18T01:02:03.456Z"),
     });
 
     await expect(repository.save({ pairs: [createDefaultProxyPair()] })).rejects.toThrow(
@@ -151,7 +166,34 @@ describe("ConfigRepository.save", () => {
     );
 
     expect(await readFile(configPath, "utf8")).toBe("old configuration");
-    expect(await readdir(directory)).toEqual(["proxies.json"]);
+    expect((await readdir(directory)).sort()).toEqual([
+      "proxies.json",
+      "proxies.json.before-node-2026-07-18T01-02-03.456Z.bak",
+    ]);
+  });
+
+  it("creates one timestamped backup before replacing a pre-Node config", async () => {
+    const directory = await mkdtemp(path.join(os.tmpdir(), "llm-proxy-config-backup-"));
+    temporaryDirectories.push(directory);
+    const configPath = path.join(directory, "proxies.json");
+    const oldText = '{"pairs":[]}\n';
+    await writeFile(configPath, oldText, "utf8");
+    const repository = new ConfigRepository(configPath, "logs", {
+      now: () => new Date("2026-07-18T01:02:03.456Z"),
+    });
+    const first = { pairs: [createDefaultProxyPair()] };
+    const second = {
+      pairs: [{ ...createDefaultProxyPair(), id: "replacement", name: "Replacement" }],
+    };
+
+    await repository.save(first);
+    await repository.save(second);
+    await new ConfigRepository(configPath).save(first);
+
+    const backupName = "proxies.json.before-node-2026-07-18T01-02-03.456Z.bak";
+    expect(await readFile(path.join(directory, backupName), "utf8")).toBe(oldText);
+    expect((await readdir(directory)).sort()).toEqual(["proxies.json", backupName].sort());
+    expect(await repository.load()).toEqual(first);
   });
 
   it("round-trips a Python config through Node and back to Python", async () => {
@@ -220,4 +262,8 @@ function findPython(): string {
     }
   }
   throw new Error("Python 3 is required for the configuration round-trip test.");
+}
+
+function missingFileError(): NodeJS.ErrnoException {
+  return Object.assign(new Error("fixture file does not exist"), { code: "ENOENT" });
 }

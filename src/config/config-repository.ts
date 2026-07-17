@@ -1,4 +1,14 @@
-import { mkdir, open, readFile, rename, unlink, type FileHandle } from "node:fs/promises";
+import {
+  copyFile,
+  mkdir,
+  open,
+  readFile,
+  readdir,
+  rename,
+  unlink,
+  type FileHandle,
+} from "node:fs/promises";
+import { constants as fsConstants } from "node:fs";
 import path from "node:path";
 import { randomUUID } from "node:crypto";
 
@@ -10,9 +20,11 @@ import { createDefaultProxyPair, DEFAULT_LOG_ROOT } from "./defaults.js";
 export type ConfigLoadErrorKind = "invalid_json" | "invalid_schema";
 
 export interface ConfigFileSystem {
+  readonly copyFile: typeof copyFile;
   readonly mkdir: typeof mkdir;
   readonly open: typeof open;
   readonly readFile: typeof readFile;
+  readonly readdir: typeof readdir;
   readonly rename: typeof rename;
   readonly unlink: typeof unlink;
 }
@@ -20,9 +32,18 @@ export interface ConfigFileSystem {
 export interface ConfigRepositoryOptions {
   readonly createId?: () => string;
   readonly fileSystem?: ConfigFileSystem;
+  readonly now?: () => Date;
 }
 
-const DEFAULT_FILE_SYSTEM: ConfigFileSystem = { mkdir, open, readFile, rename, unlink };
+const DEFAULT_FILE_SYSTEM: ConfigFileSystem = {
+  copyFile,
+  mkdir,
+  open,
+  readFile,
+  readdir,
+  rename,
+  unlink,
+};
 
 export class ConfigLoadError extends Error {
   readonly configPath: string;
@@ -52,6 +73,8 @@ export class ConfigRepository {
   readonly #createId: () => string;
   readonly #defaultLogRoot: string;
   readonly #fileSystem: ConfigFileSystem;
+  readonly #now: () => Date;
+  #backupChecked = false;
 
   constructor(
     configPath: string,
@@ -62,6 +85,7 @@ export class ConfigRepository {
     this.#createId = options.createId ?? randomUUID;
     this.#defaultLogRoot = defaultLogRoot;
     this.#fileSystem = options.fileSystem ?? DEFAULT_FILE_SYSTEM;
+    this.#now = options.now ?? (() => new Date());
   }
 
   async load(): Promise<ProxyConfigFile> {
@@ -98,7 +122,39 @@ export class ConfigRepository {
   async save(value: ProxyConfigFile): Promise<void> {
     const config = normalizeProxyConfigFile(value, this.#defaultLogRoot);
     const text = `${JSON.stringify(config, null, 2)}\n`;
+    await this.#backupExistingConfigOnce();
     await this.#writeThroughSiblingTempFile(text);
+  }
+
+  async #backupExistingConfigOnce(): Promise<void> {
+    if (this.#backupChecked) {
+      return;
+    }
+    const directory = path.dirname(this.#configPath);
+    const configName = path.basename(this.#configPath);
+    const backupPrefix = `${configName}.before-node-`;
+    try {
+      const names = await this.#fileSystem.readdir(directory, { encoding: "utf8" });
+      if (names.some((name) => name.startsWith(backupPrefix) && name.endsWith(".bak"))) {
+        this.#backupChecked = true;
+        return;
+      }
+    } catch (error) {
+      if (!isNodeError(error) || error.code !== "ENOENT") {
+        throw error;
+      }
+    }
+
+    const timestamp = this.#now().toISOString().replaceAll(":", "-");
+    const backupPath = path.join(directory, `${backupPrefix}${timestamp}.bak`);
+    try {
+      await this.#fileSystem.copyFile(this.#configPath, backupPath, fsConstants.COPYFILE_EXCL);
+    } catch (error) {
+      if (!isNodeError(error) || (error.code !== "ENOENT" && error.code !== "EEXIST")) {
+        throw error;
+      }
+    }
+    this.#backupChecked = true;
   }
 
   async #writeThroughSiblingTempFile(text: string): Promise<void> {
