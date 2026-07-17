@@ -4,7 +4,11 @@ import path from "node:path";
 
 import { afterEach, describe, expect, it } from "vitest";
 
-import { ConfigLoadError, ConfigRepository } from "../../src/config/config-repository.js";
+import {
+  ConfigLoadError,
+  ConfigRepository,
+  type ConfigFileSystem,
+} from "../../src/config/config-repository.js";
 import { createDefaultProxyPair } from "../../src/config/defaults.js";
 
 const temporaryDirectories: string[] = [];
@@ -84,5 +88,41 @@ describe("ConfigRepository.save", () => {
     expect(JSON.parse(await readFile(configPath, "utf8"))).toEqual(config);
     expect(await repository.load()).toEqual(config);
     expect(await readdir(path.dirname(configPath))).toEqual(["proxies.json"]);
+  });
+
+  it("flushes and fsyncs the temporary file before rename", async () => {
+    const calls: string[] = [];
+    const handle = {
+      writeFile: () => {
+        calls.push("write");
+        return Promise.resolve();
+      },
+      sync: () => {
+        calls.push("sync");
+        return Promise.resolve();
+      },
+      close: () => {
+        calls.push("close");
+        return Promise.resolve();
+      },
+    };
+    const fileSystem = {
+      mkdir: () => Promise.resolve(undefined),
+      open: () => Promise.resolve(handle),
+      readFile: () => Promise.resolve(""),
+      rename: () => {
+        calls.push("rename");
+        return Promise.resolve();
+      },
+      unlink: () => Promise.resolve(undefined),
+    } as unknown as ConfigFileSystem;
+    const repository = new ConfigRepository("/fixture/proxies.json", "logs", {
+      createId: () => "fixture-id",
+      fileSystem,
+    });
+
+    await repository.save({ pairs: [createDefaultProxyPair()] });
+
+    expect(calls).toEqual(["write", "sync", "close", "rename"]);
   });
 });

@@ -112,6 +112,7 @@ export class ConfigRepository {
     try {
       handle = await this.#fileSystem.open(tempPath, "wx", 0o600);
       await handle.writeFile(text, "utf8");
+      await handle.sync();
       await handle.close();
       handle = undefined;
       await this.#fileSystem.rename(tempPath, this.#configPath);
