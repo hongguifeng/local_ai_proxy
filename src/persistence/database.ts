@@ -3,6 +3,8 @@ import path from "node:path";
 
 import Database from "better-sqlite3";
 
+import { SCHEMA_V1_MIGRATION } from "./schema-v1.js";
+
 export const TRAFFIC_DB_NAME = "traffic.db";
 export const SCHEMA_VERSION_KEY = "schema_version";
 
@@ -22,6 +24,17 @@ export function openLogDatabase(logRoot: string): Database.Database {
   const database = new Database(path.join(logRoot, TRAFFIC_DB_NAME));
   configureDatabase(database);
   return database;
+}
+
+export function connectLogDatabase(logRoot: string): Database.Database {
+  const database = openLogDatabase(logRoot);
+  try {
+    runMigrations(database, [SCHEMA_V1_MIGRATION]);
+    return database;
+  } catch (error) {
+    database.close();
+    throw error;
+  }
 }
 
 export function configureDatabase(database: Database.Database): void {

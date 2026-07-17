@@ -8,6 +8,7 @@ import { afterEach, describe, expect, it } from "vitest";
 import {
   SCHEMA_VERSION_KEY,
   TRAFFIC_DB_NAME,
+  connectLogDatabase,
   logDatabasePath,
   openLogDatabase,
   readSchemaVersion,
@@ -97,6 +98,34 @@ describe("runMigrations", () => {
         .pluck()
         .get(SCHEMA_VERSION_KEY),
     ).toBe("2");
+
+    database.close();
+  });
+});
+
+describe("connectLogDatabase", () => {
+  it("creates the complete schema v1", async () => {
+    const root = await mkdtemp(path.join(os.tmpdir(), "llm-proxy-schema-v1-"));
+    temporaryDirectories.push(root);
+    const database = connectLogDatabase(root);
+
+    const objects = database
+      .prepare("SELECT name, type FROM sqlite_master WHERE name NOT LIKE 'sqlite_%'")
+      .all() as { name: string; type: string }[];
+    const names = new Set(objects.map(({ name }) => name));
+    expect(readSchemaVersion(database)).toBe(1);
+    expect([...names]).toEqual(
+      expect.arrayContaining([
+        "schema_meta",
+        "tasks",
+        "records",
+        "response_links",
+        "context_links",
+        "record_search",
+        "idx_tasks_sort",
+        "idx_records_task_sequence",
+      ]),
+    );
 
     database.close();
   });
