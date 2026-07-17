@@ -227,7 +227,7 @@
 
 ### 7.4 Link/Search/Delete
 
-- [ ] `DB-030` P0 response link upsert/query。
+- [x] `DB-030` P0 response link upsert/query。
 - [ ] `DB-031` P0 context link upsert/query。
 - [ ] `DB-032` P0 record search text 生成。
 - [ ] `DB-033` P0 多 term AND 搜索。

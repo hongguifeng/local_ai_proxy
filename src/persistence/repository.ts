@@ -312,6 +312,29 @@ export class TrafficRepository {
       hasMore: nextOffset < total,
     };
   }
+
+  upsertResponseLink(responseId: string, taskId: string): void {
+    if (responseId.trim() === "") {
+      return;
+    }
+    this.#database
+      .prepare(
+        `
+        INSERT INTO response_links(response_id, task_id, created_at)
+        VALUES (?, ?, ?)
+        ON CONFLICT(response_id) DO UPDATE SET task_id = excluded.task_id
+      `,
+      )
+      .run(responseId, taskId, this.#now());
+  }
+
+  taskIdForResponse(responseId: string): string | undefined {
+    const taskId = this.#database
+      .prepare("SELECT task_id FROM response_links WHERE response_id = ?")
+      .pluck()
+      .get(responseId);
+    return typeof taskId === "string" ? taskId : undefined;
+  }
 }
 
 export function decodeTaskRow(row: Readonly<RepositoryRecord>): RepositoryRecord {

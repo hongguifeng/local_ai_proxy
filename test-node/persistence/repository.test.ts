@@ -338,3 +338,21 @@ describe("record task sequence uniqueness", () => {
     repository.close();
   });
 });
+
+describe("response links", () => {
+  it("upserts and resolves a response ID", async () => {
+    const root = await mkdtemp(path.join(os.tmpdir(), "llm-proxy-response-link-"));
+    temporaryDirectories.push(root);
+    const repository = new TrafficRepository(root);
+    repository.upsertTask({ id: "task-1", match_strategy_version: 4 });
+    repository.upsertTask({ id: "task-2", match_strategy_version: 4 });
+
+    repository.upsertResponseLink("resp_1", "task-1");
+    expect(repository.taskIdForResponse("resp_1")).toBe("task-1");
+    repository.upsertResponseLink("resp_1", "task-2");
+    expect(repository.taskIdForResponse("resp_1")).toBe("task-2");
+    repository.upsertResponseLink("   ", "task-1");
+    expect(repository.taskIdForResponse("missing")).toBeUndefined();
+    repository.close();
+  });
+});
