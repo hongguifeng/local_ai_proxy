@@ -199,7 +199,7 @@
 
 ### 7.1 数据库初始化
 
-- [ ] `DB-001` P0 实现 log root -> `traffic.db`。
+- [x] `DB-001` P0 实现 log root -> `traffic.db`。
 - [ ] `DB-002` P0 创建缺失目录。
 - [ ] `DB-003` P0 设置 WAL、foreign keys、busy timeout、synchronous。
 - [ ] `DB-004` P0 实现 migration runner 和 schema version 读取。
