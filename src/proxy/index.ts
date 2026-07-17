@@ -11,7 +11,9 @@ export { bodyJsonValue, bytesPayload, type BytePayload } from "./payload.js";
 export {
   displayEndpoint,
   endpointKind,
+  isTaskContextMessage,
   requestMessageCount,
+  requestFingerprints,
   responseTokenCount,
   stableHash,
   type EndpointKind,

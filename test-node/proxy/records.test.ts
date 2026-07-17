@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest";
 import {
   displayEndpoint,
   endpointKind,
+  requestFingerprints,
   requestMessageCount,
   responseTokenCount,
   stableHash,
@@ -154,5 +155,43 @@ describe("stableHash", () => {
     expect(stableHash({ "😀": "emoji", "": "private", a: 1 }, 64)).toBe(
       "540396678c4f5495919ca8ab4c9d661f9f27cc7f3630d209015eea62db96f58e",
     );
+  });
+});
+
+describe("requestFingerprints chat", () => {
+  it("matches Python fingerprints for Chat request boundaries and content", () => {
+    expect(
+      requestFingerprints("chat", {
+        model: "demo",
+        messages: [
+          { role: "system", content: "You are helpful." },
+          { role: "developer", content: [{ type: "text", text: "Use tools." }] },
+          { role: "user", content: "Hello" },
+          { role: "assistant", content: "Hi" },
+          { role: "user", content: "Next" },
+        ],
+        tools: [{ type: "function", function: { name: "search", parameters: { type: "object" } } }],
+      }),
+    ).toEqual({
+      system: "6e4721b144fb",
+      messages_prefix: "9bb75b481dea",
+      messages: "4d81d3c1cbd5",
+      first_user: "c25bf945aaff",
+      tools: "91fec0c1af8c",
+    });
+  });
+
+  it("falls back to legacy functions only when tools is absent", () => {
+    const functions = [{ name: "legacy" }];
+    expect(requestFingerprints("chat", { messages: [], functions })).toEqual({
+      tools: stableHash(functions),
+    });
+    expect(requestFingerprints("chat", { messages: [], tools: null, functions })).toEqual({});
+  });
+
+  it("fingerprints Completions prompts", () => {
+    expect(requestFingerprints("completions", { prompt: ["one", "two"] })).toEqual({
+      prompt: "33688af4ac8c",
+    });
   });
 });

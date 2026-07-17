@@ -173,7 +173,7 @@
 - [x] `PURE-043` P0 Chat/Completions message count。
 - [x] `PURE-044` P0 usage/total token 读取。
 - [x] `PURE-045` P0 stable JSON SHA-256 fingerprint。
-- [ ] `PURE-046` P0 Chat fingerprints。
+- [x] `PURE-046` P0 Chat fingerprints。
 - [ ] `PURE-047` P0 Responses fingerprints。
 - [ ] `PURE-048` P0 Claude fingerprints。
 - [ ] `PURE-049` P0 固定 Codex context message 排除。
