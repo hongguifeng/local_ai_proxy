@@ -264,7 +264,15 @@ export class StreamAccumulator {
   }
 
   #addClaudeEvent(eventType: string, event: Readonly<Record<string, unknown>>): void {
-    if (eventType === "content_block_start") {
+    if (eventType === "message_start") {
+      const message = event["message"];
+      if (isRecord(message)) {
+        this.#responsePayload = compactClaudeMessage(message);
+        if (message["usage"]) {
+          this.#usage = message["usage"];
+        }
+      }
+    } else if (eventType === "content_block_start") {
       const rawIndex = event["index"];
       const index = typeof rawIndex === "number" && Number.isInteger(rawIndex) ? rawIndex : 0;
       const block = event["content_block"];
@@ -303,6 +311,16 @@ export class StreamAccumulator {
       ) {
         const toolCall = this.#claudeToolCall(index);
         toolCall["input_json"] = stringValue(toolCall["input_json"]) + delta["partial_json"];
+      }
+    } else if (eventType === "message_delta") {
+      const delta = event["delta"];
+      if (isRecord(delta) && delta["stop_reason"]) {
+        this.#finishReasons.push(stringValue(delta["stop_reason"]));
+      }
+      const usage = event["usage"];
+      if (usage) {
+        this.#usage =
+          isRecord(this.#usage) && isRecord(usage) ? { ...this.#usage, ...usage } : usage;
       }
     }
   }
@@ -451,6 +469,19 @@ function compactClaudeToolCall(
     } catch {
       compacted["input_json"] = inputJson;
     }
+  }
+  return compacted;
+}
+
+function compactClaudeMessage(message: Readonly<Record<string, unknown>>): Record<string, unknown> {
+  const compacted: Record<string, unknown> = {};
+  for (const key of ["id", "type", "role", "model", "stop_reason", "stop_sequence"] as const) {
+    if (Object.hasOwn(message, key)) {
+      compacted[key] = message[key];
+    }
+  }
+  if (message["usage"]) {
+    compacted["usage"] = message["usage"];
   }
   return compacted;
 }

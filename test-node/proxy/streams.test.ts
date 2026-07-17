@@ -276,3 +276,32 @@ describe("compactSseValue Claude content", () => {
     });
   });
 });
+
+describe("compactSseValue Claude metadata", () => {
+  it("compacts message metadata and merges usage at stop", () => {
+    const text = [
+      'data: {"type":"message_start","message":{"id":"msg_1","type":"message","role":"assistant","model":"claude-sonnet-4","stop_reason":null,"usage":{"input_tokens":8},"content":[{"type":"text","text":"large"}]}}',
+      'data: {"type":"content_block_delta","index":0,"delta":{"type":"text_delta","text":"Hello"}}',
+      'data: {"type":"message_delta","delta":{"stop_reason":"end_turn"},"usage":{"output_tokens":5}}',
+      "data: [DONE]",
+    ].join("\n\n");
+
+    expect(compactSseValue(text)).toEqual({
+      stream_summary: {
+        event_count: 3,
+        done_seen: true,
+        content: "Hello",
+        finish_reasons: ["end_turn"],
+        usage: { input_tokens: 8, output_tokens: 5 },
+        response: {
+          id: "msg_1",
+          type: "message",
+          role: "assistant",
+          model: "claude-sonnet-4",
+          stop_reason: null,
+          usage: { input_tokens: 8 },
+        },
+      },
+    });
+  });
+});
