@@ -132,7 +132,7 @@
 
 ### 6.1 Target 和 Routing
 
-- [ ] `PURE-001` P0 移植 target URL parser。
+- [x] `PURE-001` P0 移植 target URL parser。
 - [ ] `PURE-002` P0 移植 base path join 全部边界。
 - [ ] `PURE-003` P0 移植 top-level model 提取。
 - [ ] `PURE-004` P0 移植 target selection 顺序。
