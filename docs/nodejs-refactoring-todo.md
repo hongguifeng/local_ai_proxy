@@ -76,7 +76,7 @@
 - [x] `BOOT-005` P0 配置 Vitest 和 coverage。
 - [x] `BOOT-006` P0 添加 `.node-version` 或 `.nvmrc`。
 - [x] `BOOT-007` P0 添加 scripts：`dev`, `build`, `start`, `typecheck`, `lint`, `format:check`, `test`, `check`。
-- [ ] `BOOT-008` P0 创建目标目录和 barrel export 规则。
+- [x] `BOOT-008` P0 创建目标目录和 barrel export 规则。
 - [ ] `BOOT-009` P1 设置 source map 和 production stack trace。
 
 ### 4.2 基础设施
