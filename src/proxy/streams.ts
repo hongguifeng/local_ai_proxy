@@ -22,8 +22,8 @@ export class StreamAccumulator {
   readonly #claudeToolCalls = new Map<number, Record<string, unknown>>();
   readonly #otherPayloads: unknown[] = [];
   readonly #finishReasons: string[] = [];
-  readonly #doneSeen: boolean;
-  readonly #eventCount: number;
+  #doneSeen: boolean;
+  #eventCount: number;
   #responsePayload: Record<string, unknown> | undefined;
   #usage: unknown;
 
@@ -59,6 +59,15 @@ export class StreamAccumulator {
       return;
     }
     this.#addChatEvent(event);
+  }
+
+  addParsedEvent(event: unknown): void {
+    this.#eventCount += 1;
+    this.addEvent(event);
+  }
+
+  markDone(): void {
+    this.#doneSeen = true;
   }
 
   summary(): StreamSummary {
@@ -347,6 +356,70 @@ export class StreamAccumulator {
   }
 }
 
+export class IncrementalSseAccumulator {
+  readonly #accumulator = new StreamAccumulator(0, false);
+  readonly #decoder = new TextDecoder("utf-8");
+  #buffer = "";
+  #finalized = false;
+  #hasEvents = false;
+  #invalid = false;
+
+  addChunk(chunk: Uint8Array | string): void {
+    if (this.#finalized) {
+      throw new Error("Cannot add an SSE chunk after finalize().");
+    }
+    const text = typeof chunk === "string" ? chunk : this.#decoder.decode(chunk, { stream: true });
+    this.#buffer += text;
+    this.#processCompleteLines();
+  }
+
+  finalize(): StreamSummary | undefined {
+    if (this.#finalized) {
+      throw new Error("SSE accumulator has already been finalized.");
+    }
+    this.#finalized = true;
+    this.#buffer += this.#decoder.decode();
+    if (this.#buffer !== "") {
+      this.#processLine(this.#buffer);
+      this.#buffer = "";
+    }
+    return this.#invalid || !this.#hasEvents ? undefined : this.#accumulator.summary();
+  }
+
+  #processCompleteLines(): void {
+    let newlineIndex = this.#buffer.indexOf("\n");
+    while (newlineIndex >= 0) {
+      this.#processLine(this.#buffer.slice(0, newlineIndex));
+      this.#buffer = this.#buffer.slice(newlineIndex + 1);
+      newlineIndex = this.#buffer.indexOf("\n");
+    }
+  }
+
+  #processLine(rawLine: string): void {
+    if (this.#invalid) {
+      return;
+    }
+    const line = rawLine.trim();
+    if (!line.startsWith("data:")) {
+      return;
+    }
+    const data = line.slice(5).trim();
+    if (data === "") {
+      return;
+    }
+    if (data === "[DONE]") {
+      this.#accumulator.markDone();
+      return;
+    }
+    try {
+      this.#accumulator.addParsedEvent(JSON.parse(data) as unknown);
+      this.#hasEvents = true;
+    } catch {
+      this.#invalid = true;
+    }
+  }
+}
+
 export function parseSseEvents(text: string): ParsedSseEvents | undefined {
   const events: unknown[] = [];
   let doneSeen = false;
@@ -373,15 +446,9 @@ export function parseSseEvents(text: string): ParsedSseEvents | undefined {
 }
 
 export function compactSseValue(text: string): StreamSummary | undefined {
-  const parsed = parseSseEvents(text);
-  if (parsed === undefined) {
-    return undefined;
-  }
-  const accumulator = new StreamAccumulator(parsed.events.length, parsed.doneSeen);
-  for (const event of parsed.events) {
-    accumulator.addEvent(event);
-  }
-  return accumulator.summary();
+  const accumulator = new IncrementalSseAccumulator();
+  accumulator.addChunk(text);
+  return accumulator.finalize();
 }
 
 export function compactSseJson(text: string): string | undefined {

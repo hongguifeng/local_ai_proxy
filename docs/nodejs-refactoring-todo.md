@@ -193,7 +193,7 @@
 - [x] `SSE-010` P0 Claude stop reason/usage/message metadata。
 - [x] `SSE-011` P0 unknown event 行为。
 - [x] `SSE-012` P0 summary truncation 深度/长度/数量。
-- [ ] `SSE-013` P1 增量 `addChunk/finalize` API，避免结束后全量二次解析。
+- [x] `SSE-013` P1 增量 `addChunk/finalize` API，避免结束后全量二次解析。
 
 ## 7. 阶段 4：SQLite 与 Repository
 

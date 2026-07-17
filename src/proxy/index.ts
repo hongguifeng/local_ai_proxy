@@ -42,6 +42,7 @@ export {
   type TargetSelection,
 } from "./routing.js";
 export {
+  IncrementalSseAccumulator,
   StreamAccumulator,
   compactSummaryValue,
   compactSseJson,

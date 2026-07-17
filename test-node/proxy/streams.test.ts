@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest";
 import { bodyJsonValue } from "../../src/proxy/payload.js";
 import {
   MAX_SUMMARY_TEXT_CHARS,
+  IncrementalSseAccumulator,
   compactSseValue,
   compactSummaryValue,
   parseSseEvents,
@@ -362,5 +363,41 @@ describe("compactSummaryValue", () => {
     ).toEqual({
       a: { b: { c: { d: { e: { _truncated: "max_depth", keys: ["z", "", "😀"] } } } } },
     });
+  });
+});
+
+describe("IncrementalSseAccumulator", () => {
+  it("matches whole-text parsing across line and UTF-8 byte boundaries", () => {
+    const text = [
+      'data: {"type":"response.output_text.delta","delta":"你好🙂"}',
+      'data: {"type":"response.output_text.delta","delta":" world"}',
+      "data: [DONE]",
+      "",
+    ].join("\n\n");
+    const bytes = Buffer.from(text, "utf8");
+    const emojiOffset = bytes.indexOf(Buffer.from("🙂"));
+    const accumulator = new IncrementalSseAccumulator();
+
+    accumulator.addChunk(bytes.subarray(0, 7));
+    accumulator.addChunk(bytes.subarray(7, emojiOffset + 1));
+    accumulator.addChunk(bytes.subarray(emojiOffset + 1, emojiOffset + 3));
+    accumulator.addChunk(bytes.subarray(emojiOffset + 3));
+
+    expect(accumulator.finalize()).toEqual(compactSseValue(text));
+    expect(accumulator.finalize.bind(accumulator)).toThrow("already been finalized");
+  });
+
+  it("returns undefined after an invalid JSON data chunk", () => {
+    const accumulator = new IncrementalSseAccumulator();
+    accumulator.addChunk('data: {"ok":true}\n\n');
+    accumulator.addChunk("data: invalid\n\n");
+    expect(accumulator.finalize()).toBeUndefined();
+  });
+
+  it("rejects chunks added after finalization", () => {
+    const accumulator = new IncrementalSseAccumulator();
+    accumulator.addChunk('data: {"ok":true}\n\n');
+    accumulator.finalize();
+    expect(() => accumulator.addChunk("data: [DONE]\n\n")).toThrow("after finalize");
   });
 });
