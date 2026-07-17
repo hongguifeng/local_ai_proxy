@@ -1,6 +1,22 @@
+import { readFileSync } from "node:fs";
+
 import { describe, expect, it } from "vitest";
 
 import { bodyJsonValue, bytesPayload } from "../../src/proxy/payload.js";
+
+interface PayloadFixtureCase {
+  readonly name: string;
+  readonly bytes: readonly number[];
+  readonly expected: {
+    readonly size_bytes: number;
+    readonly base64: string;
+    readonly text: string;
+  };
+}
+
+const payloadFixtureCases = JSON.parse(
+  readFileSync(new URL("../../fixtures/parity/payload/bytes-cases.json", import.meta.url), "utf8"),
+) as PayloadFixtureCase[];
 
 describe("bytesPayload", () => {
   it("preserves bytes as size, base64, and readable UTF-8 text", () => {
@@ -15,6 +31,10 @@ describe("bytesPayload", () => {
 
   it("represents an empty body", () => {
     expect(bytesPayload(Buffer.alloc(0))).toEqual({ size_bytes: 0, base64: "", text: "" });
+  });
+
+  it.each(payloadFixtureCases)("matches the $name parity fixture", ({ bytes, expected }) => {
+    expect(bytesPayload(Uint8Array.from(bytes))).toEqual(expected);
   });
 });
 
