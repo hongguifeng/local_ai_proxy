@@ -43,4 +43,8 @@ export {
   normalizeTargetConfig,
   runtimeLogRoot,
 } from "./config-normalizer.js";
-export { ConfigRepository } from "./config-repository.js";
+export {
+  ConfigLoadError,
+  ConfigRepository,
+  type ConfigLoadErrorKind,
+} from "./config-repository.js";
