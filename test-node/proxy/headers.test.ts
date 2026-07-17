@@ -1,6 +1,10 @@
 import { describe, expect, it } from "vitest";
 
-import { HOP_BY_HOP_HEADERS, parseHeaderOverrides } from "../../src/proxy/headers.js";
+import {
+  HOP_BY_HOP_HEADERS,
+  headersToDictionary,
+  parseHeaderOverrides,
+} from "../../src/proxy/headers.js";
 
 describe("HOP_BY_HOP_HEADERS", () => {
   it("matches the Python proxy hop-by-hop header set", () => {
@@ -46,5 +50,30 @@ describe("parseHeaderOverrides", () => {
     expect(() => parseHeaderOverrides(["  : value"])).toThrow(
       'Invalid header override "  : value". Header name is empty.',
     );
+  });
+});
+
+describe("headersToDictionary", () => {
+  it("preserves repeated header values in arrival order", () => {
+    expect(
+      headersToDictionary([
+        ["X-Repeated", "first"],
+        ["Content-Type", "application/json"],
+        ["X-Repeated", "second"],
+        ["X-Repeated", "third,with,commas"],
+      ]),
+    ).toEqual({
+      "X-Repeated": ["first", "second", "third,with,commas"],
+      "Content-Type": ["application/json"],
+    });
+  });
+
+  it("retains the source header name casing", () => {
+    expect(
+      headersToDictionary([
+        ["X-Fixture", "upper"],
+        ["x-fixture", "lower"],
+      ]),
+    ).toEqual({ "X-Fixture": ["upper"], "x-fixture": ["lower"] });
   });
 });

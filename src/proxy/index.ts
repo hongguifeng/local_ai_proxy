@@ -1,4 +1,9 @@
-export { HOP_BY_HOP_HEADERS, parseHeaderOverrides, type HeaderEntry } from "./headers.js";
+export {
+  HOP_BY_HOP_HEADERS,
+  headersToDictionary,
+  parseHeaderOverrides,
+  type HeaderEntry,
+} from "./headers.js";
 export {
   parseInjectRequestFields,
   parseStripRequestFields,

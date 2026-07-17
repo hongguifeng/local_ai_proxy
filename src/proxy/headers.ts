@@ -32,3 +32,16 @@ export function parseHeaderOverrides(
   }
   return parsed;
 }
+
+export function headersToDictionary(headers: Iterable<HeaderEntry>): Record<string, string[]> {
+  const entries = new Map<string, string[]>();
+  for (const [name, value] of headers) {
+    const values = entries.get(name);
+    if (values === undefined) {
+      entries.set(name, [value]);
+    } else {
+      values.push(value);
+    }
+  }
+  return Object.fromEntries(entries);
+}
