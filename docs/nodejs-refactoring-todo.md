@@ -42,7 +42,7 @@
 
 ### 3.2 补齐 Python 契约测试
 
-- [ ] `BASE-010` P0 测试 GET/POST/PUT/PATCH/DELETE/OPTIONS/HEAD。
+- [x] `BASE-010` P0 测试 GET/POST/PUT/PATCH/DELETE/OPTIONS/HEAD。
 - [ ] `BASE-011` P0 测试自定义 Header 覆盖、API Key 优先级和重复 Header。
 - [ ] `BASE-012` P0 测试上游 502、timeout、响应开始后断开。
 - [ ] `BASE-013` P0 测试多 target 使用不同 log root。
