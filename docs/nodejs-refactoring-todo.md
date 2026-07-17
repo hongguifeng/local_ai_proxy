@@ -63,7 +63,7 @@
 - [x] `ADR-005` P0 决定 client abort 后的 upstream/log 行为。
 - [x] `ADR-006` P0 决定 Windows 产物：portable、installer、CLI zip。
 - [x] `ADR-007` P1 决定是否继续强制 `Connection: close`。
-- [ ] `ADR-008` P1 决定 LIKE 搜索或真正 FTS MATCH。
+- [x] `ADR-008` P1 决定 LIKE 搜索或真正 FTS MATCH。
 
 ## 4. 阶段 1：Node 工程骨架
 
