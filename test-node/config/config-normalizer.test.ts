@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest";
 import {
   ensureAtLeastOneTarget,
   normalizeDefaultTargetId,
+  normalizeModelMappings,
 } from "../../src/config/config-normalizer.js";
 import { createDefaultTarget } from "../../src/config/defaults.js";
 
@@ -18,6 +19,35 @@ describe("ensureAtLeastOneTarget", () => {
 
     expect(result).toEqual(source);
     expect(result).not.toBe(source);
+  });
+});
+
+describe("normalizeModelMappings", () => {
+  it("normalizes mappings and preserves same-name forwarding", () => {
+    expect(
+      normalizeModelMappings([
+        { listen: " local ", upstream: " remote " },
+        { listen: "same" },
+        { listen: "same-explicit", upstream: "same-explicit" },
+      ]),
+    ).toEqual([
+      { listen: "local", upstream: "remote" },
+      { listen: "same", upstream: "same" },
+      { listen: "same-explicit", upstream: "same-explicit" },
+    ]);
+  });
+
+  it("skips invalid entries and accepts primitive legacy values", () => {
+    expect(
+      normalizeModelMappings([
+        null,
+        "model",
+        {},
+        { listen: " " },
+        { listen: 123, upstream: false },
+      ]),
+    ).toEqual([{ listen: "123", upstream: "123" }]);
+    expect(normalizeModelMappings("not-an-array")).toEqual([]);
   });
 });
 
