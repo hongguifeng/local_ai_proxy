@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { displayEndpoint, endpointKind } from "../../src/proxy/records.js";
+import { displayEndpoint, endpointKind, requestMessageCount } from "../../src/proxy/records.js";
 
 describe("endpointKind", () => {
   it.each([
@@ -25,5 +25,22 @@ describe("displayEndpoint", () => {
     [null, "/"],
   ])("normalizes %j as %s", (path, expected) => {
     expect(displayEndpoint(path)).toBe(expected);
+  });
+});
+
+describe("requestMessageCount responses", () => {
+  it.each([
+    [{ instructions: "system", input: [{ role: "user" }, { type: "function_call" }] }, 3],
+    [{ input: "single prompt" }, 1],
+    [{ input: null }, 0],
+    [{ instructions: "", input: [] }, 0],
+    [{ instructions: [], input: [] }, 0],
+    [{ instructions: {}, input: [] }, 0],
+  ])("counts %# as %i messages", (payload, expected) => {
+    expect(requestMessageCount("responses", payload)).toBe(expected);
+  });
+
+  it("returns undefined for a non-object payload", () => {
+    expect(requestMessageCount("responses", [])).toBeUndefined();
   });
 });

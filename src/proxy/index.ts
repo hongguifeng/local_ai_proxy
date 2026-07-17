@@ -8,7 +8,12 @@ export {
   type HeaderEntry,
 } from "./headers.js";
 export { bodyJsonValue, bytesPayload, type BytePayload } from "./payload.js";
-export { displayEndpoint, endpointKind, type EndpointKind } from "./records.js";
+export {
+  displayEndpoint,
+  endpointKind,
+  requestMessageCount,
+  type EndpointKind,
+} from "./records.js";
 export {
   parseInjectRequestFields,
   parseStripRequestFields,
