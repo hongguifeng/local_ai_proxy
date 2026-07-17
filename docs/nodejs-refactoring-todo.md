@@ -33,7 +33,7 @@
   - 验收：仓库内有可复现命令和测试报告。
 - [x] `BASE-002` P0 将现有四张 UI 截图登记为视觉基线。
   - 验收：记录 viewport、浏览器、语言和页面状态。
-- [ ] `BASE-003` P0 创建脱敏的真实 `proxies.json` fixture。
+- [x] `BASE-003` P0 创建脱敏的真实 `proxies.json` fixture。
   - 验收：包含多 pair、多 target、默认目标、disabled target、API key 占位、Header、strip/inject、不同 log root。
 - [ ] `BASE-004` P0 创建脱敏的真实 `traffic.db` fixture。
   - 验收：包含 responses/chat/messages/completions、pending、SSE、tool call、response/context link、多 task。
