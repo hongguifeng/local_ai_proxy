@@ -38,5 +38,9 @@ export {
   normalizeInjectRequestFields,
   normalizeLogRoot,
   normalizeModelMappings,
+  normalizeProxyConfigFile,
+  normalizeProxyPair,
+  normalizeTargetConfig,
   runtimeLogRoot,
 } from "./config-normalizer.js";
+export { ConfigRepository } from "./config-repository.js";
