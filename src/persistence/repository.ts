@@ -264,6 +264,54 @@ export class TrafficRepository {
       .get(taskId);
     return typeof value === "number" ? value : 0;
   }
+
+  listTaskRecords(
+    taskId: string,
+    query = "",
+    limit = 200,
+    offset = 0,
+  ): RepositoryPage<RepositoryRecord> {
+    const boundedLimit = Math.max(1, Math.min(integerValue(limit, 200), 500));
+    const boundedOffset = Math.max(0, integerValue(offset, 0));
+    const normalizedQuery = query.trim().toLowerCase();
+    const queryClause =
+      normalizedQuery === ""
+        ? { sql: "", parameters: [] }
+        : {
+            sql: `AND lower(
+              COALESCE(id, '') || ' ' || COALESCE(event, '') || ' ' || COALESCE(method, '') || ' ' ||
+              COALESCE(path, '') || ' ' || COALESCE(endpoint, '') || ' ' || COALESCE(error, '') || ' ' ||
+              COALESCE(request_headers_json, '') || ' ' || COALESCE(response_headers_json, '') || ' ' ||
+              COALESCE(request_body_json, '') || ' ' || COALESCE(response_body_json, '')
+            ) LIKE ?`,
+            parameters: [`%${normalizedQuery}%`],
+          };
+    const parameters = [taskId, ...queryClause.parameters];
+    const total = this.#database
+      .prepare(`SELECT COUNT(*) FROM records WHERE task_id = ? ${queryClause.sql}`)
+      .pluck()
+      .get(...parameters) as number;
+    const rows = this.#database
+      .prepare(
+        `
+        SELECT * FROM records
+        WHERE task_id = ? ${queryClause.sql}
+        ORDER BY sequence DESC
+        LIMIT ? OFFSET ?
+      `,
+      )
+      .all(...parameters, boundedLimit, boundedOffset) as RepositoryRecord[];
+    const items = rows.map((row) => decodeRecordRow(row));
+    const nextOffset = boundedOffset + items.length;
+    return {
+      items,
+      total,
+      limit: boundedLimit,
+      offset: boundedOffset,
+      nextOffset,
+      hasMore: nextOffset < total,
+    };
+  }
 }
 
 export function decodeTaskRow(row: Readonly<RepositoryRecord>): RepositoryRecord {

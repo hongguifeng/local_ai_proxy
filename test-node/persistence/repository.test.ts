@@ -270,3 +270,41 @@ describe("TrafficRepository record sequence helpers", () => {
     repository.close();
   });
 });
+
+describe("TrafficRepository.listTaskRecords", () => {
+  it("queries and paginates records in descending sequence order", async () => {
+    const root = await mkdtemp(path.join(os.tmpdir(), "llm-proxy-list-records-"));
+    temporaryDirectories.push(root);
+    const repository = new TrafficRepository(root);
+    repository.upsertTask({ id: "task-1", match_strategy_version: 4 });
+    for (const [id, sequence, text] of [
+      ["record-1", 1, "older"],
+      ["record-2", 2, "needle middle"],
+      ["record-3", 3, "newest needle"],
+    ] as const) {
+      repository.upsertRecord({
+        id,
+        task_id: "task-1",
+        sequence,
+        method: "POST",
+        path: "/v1/responses",
+        request_body: { text },
+      });
+    }
+
+    expect(repository.listTaskRecords("task-1", "", 2)).toMatchObject({
+      items: [{ id: "record-3" }, { id: "record-2" }],
+      total: 3,
+      limit: 2,
+      offset: 0,
+      nextOffset: 2,
+      hasMore: true,
+    });
+    expect(repository.listTaskRecords("task-1", "needle").items.map(({ id }) => id)).toEqual([
+      "record-3",
+      "record-2",
+    ]);
+    expect(repository.listTaskRecords("missing").total).toBe(0);
+    repository.close();
+  });
+});
