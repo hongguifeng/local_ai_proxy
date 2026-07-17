@@ -17,6 +17,11 @@ export type {
   TargetScheme,
 } from "./config-types.js";
 export {
+  ConfigValidationError,
+  validateProxyConfigFile,
+  type ConfigFieldError,
+} from "./config-validation.js";
+export {
   DEFAULT_CONFIG_PATH,
   DEFAULT_LOG_ROOT,
   DEFAULT_PROXY_HOST,
