@@ -1,6 +1,11 @@
 import { describe, expect, it } from "vitest";
 
-import { REDACTED, redactHeaders, redactJsonValue } from "../../src/proxy/redaction.js";
+import {
+  REDACTED,
+  redactHeaders,
+  redactJsonValue,
+  redactRecord,
+} from "../../src/proxy/redaction.js";
 
 describe("redactHeaders", () => {
   it("redacts sensitive scalar and multi-value headers case-insensitively", () => {
@@ -58,5 +63,53 @@ describe("redactJsonValue", () => {
       APIKEY: REDACTED,
       authorization_hint: "not an exact sensitive key",
     });
+  });
+});
+
+describe("redactRecord", () => {
+  it("redacts a deep log copy without changing the actual forwarding record", () => {
+    const requestText = '{"model":"demo","api_key":"sk-secret","nested":[{"token":"value"}]}';
+    const upstreamText = '{"authorization":"body-secret","stream":true}';
+    const record = {
+      request: {
+        headers: { Authorization: ["Bearer secret-token"] },
+        body: {
+          size_bytes: Buffer.byteLength(requestText),
+          base64: Buffer.from(requestText).toString("base64"),
+          text: requestText,
+        },
+        upstream_body: {
+          size_bytes: Buffer.byteLength(upstreamText),
+          base64: Buffer.from(upstreamText).toString("base64"),
+          text: upstreamText,
+        },
+      },
+      response: { headers: { "Content-Type": ["application/json"] }, body: { text: "plain" } },
+    };
+
+    const redacted = redactRecord(record);
+
+    expect(redacted).toMatchObject({
+      request: {
+        headers: { Authorization: [REDACTED] },
+        body: {
+          base64: "",
+          text: `{"model":"demo","api_key":"${REDACTED}","nested":[{"token":"${REDACTED}"}]}`,
+        },
+        upstream_body: {
+          base64: "",
+          text: `{"authorization":"${REDACTED}","stream":true}`,
+        },
+      },
+      response: { headers: { "Content-Type": ["application/json"] }, body: { text: "plain" } },
+    });
+    expect(record.request.headers.Authorization).toEqual(["Bearer secret-token"]);
+    expect(record.request.body.text).toBe(requestText);
+    expect(record.request.body.base64).not.toBe("");
+    expect(record.request.upstream_body.text).toBe(upstreamText);
+
+    const redactedRequest = redacted["request"] as Record<string, Record<string, string[]>>;
+    redactedRequest["headers"]?.["Authorization"]?.push("mutated-copy");
+    expect(record.request.headers.Authorization).toEqual(["Bearer secret-token"]);
   });
 });

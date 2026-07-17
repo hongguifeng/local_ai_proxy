@@ -43,3 +43,43 @@ export function redactJsonValue(value: unknown): unknown {
     ]),
   );
 }
+
+export function redactBody(body: Readonly<Record<string, unknown>>): Record<string, unknown> {
+  const redacted = { ...body };
+  const text = redacted["text"];
+  if (typeof text !== "string" || text === "") {
+    return redacted;
+  }
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(text);
+  } catch {
+    return redacted;
+  }
+  const redactedText = JSON.stringify(redactJsonValue(parsed));
+  redacted["text"] = redactedText;
+  redacted["base64"] = "";
+  redacted["size_bytes"] = Buffer.byteLength(redactedText, "utf8");
+  return redacted;
+}
+
+export function redactRecord(record: Readonly<Record<string, unknown>>): Record<string, unknown> {
+  const redacted = structuredClone(record);
+  for (const sectionName of ["request", "response"] as const) {
+    const section = redacted[sectionName];
+    if (!isRecord(section)) {
+      continue;
+    }
+    if (isRecord(section["headers"])) {
+      section["headers"] = redactHeaders(section["headers"]);
+    }
+    if (isRecord(section["body"])) {
+      section["body"] = redactBody(section["body"]);
+    }
+    if (isRecord(section["upstream_body"])) {
+      section["upstream_body"] = redactBody(section["upstream_body"]);
+    }
+  }
+  return redacted;
+}
+import { isRecord } from "../shared/index.js";

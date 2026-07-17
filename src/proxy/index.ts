@@ -18,8 +18,10 @@ export {
   REDACTED,
   SENSITIVE_HEADER_NAMES,
   SENSITIVE_JSON_KEYS,
+  redactBody,
   redactHeaders,
   redactJsonValue,
+  redactRecord,
 } from "./redaction.js";
 export {
   requestModelFromBody,
