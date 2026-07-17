@@ -7,6 +7,7 @@ export {
   type ForwardHeaderOptions,
   type HeaderEntry,
 } from "./headers.js";
+export { bodyJsonValue, bytesPayload, type BytePayload } from "./payload.js";
 export {
   parseInjectRequestFields,
   parseStripRequestFields,
