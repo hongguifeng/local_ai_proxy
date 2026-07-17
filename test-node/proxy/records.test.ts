@@ -195,3 +195,37 @@ describe("requestFingerprints chat", () => {
     });
   });
 });
+
+describe("requestFingerprints responses", () => {
+  it("matches Python fingerprints for Responses input and function calls", () => {
+    expect(
+      requestFingerprints("responses", {
+        instructions: "Follow policy",
+        input: [
+          { role: "user", content: [{ type: "input_text", text: "Hello" }] },
+          {
+            type: "function_call",
+            call_id: "call_1",
+            name: "search",
+            arguments: '{"q":"x"}',
+          },
+          { type: "function_call_output", call_id: "call_1", output: "result" },
+        ],
+        tools: [{ type: "function", name: "search" }],
+      }),
+    ).toEqual({
+      instructions: "010232a64e9d",
+      tools: "4eb42649f94f",
+      first_user: "024650ad788f",
+      input_prefix: "1fb1bcba2c12",
+      input: "1fb1bcba2c12",
+    });
+  });
+
+  it("normalizes scalar Responses input into the prefix list", () => {
+    expect(requestFingerprints("responses", { input: "hello" })).toEqual({
+      input_prefix: stableHash(["hello"]),
+      input: stableHash("hello"),
+    });
+  });
+});

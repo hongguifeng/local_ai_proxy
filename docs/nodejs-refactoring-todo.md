@@ -174,7 +174,7 @@
 - [x] `PURE-044` P0 usage/total token 读取。
 - [x] `PURE-045` P0 stable JSON SHA-256 fingerprint。
 - [x] `PURE-046` P0 Chat fingerprints。
-- [ ] `PURE-047` P0 Responses fingerprints。
+- [x] `PURE-047` P0 Responses fingerprints。
 - [ ] `PURE-048` P0 Claude fingerprints。
 - [ ] `PURE-049` P0 固定 Codex context message 排除。
 - [ ] `PURE-050` P0 response ID 提取。

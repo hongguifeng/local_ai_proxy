@@ -97,7 +97,24 @@ export function requestFingerprints(kind: EndpointKind, payload: unknown): Recor
     return {};
   }
   const fingerprints: Record<string, string> = {};
-  if (kind === "chat") {
+  if (kind === "responses") {
+    for (const key of ["instructions", "tools"] as const) {
+      if (isPythonTruthy(payload[key])) {
+        fingerprints[key] = stableHash(payload[key]);
+      }
+    }
+    const firstUser = responsesFirstUserMessage(payload);
+    if (isPythonTruthy(firstUser)) {
+      fingerprints["first_user"] = stableHash(firstUser);
+    }
+    const inputPrefix = responsesInputPrefix(payload);
+    if (inputPrefix.length > 0) {
+      fingerprints["input_prefix"] = stableHash(inputPrefix);
+    }
+    if (isPythonTruthy(payload["input"])) {
+      fingerprints["input"] = stableHash(payload["input"]);
+    }
+  } else if (kind === "chat") {
     const systemMessages = chatSystemMessages(payload);
     if (systemMessages.length > 0) {
       fingerprints["system"] = stableHash(systemMessages);
@@ -122,6 +139,79 @@ export function requestFingerprints(kind: EndpointKind, payload: unknown): Recor
     fingerprints["prompt"] = stableHash(payload["prompt"]);
   }
   return fingerprints;
+}
+
+function responsesInputItems(payload: Readonly<Record<string, unknown>>): unknown[] {
+  const input = payload["input"];
+  if (Array.isArray(input)) {
+    return input;
+  }
+  return input === null || input === undefined ? [] : [input];
+}
+
+function responsesInputItemSummary(item: unknown): unknown {
+  if (typeof item === "string" || !isRecord(item)) {
+    return item;
+  }
+  const summary: Record<string, unknown> = {};
+  for (const key of ["type", "role", "call_id", "name"] as const) {
+    if (item[key] !== null && item[key] !== undefined) {
+      summary[key] = item[key];
+    }
+  }
+  const content = item["content"];
+  if (Array.isArray(content)) {
+    summary["content"] = (content as unknown[]).map((contentItem) => {
+      if (!isRecord(contentItem)) {
+        return contentItem;
+      }
+      return Object.fromEntries(
+        ["type", "text", "arguments", "call_id"]
+          .filter((key) => contentItem[key] !== null && contentItem[key] !== undefined)
+          .map((key) => [key, contentItem[key]]),
+      );
+    });
+  } else if (content !== null && content !== undefined) {
+    summary["content"] = messageText(content);
+  }
+  for (const key of ["output", "arguments"] as const) {
+    if (item[key] !== null && item[key] !== undefined) {
+      summary[key] = messageText(item[key]);
+    }
+  }
+  return Object.keys(summary).length > 0 ? summary : messageText(item);
+}
+
+function responsesInputPrefix(payload: Readonly<Record<string, unknown>>): unknown[] {
+  return responsesInputItems(payload)
+    .filter((item) => !isTaskContextMessage(item))
+    .slice(0, 6)
+    .map((item) => responsesInputItemSummary(item));
+}
+
+function responsesFirstUserMessage(payload: Readonly<Record<string, unknown>>): unknown {
+  for (const item of responsesInputItems(payload)) {
+    if (!isRecord(item) || item["role"] !== "user" || isTaskContextMessage(item)) {
+      continue;
+    }
+    const content = item["content"];
+    if (Array.isArray(content)) {
+      const texts = (content as unknown[])
+        .filter(
+          (contentItem) =>
+            isRecord(contentItem) &&
+            typeof contentItem["text"] === "string" &&
+            contentItem["text"] !== "",
+        )
+        .map((contentItem) => (contentItem as Record<string, unknown>)["text"]);
+      if (texts.length > 0) {
+        return texts;
+      }
+    } else if (isPythonTruthy(content)) {
+      return messageText(content);
+    }
+  }
+  return undefined;
 }
 
 function messageText(value: unknown): unknown {
