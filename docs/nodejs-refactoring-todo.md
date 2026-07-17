@@ -71,7 +71,7 @@
 
 - [x] `BOOT-001` P0 创建 `package.json`，声明 Node 24 engine。
 - [x] `BOOT-002` P0 生成并提交 lockfile。
-- [ ] `BOOT-003` P0 创建 strict ESM `tsconfig.json`。
+- [x] `BOOT-003` P0 创建 strict ESM `tsconfig.json`。
 - [ ] `BOOT-004` P0 配置 ESLint 和 Prettier。
 - [ ] `BOOT-005` P0 配置 Vitest 和 coverage。
 - [ ] `BOOT-006` P0 添加 `.node-version` 或 `.nvmrc`。
