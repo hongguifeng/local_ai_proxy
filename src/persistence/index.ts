@@ -1,1 +1,1 @@
-export { TRAFFIC_DB_NAME, logDatabasePath } from "./database.js";
+export { TRAFFIC_DB_NAME, logDatabasePath, openLogDatabase } from "./database.js";
