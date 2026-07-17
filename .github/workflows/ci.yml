@@ -19,6 +19,12 @@ jobs:
       - name: Show Node version
         run: node --version
 
+      - name: Install Node dependencies
+        run: npm ci
+
+      - name: Typecheck, lint, test, and build
+        run: npm run check
+
   test:
     runs-on: windows-latest
     strategy:
