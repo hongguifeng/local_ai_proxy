@@ -84,4 +84,19 @@ describe("transformRequestJsonFields", () => {
     expect(result).toEqual({ body, strippedFields: [], injectedFields: [] });
     expect(result.body).toBe(body);
   });
+
+  it("sorts stripped and injected field names by Unicode code point", () => {
+    const body = Buffer.from('{"😀":1,"z":2,"":3,"a":4}');
+    const injectFields = Object.fromEntries([
+      ["😀", "emoji"],
+      ["z", "latin"],
+      ["", "private-use"],
+      ["a", "first"],
+    ]);
+
+    const result = transformRequestJsonFields(body, new Set(["😀", "z", "", "a"]), injectFields);
+
+    expect(result.strippedFields).toEqual(["a", "z", "", "😀"]);
+    expect(result.injectedFields).toEqual(["a", "z", "", "😀"]);
+  });
 });

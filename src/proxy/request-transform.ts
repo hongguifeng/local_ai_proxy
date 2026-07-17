@@ -68,7 +68,7 @@ export function transformRequestJsonFields(
   for (const field of strippedFields) {
     Reflect.deleteProperty(payload, field);
   }
-  const injectedFields = Object.keys(injectFields).sort();
+  const injectedFields = Object.keys(injectFields).sort(compareUnicodeCodePoints);
   for (const field of injectedFields) {
     Object.defineProperty(payload, field, {
       configurable: true,
@@ -82,13 +82,27 @@ export function transformRequestJsonFields(
   }
   return {
     body: UTF8_ENCODER.encode(JSON.stringify(payload)),
-    strippedFields: strippedFields.sort(),
+    strippedFields: strippedFields.sort(compareUnicodeCodePoints),
     injectedFields,
   };
 }
 
 function unchanged(body: Uint8Array): RequestTransformResult {
   return { body, strippedFields: [], injectedFields: [] };
+}
+
+function compareUnicodeCodePoints(left: string, right: string): number {
+  const leftCodePoints = Array.from(left);
+  const rightCodePoints = Array.from(right);
+  const length = Math.min(leftCodePoints.length, rightCodePoints.length);
+  for (let index = 0; index < length; index += 1) {
+    const leftCodePoint = leftCodePoints[index]?.codePointAt(0) ?? 0;
+    const rightCodePoint = rightCodePoints[index]?.codePointAt(0) ?? 0;
+    if (leftCodePoint !== rightCodePoint) {
+      return leftCodePoint - rightCodePoint;
+    }
+  }
+  return leftCodePoints.length - rightCodePoints.length;
 }
 
 function invalidInjectFields(): TypeError {
