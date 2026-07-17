@@ -15,3 +15,8 @@ export {
   type WalCheckpointResult,
 } from "./database.js";
 export { SCHEMA_V1_MIGRATION, SCHEMA_VERSION } from "./schema-v1.js";
+export {
+  TrafficRepository,
+  type RepositoryRecord,
+  type TrafficRepositoryOptions,
+} from "./repository.js";
