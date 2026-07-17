@@ -102,6 +102,38 @@ describe("runMigrations", () => {
 
     database.close();
   });
+
+  it("rolls back every migration and schema version when a later migration fails", async () => {
+    const root = await mkdtemp(path.join(os.tmpdir(), "llm-proxy-migration-rollback-"));
+    temporaryDirectories.push(root);
+    const database = openLogDatabase(root);
+
+    expect(() =>
+      runMigrations(database, [
+        {
+          version: 1,
+          migrate: (connection) => {
+            connection.exec("CREATE TABLE rollback_fixture(id TEXT PRIMARY KEY)");
+            connection.prepare("INSERT INTO rollback_fixture(id) VALUES (?)").run("created");
+          },
+        },
+        {
+          version: 2,
+          migrate: () => {
+            throw new Error("fixture migration failure");
+          },
+        },
+      ]),
+    ).toThrow("fixture migration failure");
+    expect(readSchemaVersion(database)).toBe(0);
+    expect(
+      database
+        .prepare("SELECT name FROM sqlite_master WHERE name IN ('schema_meta', 'rollback_fixture')")
+        .all(),
+    ).toEqual([]);
+
+    database.close();
+  });
 });
 
 describe("connectLogDatabase", () => {
