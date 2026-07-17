@@ -41,5 +41,12 @@ export {
   type RoutingTarget,
   type TargetSelection,
 } from "./routing.js";
-export { parseSseEvents, type ParsedSseEvents } from "./streams.js";
+export {
+  StreamAccumulator,
+  compactSseJson,
+  compactSseValue,
+  parseSseEvents,
+  type ParsedSseEvents,
+  type StreamSummary,
+} from "./streams.js";
 export { joinTargetPath, parseTargetUrl, type ParsedTargetUrl } from "./target.js";

@@ -18,9 +18,14 @@ export function bodyJsonValue(body: Pick<BytePayload, "size_bytes" | "text">): u
   if (body.text === "") {
     return null;
   }
+  const compacted = compactSseValue(body.text);
+  if (compacted !== undefined) {
+    return compacted;
+  }
   try {
     return JSON.parse(body.text) as unknown;
   } catch {
     return { text: body.text, size_bytes: body.size_bytes };
   }
 }
+import { compactSseValue } from "./streams.js";
