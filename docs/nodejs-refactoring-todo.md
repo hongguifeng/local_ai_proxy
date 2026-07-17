@@ -55,7 +55,7 @@
 
 ### 3.3 ADR
 
-- [ ] `ADR-001` P0 选择 `better-sqlite3` 或 `node:sqlite`。
+- [x] `ADR-001` P0 选择 `better-sqlite3` 或 `node:sqlite`。
   - 决策要点：FTS5、Windows/Electron 打包、Node 24 稳定性、事务 API、性能、原生模块风险。
 - [ ] `ADR-002` P0 决定是否新增 `original_request_body`。
 - [ ] `ADR-003` P0 决定日志 body 内存上限和超限策略。
