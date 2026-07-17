@@ -1,9 +1,5 @@
 export type ApplicationErrorCode =
-  | "bad_request"
-  | "conflict"
-  | "internal_error"
-  | "not_found"
-  | "upstream_error";
+  "bad_request" | "conflict" | "internal_error" | "not_found" | "upstream_error";
 
 export interface ApplicationErrorOptions extends ErrorOptions {
   readonly code: ApplicationErrorCode;

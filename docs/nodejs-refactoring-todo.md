@@ -83,7 +83,7 @@
 
 - [x] `BOOT-010` P0 创建应用入口和空 lifecycle。
 - [x] `BOOT-011` P0 创建统一错误类型和 error-to-HTTP 映射。
-- [ ] `BOOT-012` P0 创建时间、ID、JSON、path helper。
+- [x] `BOOT-012` P0 创建时间、ID、JSON、path helper。
 - [ ] `BOOT-013` P0 创建幂等 shutdown coordinator。
 - [ ] `BOOT-014` P1 创建结构化内部日志接口，敏感字段默认不输出。
 - [ ] `BOOT-015` P1 添加 health route。
