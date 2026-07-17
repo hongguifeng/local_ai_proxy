@@ -222,3 +222,25 @@ describe("compactSseValue Chat content", () => {
     });
   });
 });
+
+describe("compactSseValue Chat tool calls", () => {
+  it("merges indexed tool call deltas and parses argument JSON", () => {
+    const text = [
+      'data: {"choices":[{"delta":{"tool_calls":[{"index":0,"id":"call_1","type":"function","function":{"name":"lookup","arguments":"{\\"city\\":"}}]}}]}',
+      'data: {"choices":[{"delta":{"tool_calls":[{"index":0,"function":{"arguments":"\\"Shanghai\\"}"}}]}}]}',
+    ].join("\n\n");
+
+    expect(compactSseValue(text)?.stream_summary["tool_calls"]).toEqual([
+      {
+        index: 0,
+        id: "call_1",
+        type: "function",
+        function: {
+          name: "lookup",
+          arguments: '{"city":"Shanghai"}',
+          arguments_json: { city: "Shanghai" },
+        },
+      },
+    ]);
+  });
+});

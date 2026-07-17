@@ -14,6 +14,7 @@ export class StreamAccumulator {
   readonly #reasoningParts: string[] = [];
   readonly #responseToolCalls = new Map<string, Record<string, unknown>>();
   readonly #responseWebSearchCalls = new Map<string, Record<string, unknown>>();
+  readonly #toolCalls: unknown[] = [];
   readonly #finishReasons: string[] = [];
   readonly #doneSeen: boolean;
   readonly #eventCount: number;
@@ -57,6 +58,9 @@ export class StreamAccumulator {
       streamSummary["web_search_calls"] = [...this.#responseWebSearchCalls.entries()]
         .sort(([left], [right]) => left.localeCompare(right))
         .map(([, call]) => call);
+    }
+    if (this.#toolCalls.length > 0) {
+      streamSummary["tool_calls"] = compactToolCalls(this.#toolCalls);
     }
     if (this.#finishReasons.length > 0) {
       streamSummary["finish_reasons"] = [...this.#finishReasons];
@@ -230,6 +234,9 @@ export class StreamAccumulator {
         }
         appendString(this.#contentParts, payload["content"]);
         appendString(this.#contentParts, payload["text"]);
+        if (payload["tool_calls"]) {
+          this.#toolCalls.push(payload["tool_calls"]);
+        }
       }
     }
   }
@@ -293,6 +300,68 @@ function compactArguments(toolCall: Readonly<Record<string, unknown>>): Record<s
     }
   }
   return compacted;
+}
+
+function compactToolCalls(toolCalls: readonly unknown[]): unknown[] {
+  const merged = new Map<number, Record<string, unknown>>();
+  const passthrough: unknown[] = [];
+  const merge = (toolCall: unknown): void => {
+    if (!isRecord(toolCall)) {
+      passthrough.push(toolCall);
+      return;
+    }
+    const rawIndex = toolCall["index"];
+    const index = typeof rawIndex === "number" && Number.isInteger(rawIndex) ? rawIndex : 0;
+    let current = merged.get(index);
+    if (current === undefined) {
+      current = { index };
+      merged.set(index, current);
+    }
+    for (const key of ["id", "type"] as const) {
+      if (toolCall[key]) {
+        current[key] = toolCall[key];
+      }
+    }
+    const functionDelta = toolCall["function"];
+    if (isRecord(functionDelta)) {
+      const currentFunction = isRecord(current["function"]) ? current["function"] : {};
+      current["function"] = currentFunction;
+      if (functionDelta["name"]) {
+        currentFunction["name"] = functionDelta["name"];
+      }
+      if (typeof functionDelta["arguments"] === "string") {
+        currentFunction["arguments"] =
+          stringValue(currentFunction["arguments"]) + functionDelta["arguments"];
+      }
+    }
+  };
+
+  for (const item of toolCalls) {
+    if (Array.isArray(item)) {
+      for (const toolCall of item as unknown[]) {
+        merge(toolCall);
+      }
+    } else {
+      merge(item);
+    }
+  }
+  return [
+    ...[...merged.entries()]
+      .sort(([left], [right]) => left - right)
+      .map(([, toolCall]) => {
+        const compacted = structuredClone(toolCall);
+        const fn = compacted["function"];
+        if (isRecord(fn) && typeof fn["arguments"] === "string") {
+          try {
+            fn["arguments_json"] = JSON.parse(fn["arguments"]) as unknown;
+          } catch {
+            // Preserve incomplete argument text.
+          }
+        }
+        return compacted;
+      }),
+    ...passthrough,
+  ];
 }
 
 function compactResponsePayload(
