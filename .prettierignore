@@ -1,8 +1,11 @@
 coverage/
 dist-electron/
 dist-node/
+docs/
 node_modules/
-fixtures/parity/database/
+fixtures/
 llm_proxy/static/
 doc/
+README.md
+README.cn.md
 *.db
