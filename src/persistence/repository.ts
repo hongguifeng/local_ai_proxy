@@ -118,32 +118,41 @@ export class TrafficRepository {
   listTasks(query = "", limit = 100, offset = 0): RepositoryPage<RepositoryRecord> {
     const boundedLimit = Math.max(1, Math.min(integerValue(limit, 100), 500));
     const boundedOffset = Math.max(0, integerValue(offset, 0));
-    const normalizedQuery = query.trim().toLowerCase();
-    const where =
-      normalizedQuery === ""
-        ? { sql: "", parameters: [] }
-        : {
-            sql: `WHERE lower(
+    const terms = searchTerms(query);
+    const clauses = terms.map(
+      () => `(
+          lower(
               COALESCE(id, '') || ' ' || COALESCE(kind, '') || ' ' || COALESCE(endpoint, '') || ' ' ||
               COALESCE(anchor, '') || ' ' || COALESCE(model, '') || ' ' || COALESCE(target, '') || ' ' ||
               COALESCE(fingerprints_json, '') || ' ' || COALESCE(boundary_fingerprints_json, '')
-            ) LIKE ?`,
-            parameters: [`%${normalizedQuery}%`],
-          };
+          ) LIKE ?
+          OR EXISTS (
+            SELECT 1 FROM record_search
+            WHERE record_search.task_id = tasks.id
+              AND lower(
+                COALESCE(record_search.record_id, '') || ' ' || COALESCE(record_search.task_id, '') || ' ' ||
+                COALESCE(record_search.task_text, '') || ' ' || COALESCE(record_search.request_text, '') || ' ' ||
+                COALESCE(record_search.response_text, '') || ' ' || COALESCE(record_search.error_text, '')
+              ) LIKE ?
+          )
+        )`,
+    );
+    const whereSql = clauses.length === 0 ? "" : `WHERE ${clauses.join(" AND ")}`;
+    const parameters = terms.flatMap((term) => [`%${term}%`, `%${term}%`]);
     const total = this.#database
-      .prepare(`SELECT COUNT(*) AS count FROM tasks ${where.sql}`)
+      .prepare(`SELECT COUNT(*) AS count FROM tasks ${whereSql}`)
       .pluck()
-      .get(...where.parameters) as number;
+      .get(...parameters) as number;
     const rows = this.#database
       .prepare(
         `
         SELECT * FROM tasks
-        ${where.sql}
+        ${whereSql}
         ORDER BY COALESCE(last_response_at, last_seen_at, started_at) DESC
         LIMIT ? OFFSET ?
       `,
       )
-      .all(...where.parameters, boundedLimit, boundedOffset) as RepositoryRecord[];
+      .all(...parameters, boundedLimit, boundedOffset) as RepositoryRecord[];
     const items = rows.map((row) => decodeTaskRow(row));
     const nextOffset = boundedOffset + items.length;
     return {
@@ -274,29 +283,26 @@ export class TrafficRepository {
   ): RepositoryPage<RepositoryRecord> {
     const boundedLimit = Math.max(1, Math.min(integerValue(limit, 200), 500));
     const boundedOffset = Math.max(0, integerValue(offset, 0));
-    const normalizedQuery = query.trim().toLowerCase();
-    const queryClause =
-      normalizedQuery === ""
-        ? { sql: "", parameters: [] }
-        : {
-            sql: `AND lower(
+    const terms = searchTerms(query);
+    const clauses = terms.map(
+      () => `lower(
               COALESCE(id, '') || ' ' || COALESCE(event, '') || ' ' || COALESCE(method, '') || ' ' ||
               COALESCE(path, '') || ' ' || COALESCE(endpoint, '') || ' ' || COALESCE(error, '') || ' ' ||
               COALESCE(request_headers_json, '') || ' ' || COALESCE(response_headers_json, '') || ' ' ||
               COALESCE(request_body_json, '') || ' ' || COALESCE(response_body_json, '')
             ) LIKE ?`,
-            parameters: [`%${normalizedQuery}%`],
-          };
-    const parameters = [taskId, ...queryClause.parameters];
+    );
+    const querySql = clauses.length === 0 ? "" : `AND ${clauses.join(" AND ")}`;
+    const parameters = [taskId, ...terms.map((term) => `%${term}%`)];
     const total = this.#database
-      .prepare(`SELECT COUNT(*) FROM records WHERE task_id = ? ${queryClause.sql}`)
+      .prepare(`SELECT COUNT(*) FROM records WHERE task_id = ? ${querySql}`)
       .pluck()
       .get(...parameters) as number;
     const rows = this.#database
       .prepare(
         `
         SELECT * FROM records
-        WHERE task_id = ? ${queryClause.sql}
+        WHERE task_id = ? ${querySql}
         ORDER BY sequence DESC
         LIMIT ? OFFSET ?
       `,
@@ -439,6 +445,13 @@ export function searchText(...values: readonly unknown[]): string {
     .map((value) => stringValue(value))
     .filter((value) => value !== "")
     .join(" ");
+}
+
+function searchTerms(query: string): string[] {
+  return query
+    .toLowerCase()
+    .split(/\s+/u)
+    .filter((term) => term !== "");
 }
 
 export function decodeTaskRow(row: Readonly<RepositoryRecord>): RepositoryRecord {

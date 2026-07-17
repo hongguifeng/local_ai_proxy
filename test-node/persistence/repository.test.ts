@@ -162,6 +162,17 @@ describe("TrafficRepository.listTasks", () => {
       "task-new",
       "task-old",
     ]);
+    repository.upsertRecord({
+      id: "record-search",
+      task_id: "task-new",
+      method: "POST",
+      path: "/v1/responses",
+      request_body: { text: "searchable request" },
+    });
+    expect(repository.listTasks("fixture searchable").items.map(({ id }) => id)).toEqual([
+      "task-new",
+    ]);
+    expect(repository.listTasks("claude searchable").items).toEqual([]);
     repository.close();
   });
 });
@@ -309,6 +320,10 @@ describe("TrafficRepository.listTaskRecords", () => {
       "record-3",
       "record-2",
     ]);
+    expect(repository.listTaskRecords("task-1", "needle middle").items.map(({ id }) => id)).toEqual(
+      ["record-2"],
+    );
+    expect(repository.listTaskRecords("task-1", "newest middle").items).toEqual([]);
     expect(repository.listTaskRecords("missing").total).toBe(0);
     repository.close();
   });
