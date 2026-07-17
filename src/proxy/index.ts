@@ -1,5 +1,6 @@
 export {
   requestModelFromBody,
+  rewriteRequestModel,
   selectTargetByModel,
   type RoutingTarget,
   type TargetSelection,

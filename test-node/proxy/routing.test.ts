@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 
 import {
   requestModelFromBody,
+  rewriteRequestModel,
   selectTargetByModel,
   type RoutingTarget,
 } from "../../src/proxy/routing.js";
@@ -57,9 +58,7 @@ describe("selectTargetByModel", () => {
   });
 
   it("skips a disabled matching target when it is not the default", () => {
-    const disabled = target("disabled", false, [
-      { listen: "demo", upstream: "disabled-upstream" },
-    ]);
+    const disabled = target("disabled", false, [{ listen: "demo", upstream: "disabled-upstream" }]);
     const enabled = target("enabled", true, [{ listen: "demo", upstream: "enabled-upstream" }]);
     const fallback = target("fallback", true, []);
 
@@ -78,23 +77,19 @@ describe("selectTargetByModel", () => {
     const fallback = target("fallback", false, []);
 
     expect(
-      selectTargetByModel([first, fallback], "fallback", Buffer.from('{"model":"unknown"}'))
-        .target,
+      selectTargetByModel([first, fallback], "fallback", Buffer.from('{"model":"unknown"}')).target,
     ).toBe(fallback);
     expect(selectTargetByModel([first, fallback], "fallback", Buffer.from("{}")).target).toBe(
       fallback,
     );
     expect(
-      selectTargetByModel([first, fallback], "missing", Buffer.from('{"model":"unknown"}'))
-        .target,
+      selectTargetByModel([first, fallback], "missing", Buffer.from('{"model":"unknown"}')).target,
     ).toBe(first);
   });
 
   it("allows a disabled default target to match and rewrite a model", () => {
     const enabled = target("enabled", true, []);
-    const fallback = target("fallback", false, [
-      { listen: "demo", upstream: "fallback-upstream" },
-    ]);
+    const fallback = target("fallback", false, [{ listen: "demo", upstream: "fallback-upstream" }]);
 
     const selection = selectTargetByModel(
       [enabled, fallback],
@@ -114,3 +109,25 @@ function target(
 ): RoutingTarget {
   return { id, enabled, model_mappings: modelMappings };
 }
+
+describe("rewriteRequestModel", () => {
+  it("rewrites the top-level model as compact UTF-8 JSON", () => {
+    const rewritten = rewriteRequestModel(
+      Buffer.from('{ "model": "本地", "messages": [] }'),
+      "上游模型",
+    );
+
+    expect(Buffer.from(rewritten).toString("utf8")).toBe('{"model":"上游模型","messages":[]}');
+  });
+
+  it.each([
+    ["no upstream model", Buffer.from('{"model":"local"}'), undefined],
+    ["empty upstream model", Buffer.from('{"model":"local"}'), ""],
+    ["invalid JSON", Buffer.from("{invalid"), "upstream"],
+    ["JSON array", Buffer.from('[{"model":"local"}]'), "upstream"],
+    ["JSON scalar", Buffer.from('"local"'), "upstream"],
+    ["invalid UTF-8", Buffer.from([0xff, 0xfe]), "upstream"],
+  ])("preserves %s unchanged", (_name, body, upstreamModel) => {
+    expect(rewriteRequestModel(body, upstreamModel)).toBe(body);
+  });
+});

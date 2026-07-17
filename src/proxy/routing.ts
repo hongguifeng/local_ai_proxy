@@ -1,6 +1,7 @@
 import { isRecord } from "../shared/index.js";
 
 const UTF8_DECODER = new TextDecoder("utf-8", { fatal: true });
+const UTF8_ENCODER = new TextEncoder();
 
 export interface RoutingTarget {
   readonly id: string;
@@ -59,4 +60,24 @@ export function selectTargetByModel<TTarget extends RoutingTarget>(
     }
   }
   return { target: defaultTarget, requestModel, upstreamModel: undefined };
+}
+
+export function rewriteRequestModel(
+  requestBody: Uint8Array,
+  upstreamModel: string | undefined,
+): Uint8Array {
+  if (upstreamModel === undefined || upstreamModel === "") {
+    return requestBody;
+  }
+  let loaded: unknown;
+  try {
+    loaded = JSON.parse(UTF8_DECODER.decode(requestBody));
+  } catch {
+    return requestBody;
+  }
+  if (!isRecord(loaded)) {
+    return requestBody;
+  }
+  loaded["model"] = upstreamModel;
+  return UTF8_ENCODER.encode(JSON.stringify(loaded));
 }
