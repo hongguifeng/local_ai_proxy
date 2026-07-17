@@ -59,7 +59,7 @@
   - 决策要点：FTS5、Windows/Electron 打包、Node 24 稳定性、事务 API、性能、原生模块风险。
 - [x] `ADR-002` P0 决定是否新增 `original_request_body`。
 - [x] `ADR-003` P0 决定日志 body 内存上限和超限策略。
-- [ ] `ADR-004` P0 决定 config apply 失败时整体回滚还是部分成功。
+- [x] `ADR-004` P0 决定 config apply 失败时整体回滚还是部分成功。
 - [ ] `ADR-005` P0 决定 client abort 后的 upstream/log 行为。
 - [ ] `ADR-006` P0 决定 Windows 产物：portable、installer、CLI zip。
 - [ ] `ADR-007` P1 决定是否继续强制 `Connection: close`。
