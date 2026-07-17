@@ -61,7 +61,7 @@
 - [x] `ADR-003` P0 决定日志 body 内存上限和超限策略。
 - [x] `ADR-004` P0 决定 config apply 失败时整体回滚还是部分成功。
 - [x] `ADR-005` P0 决定 client abort 后的 upstream/log 行为。
-- [ ] `ADR-006` P0 决定 Windows 产物：portable、installer、CLI zip。
+- [x] `ADR-006` P0 决定 Windows 产物：portable、installer、CLI zip。
 - [ ] `ADR-007` P1 决定是否继续强制 `Connection: close`。
 - [ ] `ADR-008` P1 决定 LIKE 搜索或真正 FTS MATCH。
 
