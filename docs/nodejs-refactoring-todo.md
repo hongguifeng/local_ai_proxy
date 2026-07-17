@@ -142,7 +142,7 @@
 
 ### 6.2 Request transform
 
-- [ ] `PURE-010` P0 移植 strip field parser。
+- [x] `PURE-010` P0 移植 strip field parser。
 - [ ] `PURE-011` P0 移植 inject JSON object parser。
 - [ ] `PURE-012` P0 先 strip 后 inject。
 - [ ] `PURE-013` P0 非 object JSON 不变。
