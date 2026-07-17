@@ -14,6 +14,7 @@ export {
   isTaskContextMessage,
   requestMessageCount,
   requestFingerprints,
+  responseIdsFromBody,
   responseTokenCount,
   stableHash,
   type EndpointKind,

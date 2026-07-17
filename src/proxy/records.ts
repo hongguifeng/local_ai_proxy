@@ -92,6 +92,23 @@ export function responseTokenCount(payload: unknown): number | undefined {
   return values.length === 0 ? undefined : values.reduce((sum, value) => sum + value, 0);
 }
 
+export function responseIdsFromBody(body: unknown): string[] {
+  if (!isRecord(body)) {
+    return [];
+  }
+  const ids: string[] = [];
+  const responseId = body["id"];
+  if (typeof responseId === "string" && responseId !== "") {
+    ids.push(responseId);
+  }
+  const response = body["response"];
+  const nestedId = isRecord(response) ? response["id"] : undefined;
+  if (typeof nestedId === "string" && nestedId !== "" && !ids.includes(nestedId)) {
+    ids.push(nestedId);
+  }
+  return ids;
+}
+
 export function requestFingerprints(kind: EndpointKind, payload: unknown): Record<string, string> {
   if (!isRecord(payload)) {
     return {};

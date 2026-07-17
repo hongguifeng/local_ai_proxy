@@ -6,6 +6,7 @@ import {
   isTaskContextMessage,
   requestFingerprints,
   requestMessageCount,
+  responseIdsFromBody,
   responseTokenCount,
   stableHash,
 } from "../../src/proxy/records.js";
@@ -308,5 +309,31 @@ describe("fixed Codex context message exclusion", () => {
         messages: [{ role: "user", content: "<permissions instructions>fixed" }, actualUser],
       }),
     ).toEqual(expected);
+  });
+});
+
+describe("responseIdsFromBody", () => {
+  it("extracts top-level and nested response IDs in order", () => {
+    expect(responseIdsFromBody({ id: "resp_top", response: { id: "resp_nested" } })).toEqual([
+      "resp_top",
+      "resp_nested",
+    ]);
+  });
+
+  it("deduplicates identical top-level and nested IDs", () => {
+    expect(responseIdsFromBody({ id: "resp_same", response: { id: "resp_same" } })).toEqual([
+      "resp_same",
+    ]);
+  });
+
+  it.each([
+    null,
+    [],
+    {},
+    { id: "" },
+    { id: 123, response: { id: false } },
+    { response: "not-an-object" },
+  ])("returns no IDs for %#", (body) => {
+    expect(responseIdsFromBody(body)).toEqual([]);
   });
 });

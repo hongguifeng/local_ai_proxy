@@ -177,7 +177,7 @@
 - [x] `PURE-047` P0 Responses fingerprints。
 - [x] `PURE-048` P0 Claude fingerprints。
 - [x] `PURE-049` P0 固定 Codex context message 排除。
-- [ ] `PURE-050` P0 response ID 提取。
+- [x] `PURE-050` P0 response ID 提取。
 
 ### 6.6 Stream summary
 
