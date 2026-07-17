@@ -150,4 +150,26 @@ describe("ConfigRepository.save", () => {
     expect(await readFile(configPath, "utf8")).toBe("old configuration");
     expect(await readdir(directory)).toEqual(["proxies.json"]);
   });
+
+  it.runIf(process.platform === "win32")(
+    "replaces an existing config file on Windows",
+    async () => {
+      const directory = await mkdtemp(path.join(os.tmpdir(), "llm-proxy-config-windows-"));
+      temporaryDirectories.push(directory);
+      const configPath = path.join(directory, "proxies.json");
+      const repository = new ConfigRepository(configPath, "logs", {
+        createId: () => "windows-fixture-id",
+      });
+      const first = { pairs: [createDefaultProxyPair()] };
+      const second = {
+        pairs: [{ ...createDefaultProxyPair(), id: "replacement", name: "Replacement" }],
+      };
+
+      await repository.save(first);
+      await repository.save(second);
+
+      expect(await repository.load()).toEqual(second);
+      expect(await readdir(directory)).toEqual(["proxies.json"]);
+    },
+  );
 });

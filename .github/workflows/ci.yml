@@ -6,8 +6,11 @@ on:
 
 jobs:
   node-test:
-    name: Node 24
-    runs-on: ubuntu-latest
+    name: Node 24 (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      matrix:
+        os: [ubuntu-latest, windows-latest]
 
     steps:
       - uses: actions/checkout@v4
@@ -34,7 +37,7 @@ jobs:
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: node-test-reports
+          name: node-test-reports-${{ matrix.os }}
           path: |
             coverage/
             test-results/vitest-junit.xml
