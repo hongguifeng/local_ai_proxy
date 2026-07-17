@@ -218,7 +218,7 @@
 
 ### 7.3 Record repository
 
-- [ ] `DB-020` P0 upsert record。
+- [x] `DB-020` P0 upsert record。
 - [ ] `DB-021` P0 update existing pending record。
 - [ ] `DB-022` P0 get record/task ID。
 - [ ] `DB-023` P0 next sequence 和 record count。

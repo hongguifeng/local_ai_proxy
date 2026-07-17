@@ -160,3 +160,42 @@ describe("TrafficRepository.listTasks", () => {
     repository.close();
   });
 });
+
+describe("TrafficRepository.upsertRecord", () => {
+  it("inserts a complete traffic record", async () => {
+    const root = await mkdtemp(path.join(os.tmpdir(), "llm-proxy-record-"));
+    temporaryDirectories.push(root);
+    const repository = new TrafficRepository(root, { now: () => "2026-07-18T00:00:00.000+00:00" });
+    repository.upsertTask({ id: "task-1", match_strategy_version: 4 });
+
+    const record = repository.upsertRecord({
+      id: "record-1",
+      task_id: "task-1",
+      sequence: 1,
+      event: "request_finished",
+      timestamp: "2026-07-18T01:00:00.000+00:00",
+      duration_ms: 12.5,
+      method: "POST",
+      path: "/v1/responses",
+      status: 200,
+      request_headers: { "Content-Type": ["application/json"] },
+      request_body: { model: "demo" },
+      response_body: { id: "resp_1" },
+      stripped_fields: ["temperature"],
+    });
+
+    expect(record).toMatchObject({
+      id: "record-1",
+      task_id: "task-1",
+      sequence: 1,
+      event: "request_finished",
+      method: "POST",
+      endpoint: "/v1/responses",
+      status: 200,
+      request_body_json: '{"model":"demo"}',
+      response_body_json: '{"id":"resp_1"}',
+      stripped_fields_json: '["temperature"]',
+    });
+    repository.close();
+  });
+});

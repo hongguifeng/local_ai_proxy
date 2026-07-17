@@ -155,6 +155,86 @@ export class TrafficRepository {
       hasMore: nextOffset < total,
     };
   }
+
+  upsertRecord(record: Readonly<RepositoryRecord>): RepositoryRecord {
+    const now = this.#now();
+    const values = {
+      id: String(requiredValue(record, "id")),
+      task_id: String(requiredValue(record, "task_id")),
+      sequence: integerValue(record["sequence"], 1),
+      event: stringValue(record["event"]) || "request_finished",
+      timestamp: stringValue(record["timestamp"]) || now,
+      started_at:
+        stringValue(record["started_at"] ?? record["started_timestamp"] ?? record["timestamp"]) ||
+        now,
+      duration_ms: floatValue(record["duration_ms"], 0),
+      proxy_id: optionalString(record["proxy_id"]),
+      proxy_name: optionalString(record["proxy_name"]),
+      client_host: optionalString(record["client_host"]),
+      client_port: optionalInteger(record["client_port"]),
+      target_id: optionalString(record["target_id"]),
+      target_name: optionalString(record["target_name"]),
+      target_url: optionalString(record["target_url"]),
+      method: stringValue(record["method"]),
+      path: stringValue(record["path"]),
+      endpoint: stringValue(record["endpoint"] ?? record["path"]),
+      status: optionalInteger(record["status"]),
+      error: optionalString(record["error"]),
+      message_count: optionalInteger(record["message_count"]),
+      token_count: optionalInteger(record["token_count"]),
+      request_headers_json: jsonText(record["request_headers"], {}),
+      response_headers_json: jsonText(record["response_headers"], {}),
+      request_body_json: optionalJsonText(record["request_body"]),
+      response_body_json: optionalJsonText(record["response_body"]),
+      model_route_json: optionalJsonText(record["model_route"]),
+      stripped_fields_json: jsonText(record["stripped_fields"], []),
+      injected_fields_json: jsonText(record["injected_fields"], []),
+      added_upstream_headers_json: jsonText(record["added_upstream_headers"], []),
+      created_at: stringValue(record["created_at"]) || now,
+      updated_at: stringValue(record["updated_at"]) || now,
+    };
+    this.#database
+      .prepare(
+        `
+      INSERT INTO records(
+        id, task_id, sequence, event, timestamp, started_at, duration_ms,
+        proxy_id, proxy_name, client_host, client_port, target_id, target_name, target_url,
+        method, path, endpoint, status, error, message_count, token_count,
+        request_headers_json, response_headers_json, request_body_json, response_body_json,
+        model_route_json, stripped_fields_json, injected_fields_json, added_upstream_headers_json,
+        created_at, updated_at
+      ) VALUES (
+        @id, @task_id, @sequence, @event, @timestamp, @started_at, @duration_ms,
+        @proxy_id, @proxy_name, @client_host, @client_port, @target_id, @target_name, @target_url,
+        @method, @path, @endpoint, @status, @error, @message_count, @token_count,
+        @request_headers_json, @response_headers_json, @request_body_json, @response_body_json,
+        @model_route_json, @stripped_fields_json, @injected_fields_json, @added_upstream_headers_json,
+        @created_at, @updated_at
+      ) ON CONFLICT(id) DO UPDATE SET
+        task_id=excluded.task_id, sequence=excluded.sequence, event=excluded.event,
+        timestamp=excluded.timestamp, started_at=excluded.started_at, duration_ms=excluded.duration_ms,
+        proxy_id=excluded.proxy_id, proxy_name=excluded.proxy_name,
+        client_host=excluded.client_host, client_port=excluded.client_port,
+        target_id=excluded.target_id, target_name=excluded.target_name, target_url=excluded.target_url,
+        method=excluded.method, path=excluded.path, endpoint=excluded.endpoint,
+        status=excluded.status, error=excluded.error,
+        message_count=excluded.message_count, token_count=excluded.token_count,
+        request_headers_json=excluded.request_headers_json,
+        response_headers_json=excluded.response_headers_json,
+        request_body_json=excluded.request_body_json, response_body_json=excluded.response_body_json,
+        model_route_json=excluded.model_route_json, stripped_fields_json=excluded.stripped_fields_json,
+        injected_fields_json=excluded.injected_fields_json,
+        added_upstream_headers_json=excluded.added_upstream_headers_json,
+        updated_at=excluded.updated_at
+    `,
+      )
+      .run(values);
+    const row = this.#database.prepare("SELECT * FROM records WHERE id = ?").get(values.id);
+    if (row === undefined) {
+      throw new Error(`Record ${values.id} was not saved.`);
+    }
+    return row as RepositoryRecord;
+  }
 }
 
 export function decodeTaskRow(row: Readonly<RepositoryRecord>): RepositoryRecord {
@@ -220,6 +300,10 @@ function floatValue(value: unknown, fallback: number): number {
 
 function jsonText(value: unknown, fallback: unknown): string {
   return JSON.stringify(value ?? fallback);
+}
+
+function optionalJsonText(value: unknown): string | null {
+  return value === null || value === undefined ? null : jsonText(value, null);
 }
 
 function jsonValue(value: unknown, fallback: unknown): unknown {
