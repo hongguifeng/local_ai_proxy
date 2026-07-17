@@ -14,8 +14,11 @@ export class StreamAccumulator {
   readonly #reasoningParts: string[] = [];
   readonly #responseToolCalls = new Map<string, Record<string, unknown>>();
   readonly #responseWebSearchCalls = new Map<string, Record<string, unknown>>();
+  readonly #finishReasons: string[] = [];
   readonly #doneSeen: boolean;
   readonly #eventCount: number;
+  #responsePayload: Record<string, unknown> | undefined;
+  #usage: unknown;
 
   constructor(eventCount: number, doneSeen: boolean) {
     this.#eventCount = eventCount;
@@ -53,6 +56,15 @@ export class StreamAccumulator {
         .sort(([left], [right]) => left.localeCompare(right))
         .map(([, call]) => call);
     }
+    if (this.#finishReasons.length > 0) {
+      streamSummary["finish_reasons"] = [...this.#finishReasons];
+    }
+    if (this.#usage) {
+      streamSummary["usage"] = this.#usage;
+    }
+    if (this.#responsePayload !== undefined && Object.keys(this.#responsePayload).length > 0) {
+      streamSummary["response"] = this.#responsePayload;
+    }
     return { stream_summary: streamSummary };
   }
 
@@ -83,8 +95,41 @@ export class StreamAccumulator {
       if (typeof event["arguments"] === "string") {
         toolCall["arguments"] = event["arguments"];
       }
+    } else if (eventType === "response.created") {
+      const response = event["response"];
+      if (isRecord(response) && this.#responsePayload === undefined) {
+        this.#responsePayload = compactResponsePayload(response);
+        this.#addResponseWebSearchItems(eventType, response);
+      }
+    } else if (eventType === "response.completed" || eventType === "response.incomplete") {
+      const response = event["response"];
+      if (isRecord(response)) {
+        this.#responsePayload = {
+          ...(this.#responsePayload ?? {}),
+          ...compactResponsePayload(response),
+        };
+        if (response["usage"]) {
+          this.#usage = response["usage"];
+        }
+        if (response["status"]) {
+          this.#finishReasons.push(stringValue(response["status"]));
+        }
+        this.#addResponseWebSearchItems(eventType, response);
+      }
     } else if (this.#isResponseWebSearchEvent(eventType, event)) {
       this.#addResponseWebSearchCall(eventType, event);
+    }
+  }
+
+  #addResponseWebSearchItems(eventType: string, response: Readonly<Record<string, unknown>>): void {
+    const output = response["output"];
+    if (!Array.isArray(output)) {
+      return;
+    }
+    for (const [outputIndex, item] of (output as unknown[]).entries()) {
+      if (isRecord(item) && item["type"] === "web_search_call") {
+        this.#addResponseWebSearchCall(eventType, { output_index: outputIndex, item });
+      }
     }
   }
 
@@ -215,6 +260,31 @@ function compactArguments(toolCall: Readonly<Record<string, unknown>>): Record<s
       compacted["arguments_json"] = JSON.parse(compacted["arguments"]) as unknown;
     } catch {
       // Keep the original argument string when it is incomplete or not JSON.
+    }
+  }
+  return compacted;
+}
+
+function compactResponsePayload(
+  response: Readonly<Record<string, unknown>>,
+): Record<string, unknown> {
+  const compacted: Record<string, unknown> = {};
+  for (const key of [
+    "id",
+    "object",
+    "created_at",
+    "status",
+    "model",
+    "parallel_tool_calls",
+    "previous_response_id",
+  ] as const) {
+    if (Object.hasOwn(response, key)) {
+      compacted[key] = response[key];
+    }
+  }
+  for (const key of ["error", "incomplete_details"] as const) {
+    if (response[key]) {
+      compacted[key] = response[key];
     }
   }
   return compacted;

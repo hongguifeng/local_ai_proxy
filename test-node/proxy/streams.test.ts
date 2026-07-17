@@ -149,3 +149,54 @@ describe("compactSseValue Responses web search", () => {
     ]);
   });
 });
+
+describe("compactSseValue Responses metadata", () => {
+  it("compacts response metadata, usage, and completion status", () => {
+    const text = [
+      'data: {"type":"response.created","response":{"id":"resp_1","object":"response","created_at":123,"status":"in_progress","model":"gpt-5","previous_response_id":"resp_0","output":[{"type":"message","content":"large"}],"extra":"discard"}}',
+      'data: {"type":"response.output_text.delta","delta":"Hello"}',
+      'data: {"type":"response.completed","response":{"id":"resp_1","status":"completed","usage":{"input_tokens":3,"output_tokens":2}}}',
+      "data: [DONE]",
+    ].join("\n\n");
+
+    expect(compactSseValue(text)).toEqual({
+      stream_summary: {
+        event_count: 3,
+        done_seen: true,
+        content: "Hello",
+        finish_reasons: ["completed"],
+        usage: { input_tokens: 3, output_tokens: 2 },
+        response: {
+          id: "resp_1",
+          object: "response",
+          created_at: 123,
+          status: "completed",
+          model: "gpt-5",
+          previous_response_id: "resp_0",
+        },
+      },
+    });
+  });
+
+  it("retains incomplete details and web searches found in response output", () => {
+    const text =
+      'data: {"type":"response.incomplete","response":{"id":"resp_2","status":"incomplete","incomplete_details":{"reason":"max_output_tokens"},"output":[{"id":"ws_2","type":"web_search_call","status":"completed","action":{"type":"search","query":"docs"}}]}}';
+
+    const summary = compactSseValue(text)?.stream_summary;
+    expect(summary?.["response"]).toEqual({
+      id: "resp_2",
+      status: "incomplete",
+      incomplete_details: { reason: "max_output_tokens" },
+    });
+    expect(summary?.["web_search_calls"]).toEqual([
+      {
+        type: "web_search_call",
+        id: "ws_2",
+        item_id: "ws_2",
+        output_index: 0,
+        action: { type: "search", query: "docs" },
+        status: "completed",
+      },
+    ]);
+  });
+});
