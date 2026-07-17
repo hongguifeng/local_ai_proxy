@@ -1,5 +1,9 @@
 import { isRecord } from "../shared/index.js";
 
+export const MAX_SUMMARY_TEXT_CHARS = 2_000;
+export const MAX_SUMMARY_LIST_ITEMS = 20;
+export const MAX_SUMMARY_DEPTH = 5;
+
 export interface ParsedSseEvents {
   readonly events: readonly unknown[];
   readonly doneSeen: boolean;
@@ -187,29 +191,29 @@ export class StreamAccumulator {
       this.#responseWebSearchCalls.set(key, call);
     }
     if (itemId) {
-      call["id"] = structuredClone(itemId);
+      call["id"] = compactSummaryValue(itemId);
       if (call["item_id"] === undefined) {
-        call["item_id"] = structuredClone(itemId);
+        call["item_id"] = compactSummaryValue(itemId);
       }
     }
     if (item !== undefined) {
       if (isRecord(item["action"])) {
-        call["action"] = structuredClone(item["action"]);
+        call["action"] = compactSummaryValue(item["action"]);
       }
       if (item["error"]) {
-        call["error"] = structuredClone(item["error"]);
+        call["error"] = compactSummaryValue(item["error"]);
       }
     }
     for (const fieldName of ["item_id", "call_id", "output_index"] as const) {
       if (event[fieldName] !== null && event[fieldName] !== undefined) {
-        call[fieldName] = structuredClone(event[fieldName]);
+        call[fieldName] = compactSummaryValue(event[fieldName]);
       }
     }
     if (isRecord(event["action"])) {
-      call["action"] = structuredClone(event["action"]);
+      call["action"] = compactSummaryValue(event["action"]);
     }
     if (event["error"]) {
-      call["error"] = structuredClone(event["error"]);
+      call["error"] = compactSummaryValue(event["error"]);
     }
     const status = responseWebSearchStatus(eventType, event, item);
     if (status !== undefined) {
@@ -385,6 +389,38 @@ export function compactSseJson(text: string): string | undefined {
   return compacted === undefined ? undefined : JSON.stringify(compacted, null, 2);
 }
 
+export function compactSummaryValue(value: unknown, depth = 0): unknown {
+  if (typeof value === "string") {
+    const characters = Array.from(value);
+    if (characters.length <= MAX_SUMMARY_TEXT_CHARS) {
+      return value;
+    }
+    const omitted = characters.length - MAX_SUMMARY_TEXT_CHARS;
+    return `${characters.slice(0, MAX_SUMMARY_TEXT_CHARS).join("")}... [truncated ${omitted} chars]`;
+  }
+  if (isRecord(value)) {
+    if (depth >= MAX_SUMMARY_DEPTH) {
+      return {
+        _truncated: "max_depth",
+        keys: Object.keys(value).sort(compareUnicodeCodePoints),
+      };
+    }
+    return Object.fromEntries(
+      Object.entries(value).map(([key, item]) => [key, compactSummaryValue(item, depth + 1)]),
+    );
+  }
+  if (Array.isArray(value)) {
+    const items = value
+      .slice(0, MAX_SUMMARY_LIST_ITEMS)
+      .map((item) => compactSummaryValue(item, depth + 1));
+    if (value.length > MAX_SUMMARY_LIST_ITEMS) {
+      items.push({ _truncated_items: value.length - MAX_SUMMARY_LIST_ITEMS });
+    }
+    return items;
+  }
+  return value;
+}
+
 function appendString(parts: string[], value: unknown): void {
   if (typeof value === "string" && value !== "") {
     parts.push(value);
@@ -547,4 +583,18 @@ function responseWebSearchStatus(
   return eventType.startsWith("response.web_search_call.")
     ? eventType.slice(eventType.lastIndexOf(".") + 1)
     : undefined;
+}
+
+function compareUnicodeCodePoints(left: string, right: string): number {
+  const leftCodePoints = Array.from(left);
+  const rightCodePoints = Array.from(right);
+  const length = Math.min(leftCodePoints.length, rightCodePoints.length);
+  for (let index = 0; index < length; index += 1) {
+    const difference =
+      (leftCodePoints[index]?.codePointAt(0) ?? 0) - (rightCodePoints[index]?.codePointAt(0) ?? 0);
+    if (difference !== 0) {
+      return difference;
+    }
+  }
+  return leftCodePoints.length - rightCodePoints.length;
 }

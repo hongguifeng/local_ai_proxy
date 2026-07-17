@@ -1,7 +1,12 @@
 import { describe, expect, it } from "vitest";
 
 import { bodyJsonValue } from "../../src/proxy/payload.js";
-import { compactSseValue, parseSseEvents } from "../../src/proxy/streams.js";
+import {
+  MAX_SUMMARY_TEXT_CHARS,
+  compactSseValue,
+  compactSummaryValue,
+  parseSseEvents,
+} from "../../src/proxy/streams.js";
 
 describe("parseSseEvents", () => {
   it("parses JSON data lines and tracks the DONE marker", () => {
@@ -332,6 +337,30 @@ describe("compactSseValue unknown events", () => {
 
     expect(compactSseValue(text)).toEqual({
       stream_summary: { event_count: 5, done_seen: false },
+    });
+  });
+});
+
+describe("compactSummaryValue", () => {
+  it("truncates strings by Unicode code point with an omitted count", () => {
+    const value = `${"a".repeat(MAX_SUMMARY_TEXT_CHARS - 1)}🙂🙂🙂`;
+    expect(compactSummaryValue(value)).toBe(
+      `${"a".repeat(MAX_SUMMARY_TEXT_CHARS - 1)}🙂... [truncated 2 chars]`,
+    );
+  });
+
+  it("truncates lists after 20 items", () => {
+    expect(compactSummaryValue(Array.from({ length: 22 }, (_, index) => index))).toEqual([
+      ...Array.from({ length: 20 }, (_, index) => index),
+      { _truncated_items: 2 },
+    ]);
+  });
+
+  it("replaces objects beyond depth 5 with a sorted key summary", () => {
+    expect(
+      compactSummaryValue({ a: { b: { c: { d: { e: { "😀": 1, "": 2, z: 3 } } } } } }),
+    ).toEqual({
+      a: { b: { c: { d: { e: { _truncated: "max_depth", keys: ["z", "", "😀"] } } } } },
     });
   });
 });

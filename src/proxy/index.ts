@@ -43,9 +43,13 @@ export {
 } from "./routing.js";
 export {
   StreamAccumulator,
+  compactSummaryValue,
   compactSseJson,
   compactSseValue,
   parseSseEvents,
+  MAX_SUMMARY_DEPTH,
+  MAX_SUMMARY_LIST_ITEMS,
+  MAX_SUMMARY_TEXT_CHARS,
   type ParsedSseEvents,
   type StreamSummary,
 } from "./streams.js";
