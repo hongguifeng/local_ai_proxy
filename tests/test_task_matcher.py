@@ -256,3 +256,131 @@ class TaskMatcherTests(unittest.TestCase):
                 self.assertEqual(second_assignment.task["id"], first_assignment.task["id"])
             finally:
                 repository.close()
+
+    def test_heuristic_matching_uses_an_inclusive_24_hour_window(self) -> None:
+        cases = [
+            ("2026-07-07T00:00:00+00:00", True),
+            ("2026-07-07T00:00:01+00:00", False),
+        ]
+        for followup_timestamp, should_match in cases:
+            with self.subTest(followup_timestamp=followup_timestamp), TemporaryDirectory() as temp_dir:
+                repository = LogRepository(Path(temp_dir))
+                try:
+                    matcher = TaskMatcher(repository)
+                    first = chat_record(
+                        "req_1",
+                        "2026-07-06T00:00:00+00:00",
+                        [{"role": "user", "content": "hello"}],
+                    )
+                    first_assignment = matcher.assign(first)
+                    assert first_assignment is not None
+                    persist(repository, first_assignment, first)
+
+                    second = chat_record(
+                        "req_2",
+                        followup_timestamp,
+                        [
+                            {"role": "user", "content": "hello"},
+                            {"role": "assistant", "content": "hi"},
+                            {"role": "user", "content": "continue"},
+                        ],
+                    )
+                    second_assignment = matcher.assign(second)
+                    assert second_assignment is not None
+
+                    self.assertEqual(
+                        second_assignment.task["id"] == first_assignment.task["id"],
+                        should_match,
+                    )
+                finally:
+                    repository.close()
+
+    def test_heuristic_matching_requires_the_previous_user_sequence_as_prefix(self) -> None:
+        with TemporaryDirectory() as temp_dir:
+            repository = LogRepository(Path(temp_dir))
+            try:
+                matcher = TaskMatcher(repository)
+                first = chat_record(
+                    "req_1",
+                    "2026-07-06T00:00:00+00:00",
+                    [
+                        {"role": "user", "content": "first"},
+                        {"role": "assistant", "content": "answer"},
+                        {"role": "user", "content": "second"},
+                    ],
+                )
+                first_assignment = matcher.assign(first)
+                assert first_assignment is not None
+                persist(repository, first_assignment, first)
+
+                changed_history = chat_record(
+                    "req_2",
+                    "2026-07-06T00:00:10+00:00",
+                    [
+                        {"role": "user", "content": "first"},
+                        {"role": "assistant", "content": "different answer"},
+                        {"role": "user", "content": "replacement second"},
+                        {"role": "user", "content": "third"},
+                    ],
+                )
+                changed_assignment = matcher.assign(changed_history)
+                assert changed_assignment is not None
+
+                self.assertNotEqual(changed_assignment.task["id"], first_assignment.task["id"])
+            finally:
+                repository.close()
+
+    def test_explicit_context_link_wins_over_more_recent_heuristic_candidates(self) -> None:
+        with TemporaryDirectory() as temp_dir:
+            repository = LogRepository(Path(temp_dir))
+            try:
+                matcher = TaskMatcher(repository)
+                conversation_a = responses_record(
+                    "req_a1",
+                    "2026-07-06T00:00:00+00:00",
+                    {
+                        "model": "gpt-5",
+                        "instructions": "same instructions",
+                        "conversation_id": "conversation-a",
+                        "input": [{"role": "user", "content": "same first message"}],
+                    },
+                    {"id": "resp_a1"},
+                )
+                assignment_a = matcher.assign(conversation_a)
+                assert assignment_a is not None
+                persist(repository, assignment_a, conversation_a)
+
+                conversation_b = responses_record(
+                    "req_b1",
+                    "2026-07-06T00:01:00+00:00",
+                    {
+                        "model": "gpt-5",
+                        "instructions": "same instructions",
+                        "conversation_id": "conversation-b",
+                        "input": [{"role": "user", "content": "same first message"}],
+                    },
+                    {"id": "resp_b1"},
+                )
+                assignment_b = matcher.assign(conversation_b)
+                assert assignment_b is not None
+                persist(repository, assignment_b, conversation_b)
+                self.assertNotEqual(assignment_b.task["id"], assignment_a.task["id"])
+
+                followup_a = responses_record(
+                    "req_a2",
+                    "2026-07-06T00:02:00+00:00",
+                    {
+                        "model": "gpt-5",
+                        "instructions": "same instructions",
+                        "conversation_id": "conversation-a",
+                        "input": [{"role": "user", "content": "new explicit-context message"}],
+                    },
+                    {"id": "resp_a2"},
+                )
+                followup_assignment = matcher.assign(followup_a)
+                assert followup_assignment is not None
+
+                self.assertEqual(followup_assignment.task["id"], assignment_a.task["id"])
+                self.assertNotEqual(followup_assignment.task["id"], assignment_b.task["id"])
+            finally:
+                repository.close()

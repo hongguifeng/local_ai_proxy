@@ -49,7 +49,7 @@
 - [x] `BASE-014` P0 测试 config invalid JSON、invalid shape、port conflict。
 - [x] `BASE-015` P0 测试管理 API 400/404 和非法 query。
 - [x] `BASE-016` P0 测试所有 stream summary 字段和未知事件。
-- [ ] `BASE-017` P0 测试 task 24 小时边界、user message 前缀和 context key 优先级。
+- [x] `BASE-017` P0 测试 task 24 小时边界、user message 前缀和 context key 优先级。
 - [ ] `BASE-018` P1 测试导出全部任务与 cleanup 三种策略。
 - [ ] `BASE-019` P1 记录当前 incoming chunked request 的实际限制，不把失败误当 parity 要求。
 
