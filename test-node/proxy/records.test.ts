@@ -1,6 +1,11 @@
 import { describe, expect, it } from "vitest";
 
-import { displayEndpoint, endpointKind, requestMessageCount } from "../../src/proxy/records.js";
+import {
+  displayEndpoint,
+  endpointKind,
+  requestMessageCount,
+  responseTokenCount,
+} from "../../src/proxy/records.js";
 
 describe("endpointKind", () => {
   it.each([
@@ -87,5 +92,48 @@ describe("requestMessageCount chat and completions", () => {
     expect(requestMessageCount("other", { input: [1, 2, 3] })).toBe(3);
     expect(requestMessageCount("other", { input: "single" })).toBe(1);
     expect(requestMessageCount("other", {})).toBeUndefined();
+  });
+});
+
+describe("responseTokenCount", () => {
+  it.each([
+    [{ usage: { total_tokens: 9 } }, 9],
+    [{ usage: { total_tokens: 9.0 } }, 9],
+    [{ stream_summary: { usage: { input_tokens: 3, output_tokens: 2 } } }, 5],
+    [{ response: { usage: { input_tokens: 4 } } }, 4],
+    [
+      {
+        usage: {
+          input_tokens: 2,
+          output_tokens: 3,
+          cache_creation_input_tokens: 5,
+          cache_read_input_tokens: 7,
+        },
+      },
+      17,
+    ],
+    [{ usage: { input_tokens: 0 } }, 0],
+  ])("reads %# as %i tokens", (payload, expected) => {
+    expect(responseTokenCount(payload)).toBe(expected);
+  });
+
+  it("uses stream usage before top-level and nested response usage", () => {
+    expect(
+      responseTokenCount({
+        stream_summary: { usage: { total_tokens: 1 } },
+        usage: { total_tokens: 2 },
+        response: { usage: { total_tokens: 3 } },
+      }),
+    ).toBe(1);
+  });
+
+  it.each([
+    { ok: true },
+    { usage: {} },
+    { usage: { total_tokens: "9" } },
+    { usage: { input_tokens: true, output_tokens: 1.5 } },
+    null,
+  ])("returns undefined for unsupported usage %#", (payload) => {
+    expect(responseTokenCount(payload)).toBeUndefined();
   });
 });

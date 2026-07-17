@@ -12,6 +12,7 @@ export {
   displayEndpoint,
   endpointKind,
   requestMessageCount,
+  responseTokenCount,
   type EndpointKind,
 } from "./records.js";
 export {

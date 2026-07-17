@@ -60,6 +60,42 @@ export function requestMessageCount(kind: EndpointKind, payload: unknown): numbe
   return input === null || input === undefined ? undefined : 1;
 }
 
+export function responseTokenCount(payload: unknown): number | undefined {
+  const usage = responseUsage(payload);
+  if (!isRecord(usage)) {
+    return undefined;
+  }
+  const total = usage["total_tokens"];
+  if (typeof total === "number" && Number.isInteger(total)) {
+    return total;
+  }
+  const tokenKeys = [
+    "input_tokens",
+    "output_tokens",
+    "cache_creation_input_tokens",
+    "cache_read_input_tokens",
+  ] as const;
+  const values = tokenKeys
+    .map((key) => usage[key])
+    .filter((value): value is number => typeof value === "number" && Number.isInteger(value));
+  return values.length === 0 ? undefined : values.reduce((sum, value) => sum + value, 0);
+}
+
+function responseUsage(payload: unknown): unknown {
+  if (!isRecord(payload)) {
+    return undefined;
+  }
+  const streamSummary = payload["stream_summary"];
+  if (isRecord(streamSummary) && isPythonTruthy(streamSummary["usage"])) {
+    return streamSummary["usage"];
+  }
+  if (isPythonTruthy(payload["usage"])) {
+    return payload["usage"];
+  }
+  const response = payload["response"];
+  return isRecord(response) && isPythonTruthy(response["usage"]) ? response["usage"] : undefined;
+}
+
 function isPythonTruthy(value: unknown): boolean {
   if (value === null || value === undefined || value === false || value === 0 || value === "") {
     return false;
