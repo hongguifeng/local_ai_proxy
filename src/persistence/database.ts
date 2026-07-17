@@ -13,6 +13,14 @@ export interface DatabaseMigration {
   readonly migrate: (database: Database.Database) => void;
 }
 
+export type WalCheckpointMode = "PASSIVE" | "FULL" | "RESTART" | "TRUNCATE";
+
+export interface WalCheckpointResult {
+  readonly busy: number;
+  readonly log: number;
+  readonly checkpointed: number;
+}
+
 export function logDatabasePath(logRoot: string | null | undefined): string | undefined {
   return logRoot === null || logRoot === undefined
     ? undefined
@@ -97,4 +105,26 @@ export function runMigrations(
   });
   migrate();
   return readSchemaVersion(database);
+}
+
+export function checkpointDatabase(
+  database: Database.Database,
+  mode: WalCheckpointMode = "FULL",
+): WalCheckpointResult {
+  const result = (
+    database.pragma(`wal_checkpoint(${mode})`, { simple: false }) as WalCheckpointResult[]
+  )[0];
+  if (result === undefined) {
+    throw new Error(`SQLite did not return a ${mode} checkpoint result.`);
+  }
+  return result;
+}
+
+export async function backupDatabase(
+  database: Database.Database,
+  destinationPath: string,
+): Promise<void> {
+  mkdirSync(path.dirname(destinationPath), { recursive: true });
+  checkpointDatabase(database, "FULL");
+  await database.backup(destinationPath);
 }

@@ -1,6 +1,8 @@
 export {
   SCHEMA_VERSION_KEY,
   TRAFFIC_DB_NAME,
+  backupDatabase,
+  checkpointDatabase,
   connectLogDatabase,
   configureDatabase,
   logDatabasePath,
@@ -9,5 +11,7 @@ export {
   runMigrations,
   verifyFts5,
   type DatabaseMigration,
+  type WalCheckpointMode,
+  type WalCheckpointResult,
 } from "./database.js";
 export { SCHEMA_V1_MIGRATION, SCHEMA_VERSION } from "./schema-v1.js";

@@ -3,11 +3,14 @@ import { mkdtemp, rm } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 
+import Database from "better-sqlite3";
 import { afterEach, describe, expect, it } from "vitest";
 
 import {
   SCHEMA_VERSION_KEY,
   TRAFFIC_DB_NAME,
+  backupDatabase,
+  checkpointDatabase,
   connectLogDatabase,
   logDatabasePath,
   openLogDatabase,
@@ -182,5 +185,27 @@ describe("connectLogDatabase", () => {
     ).toEqual(["record-1"]);
 
     database.close();
+  });
+});
+
+describe("database backup", () => {
+  it("checkpoints WAL data and creates a readable SQLite backup", async () => {
+    const root = await mkdtemp(path.join(os.tmpdir(), "llm-proxy-backup-"));
+    temporaryDirectories.push(root);
+    const database = connectLogDatabase(path.join(root, "live"));
+    database.exec("CREATE TABLE backup_fixture(value TEXT NOT NULL)");
+    database.prepare("INSERT INTO backup_fixture(value) VALUES (?)").run("persisted through WAL");
+
+    expect(checkpointDatabase(database, "PASSIVE").busy).toBe(0);
+    const destination = path.join(root, "nested", "backup", TRAFFIC_DB_NAME);
+    await backupDatabase(database, destination);
+    database.close();
+
+    const backup = new Database(destination, { readonly: true });
+    expect(backup.prepare("SELECT value FROM backup_fixture").pluck().get()).toBe(
+      "persisted through WAL",
+    );
+    expect(readSchemaVersion(backup)).toBe(1);
+    backup.close();
   });
 });
