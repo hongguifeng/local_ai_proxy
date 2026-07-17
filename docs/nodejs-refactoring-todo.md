@@ -181,7 +181,7 @@
 
 ### 6.6 Stream summary
 
-- [ ] `SSE-001` P0 parse `data:` JSON 和 `[DONE]`。
+- [x] `SSE-001` P0 parse `data:` JSON 和 `[DONE]`。
 - [ ] `SSE-002` P0 非 JSON data 回退普通文本。
 - [ ] `SSE-003` P0 Responses output text/reasoning。
 - [ ] `SSE-004` P0 Responses function call delta/done。
