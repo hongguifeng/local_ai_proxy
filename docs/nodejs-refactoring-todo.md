@@ -189,7 +189,7 @@
 - [x] `SSE-006` P0 Responses compact metadata/usage/status。
 - [x] `SSE-007` P0 Chat content/reasoning/finish/usage。
 - [x] `SSE-008` P0 Chat tool call delta merge 和 arguments JSON。
-- [ ] `SSE-009` P0 Claude text/thinking/tool_use/input delta。
+- [x] `SSE-009` P0 Claude text/thinking/tool_use/input delta。
 - [ ] `SSE-010` P0 Claude stop reason/usage/message metadata。
 - [ ] `SSE-011` P0 unknown event 行为。
 - [ ] `SSE-012` P0 summary truncation 深度/长度/数量。

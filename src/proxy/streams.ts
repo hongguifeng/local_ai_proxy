@@ -15,6 +15,7 @@ export class StreamAccumulator {
   readonly #responseToolCalls = new Map<string, Record<string, unknown>>();
   readonly #responseWebSearchCalls = new Map<string, Record<string, unknown>>();
   readonly #toolCalls: unknown[] = [];
+  readonly #claudeToolCalls = new Map<number, Record<string, unknown>>();
   readonly #finishReasons: string[] = [];
   readonly #doneSeen: boolean;
   readonly #eventCount: number;
@@ -33,6 +34,22 @@ export class StreamAccumulator {
     const eventType = event["type"];
     if (typeof eventType === "string" && eventType.startsWith("response.")) {
       this.#addResponseEvent(eventType, event);
+      return;
+    }
+    if (
+      typeof eventType === "string" &&
+      [
+        "message_start",
+        "content_block_start",
+        "content_block_delta",
+        "content_block_stop",
+        "message_delta",
+        "message_stop",
+        "ping",
+        "error",
+      ].includes(eventType)
+    ) {
+      this.#addClaudeEvent(eventType, event);
       return;
     }
     this.#addChatEvent(event);
@@ -61,6 +78,11 @@ export class StreamAccumulator {
     }
     if (this.#toolCalls.length > 0) {
       streamSummary["tool_calls"] = compactToolCalls(this.#toolCalls);
+    }
+    if (this.#claudeToolCalls.size > 0) {
+      streamSummary["claude_tool_calls"] = [...this.#claudeToolCalls.entries()]
+        .sort(([left], [right]) => left - right)
+        .map(([, toolCall]) => compactClaudeToolCall(toolCall));
     }
     if (this.#finishReasons.length > 0) {
       streamSummary["finish_reasons"] = [...this.#finishReasons];
@@ -240,6 +262,59 @@ export class StreamAccumulator {
       }
     }
   }
+
+  #addClaudeEvent(eventType: string, event: Readonly<Record<string, unknown>>): void {
+    if (eventType === "content_block_start") {
+      const rawIndex = event["index"];
+      const index = typeof rawIndex === "number" && Number.isInteger(rawIndex) ? rawIndex : 0;
+      const block = event["content_block"];
+      if (!isRecord(block)) {
+        return;
+      }
+      if (block["type"] === "text") {
+        appendString(this.#contentParts, block["text"]);
+      } else if (block["type"] === "thinking") {
+        appendString(this.#reasoningParts, block["thinking"]);
+      } else if (block["type"] === "tool_use") {
+        const toolCall = this.#claudeToolCall(index);
+        for (const key of ["id", "name", "type"] as const) {
+          if (block[key] !== null && block[key] !== undefined) {
+            toolCall[key] = block[key];
+          }
+        }
+        if (block["input"] !== null && block["input"] !== undefined) {
+          toolCall["input"] = block["input"];
+        }
+      }
+    } else if (eventType === "content_block_delta") {
+      const rawIndex = event["index"];
+      const index = typeof rawIndex === "number" && Number.isInteger(rawIndex) ? rawIndex : 0;
+      const delta = event["delta"];
+      if (!isRecord(delta)) {
+        return;
+      }
+      if (delta["type"] === "text_delta") {
+        appendString(this.#contentParts, delta["text"]);
+      } else if (delta["type"] === "thinking_delta") {
+        appendString(this.#reasoningParts, delta["thinking"]);
+      } else if (
+        delta["type"] === "input_json_delta" &&
+        typeof delta["partial_json"] === "string"
+      ) {
+        const toolCall = this.#claudeToolCall(index);
+        toolCall["input_json"] = stringValue(toolCall["input_json"]) + delta["partial_json"];
+      }
+    }
+  }
+
+  #claudeToolCall(index: number): Record<string, unknown> {
+    let toolCall = this.#claudeToolCalls.get(index);
+    if (toolCall === undefined) {
+      toolCall = { index, type: "tool_use" };
+      this.#claudeToolCalls.set(index, toolCall);
+    }
+    return toolCall;
+  }
 }
 
 export function parseSseEvents(text: string): ParsedSseEvents | undefined {
@@ -362,6 +437,22 @@ function compactToolCalls(toolCalls: readonly unknown[]): unknown[] {
       }),
     ...passthrough,
   ];
+}
+
+function compactClaudeToolCall(
+  toolCall: Readonly<Record<string, unknown>>,
+): Record<string, unknown> {
+  const compacted: Record<string, unknown> = structuredClone({ ...toolCall });
+  const inputJson = compacted["input_json"];
+  Reflect.deleteProperty(compacted, "input_json");
+  if (typeof inputJson === "string" && inputJson !== "") {
+    try {
+      compacted["input"] = JSON.parse(inputJson) as unknown;
+    } catch {
+      compacted["input_json"] = inputJson;
+    }
+  }
+  return compacted;
 }
 
 function compactResponsePayload(

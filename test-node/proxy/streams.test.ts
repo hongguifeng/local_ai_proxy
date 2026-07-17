@@ -244,3 +244,35 @@ describe("compactSseValue Chat tool calls", () => {
     ]);
   });
 });
+
+describe("compactSseValue Claude content", () => {
+  it("combines text, thinking, tool metadata, and input JSON deltas", () => {
+    const text = [
+      'data: {"type":"content_block_start","index":0,"content_block":{"type":"thinking","thinking":"plan "}}',
+      'data: {"type":"content_block_delta","index":0,"delta":{"type":"thinking_delta","thinking":"carefully"}}',
+      'data: {"type":"content_block_start","index":1,"content_block":{"type":"text","text":"Hello "}}',
+      'data: {"type":"content_block_delta","index":1,"delta":{"type":"text_delta","text":"world"}}',
+      'data: {"type":"content_block_start","index":2,"content_block":{"type":"tool_use","id":"toolu_1","name":"lookup","input":{}}}',
+      'data: {"type":"content_block_delta","index":2,"delta":{"type":"input_json_delta","partial_json":"{\\"q\\":"}}',
+      'data: {"type":"content_block_delta","index":2,"delta":{"type":"input_json_delta","partial_json":"\\"docs\\"}"}}',
+    ].join("\n\n");
+
+    expect(compactSseValue(text)).toEqual({
+      stream_summary: {
+        event_count: 7,
+        done_seen: false,
+        reasoning: "plan carefully",
+        content: "Hello world",
+        claude_tool_calls: [
+          {
+            index: 2,
+            type: "tool_use",
+            id: "toolu_1",
+            name: "lookup",
+            input: { q: "docs" },
+          },
+        ],
+      },
+    });
+  });
+});
