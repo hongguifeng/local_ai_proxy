@@ -18,6 +18,13 @@ export {
   type JsonPrimitive,
   type JsonValue,
 } from "./json.js";
+export {
+  StructuredLogger,
+  redactLogContext,
+  type LogContext,
+  type LogLevel,
+  type StructuredLoggerOptions,
+} from "./logger.js";
 export { resolveConfiguredPath, toPosixPath } from "./paths.js";
 export { enableRuntimeDiagnostics } from "./runtime-diagnostics.js";
 export { formatLocalIso, formatLocalTimestamp, localNowIso } from "./time.js";
