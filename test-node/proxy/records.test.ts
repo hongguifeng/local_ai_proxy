@@ -229,3 +229,28 @@ describe("requestFingerprints responses", () => {
     });
   });
 });
+
+describe("requestFingerprints messages", () => {
+  it("matches Python fingerprints for Claude system, messages, and tools", () => {
+    expect(
+      requestFingerprints("messages", {
+        system: [{ type: "text", text: "Be concise" }],
+        messages: [
+          { role: "user", content: [{ type: "text", text: "Hello" }] },
+          {
+            role: "assistant",
+            content: [{ type: "tool_use", name: "search", input: { q: "x" } }],
+          },
+          { role: "user", content: "Continue", name: "named" },
+        ],
+        tools: [{ name: "search", input_schema: { type: "object" } }],
+      }),
+    ).toEqual({
+      system: "c229defd16f2",
+      messages_prefix: "753848e90bad",
+      messages: "753848e90bad",
+      first_user: "25e2a0ae8903",
+      tools: "aaaa02007eec",
+    });
+  });
+});

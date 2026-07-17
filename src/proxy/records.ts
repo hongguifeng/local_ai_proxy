@@ -135,6 +135,26 @@ export function requestFingerprints(kind: EndpointKind, payload: unknown): Recor
     if (isPythonTruthy(tools)) {
       fingerprints["tools"] = stableHash(tools);
     }
+  } else if (kind === "messages") {
+    const systemMessages = claudeSystemMessages(payload);
+    if (systemMessages.length > 0) {
+      fingerprints["system"] = stableHash(systemMessages);
+    }
+    const prefixMessages = claudeMessages(payload).slice(0, 4);
+    if (prefixMessages.length > 0) {
+      fingerprints["messages_prefix"] = stableHash(prefixMessages);
+    }
+    const contentMessages = claudeMessages(payload);
+    if (contentMessages.length > 0) {
+      fingerprints["messages"] = stableHash(contentMessages);
+    }
+    const firstUser = claudeFirstUserMessage(payload);
+    if (isPythonTruthy(firstUser)) {
+      fingerprints["first_user"] = stableHash(firstUser);
+    }
+    if (isPythonTruthy(payload["tools"])) {
+      fingerprints["tools"] = stableHash(payload["tools"]);
+    }
   } else if (kind === "completions" && isPythonTruthy(payload["prompt"])) {
     fingerprints["prompt"] = stableHash(payload["prompt"]);
   }
@@ -209,6 +229,51 @@ function responsesFirstUserMessage(payload: Readonly<Record<string, unknown>>): 
       }
     } else if (isPythonTruthy(content)) {
       return messageText(content);
+    }
+  }
+  return undefined;
+}
+
+function claudeSystemMessages(payload: Readonly<Record<string, unknown>>): unknown[] {
+  const system = payload["system"];
+  return isPythonTruthy(system) ? [{ role: "system", content: messageText(system) }] : [];
+}
+
+function claudeMessageSummary(message: Readonly<Record<string, unknown>>): Record<string, unknown> {
+  const summary: Record<string, unknown> = {
+    role: message["role"] ?? null,
+    content: messageText(message["content"]),
+  };
+  for (const key of ["name", "tool_use_id"] as const) {
+    if (message[key] !== null && message[key] !== undefined) {
+      summary[key] = message[key];
+    }
+  }
+  return summary;
+}
+
+function claudeMessages(payload: Readonly<Record<string, unknown>>): unknown[] {
+  const messages = payload["messages"];
+  if (!Array.isArray(messages)) {
+    return [];
+  }
+  const compacted: unknown[] = [];
+  for (const message of messages as unknown[]) {
+    if (isRecord(message) && !isTaskContextMessage(message)) {
+      compacted.push(claudeMessageSummary(message));
+    }
+  }
+  return compacted;
+}
+
+function claudeFirstUserMessage(payload: Readonly<Record<string, unknown>>): unknown {
+  const messages = payload["messages"];
+  if (!Array.isArray(messages)) {
+    return undefined;
+  }
+  for (const message of messages as unknown[]) {
+    if (isRecord(message) && message["role"] === "user" && !isTaskContextMessage(message)) {
+      return messageText(message["content"]);
     }
   }
   return undefined;
