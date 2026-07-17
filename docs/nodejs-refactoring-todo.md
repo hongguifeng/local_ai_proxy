@@ -92,7 +92,7 @@
 
 - [x] `CI-001` P0 在 GitHub Actions 增加 Node 24 job。
 - [x] `CI-002` P0 执行 `npm ci`、typecheck、lint、test、build。
-- [ ] `CI-003` P0 暂时保留 Python CI 作为 parity gate。
+- [x] `CI-003` P0 暂时保留 Python CI 作为 parity gate。
 - [ ] `CI-004` P1 缓存 npm 依赖。
 - [ ] `CI-005` P1 上传 coverage/test report artifact。
 

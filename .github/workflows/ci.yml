@@ -25,7 +25,8 @@ jobs:
       - name: Typecheck, lint, test, and build
         run: npm run check
 
-  test:
+  python-parity:
+    name: Python parity (${{ matrix.python-version }})
     runs-on: windows-latest
     strategy:
       matrix:
