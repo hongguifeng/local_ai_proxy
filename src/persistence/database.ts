@@ -29,12 +29,18 @@ export function openLogDatabase(logRoot: string): Database.Database {
 export function connectLogDatabase(logRoot: string): Database.Database {
   const database = openLogDatabase(logRoot);
   try {
+    verifyFts5(database);
     runMigrations(database, [SCHEMA_V1_MIGRATION]);
     return database;
   } catch (error) {
     database.close();
     throw error;
   }
+}
+
+export function verifyFts5(database: Database.Database): void {
+  database.exec("CREATE VIRTUAL TABLE temp.fts5_probe USING fts5(value)");
+  database.exec("DROP TABLE temp.fts5_probe");
 }
 
 export function configureDatabase(database: Database.Database): void {

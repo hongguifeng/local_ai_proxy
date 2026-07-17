@@ -13,6 +13,7 @@ import {
   openLogDatabase,
   readSchemaVersion,
   runMigrations,
+  verifyFts5,
 } from "../../src/persistence/database.js";
 
 const temporaryDirectories: string[] = [];
@@ -126,6 +127,27 @@ describe("connectLogDatabase", () => {
         "idx_records_task_sequence",
       ]),
     );
+
+    database.close();
+  });
+
+  it("provides working FTS5 search", async () => {
+    const root = await mkdtemp(path.join(os.tmpdir(), "llm-proxy-fts5-"));
+    temporaryDirectories.push(root);
+    const database = connectLogDatabase(root);
+
+    expect(() => verifyFts5(database)).not.toThrow();
+    database
+      .prepare(
+        "INSERT INTO record_search(record_id, task_id, task_text, request_text, response_text, error_text) VALUES (?, ?, ?, ?, ?, ?)",
+      )
+      .run("record-1", "task-1", "fixture task", "hello searchable world", "", "");
+    expect(
+      database
+        .prepare("SELECT record_id FROM record_search WHERE record_search MATCH ?")
+        .pluck()
+        .all("searchable"),
+    ).toEqual(["record-1"]);
 
     database.close();
   });

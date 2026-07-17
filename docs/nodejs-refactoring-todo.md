@@ -204,7 +204,7 @@
 - [x] `DB-003` P0 设置 WAL、foreign keys、busy timeout、synchronous。
 - [x] `DB-004` P0 实现 migration runner 和 schema version 读取。
 - [x] `DB-005` P0 实现 v1 schema 创建。
-- [ ] `DB-006` P0 验证 FTS5 可用。
+- [x] `DB-006` P0 验证 FTS5 可用。
 - [ ] `DB-007` P0 migration 事务和失败回滚测试。
 - [ ] `DB-008` P1 SQLite checkpoint/backup helper。
 

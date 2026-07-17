@@ -7,6 +7,7 @@ export {
   openLogDatabase,
   readSchemaVersion,
   runMigrations,
+  verifyFts5,
   type DatabaseMigration,
 } from "./database.js";
 export { SCHEMA_V1_MIGRATION, SCHEMA_VERSION } from "./schema-v1.js";
