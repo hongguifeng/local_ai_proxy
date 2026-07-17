@@ -41,7 +41,23 @@ export function requestMessageCount(kind: EndpointKind, payload: unknown): numbe
     const messages = payload["messages"];
     return systemCount + (Array.isArray(messages) ? messages.length : 0);
   }
-  return undefined;
+  if (kind === "chat") {
+    const messages = payload["messages"];
+    return Array.isArray(messages) ? messages.length : 0;
+  }
+  if (kind === "completions") {
+    const prompt = payload["prompt"];
+    return Array.isArray(prompt) ? prompt.length : prompt === null || prompt === undefined ? 0 : 1;
+  }
+  const messages = payload["messages"];
+  if (Array.isArray(messages)) {
+    return messages.length;
+  }
+  const input = payload["input"];
+  if (Array.isArray(input)) {
+    return input.length;
+  }
+  return input === null || input === undefined ? undefined : 1;
 }
 
 function isPythonTruthy(value: unknown): boolean {

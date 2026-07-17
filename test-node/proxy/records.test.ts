@@ -61,3 +61,31 @@ describe("requestMessageCount messages", () => {
     expect(requestMessageCount("messages", payload)).toBe(expected);
   });
 });
+
+describe("requestMessageCount chat and completions", () => {
+  it("counts Chat Completions messages", () => {
+    expect(
+      requestMessageCount("chat", {
+        messages: [{ role: "system" }, { role: "user" }, { role: "assistant" }],
+      }),
+    ).toBe(3);
+    expect(requestMessageCount("chat", { messages: "invalid" })).toBe(0);
+  });
+
+  it.each([
+    [{ prompt: ["first", "second"] }, 2],
+    [{ prompt: "one prompt" }, 1],
+    [{ prompt: false }, 1],
+    [{ prompt: null }, 0],
+    [{}, 0],
+  ])("counts Completions payload %# as %i", (payload, expected) => {
+    expect(requestMessageCount("completions", payload)).toBe(expected);
+  });
+
+  it("uses messages and input as the generic fallback", () => {
+    expect(requestMessageCount("other", { messages: [1, 2] })).toBe(2);
+    expect(requestMessageCount("other", { input: [1, 2, 3] })).toBe(3);
+    expect(requestMessageCount("other", { input: "single" })).toBe(1);
+    expect(requestMessageCount("other", {})).toBeUndefined();
+  });
+});
