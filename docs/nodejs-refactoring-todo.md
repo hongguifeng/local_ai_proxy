@@ -169,7 +169,7 @@
 
 - [x] `PURE-040` P0 endpoint kind 和 display endpoint。
 - [x] `PURE-041` P0 Responses message count。
-- [ ] `PURE-042` P0 Messages message count。
+- [x] `PURE-042` P0 Messages message count。
 - [ ] `PURE-043` P0 Chat/Completions message count。
 - [ ] `PURE-044` P0 usage/total token 读取。
 - [ ] `PURE-045` P0 stable JSON SHA-256 fingerprint。

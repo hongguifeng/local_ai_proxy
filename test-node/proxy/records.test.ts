@@ -44,3 +44,20 @@ describe("requestMessageCount responses", () => {
     expect(requestMessageCount("responses", [])).toBeUndefined();
   });
 });
+
+describe("requestMessageCount messages", () => {
+  it.each([
+    [
+      {
+        system: [{ text: "system" }, { text: "developer" }],
+        messages: [{ role: "user" }, { role: "assistant" }],
+      },
+      4,
+    ],
+    [{ system: "system prompt", messages: [{ role: "user" }] }, 2],
+    [{ system: "", messages: [] }, 0],
+    [{ system: {}, messages: "not-an-array" }, 0],
+  ])("counts %# as %i messages", (payload, expected) => {
+    expect(requestMessageCount("messages", payload)).toBe(expected);
+  });
+});

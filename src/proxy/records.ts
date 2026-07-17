@@ -35,6 +35,12 @@ export function requestMessageCount(kind: EndpointKind, payload: unknown): numbe
         : 1;
     return count + (isPythonTruthy(payload["instructions"]) ? 1 : 0);
   }
+  if (kind === "messages") {
+    const system = payload["system"];
+    const systemCount = Array.isArray(system) ? system.length : isPythonTruthy(system) ? 1 : 0;
+    const messages = payload["messages"];
+    return systemCount + (Array.isArray(messages) ? messages.length : 0);
+  }
   return undefined;
 }
 
