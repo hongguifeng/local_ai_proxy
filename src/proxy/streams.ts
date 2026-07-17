@@ -13,6 +13,7 @@ export class StreamAccumulator {
   readonly #contentParts: string[] = [];
   readonly #reasoningParts: string[] = [];
   readonly #responseToolCalls = new Map<string, Record<string, unknown>>();
+  readonly #responseWebSearchCalls = new Map<string, Record<string, unknown>>();
   readonly #doneSeen: boolean;
   readonly #eventCount: number;
 
@@ -47,6 +48,11 @@ export class StreamAccumulator {
         .sort(([left], [right]) => left.localeCompare(right))
         .map(([, toolCall]) => compactArguments(toolCall));
     }
+    if (this.#responseWebSearchCalls.size > 0) {
+      streamSummary["web_search_calls"] = [...this.#responseWebSearchCalls.entries()]
+        .sort(([left], [right]) => left.localeCompare(right))
+        .map(([, call]) => call);
+    }
     return { stream_summary: streamSummary };
   }
 
@@ -77,6 +83,59 @@ export class StreamAccumulator {
       if (typeof event["arguments"] === "string") {
         toolCall["arguments"] = event["arguments"];
       }
+    } else if (this.#isResponseWebSearchEvent(eventType, event)) {
+      this.#addResponseWebSearchCall(eventType, event);
+    }
+  }
+
+  #isResponseWebSearchEvent(eventType: string, event: Readonly<Record<string, unknown>>): boolean {
+    if (eventType.startsWith("response.web_search_call.")) {
+      return true;
+    }
+    const item = event["item"];
+    return isRecord(item) && item["type"] === "web_search_call";
+  }
+
+  #addResponseWebSearchCall(eventType: string, event: Readonly<Record<string, unknown>>): void {
+    const item = isRecord(event["item"]) ? event["item"] : undefined;
+    const itemId = item?.["id"];
+    const fallbackKey = firstPresent([event["item_id"], event["call_id"], event["output_index"]]);
+    const key = stringValue(
+      firstTruthy([itemId]) ?? fallbackKey ?? this.#responseWebSearchCalls.size,
+    );
+    let call = this.#responseWebSearchCalls.get(key);
+    if (call === undefined) {
+      call = { type: "web_search_call" };
+      this.#responseWebSearchCalls.set(key, call);
+    }
+    if (itemId) {
+      call["id"] = structuredClone(itemId);
+      if (call["item_id"] === undefined) {
+        call["item_id"] = structuredClone(itemId);
+      }
+    }
+    if (item !== undefined) {
+      if (isRecord(item["action"])) {
+        call["action"] = structuredClone(item["action"]);
+      }
+      if (item["error"]) {
+        call["error"] = structuredClone(item["error"]);
+      }
+    }
+    for (const fieldName of ["item_id", "call_id", "output_index"] as const) {
+      if (event[fieldName] !== null && event[fieldName] !== undefined) {
+        call[fieldName] = structuredClone(event[fieldName]);
+      }
+    }
+    if (isRecord(event["action"])) {
+      call["action"] = structuredClone(event["action"]);
+    }
+    if (event["error"]) {
+      call["error"] = structuredClone(event["error"]);
+    }
+    const status = responseWebSearchStatus(eventType, event, item);
+    if (status !== undefined) {
+      call["status"] = status;
     }
   }
 
@@ -169,4 +228,24 @@ function stringValue(value: unknown): string {
 
 function firstTruthy(values: readonly unknown[]): unknown {
   return values.find((value) => Boolean(value));
+}
+
+function firstPresent(values: readonly unknown[]): unknown {
+  return values.find((value) => value !== null && value !== undefined && value !== "");
+}
+
+function responseWebSearchStatus(
+  eventType: string,
+  event: Readonly<Record<string, unknown>>,
+  item: Readonly<Record<string, unknown>> | undefined,
+): string | undefined {
+  if (typeof event["status"] === "string" && event["status"] !== "") {
+    return event["status"];
+  }
+  if (typeof item?.["status"] === "string" && item["status"] !== "") {
+    return item["status"];
+  }
+  return eventType.startsWith("response.web_search_call.")
+    ? eventType.slice(eventType.lastIndexOf(".") + 1)
+    : undefined;
 }

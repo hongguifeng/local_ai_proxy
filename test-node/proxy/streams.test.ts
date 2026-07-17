@@ -127,3 +127,25 @@ describe("compactSseValue Responses function calls", () => {
     ]);
   });
 });
+
+describe("compactSseValue Responses web search", () => {
+  it("merges web search lifecycle events by item ID", () => {
+    const text = [
+      'data: {"type":"response.output_item.added","output_index":0,"item":{"id":"ws_1","type":"web_search_call","status":"in_progress"}}',
+      'data: {"type":"response.web_search_call.searching","item_id":"ws_1","output_index":0}',
+      'data: {"type":"response.web_search_call.completed","item_id":"ws_1","output_index":0}',
+      'data: {"type":"response.output_item.done","output_index":0,"item":{"id":"ws_1","type":"web_search_call","status":"completed","action":{"type":"search","query":"latest docs","queries":["latest docs"]}}}',
+    ].join("\n\n");
+
+    expect(compactSseValue(text)?.stream_summary["web_search_calls"]).toEqual([
+      {
+        type: "web_search_call",
+        id: "ws_1",
+        item_id: "ws_1",
+        status: "completed",
+        output_index: 0,
+        action: { type: "search", query: "latest docs", queries: ["latest docs"] },
+      },
+    ]);
+  });
+});
