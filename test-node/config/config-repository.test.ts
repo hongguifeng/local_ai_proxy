@@ -1,6 +1,8 @@
+import { spawnSync } from "node:child_process";
 import { mkdir, mkdtemp, open, readdir, readFile, rm, unlink, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
+import { fileURLToPath } from "node:url";
 
 import { afterEach, describe, expect, it } from "vitest";
 
@@ -12,6 +14,7 @@ import {
 import { createDefaultProxyPair } from "../../src/config/defaults.js";
 
 const temporaryDirectories: string[] = [];
+const projectRoot = fileURLToPath(new URL("../..", import.meta.url));
 
 afterEach(async () => {
   await Promise.all(
@@ -151,6 +154,39 @@ describe("ConfigRepository.save", () => {
     expect(await readdir(directory)).toEqual(["proxies.json"]);
   });
 
+  it("round-trips a Python config through Node and back to Python", async () => {
+    const directory = await mkdtemp(path.join(os.tmpdir(), "llm-proxy-config-roundtrip-"));
+    temporaryDirectories.push(directory);
+    const sourcePath = path.join(
+      projectRoot,
+      "fixtures",
+      "parity",
+      "config",
+      "proxies-comprehensive.json",
+    );
+    const configPath = path.join(directory, "proxies.json");
+    const sourceRepository = new ConfigRepository(sourcePath);
+    const destinationRepository = new ConfigRepository(configPath);
+    const normalizedConfig = await sourceRepository.load();
+
+    await destinationRepository.save(normalizedConfig);
+
+    const result = spawnSync(
+      findPython(),
+      [path.join(projectRoot, "scripts", "check_config_roundtrip.py"), configPath],
+      {
+        cwd: projectRoot,
+        encoding: "utf8",
+        env: {
+          ...process.env,
+          PYTHONPATH: [projectRoot, process.env["PYTHONPATH"]].filter(Boolean).join(path.delimiter),
+        },
+      },
+    );
+    expect(result.status, result.stderr).toBe(0);
+    expect(JSON.parse(result.stdout)).toEqual(normalizedConfig);
+  });
+
   it.runIf(process.platform === "win32")(
     "replaces an existing config file on Windows",
     async () => {
@@ -173,3 +209,15 @@ describe("ConfigRepository.save", () => {
     },
   );
 });
+
+function findPython(): string {
+  const candidates = [process.env["PYTHON"], "python3", "python"].filter(
+    (candidate): candidate is string => candidate !== undefined && candidate !== "",
+  );
+  for (const candidate of candidates) {
+    if (spawnSync(candidate, ["--version"], { encoding: "utf8" }).status === 0) {
+      return candidate;
+    }
+  }
+  throw new Error("Python 3 is required for the configuration round-trip test.");
+}
