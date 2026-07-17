@@ -53,6 +53,19 @@ export function runtimeLogRoot(value: string): string | undefined {
   return value === "" ? undefined : value;
 }
 
+export function normalizeInjectRequestFields(value: unknown): string {
+  if (value === null || value === undefined) {
+    return "";
+  }
+  if (typeof value === "string") {
+    return value;
+  }
+  if (isRecord(value)) {
+    return JSON.stringify(value);
+  }
+  return primitiveText(value);
+}
+
 function primitiveText(value: unknown): string {
   return typeof value === "string" ||
     typeof value === "number" ||

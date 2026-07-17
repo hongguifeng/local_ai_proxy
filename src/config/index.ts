@@ -30,6 +30,7 @@ export {
 export {
   ensureAtLeastOneTarget,
   normalizeDefaultTargetId,
+  normalizeInjectRequestFields,
   normalizeLogRoot,
   normalizeModelMappings,
   runtimeLogRoot,

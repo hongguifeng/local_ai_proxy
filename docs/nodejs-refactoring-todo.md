@@ -114,7 +114,7 @@
 - [x] `CFG-012` P0 修正不存在的 default target ID。
 - [x] `CFG-013` P0 规范化 model mappings，保留同名映射。
 - [x] `CFG-014` P0 保留空 `log_root` 禁用日志语义。
-- [ ] `CFG-015` P0 兼容 dict/string 类型 inject 配置。
+- [x] `CFG-015` P0 兼容 dict/string 类型 inject 配置。
 - [ ] `CFG-016` P1 对非法配置返回字段级错误。
 
 ### 5.3 文件 repository

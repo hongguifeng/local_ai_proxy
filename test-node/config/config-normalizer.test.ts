@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest";
 import {
   ensureAtLeastOneTarget,
   normalizeDefaultTargetId,
+  normalizeInjectRequestFields,
   normalizeLogRoot,
   normalizeModelMappings,
   runtimeLogRoot,
@@ -21,6 +22,24 @@ describe("ensureAtLeastOneTarget", () => {
 
     expect(result).toEqual(source);
     expect(result).not.toBe(source);
+  });
+});
+
+describe("normalizeInjectRequestFields", () => {
+  it("keeps string configuration unchanged", () => {
+    expect(normalizeInjectRequestFields('{"stream":true}')).toBe('{"stream":true}');
+    expect(normalizeInjectRequestFields("")).toBe("");
+  });
+
+  it("serializes object configuration as compact Unicode JSON", () => {
+    expect(normalizeInjectRequestFields({ metadata: { source: "代理" }, stream: true })).toBe(
+      '{"metadata":{"source":"代理"},"stream":true}',
+    );
+  });
+
+  it("normalizes missing values to an empty string", () => {
+    expect(normalizeInjectRequestFields(undefined)).toBe("");
+    expect(normalizeInjectRequestFields(null)).toBe("");
   });
 });
 
