@@ -1,3 +1,4 @@
+export { HOP_BY_HOP_HEADERS } from "./headers.js";
 export {
   parseInjectRequestFields,
   parseStripRequestFields,

@@ -150,7 +150,7 @@
 
 ### 6.3 Header
 
-- [ ] `PURE-020` P0 定义 hop-by-hop Header 集合。
+- [x] `PURE-020` P0 定义 hop-by-hop Header 集合。
 - [ ] `PURE-021` P0 解析 `Name: value` override。
 - [ ] `PURE-022` P0 保留多值 Header 表达。
 - [ ] `PURE-023` P0 实现 override 和 API Key 优先级测试。
