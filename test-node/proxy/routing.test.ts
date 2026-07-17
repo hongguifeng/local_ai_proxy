@@ -72,6 +72,39 @@ describe("selectTargetByModel", () => {
     expect(selection.target).toBe(enabled);
     expect(selection.upstreamModel).toBe("enabled-upstream");
   });
+
+  it("always falls back to the configured default target", () => {
+    const first = target("first", true, []);
+    const fallback = target("fallback", false, []);
+
+    expect(
+      selectTargetByModel([first, fallback], "fallback", Buffer.from('{"model":"unknown"}'))
+        .target,
+    ).toBe(fallback);
+    expect(selectTargetByModel([first, fallback], "fallback", Buffer.from("{}")).target).toBe(
+      fallback,
+    );
+    expect(
+      selectTargetByModel([first, fallback], "missing", Buffer.from('{"model":"unknown"}'))
+        .target,
+    ).toBe(first);
+  });
+
+  it("allows a disabled default target to match and rewrite a model", () => {
+    const enabled = target("enabled", true, []);
+    const fallback = target("fallback", false, [
+      { listen: "demo", upstream: "fallback-upstream" },
+    ]);
+
+    const selection = selectTargetByModel(
+      [enabled, fallback],
+      "fallback",
+      Buffer.from('{"model":"demo"}'),
+    );
+
+    expect(selection.target).toBe(fallback);
+    expect(selection.upstreamModel).toBe("fallback-upstream");
+  });
 });
 
 function target(

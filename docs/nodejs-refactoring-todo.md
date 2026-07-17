@@ -137,7 +137,7 @@
 - [x] `PURE-003` P0 移植 top-level model 提取。
 - [x] `PURE-004` P0 移植 target selection 顺序。
 - [x] `PURE-005` P0 跳过 disabled non-default target。
-- [ ] `PURE-006` P0 default target 永远兜底。
+- [x] `PURE-006` P0 default target 永远兜底。
 - [ ] `PURE-007` P0 移植 model rewrite，保留非 JSON。
 
 ### 6.2 Request transform
