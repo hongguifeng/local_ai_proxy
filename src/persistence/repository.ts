@@ -89,6 +89,22 @@ export class TrafficRepository {
     const row = this.#database.prepare("SELECT * FROM tasks WHERE id = ?").get(taskId);
     return row === undefined ? undefined : decodeTaskRow(row as RepositoryRecord);
   }
+
+  recentTasks(limit = 200): RepositoryRecord[] {
+    const boundedLimit = Math.max(1, Math.min(integerValue(limit, 200), 1_000));
+    const rows = this.#database
+      .prepare(
+        `
+        SELECT *
+        FROM tasks
+        WHERE pending_request_only = 0
+        ORDER BY COALESCE(last_response_at, last_seen_at, started_at) DESC
+        LIMIT ?
+      `,
+      )
+      .all(boundedLimit) as RepositoryRecord[];
+    return rows.map((row) => decodeTaskRow(row));
+  }
 }
 
 export function decodeTaskRow(row: Readonly<RepositoryRecord>): RepositoryRecord {

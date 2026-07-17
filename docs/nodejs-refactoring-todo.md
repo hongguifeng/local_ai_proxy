@@ -213,7 +213,7 @@
 - [x] `DB-010` P0 upsert task。
 - [x] `DB-011` P0 decode JSON/boolean fields。
 - [x] `DB-012` P0 get task。
-- [ ] `DB-013` P0 recent non-pending tasks。
+- [x] `DB-013` P0 recent non-pending tasks。
 - [ ] `DB-014` P0 task list query/pagination/sort。
 
 ### 7.3 Record repository

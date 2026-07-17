@@ -94,3 +94,28 @@ describe("decodeTaskRow", () => {
     });
   });
 });
+
+describe("TrafficRepository.recentTasks", () => {
+  it("returns only non-pending tasks in most-recent order", async () => {
+    const root = await mkdtemp(path.join(os.tmpdir(), "llm-proxy-recent-tasks-"));
+    temporaryDirectories.push(root);
+    const repository = new TrafficRepository(root, { now: () => "2026-07-18T00:00:00.000+00:00" });
+    for (const task of [
+      { id: "older", last_seen_at: "2026-07-18T01:00:00.000+00:00", pending: false },
+      { id: "newer", last_seen_at: "2026-07-18T03:00:00.000+00:00", pending: false },
+      { id: "pending", last_seen_at: "2026-07-18T04:00:00.000+00:00", pending: true },
+    ]) {
+      repository.upsertTask({
+        id: task.id,
+        started_at: task.last_seen_at,
+        last_seen_at: task.last_seen_at,
+        pending_request_only: task.pending,
+        match_strategy_version: 4,
+      });
+    }
+
+    expect(repository.recentTasks().map(({ id }) => id)).toEqual(["newer", "older"]);
+    expect(repository.recentTasks(1).map(({ id }) => id)).toEqual(["newer"]);
+    repository.close();
+  });
+});
