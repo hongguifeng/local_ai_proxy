@@ -1,4 +1,15 @@
+import { createHash } from "node:crypto";
+
+import { isRecord, stableJsonStringify } from "../shared/index.js";
+
 export type EndpointKind = "responses" | "messages" | "chat" | "completions" | "other";
+
+export function stableHash(value: unknown, length = 12): string {
+  return createHash("sha256")
+    .update(stableJsonStringify(value), "utf8")
+    .digest("hex")
+    .slice(0, length);
+}
 
 export function endpointKind(path: string): EndpointKind {
   const lowered = path.toLowerCase().split("?", 1)[0]?.replace(/\/+$/, "") ?? "";
@@ -108,4 +119,3 @@ function isPythonTruthy(value: unknown): boolean {
   }
   return true;
 }
-import { isRecord } from "../shared/index.js";

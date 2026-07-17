@@ -32,9 +32,23 @@ function sortJsonValue(value: unknown): unknown {
   if (isRecord(value)) {
     return Object.fromEntries(
       Object.entries(value)
-        .sort(([left], [right]) => left.localeCompare(right))
+        .sort(([left], [right]) => compareUnicodeCodePoints(left, right))
         .map(([key, item]) => [key, sortJsonValue(item)]),
     );
   }
   return value;
+}
+
+function compareUnicodeCodePoints(left: string, right: string): number {
+  const leftCodePoints = Array.from(left);
+  const rightCodePoints = Array.from(right);
+  const length = Math.min(leftCodePoints.length, rightCodePoints.length);
+  for (let index = 0; index < length; index += 1) {
+    const difference =
+      (leftCodePoints[index]?.codePointAt(0) ?? 0) - (rightCodePoints[index]?.codePointAt(0) ?? 0);
+    if (difference !== 0) {
+      return difference;
+    }
+  }
+  return leftCodePoints.length - rightCodePoints.length;
 }

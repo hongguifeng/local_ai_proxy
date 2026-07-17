@@ -5,6 +5,7 @@ import {
   endpointKind,
   requestMessageCount,
   responseTokenCount,
+  stableHash,
 } from "../../src/proxy/records.js";
 
 describe("endpointKind", () => {
@@ -135,5 +136,23 @@ describe("responseTokenCount", () => {
     null,
   ])("returns undefined for unsupported usage %#", (payload) => {
     expect(responseTokenCount(payload)).toBeUndefined();
+  });
+});
+
+describe("stableHash", () => {
+  it("matches Python's sorted compact UTF-8 SHA-256 output", () => {
+    const value = { b: 2, a: [3, { z: true, y: "你" }] };
+
+    expect(stableHash(value)).toBe("3db37498571f");
+    expect(stableHash(value, 64)).toBe(
+      "3db37498571f7a713893992636e345c97de0ec3c2135fad33fb2297c1686f86c",
+    );
+    expect(stableHash({ a: [3, { y: "你", z: true }], b: 2 })).toBe(stableHash(value));
+  });
+
+  it("sorts Unicode keys by code point like Python", () => {
+    expect(stableHash({ "😀": "emoji", "": "private", a: 1 }, 64)).toBe(
+      "540396678c4f5495919ca8ab4c9d661f9f27cc7f3630d209015eea62db96f58e",
+    );
   });
 });

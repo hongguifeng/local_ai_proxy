@@ -13,6 +13,7 @@ export {
   endpointKind,
   requestMessageCount,
   responseTokenCount,
+  stableHash,
   type EndpointKind,
 } from "./records.js";
 export {
