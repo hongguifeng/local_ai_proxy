@@ -44,6 +44,34 @@ describe("targetConfigSchema", () => {
   it("rejects missing required persisted fields", () => {
     expect(() => targetConfigSchema.parse({ id: "target-1" })).toThrow();
   });
+
+  it.each([
+    ["invalid target URL", { target_url: "ftp://provider.example" }],
+    ["target URL credentials", { target_url: "https://user:pass@provider.example/v1" }],
+    ["target URL query", { target_url: "https://provider.example/v1?secret=value" }],
+    ["invalid header", { target_headers: ["missing-colon"] }],
+    ["empty header name", { target_headers: [": value"] }],
+    ["non-object injection", { inject_request_fields: "[]" }],
+    ["invalid injection JSON", { inject_request_fields: "{invalid" }],
+    ["zero timeout", { timeout: 0 }],
+    ["infinite timeout", { timeout: Number.POSITIVE_INFINITY }],
+  ])("rejects %s", (_name, overrides) => {
+    const valid = {
+      id: "target-1",
+      name: "Target",
+      enabled: true,
+      target_url: "https://provider.example/v1",
+      target_api_key: "",
+      target_headers: [],
+      strip_request_fields: "",
+      inject_request_fields: "",
+      timeout: 600,
+      log_root: "logs",
+      redact_logs: false,
+      model_mappings: [],
+    };
+    expect(() => targetConfigSchema.parse({ ...valid, ...overrides })).toThrow();
+  });
 });
 
 describe("proxyPairSchema", () => {
@@ -88,6 +116,21 @@ describe("proxyPairSchema", () => {
         listen_port: 1234,
         access_log: false,
         targets: [],
+        default_target_id: "target-1",
+      }),
+    ).toThrow();
+  });
+
+  it.each([-1, 65_536, 1.5])("rejects invalid listen port %s", (listenPort) => {
+    expect(() =>
+      proxyPairSchema.parse({
+        id: "proxy-1",
+        name: "Proxy",
+        enabled: false,
+        listen_host: "127.0.0.1",
+        listen_port: listenPort,
+        access_log: false,
+        targets: [target],
         default_target_id: "target-1",
       }),
     ).toThrow();
