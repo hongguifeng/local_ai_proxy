@@ -223,7 +223,7 @@
 - [x] `DB-022` P0 get record/task ID。
 - [x] `DB-023` P0 next sequence 和 record count。
 - [x] `DB-024` P0 task records query/pagination/order。
-- [ ] `DB-025` P0 unique task/sequence 冲突测试。
+- [x] `DB-025` P0 unique task/sequence 冲突测试。
 
 ### 7.4 Link/Search/Delete
 

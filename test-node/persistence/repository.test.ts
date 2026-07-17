@@ -308,3 +308,33 @@ describe("TrafficRepository.listTaskRecords", () => {
     repository.close();
   });
 });
+
+describe("record task sequence uniqueness", () => {
+  it("rejects a second record at the same task sequence", async () => {
+    const root = await mkdtemp(path.join(os.tmpdir(), "llm-proxy-record-conflict-"));
+    temporaryDirectories.push(root);
+    const repository = new TrafficRepository(root);
+    repository.upsertTask({ id: "task-1", match_strategy_version: 4 });
+    repository.upsertRecord({
+      id: "record-original",
+      task_id: "task-1",
+      sequence: 1,
+      method: "POST",
+      path: "/original",
+    });
+
+    expect(() =>
+      repository.upsertRecord({
+        id: "record-conflict",
+        task_id: "task-1",
+        sequence: 1,
+        method: "POST",
+        path: "/conflict",
+      }),
+    ).toThrow(/UNIQUE constraint failed: records\.task_id, records\.sequence/u);
+    expect(repository.recordCount("task-1")).toBe(1);
+    expect(repository.getRecord("record-original")?.["path"]).toBe("/original");
+    expect(repository.getRecord("record-conflict")).toBeUndefined();
+    repository.close();
+  });
+});
