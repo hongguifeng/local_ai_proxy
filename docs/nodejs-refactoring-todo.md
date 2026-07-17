@@ -145,7 +145,7 @@
 - [x] `PURE-010` P0 移植 strip field parser。
 - [x] `PURE-011` P0 移植 inject JSON object parser。
 - [x] `PURE-012` P0 先 strip 后 inject。
-- [ ] `PURE-013` P0 非 object JSON 不变。
+- [x] `PURE-013` P0 非 object JSON 不变。
 - [ ] `PURE-014` P0 记录排序后的 stripped/injected field names。
 
 ### 6.3 Header

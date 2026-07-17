@@ -68,4 +68,20 @@ describe("transformRequestJsonFields", () => {
     expect(result.injectedFields).toEqual(["metadata", "stream"]);
     expect(Buffer.from(original).toString("utf8")).toContain('"source":"client"');
   });
+
+  it.each([
+    ["array", '["not","object"]'],
+    ["string", '"not object"'],
+    ["number", "123"],
+    ["null", "null"],
+    ["invalid JSON", "{invalid"],
+    ["empty body", ""],
+  ])("preserves a %s body unchanged", (_name, text) => {
+    const body = Buffer.from(text);
+
+    const result = transformRequestJsonFields(body, new Set(["temperature"]), { stream: true });
+
+    expect(result).toEqual({ body, strippedFields: [], injectedFields: [] });
+    expect(result.body).toBe(body);
+  });
 });
