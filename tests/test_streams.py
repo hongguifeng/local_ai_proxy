@@ -5,6 +5,7 @@ from llm_proxy import (
     body_json_value,
     compact_sse_json,
 )
+from llm_proxy.streams import StreamAccumulator
 
 
 class StreamSummaryTests(unittest.TestCase):
@@ -271,4 +272,99 @@ class StreamSummaryTests(unittest.TestCase):
                     "usage": {"input_tokens": 8},
                 },
             },
+        )
+
+    def test_summary_contract_covers_all_optional_fields_and_unknown_payloads(self) -> None:
+        accumulator = StreamAccumulator(event_count=12, done_seen=True)
+        events = [
+            {"type": "response.created", "response": {"id": "resp_all", "model": "fixture"}},
+            {"type": "response.output_text.delta", "delta": "response content"},
+            {"type": "response.reasoning_text.delta", "delta": "response reasoning"},
+            {
+                "type": "response.function_call_arguments.done",
+                "item_id": "item_all",
+                "call_id": "call_all",
+                "arguments": '{"value":1}',
+            },
+            {
+                "type": "response.web_search_call.completed",
+                "item_id": "search_all",
+                "status": "completed",
+            },
+            {
+                "type": "content_block_start",
+                "index": 2,
+                "content_block": {
+                    "type": "tool_use",
+                    "id": "toolu_all",
+                    "name": "claude_tool",
+                    "input": {"value": 2},
+                },
+            },
+            {
+                "choices": [
+                    {
+                        "delta": {
+                            "tool_calls": [
+                                {
+                                    "index": 0,
+                                    "id": "chat_call_all",
+                                    "type": "function",
+                                    "function": {"name": "chat_tool", "arguments": '{"value":3}'},
+                                }
+                            ]
+                        },
+                        "finish_reason": "tool_calls",
+                    }
+                ],
+                "usage": {"total_tokens": 13},
+            },
+            {"fixture_unknown": "preserved"},
+            {"type": "error", "error": {"type": "fixture_error"}},
+            {"type": "response.future.event", "value": "ignored response event"},
+            {
+                "type": "response.completed",
+                "response": {"id": "resp_all", "status": "completed", "usage": {"total_tokens": 21}},
+            },
+            {"type": "ping"},
+        ]
+        for event in events:
+            accumulator.add_event(event)
+
+        summary = accumulator.summary()["stream_summary"]
+
+        self.assertEqual(
+            set(summary),
+            {
+                "event_count",
+                "done_seen",
+                "reasoning",
+                "content",
+                "response_tool_calls",
+                "web_search_calls",
+                "claude_tool_calls",
+                "tool_calls",
+                "finish_reasons",
+                "usage",
+                "response",
+                "other_payloads",
+            },
+        )
+        self.assertEqual(summary["event_count"], 12)
+        self.assertTrue(summary["done_seen"])
+        self.assertEqual(summary["content"], "response content")
+        self.assertEqual(summary["reasoning"], "response reasoning")
+        self.assertEqual(summary["usage"], {"total_tokens": 21})
+        self.assertEqual(summary["finish_reasons"], ["tool_calls", "completed"])
+        self.assertEqual(summary["response"]["id"], "resp_all")
+        self.assertEqual(summary["response_tool_calls"][0]["arguments_json"], {"value": 1})
+        self.assertEqual(summary["web_search_calls"][0]["status"], "completed")
+        self.assertEqual(summary["claude_tool_calls"][0]["input"], {"value": 2})
+        self.assertEqual(summary["tool_calls"][0]["function"]["arguments_json"], {"value": 3})
+        self.assertEqual(
+            summary["other_payloads"],
+            [
+                {"fixture_unknown": "preserved"},
+                {"type": "error", "error": {"type": "fixture_error"}},
+            ],
         )
