@@ -17,6 +17,7 @@ export {
 export { SCHEMA_V1_MIGRATION, SCHEMA_VERSION } from "./schema-v1.js";
 export {
   TrafficRepository,
+  decodeRecordRow,
   decodeTaskRow,
   type RepositoryRecord,
   type RepositoryPage,

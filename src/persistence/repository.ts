@@ -229,11 +229,24 @@ export class TrafficRepository {
     `,
       )
       .run(values);
-    const row = this.#database.prepare("SELECT * FROM records WHERE id = ?").get(values.id);
-    if (row === undefined) {
+    const loaded = this.getRecord(values.id);
+    if (loaded === undefined) {
       throw new Error(`Record ${values.id} was not saved.`);
     }
-    return row as RepositoryRecord;
+    return loaded;
+  }
+
+  getRecord(recordId: string): RepositoryRecord | undefined {
+    const row = this.#database.prepare("SELECT * FROM records WHERE id = ?").get(recordId);
+    return row === undefined ? undefined : decodeRecordRow(row as RepositoryRecord);
+  }
+
+  taskIdForRecord(recordId: string): string | undefined {
+    const taskId = this.#database
+      .prepare("SELECT task_id FROM records WHERE id = ?")
+      .pluck()
+      .get(recordId);
+    return typeof taskId === "string" ? taskId : undefined;
   }
 }
 
@@ -246,6 +259,24 @@ export function decodeTaskRow(row: Readonly<RepositoryRecord>): RepositoryRecord
   Reflect.deleteProperty(decoded, "fingerprints_json");
   Reflect.deleteProperty(decoded, "boundary_fingerprints_json");
   Reflect.deleteProperty(decoded, "last_user_messages_json");
+  return decoded;
+}
+
+export function decodeRecordRow(row: Readonly<RepositoryRecord>): RepositoryRecord {
+  const decoded: RepositoryRecord = { ...row };
+  for (const [column, field, fallback] of [
+    ["request_headers_json", "request_headers", {}],
+    ["response_headers_json", "response_headers", {}],
+    ["request_body_json", "request_body", null],
+    ["response_body_json", "response_body", null],
+    ["model_route_json", "model_route", null],
+    ["stripped_fields_json", "stripped_fields", []],
+    ["injected_fields_json", "injected_fields", []],
+    ["added_upstream_headers_json", "added_upstream_headers", []],
+  ] as const) {
+    decoded[field] = jsonValue(decoded[column], fallback);
+    Reflect.deleteProperty(decoded, column);
+  }
   return decoded;
 }
 

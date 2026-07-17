@@ -192,10 +192,14 @@ describe("TrafficRepository.upsertRecord", () => {
       method: "POST",
       endpoint: "/v1/responses",
       status: 200,
-      request_body_json: '{"model":"demo"}',
-      response_body_json: '{"id":"resp_1"}',
-      stripped_fields_json: '["temperature"]',
+      request_body: { model: "demo" },
+      response_body: { id: "resp_1" },
+      stripped_fields: ["temperature"],
     });
+    expect(repository.getRecord("record-1")).toEqual(record);
+    expect(repository.taskIdForRecord("record-1")).toBe("task-1");
+    expect(repository.getRecord("missing")).toBeUndefined();
+    expect(repository.taskIdForRecord("missing")).toBeUndefined();
     repository.close();
   });
 
@@ -229,7 +233,7 @@ describe("TrafficRepository.upsertRecord", () => {
       id: "record-1",
       event: "request_finished",
       status: 200,
-      response_body_json: '{"id":"resp_final"}',
+      response_body: { id: "resp_final" },
       created_at: "2026-07-18T00:00:00.000+00:00",
       updated_at: "2026-07-18T00:01:00.000+00:00",
     });
