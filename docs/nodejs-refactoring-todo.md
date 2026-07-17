@@ -45,7 +45,7 @@
 - [x] `BASE-010` P0 测试 GET/POST/PUT/PATCH/DELETE/OPTIONS/HEAD。
 - [x] `BASE-011` P0 测试自定义 Header 覆盖、API Key 优先级和重复 Header。
 - [x] `BASE-012` P0 测试上游 502、timeout、响应开始后断开。
-- [ ] `BASE-013` P0 测试多 target 使用不同 log root。
+- [x] `BASE-013` P0 测试多 target 使用不同 log root。
 - [ ] `BASE-014` P0 测试 config invalid JSON、invalid shape、port conflict。
 - [ ] `BASE-015` P0 测试管理 API 400/404 和非法 query。
 - [ ] `BASE-016` P0 测试所有 stream summary 字段和未知事件。

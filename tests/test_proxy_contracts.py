@@ -258,6 +258,86 @@ class ProxyHttpContractTests(unittest.TestCase):
                 upstream.server_close()
                 upstream_thread.join(timeout=2)
 
+    def test_routes_logs_to_each_targets_configured_log_root(self) -> None:
+        class UpstreamHandler(BaseHTTPRequestHandler):
+            def do_POST(self) -> None:
+                length = int(self.headers.get("Content-Length", "0") or "0")
+                self.rfile.read(length)
+                response_body = b'{"ok":true}'
+                self.send_response(200)
+                self.send_header("Content-Type", "application/json")
+                self.send_header("Content-Length", str(len(response_body)))
+                self.end_headers()
+                self.wfile.write(response_body)
+
+            def log_message(self, fmt: str, *args: object) -> None:
+                return
+
+        upstream = ThreadingHTTPServer(("127.0.0.1", 0), UpstreamHandler)
+        upstream_thread = threading.Thread(target=upstream.serve_forever, daemon=True)
+        upstream_thread.start()
+        with tempfile.TemporaryDirectory() as first_dir, tempfile.TemporaryDirectory() as second_dir:
+            first_root = Path(first_dir)
+            second_root = Path(second_dir)
+            first_logger = TrafficLogger(first_root)
+            second_logger = TrafficLogger(second_root)
+            first_target = runtime_target(
+                upstream.server_address[1],
+                id="first",
+                name="First target",
+                model_mappings=[{"listen": "route-first", "upstream": "upstream-first"}],
+                traffic_logger=first_logger,
+            )
+            second_target = runtime_target(
+                upstream.server_address[1],
+                id="second",
+                name="Second target",
+                traffic_logger=second_logger,
+            )
+            proxy = ProxyServer(
+                ("127.0.0.1", 0),
+                ProxyHandler,
+                proxy_config([first_target, second_target], default_target_id="second"),  # type: ignore[arg-type]
+                first_logger,
+            )
+            proxy_thread = threading.Thread(target=proxy.serve_forever, daemon=True)
+            proxy_thread.start()
+            try:
+                for model in ("route-first", "route-default"):
+                    connection = http.client.HTTPConnection("127.0.0.1", proxy.server_address[1], timeout=5)
+                    body = f'{{"model":"{model}","input":"fixture"}}'.encode()
+                    connection.request(
+                        "POST",
+                        "/v1/responses",
+                        body=body,
+                        headers={"Content-Type": "application/json"},
+                    )
+                    response = connection.getresponse()
+                    self.assertEqual(response.status, 200)
+                    response.read()
+                    connection.close()
+
+                with LogRepository(first_root) as repository:
+                    first_tasks = repository.list_tasks("", 10, 0)
+                    self.assertEqual(first_tasks["total"], 1)
+                    first_records = repository.list_task_records(str(first_tasks["tasks"][0]["id"]))["records"]
+                    self.assertEqual(first_records[0]["target_id"], "first")
+                    self.assertEqual(first_records[0]["request_body"]["model"], "upstream-first")
+
+                with LogRepository(second_root) as repository:
+                    second_tasks = repository.list_tasks("", 10, 0)
+                    self.assertEqual(second_tasks["total"], 1)
+                    second_records = repository.list_task_records(str(second_tasks["tasks"][0]["id"]))["records"]
+                    self.assertEqual(second_records[0]["target_id"], "second")
+                    self.assertEqual(second_records[0]["request_body"]["model"], "route-default")
+            finally:
+                proxy.shutdown()
+                proxy.server_close()
+                proxy_thread.join(timeout=2)
+                upstream.shutdown()
+                upstream.server_close()
+                upstream_thread.join(timeout=2)
+
     def test_header_overrides_api_key_priority_and_duplicate_headers(self) -> None:
         seen: dict[str, object] = {}
 
