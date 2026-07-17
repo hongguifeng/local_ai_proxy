@@ -55,6 +55,23 @@ describe("selectTargetByModel", () => {
       "ProxyServer config must include at least one target.",
     );
   });
+
+  it("skips a disabled matching target when it is not the default", () => {
+    const disabled = target("disabled", false, [
+      { listen: "demo", upstream: "disabled-upstream" },
+    ]);
+    const enabled = target("enabled", true, [{ listen: "demo", upstream: "enabled-upstream" }]);
+    const fallback = target("fallback", true, []);
+
+    const selection = selectTargetByModel(
+      [disabled, enabled, fallback],
+      "fallback",
+      Buffer.from('{"model":"demo"}'),
+    );
+
+    expect(selection.target).toBe(enabled);
+    expect(selection.upstreamModel).toBe("enabled-upstream");
+  });
 });
 
 function target(
