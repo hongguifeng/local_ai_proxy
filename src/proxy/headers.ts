@@ -45,3 +45,26 @@ export function headersToDictionary(headers: Iterable<HeaderEntry>): Record<stri
   }
   return Object.fromEntries(entries);
 }
+
+export function applyTargetHeaderSettings(
+  headers: readonly HeaderEntry[],
+  targetHeaders: readonly HeaderEntry[],
+  targetApiKey: string,
+): HeaderEntry[] {
+  const overrideNames = new Set(targetHeaders.map(([name]) => name.toLowerCase()));
+  let forwarded =
+    overrideNames.size === 0
+      ? [...headers]
+      : headers.filter(([name]) => !overrideNames.has(name.toLowerCase()));
+  forwarded.push(...targetHeaders);
+
+  const apiKey = targetApiKey.trim();
+  if (apiKey !== "") {
+    forwarded = forwarded.filter(([name]) => name.toLowerCase() !== "authorization");
+    forwarded.push([
+      "Authorization",
+      apiKey.toLowerCase().startsWith("bearer ") ? apiKey : `Bearer ${apiKey}`,
+    ]);
+  }
+  return forwarded;
+}

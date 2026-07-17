@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 
 import {
+  applyTargetHeaderSettings,
   HOP_BY_HOP_HEADERS,
   headersToDictionary,
   parseHeaderOverrides,
@@ -75,5 +76,53 @@ describe("headersToDictionary", () => {
         ["x-fixture", "lower"],
       ]),
     ).toEqual({ "X-Fixture": ["upper"], "x-fixture": ["lower"] });
+  });
+});
+
+describe("applyTargetHeaderSettings", () => {
+  it("applies target overrides and then gives the API key final Authorization priority", () => {
+    expect(
+      applyTargetHeaderSettings(
+        [
+          ["Authorization", "Bearer client-value"],
+          ["X-Override", "client-one"],
+          ["x-override", "client-two"],
+          ["X-Repeated", "first"],
+          ["X-Repeated", "second"],
+        ],
+        [
+          ["X-Override", "target-value"],
+          ["Authorization", "Target header must lose to API key"],
+        ],
+        " fixture-api-key ",
+      ),
+    ).toEqual([
+      ["X-Repeated", "first"],
+      ["X-Repeated", "second"],
+      ["X-Override", "target-value"],
+      ["Authorization", "Bearer fixture-api-key"],
+    ]);
+  });
+
+  it("preserves an already Bearer-prefixed API key", () => {
+    expect(applyTargetHeaderSettings([], [], "bEaReR fixture-token")).toEqual([
+      ["Authorization", "bEaReR fixture-token"],
+    ]);
+  });
+
+  it("retains multiple configured values for the same override", () => {
+    expect(
+      applyTargetHeaderSettings(
+        [["X-Repeated", "client"]],
+        [
+          ["X-Repeated", "target-one"],
+          ["x-repeated", "target-two"],
+        ],
+        "",
+      ),
+    ).toEqual([
+      ["X-Repeated", "target-one"],
+      ["x-repeated", "target-two"],
+    ]);
   });
 });

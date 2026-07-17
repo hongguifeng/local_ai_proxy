@@ -153,7 +153,7 @@
 - [x] `PURE-020` P0 定义 hop-by-hop Header 集合。
 - [x] `PURE-021` P0 解析 `Name: value` override。
 - [x] `PURE-022` P0 保留多值 Header 表达。
-- [ ] `PURE-023` P0 实现 override 和 API Key 优先级测试。
+- [x] `PURE-023` P0 实现 override 和 API Key 优先级测试。
 - [ ] `PURE-024` P0 实现 Host 和 X-Forwarded-* helper。
 
 ### 6.4 Payload 与 redaction

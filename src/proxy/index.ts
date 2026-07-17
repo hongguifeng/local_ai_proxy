@@ -1,4 +1,5 @@
 export {
+  applyTargetHeaderSettings,
   HOP_BY_HOP_HEADERS,
   headersToDictionary,
   parseHeaderOverrides,
