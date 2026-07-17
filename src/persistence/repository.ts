@@ -9,6 +9,15 @@ export interface TrafficRepositoryOptions {
   readonly now?: () => string;
 }
 
+export interface RepositoryPage<T> {
+  readonly items: readonly T[];
+  readonly total: number;
+  readonly limit: number;
+  readonly offset: number;
+  readonly nextOffset: number;
+  readonly hasMore: boolean;
+}
+
 export class TrafficRepository {
   readonly #database: Database.Database;
   readonly #now: () => string;
@@ -104,6 +113,47 @@ export class TrafficRepository {
       )
       .all(boundedLimit) as RepositoryRecord[];
     return rows.map((row) => decodeTaskRow(row));
+  }
+
+  listTasks(query = "", limit = 100, offset = 0): RepositoryPage<RepositoryRecord> {
+    const boundedLimit = Math.max(1, Math.min(integerValue(limit, 100), 500));
+    const boundedOffset = Math.max(0, integerValue(offset, 0));
+    const normalizedQuery = query.trim().toLowerCase();
+    const where =
+      normalizedQuery === ""
+        ? { sql: "", parameters: [] }
+        : {
+            sql: `WHERE lower(
+              COALESCE(id, '') || ' ' || COALESCE(kind, '') || ' ' || COALESCE(endpoint, '') || ' ' ||
+              COALESCE(anchor, '') || ' ' || COALESCE(model, '') || ' ' || COALESCE(target, '') || ' ' ||
+              COALESCE(fingerprints_json, '') || ' ' || COALESCE(boundary_fingerprints_json, '')
+            ) LIKE ?`,
+            parameters: [`%${normalizedQuery}%`],
+          };
+    const total = this.#database
+      .prepare(`SELECT COUNT(*) AS count FROM tasks ${where.sql}`)
+      .pluck()
+      .get(...where.parameters) as number;
+    const rows = this.#database
+      .prepare(
+        `
+        SELECT * FROM tasks
+        ${where.sql}
+        ORDER BY COALESCE(last_response_at, last_seen_at, started_at) DESC
+        LIMIT ? OFFSET ?
+      `,
+      )
+      .all(...where.parameters, boundedLimit, boundedOffset) as RepositoryRecord[];
+    const items = rows.map((row) => decodeTaskRow(row));
+    const nextOffset = boundedOffset + items.length;
+    return {
+      items,
+      total,
+      limit: boundedLimit,
+      offset: boundedOffset,
+      nextOffset,
+      hasMore: nextOffset < total,
+    };
   }
 }
 

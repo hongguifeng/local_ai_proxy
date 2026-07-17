@@ -119,3 +119,44 @@ describe("TrafficRepository.recentTasks", () => {
     repository.close();
   });
 });
+
+describe("TrafficRepository.listTasks", () => {
+  it("queries, sorts, and paginates tasks", async () => {
+    const root = await mkdtemp(path.join(os.tmpdir(), "llm-proxy-list-tasks-"));
+    temporaryDirectories.push(root);
+    const repository = new TrafficRepository(root, { now: () => "2026-07-18T00:00:00.000+00:00" });
+    for (const [id, model, lastSeen] of [
+      ["task-old", "fixture-gpt", "2026-07-18T01:00:00.000+00:00"],
+      ["task-middle", "claude", "2026-07-18T02:00:00.000+00:00"],
+      ["task-new", "fixture-gpt", "2026-07-18T03:00:00.000+00:00"],
+    ]) {
+      repository.upsertTask({
+        id,
+        model,
+        started_at: lastSeen,
+        last_seen_at: lastSeen,
+        match_strategy_version: 4,
+      });
+    }
+
+    expect(repository.listTasks("", 2, 0)).toMatchObject({
+      items: [{ id: "task-new" }, { id: "task-middle" }],
+      total: 3,
+      limit: 2,
+      offset: 0,
+      nextOffset: 2,
+      hasMore: true,
+    });
+    expect(repository.listTasks("", 2, 2)).toMatchObject({
+      items: [{ id: "task-old" }],
+      total: 3,
+      nextOffset: 3,
+      hasMore: false,
+    });
+    expect(repository.listTasks("FIXTURE-GPT").items.map(({ id }) => id)).toEqual([
+      "task-new",
+      "task-old",
+    ]);
+    repository.close();
+  });
+});

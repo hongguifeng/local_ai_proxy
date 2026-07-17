@@ -19,5 +19,6 @@ export {
   TrafficRepository,
   decodeTaskRow,
   type RepositoryRecord,
+  type RepositoryPage,
   type TrafficRepositoryOptions,
 } from "./repository.js";
