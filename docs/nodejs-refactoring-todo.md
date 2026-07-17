@@ -37,7 +37,7 @@
   - 验收：包含多 pair、多 target、默认目标、disabled target、API key 占位、Header、strip/inject、不同 log root。
 - [x] `BASE-004` P0 创建脱敏的真实 `traffic.db` fixture。
   - 验收：包含 responses/chat/messages/completions、pending、SSE、tool call、response/context link、多 task。
-- [ ] `BASE-005` P0 建立 fixture 动态值规范化规则。
+- [x] `BASE-005` P0 建立 fixture 动态值规范化规则。
   - 验收：UUID、时间、端口、临时路径不会导致跨语言比较误报。
 
 ### 3.2 补齐 Python 契约测试
