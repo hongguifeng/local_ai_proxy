@@ -32,7 +32,9 @@ export class StreamAccumulator {
     const eventType = event["type"];
     if (typeof eventType === "string" && eventType.startsWith("response.")) {
       this.#addResponseEvent(eventType, event);
+      return;
     }
+    this.#addChatEvent(event);
   }
 
   summary(): StreamSummary {
@@ -202,6 +204,34 @@ export class StreamAccumulator {
       }
     }
     return toolCall;
+  }
+
+  #addChatEvent(event: Readonly<Record<string, unknown>>): void {
+    if (event["usage"]) {
+      this.#usage = event["usage"];
+    }
+    const choices = event["choices"];
+    if (!Array.isArray(choices)) {
+      return;
+    }
+    for (const choice of choices as unknown[]) {
+      if (!isRecord(choice)) {
+        continue;
+      }
+      if (choice["finish_reason"]) {
+        this.#finishReasons.push(stringValue(choice["finish_reason"]));
+      }
+      for (const payload of [choice["delta"], choice["message"], choice]) {
+        if (!isRecord(payload)) {
+          continue;
+        }
+        for (const key of ["reasoning_content", "reasoning", "reasoning_text"] as const) {
+          appendString(this.#reasoningParts, payload[key]);
+        }
+        appendString(this.#contentParts, payload["content"]);
+        appendString(this.#contentParts, payload["text"]);
+      }
+    }
   }
 }
 

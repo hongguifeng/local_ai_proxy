@@ -187,7 +187,7 @@
 - [x] `SSE-004` P0 Responses function call delta/done。
 - [x] `SSE-005` P0 Responses web search events。
 - [x] `SSE-006` P0 Responses compact metadata/usage/status。
-- [ ] `SSE-007` P0 Chat content/reasoning/finish/usage。
+- [x] `SSE-007` P0 Chat content/reasoning/finish/usage。
 - [ ] `SSE-008` P0 Chat tool call delta merge 和 arguments JSON。
 - [ ] `SSE-009` P0 Claude text/thinking/tool_use/input delta。
 - [ ] `SSE-010` P0 Claude stop reason/usage/message metadata。

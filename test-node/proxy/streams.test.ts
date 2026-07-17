@@ -200,3 +200,25 @@ describe("compactSseValue Responses metadata", () => {
     ]);
   });
 });
+
+describe("compactSseValue Chat content", () => {
+  it("combines content, reasoning, finish reasons, and usage", () => {
+    const text = [
+      'data: {"choices":[{"delta":{"reasoning_content":"think "}}]}',
+      'data: {"choices":[{"message":{"reasoning":"more ","content":"Hello"}}]}',
+      'data: {"choices":[{"delta":{"reasoning_text":"done","text":" world"},"finish_reason":"stop"}],"usage":{"total_tokens":9}}',
+      "data: [DONE]",
+    ].join("\n\n");
+
+    expect(compactSseValue(text)).toEqual({
+      stream_summary: {
+        event_count: 3,
+        done_seen: true,
+        reasoning: "think more done",
+        content: "Hello world",
+        finish_reasons: ["stop"],
+        usage: { total_tokens: 9 },
+      },
+    });
+  });
+});
