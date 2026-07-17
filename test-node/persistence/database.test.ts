@@ -46,4 +46,17 @@ describe("openLogDatabase", () => {
     expect(existsSync(logRoot)).toBe(true);
     expect(existsSync(path.join(logRoot, TRAFFIC_DB_NAME))).toBe(true);
   });
+
+  it("configures WAL, foreign keys, busy timeout, and NORMAL synchronous", async () => {
+    const root = await mkdtemp(path.join(os.tmpdir(), "llm-proxy-database-"));
+    temporaryDirectories.push(root);
+    const database = openLogDatabase(root);
+
+    expect(database.pragma("journal_mode", { simple: true })).toBe("wal");
+    expect(database.pragma("foreign_keys", { simple: true })).toBe(1);
+    expect(database.pragma("busy_timeout", { simple: true })).toBe(5_000);
+    expect(database.pragma("synchronous", { simple: true })).toBe(1);
+
+    database.close();
+  });
 });

@@ -13,5 +13,14 @@ export function logDatabasePath(logRoot: string | null | undefined): string | un
 
 export function openLogDatabase(logRoot: string): Database.Database {
   mkdirSync(logRoot, { recursive: true });
-  return new Database(path.join(logRoot, TRAFFIC_DB_NAME));
+  const database = new Database(path.join(logRoot, TRAFFIC_DB_NAME));
+  configureDatabase(database);
+  return database;
+}
+
+export function configureDatabase(database: Database.Database): void {
+  database.pragma("journal_mode = WAL");
+  database.pragma("foreign_keys = ON");
+  database.pragma("busy_timeout = 5000");
+  database.pragma("synchronous = NORMAL");
 }
