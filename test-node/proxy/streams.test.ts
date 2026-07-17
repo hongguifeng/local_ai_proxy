@@ -87,3 +87,43 @@ describe("compactSseValue Responses text", () => {
     });
   });
 });
+
+describe("compactSseValue Responses function calls", () => {
+  it("merges argument deltas and parses completed JSON arguments", () => {
+    const text = [
+      'data: {"type":"response.function_call_arguments.delta","item_id":"item_1","call_id":"call_1","output_index":0,"delta":"{\\"q\\":"}',
+      'data: {"type":"response.function_call_arguments.delta","item_id":"item_1","delta":"\\"docs\\"}"}',
+    ].join("\n\n");
+
+    expect(compactSseValue(text)).toEqual({
+      stream_summary: {
+        event_count: 2,
+        done_seen: false,
+        response_tool_calls: [
+          {
+            arguments: '{"q":"docs"}',
+            item_id: "item_1",
+            call_id: "call_1",
+            output_index: 0,
+            arguments_json: { q: "docs" },
+          },
+        ],
+      },
+    });
+  });
+
+  it("uses the done event's complete arguments", () => {
+    const text = [
+      'data: {"type":"response.function_call_arguments.delta","call_id":"call_2","delta":"partial"}',
+      'data: {"type":"response.function_call_arguments.done","call_id":"call_2","arguments":"{\\"value\\":2}"}',
+    ].join("\n\n");
+
+    expect(compactSseValue(text)?.stream_summary["response_tool_calls"]).toEqual([
+      {
+        arguments: '{"value":2}',
+        call_id: "call_2",
+        arguments_json: { value: 2 },
+      },
+    ]);
+  });
+});

@@ -12,6 +12,7 @@ export interface StreamSummary {
 export class StreamAccumulator {
   readonly #contentParts: string[] = [];
   readonly #reasoningParts: string[] = [];
+  readonly #responseToolCalls = new Map<string, Record<string, unknown>>();
   readonly #doneSeen: boolean;
   readonly #eventCount: number;
 
@@ -41,6 +42,11 @@ export class StreamAccumulator {
     if (this.#contentParts.length > 0) {
       streamSummary["content"] = this.#contentParts.join("");
     }
+    if (this.#responseToolCalls.size > 0) {
+      streamSummary["response_tool_calls"] = [...this.#responseToolCalls.entries()]
+        .sort(([left], [right]) => left.localeCompare(right))
+        .map(([, toolCall]) => compactArguments(toolCall));
+    }
     return { stream_summary: streamSummary };
   }
 
@@ -60,7 +66,38 @@ export class StreamAccumulator {
       this.#reasoningParts.length === 0
     ) {
       appendString(this.#reasoningParts, event["text"]);
+    } else if (eventType === "response.function_call_arguments.delta") {
+      const toolCall = this.#responseToolCall(event, true);
+      const delta = event["delta"];
+      if (typeof delta === "string") {
+        toolCall["arguments"] = `${stringValue(toolCall["arguments"])}${delta}`;
+      }
+    } else if (eventType === "response.function_call_arguments.done") {
+      const toolCall = this.#responseToolCall(event, false);
+      if (typeof event["arguments"] === "string") {
+        toolCall["arguments"] = event["arguments"];
+      }
     }
+  }
+
+  #responseToolCall(
+    event: Readonly<Record<string, unknown>>,
+    initializeArguments: boolean,
+  ): Record<string, unknown> {
+    const key = stringValue(
+      firstTruthy([event["item_id"], event["call_id"], event["output_index"]]) ?? "0",
+    );
+    let toolCall = this.#responseToolCalls.get(key);
+    if (toolCall === undefined) {
+      toolCall = initializeArguments ? { arguments: "" } : {};
+      this.#responseToolCalls.set(key, toolCall);
+    }
+    for (const idKey of ["item_id", "call_id", "output_index"] as const) {
+      if (event[idKey] !== null && event[idKey] !== undefined) {
+        toolCall[idKey] = event[idKey];
+      }
+    }
+    return toolCall;
   }
 }
 
@@ -110,4 +147,26 @@ function appendString(parts: string[], value: unknown): void {
   if (typeof value === "string" && value !== "") {
     parts.push(value);
   }
+}
+
+function compactArguments(toolCall: Readonly<Record<string, unknown>>): Record<string, unknown> {
+  const compacted = { ...toolCall };
+  if (typeof compacted["arguments"] === "string") {
+    try {
+      compacted["arguments_json"] = JSON.parse(compacted["arguments"]) as unknown;
+    } catch {
+      // Keep the original argument string when it is incomplete or not JSON.
+    }
+  }
+  return compacted;
+}
+
+function stringValue(value: unknown): string {
+  return typeof value === "string" || typeof value === "number" || typeof value === "boolean"
+    ? String(value)
+    : "";
+}
+
+function firstTruthy(values: readonly unknown[]): unknown {
+  return values.find((value) => Boolean(value));
 }
