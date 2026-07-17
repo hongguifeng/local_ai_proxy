@@ -305,3 +305,33 @@ describe("compactSseValue Claude metadata", () => {
     });
   });
 });
+
+describe("compactSseValue unknown events", () => {
+  it("preserves unknown ordinary payloads and Claude errors", () => {
+    const text = [
+      'data: {"fixture_unknown":"preserved"}',
+      'data: {"type":"error","error":{"type":"fixture_error"}}',
+      'data: "scalar payload"',
+    ].join("\n\n");
+
+    expect(compactSseValue(text)?.stream_summary["other_payloads"]).toEqual([
+      { fixture_unknown: "preserved" },
+      { type: "error", error: { type: "fixture_error" } },
+      "scalar payload",
+    ]);
+  });
+
+  it("ignores unknown Responses and Claude housekeeping events", () => {
+    const text = [
+      'data: {"type":"response.future.event","value":"ignored"}',
+      'data: {"type":"response.output_item.done","item":{"type":"mcp_call"}}',
+      'data: {"type":"ping"}',
+      'data: {"type":"message_stop"}',
+      'data: {"type":"content_block_stop","index":0}',
+    ].join("\n\n");
+
+    expect(compactSseValue(text)).toEqual({
+      stream_summary: { event_count: 5, done_seen: false },
+    });
+  });
+});

@@ -16,6 +16,7 @@ export class StreamAccumulator {
   readonly #responseWebSearchCalls = new Map<string, Record<string, unknown>>();
   readonly #toolCalls: unknown[] = [];
   readonly #claudeToolCalls = new Map<number, Record<string, unknown>>();
+  readonly #otherPayloads: unknown[] = [];
   readonly #finishReasons: string[] = [];
   readonly #doneSeen: boolean;
   readonly #eventCount: number;
@@ -29,6 +30,7 @@ export class StreamAccumulator {
 
   addEvent(event: unknown): void {
     if (!isRecord(event)) {
+      this.#otherPayloads.push(event);
       return;
     }
     const eventType = event["type"];
@@ -92,6 +94,9 @@ export class StreamAccumulator {
     }
     if (this.#responsePayload !== undefined && Object.keys(this.#responsePayload).length > 0) {
       streamSummary["response"] = this.#responsePayload;
+    }
+    if (this.#otherPayloads.length > 0) {
+      streamSummary["other_payloads"] = [...this.#otherPayloads];
     }
     return { stream_summary: streamSummary };
   }
@@ -238,6 +243,7 @@ export class StreamAccumulator {
     }
     const choices = event["choices"];
     if (!Array.isArray(choices)) {
+      this.#otherPayloads.push(event);
       return;
     }
     for (const choice of choices as unknown[]) {
@@ -322,6 +328,8 @@ export class StreamAccumulator {
         this.#usage =
           isRecord(this.#usage) && isRecord(usage) ? { ...this.#usage, ...usage } : usage;
       }
+    } else if (eventType === "error") {
+      this.#otherPayloads.push(event);
     }
   }
 
