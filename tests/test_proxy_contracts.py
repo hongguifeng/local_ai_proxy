@@ -1,11 +1,17 @@
 from __future__ import annotations
 
 import http.client
+import socket
+import struct
+import tempfile
 import threading
+import time
 import unittest
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+from pathlib import Path
 
 from llm_proxy import ProxyHandler, ProxyServer, TrafficLogger
+from llm_proxy.log_repository import LogRepository
 
 
 def runtime_target(port: int, **overrides: object) -> dict[str, object]:
@@ -109,6 +115,148 @@ class ProxyHttpContractTests(unittest.TestCase):
             upstream.shutdown()
             upstream.server_close()
             upstream_thread.join(timeout=2)
+
+    def test_returns_502_for_connection_failure_and_upstream_timeout(self) -> None:
+        unavailable_socket = socket.socket()
+        unavailable_socket.bind(("127.0.0.1", 0))
+        unavailable_port = unavailable_socket.getsockname()[1]
+        unavailable_socket.close()
+
+        connection_failure_proxy = ProxyServer(
+            ("127.0.0.1", 0),
+            ProxyHandler,
+            proxy_config([runtime_target(unavailable_port)]),  # type: ignore[arg-type]
+            TrafficLogger(None),
+        )
+        connection_failure_thread = threading.Thread(
+            target=connection_failure_proxy.serve_forever,
+            daemon=True,
+        )
+        connection_failure_thread.start()
+        try:
+            connection = http.client.HTTPConnection(
+                "127.0.0.1",
+                connection_failure_proxy.server_address[1],
+                timeout=5,
+            )
+            connection.request("POST", "/connection-failure", body=b"{}")
+            response = connection.getresponse()
+            self.assertEqual(response.status, 502)
+            self.assertIn(b"Bad Gateway", response.read())
+            connection.close()
+        finally:
+            connection_failure_proxy.shutdown()
+            connection_failure_proxy.server_close()
+            connection_failure_thread.join(timeout=2)
+
+        class SlowUpstreamHandler(BaseHTTPRequestHandler):
+            def do_POST(self) -> None:
+                time.sleep(0.2)
+                try:
+                    self.send_response(200)
+                    self.send_header("Content-Length", "2")
+                    self.end_headers()
+                    self.wfile.write(b"ok")
+                except (BrokenPipeError, ConnectionResetError):
+                    pass
+
+            def log_message(self, fmt: str, *args: object) -> None:
+                return
+
+        slow_upstream = ThreadingHTTPServer(("127.0.0.1", 0), SlowUpstreamHandler)
+        slow_thread = threading.Thread(target=slow_upstream.serve_forever, daemon=True)
+        slow_thread.start()
+        timeout_proxy = ProxyServer(
+            ("127.0.0.1", 0),
+            ProxyHandler,
+            proxy_config([runtime_target(slow_upstream.server_address[1], timeout=0.05)]),  # type: ignore[arg-type]
+            TrafficLogger(None),
+        )
+        timeout_thread = threading.Thread(target=timeout_proxy.serve_forever, daemon=True)
+        timeout_thread.start()
+        try:
+            connection = http.client.HTTPConnection("127.0.0.1", timeout_proxy.server_address[1], timeout=5)
+            connection.request("POST", "/timeout", body=b"{}")
+            response = connection.getresponse()
+            self.assertEqual(response.status, 502)
+            self.assertIn(b"timed out", response.read())
+            connection.close()
+        finally:
+            timeout_proxy.shutdown()
+            timeout_proxy.server_close()
+            timeout_thread.join(timeout=2)
+            slow_upstream.shutdown()
+            slow_upstream.server_close()
+            slow_thread.join(timeout=2)
+
+    def test_records_error_when_upstream_disconnects_after_response_headers(self) -> None:
+        class ResettingUpstreamHandler(BaseHTTPRequestHandler):
+            def do_POST(self) -> None:
+                self.send_response(200)
+                self.send_header("Content-Type", "text/plain")
+                self.send_header("Transfer-Encoding", "chunked")
+                self.end_headers()
+                self.wfile.write(b"5\r\nfirst\r\n")
+                self.wfile.flush()
+                self.connection.setsockopt(
+                    socket.SOL_SOCKET,
+                    socket.SO_LINGER,
+                    struct.pack("ii", 1, 0),
+                )
+                self.connection.close()
+
+            def log_message(self, fmt: str, *args: object) -> None:
+                return
+
+        upstream = ThreadingHTTPServer(("127.0.0.1", 0), ResettingUpstreamHandler)
+        upstream_thread = threading.Thread(target=upstream.serve_forever, daemon=True)
+        upstream_thread.start()
+        with tempfile.TemporaryDirectory() as temp_dir:
+            log_root = Path(temp_dir)
+            proxy = ProxyServer(
+                ("127.0.0.1", 0),
+                ProxyHandler,
+                proxy_config([runtime_target(upstream.server_address[1])]),  # type: ignore[arg-type]
+                TrafficLogger(log_root),
+            )
+            proxy_thread = threading.Thread(target=proxy.serve_forever, daemon=True)
+            proxy_thread.start()
+            try:
+                connection = http.client.HTTPConnection("127.0.0.1", proxy.server_address[1], timeout=5)
+                connection.request("POST", "/partial", body=b"{}")
+                response = connection.getresponse()
+                self.assertEqual(response.status, 200)
+                try:
+                    response.read()
+                except (http.client.IncompleteRead, ConnectionResetError):
+                    pass
+                connection.close()
+
+                deadline = time.time() + 2
+                stored_record = None
+                while time.time() < deadline:
+                    with LogRepository(log_root) as repository:
+                        tasks = repository.list_tasks("", 10, 0)["tasks"]
+                        if tasks:
+                            records = repository.list_task_records(str(tasks[0]["id"]))["records"]
+                            if records and records[0]["event"] == "request_finished":
+                                stored_record = records[0]
+                                break
+                    time.sleep(0.02)
+
+                self.assertIsNotNone(stored_record)
+                self.assertEqual(stored_record["status"], 200)
+                self.assertTrue(
+                    any(name in str(stored_record["error"]) for name in ("IncompleteRead", "ConnectionResetError")),
+                    stored_record["error"],
+                )
+            finally:
+                proxy.shutdown()
+                proxy.server_close()
+                proxy_thread.join(timeout=2)
+                upstream.shutdown()
+                upstream.server_close()
+                upstream_thread.join(timeout=2)
 
     def test_header_overrides_api_key_priority_and_duplicate_headers(self) -> None:
         seen: dict[str, object] = {}
