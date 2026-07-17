@@ -338,6 +338,71 @@ class ProxyHttpContractTests(unittest.TestCase):
                 upstream.server_close()
                 upstream_thread.join(timeout=2)
 
+    def test_current_python_proxy_does_not_decode_incoming_chunked_body(self) -> None:
+        seen: dict[str, object] = {}
+
+        class UpstreamHandler(BaseHTTPRequestHandler):
+            def do_POST(self) -> None:
+                length = int(self.headers.get("Content-Length", "0") or "0")
+                seen["content_length"] = self.headers.get("Content-Length")
+                seen["transfer_encoding"] = self.headers.get("Transfer-Encoding")
+                seen["body"] = self.rfile.read(length) if length > 0 else b""
+                response_body = b'{"ok":true}'
+                self.send_response(200)
+                self.send_header("Content-Type", "application/json")
+                self.send_header("Content-Length", str(len(response_body)))
+                self.end_headers()
+                self.wfile.write(response_body)
+
+            def log_message(self, fmt: str, *args: object) -> None:
+                return
+
+        upstream = ThreadingHTTPServer(("127.0.0.1", 0), UpstreamHandler)
+        upstream_thread = threading.Thread(target=upstream.serve_forever, daemon=True)
+        upstream_thread.start()
+        proxy = ProxyServer(
+            ("127.0.0.1", 0),
+            ProxyHandler,
+            proxy_config([runtime_target(upstream.server_address[1])]),  # type: ignore[arg-type]
+            TrafficLogger(None),
+        )
+        proxy_thread = threading.Thread(target=proxy.serve_forever, daemon=True)
+        proxy_thread.start()
+        try:
+            client = socket.create_connection(("127.0.0.1", proxy.server_address[1]), timeout=5)
+            client.sendall(
+                b"POST /chunked HTTP/1.1\r\n"
+                b"Host: client.example\r\n"
+                b"Content-Type: text/plain\r\n"
+                b"Transfer-Encoding: chunked\r\n"
+                b"Connection: close\r\n"
+                b"\r\n"
+                b"4\r\ntest\r\n"
+                b"3\r\n123\r\n"
+                b"0\r\n\r\n"
+            )
+            response_parts: list[bytes] = []
+            while True:
+                chunk = client.recv(4096)
+                if not chunk:
+                    break
+                response_parts.append(chunk)
+            client.close()
+            raw_response = b"".join(response_parts)
+
+            self.assertIn(b"HTTP/1.1 200", raw_response)
+            self.assertIn(b'{"ok":true}', raw_response)
+            self.assertEqual(seen["body"], b"")
+            self.assertIsNone(seen["content_length"])
+            self.assertIsNone(seen["transfer_encoding"])
+        finally:
+            proxy.shutdown()
+            proxy.server_close()
+            proxy_thread.join(timeout=2)
+            upstream.shutdown()
+            upstream.server_close()
+            upstream_thread.join(timeout=2)
+
     def test_header_overrides_api_key_priority_and_duplicate_headers(self) -> None:
         seen: dict[str, object] = {}
 
