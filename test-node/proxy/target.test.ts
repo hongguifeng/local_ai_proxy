@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { parseTargetUrl } from "../../src/proxy/target.js";
+import { joinTargetPath, parseTargetUrl } from "../../src/proxy/target.js";
 
 describe("parseTargetUrl", () => {
   it.each([
@@ -49,5 +49,23 @@ describe("parseTargetUrl", () => {
     expect(() => parseTargetUrl(rawTargetUrl)).toThrow(
       "target_url must look like http://host[:port][/base-path] or https://host[:port][/base-path].",
     );
+  });
+});
+
+describe("joinTargetPath", () => {
+  it.each([
+    ["/v1", "/chat/completions", "/v1/chat/completions"],
+    ["/v1", "/v1/chat/completions", "/v1/chat/completions"],
+    ["/v1", "/v1/models?limit=10", "/v1/models?limit=10"],
+    ["/v1", "/v1?limit=10", "/v1?limit=10"],
+    ["/v1", "/v1", "/v1"],
+    ["/v1", "/v10/models", "/v1/v10/models"],
+    ["/api/v1", "models", "/api/v1/models"],
+    ["/api/v1", "?limit=10", "/api/v1/?limit=10"],
+    ["/api/v1", "/", "/api/v1/"],
+    ["", "/models?limit=10", "/models?limit=10"],
+    ["", "models", "models"],
+  ])("joins %j and %j as %j", (basePath, requestPath, expected) => {
+    expect(joinTargetPath(basePath, requestPath)).toBe(expected);
   });
 });

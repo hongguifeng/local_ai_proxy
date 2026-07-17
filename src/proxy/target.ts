@@ -37,6 +37,21 @@ export function parseTargetUrl(rawTargetUrl: string): ParsedTargetUrl {
   };
 }
 
+export function joinTargetPath(basePath: string, requestPath: string): string {
+  if (basePath === "") {
+    return requestPath;
+  }
+  const normalizedRequestPath = requestPath.startsWith("/") ? requestPath : `/${requestPath}`;
+  if (
+    normalizedRequestPath === basePath ||
+    normalizedRequestPath.startsWith(`${basePath}/`) ||
+    normalizedRequestPath.startsWith(`${basePath}?`)
+  ) {
+    return normalizedRequestPath;
+  }
+  return `${basePath}${normalizedRequestPath}`;
+}
+
 function parsePort(value: string): number {
   const port = Number(value);
   if (!Number.isInteger(port) || port < 0 || port > 65_535) {
