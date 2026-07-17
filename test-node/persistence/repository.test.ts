@@ -356,3 +356,21 @@ describe("response links", () => {
     repository.close();
   });
 });
+
+describe("context links", () => {
+  it("upserts and resolves a context key", async () => {
+    const root = await mkdtemp(path.join(os.tmpdir(), "llm-proxy-context-link-"));
+    temporaryDirectories.push(root);
+    const repository = new TrafficRepository(root);
+    repository.upsertTask({ id: "task-1", match_strategy_version: 4 });
+    repository.upsertTask({ id: "task-2", match_strategy_version: 4 });
+
+    repository.upsertContextLink("conversation:fixture", "task-1");
+    expect(repository.taskIdForContext("conversation:fixture")).toBe("task-1");
+    repository.upsertContextLink("conversation:fixture", "task-2");
+    expect(repository.taskIdForContext("conversation:fixture")).toBe("task-2");
+    repository.upsertContextLink("", "task-1");
+    expect(repository.taskIdForContext("missing")).toBeUndefined();
+    repository.close();
+  });
+});

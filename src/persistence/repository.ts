@@ -335,6 +335,29 @@ export class TrafficRepository {
       .get(responseId);
     return typeof taskId === "string" ? taskId : undefined;
   }
+
+  upsertContextLink(contextKey: string, taskId: string): void {
+    if (contextKey.trim() === "") {
+      return;
+    }
+    this.#database
+      .prepare(
+        `
+        INSERT INTO context_links(context_key, task_id, created_at)
+        VALUES (?, ?, ?)
+        ON CONFLICT(context_key) DO UPDATE SET task_id = excluded.task_id
+      `,
+      )
+      .run(contextKey, taskId, this.#now());
+  }
+
+  taskIdForContext(contextKey: string): string | undefined {
+    const taskId = this.#database
+      .prepare("SELECT task_id FROM context_links WHERE context_key = ?")
+      .pluck()
+      .get(contextKey);
+    return typeof taskId === "string" ? taskId : undefined;
+  }
 }
 
 export function decodeTaskRow(row: Readonly<RepositoryRecord>): RepositoryRecord {
