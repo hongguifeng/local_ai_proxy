@@ -1,6 +1,10 @@
 import { describe, expect, it } from "vitest";
 
-import { requestModelFromBody } from "../../src/proxy/routing.js";
+import {
+  requestModelFromBody,
+  selectTargetByModel,
+  type RoutingTarget,
+} from "../../src/proxy/routing.js";
 
 describe("requestModelFromBody", () => {
   it("extracts only a top-level string model", () => {
@@ -23,3 +27,40 @@ describe("requestModelFromBody", () => {
     expect(requestModelFromBody(body)).toBeUndefined();
   });
 });
+
+describe("selectTargetByModel", () => {
+  it("selects the first matching target and first matching mapping in configuration order", () => {
+    const first = target("first", true, [
+      { listen: "demo", upstream: "first-upstream" },
+      { listen: "demo", upstream: "ignored-duplicate" },
+    ]);
+    const second = target("second", true, [{ listen: "demo", upstream: "second-upstream" }]);
+
+    const selection = selectTargetByModel(
+      [first, second],
+      "second",
+      Buffer.from('{"model":"demo"}'),
+    );
+
+    expect(selection).toEqual({
+      target: first,
+      requestModel: "demo",
+      upstreamModel: "first-upstream",
+    });
+    expect(selection.target).toBe(first);
+  });
+
+  it("requires at least one target", () => {
+    expect(() => selectTargetByModel([], "missing", Buffer.from("{}"))).toThrow(
+      "ProxyServer config must include at least one target.",
+    );
+  });
+});
+
+function target(
+  id: string,
+  enabled: boolean,
+  modelMappings: RoutingTarget["model_mappings"],
+): RoutingTarget {
+  return { id, enabled, model_mappings: modelMappings };
+}
