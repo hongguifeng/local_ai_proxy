@@ -123,7 +123,7 @@
 - [x] `CFG-021` P0 区分 invalid JSON 和 invalid schema。
 - [x] `CFG-022` P0 实现同目录临时文件写入。
 - [x] `CFG-023` P0 flush/fsync 后 rename/replace。
-- [ ] `CFG-024` P0 失败时删除临时文件且保留旧文件。
+- [x] `CFG-024` P0 失败时删除临时文件且保留旧文件。
 - [ ] `CFG-025` P0 Windows 文件替换集成测试。
 - [ ] `CFG-026` P0 Python -> Node -> Python round-trip。
 - [ ] `CFG-027` P1 首次 Node 保存前创建配置备份。

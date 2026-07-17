@@ -1,4 +1,4 @@
-import { mkdtemp, readdir, readFile, rm, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, open, readdir, readFile, rm, unlink, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 
@@ -124,5 +124,30 @@ describe("ConfigRepository.save", () => {
     await repository.save({ pairs: [createDefaultProxyPair()] });
 
     expect(calls).toEqual(["write", "sync", "close", "rename"]);
+  });
+
+  it("preserves the existing file and removes the temp file after a failed save", async () => {
+    const directory = await mkdtemp(path.join(os.tmpdir(), "llm-proxy-config-"));
+    temporaryDirectories.push(directory);
+    const configPath = path.join(directory, "proxies.json");
+    await writeFile(configPath, "old configuration", "utf8");
+    const fileSystem = {
+      mkdir,
+      open,
+      readFile,
+      rename: () => Promise.reject(new Error("fixture rename failure")),
+      unlink,
+    } as ConfigFileSystem;
+    const repository = new ConfigRepository(configPath, "logs", {
+      createId: () => "fixture-id",
+      fileSystem,
+    });
+
+    await expect(repository.save({ pairs: [createDefaultProxyPair()] })).rejects.toThrow(
+      "fixture rename failure",
+    );
+
+    expect(await readFile(configPath, "utf8")).toBe("old configuration");
+    expect(await readdir(directory)).toEqual(["proxies.json"]);
   });
 });
