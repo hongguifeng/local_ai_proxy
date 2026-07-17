@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest";
 import {
   displayEndpoint,
   endpointKind,
+  isTaskContextMessage,
   requestFingerprints,
   requestMessageCount,
   responseTokenCount,
@@ -252,5 +253,60 @@ describe("requestFingerprints messages", () => {
       first_user: "25e2a0ae8903",
       tools: "aaaa02007eec",
     });
+  });
+});
+
+describe("fixed Codex context message exclusion", () => {
+  it.each([
+    { content: "  <environment_context>fixture" },
+    { content: { text: "<permissions instructions>fixture" } },
+    { content: [{ type: "text", text: "<app-context>fixture" }] },
+    { content: ["# Codex desktop context\nfixture"] },
+  ])("recognizes fixed context content %#", (message) => {
+    expect(isTaskContextMessage(message)).toBe(true);
+  });
+
+  it.each([
+    null,
+    "plain text",
+    { content: "prefix <environment_context> in the middle" },
+    { content: "<environment-context>different punctuation" },
+  ])("does not classify ordinary content %#", (message) => {
+    expect(isTaskContextMessage(message)).toBe(false);
+  });
+
+  it("excludes fixed context from Chat fingerprints", () => {
+    const actualUser = { role: "user", content: "Actual request" };
+    const expected = requestFingerprints("chat", { messages: [actualUser] });
+    expect(
+      requestFingerprints("chat", {
+        messages: [{ role: "user", content: "<environment_context>fixed" }, actualUser],
+      }),
+    ).toEqual(expected);
+  });
+
+  it("excludes fixed context from Responses prefix and first-user fingerprints", () => {
+    const actualUser = { role: "user", content: [{ type: "input_text", text: "Actual request" }] };
+    const fingerprints = requestFingerprints("responses", {
+      input: [
+        { role: "user", content: [{ type: "input_text", text: "<app-context>fixed" }] },
+        actualUser,
+      ],
+    });
+    const expected = requestFingerprints("responses", { input: [actualUser] });
+
+    expect(fingerprints["first_user"]).toBe(expected["first_user"]);
+    expect(fingerprints["input_prefix"]).toBe(expected["input_prefix"]);
+    expect(fingerprints["input"]).not.toBe(expected["input"]);
+  });
+
+  it("excludes fixed context from Claude message fingerprints", () => {
+    const actualUser = { role: "user", content: "Actual request" };
+    const expected = requestFingerprints("messages", { messages: [actualUser] });
+    expect(
+      requestFingerprints("messages", {
+        messages: [{ role: "user", content: "<permissions instructions>fixed" }, actualUser],
+      }),
+    ).toEqual(expected);
   });
 });
