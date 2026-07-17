@@ -160,7 +160,7 @@
 
 - [x] `PURE-030` P0 bytes/text/JSON payload 转换。
 - [x] `PURE-031` P0 非 JSON 文本包装 `{text,size_bytes}`。
-- [ ] `PURE-032` P0 Header redaction。
+- [x] `PURE-032` P0 Header redaction。
 - [ ] `PURE-033` P0 JSON key 递归 redaction。
 - [ ] `PURE-034` P0 redaction 不改变实际转发对象。
 - [ ] `PURE-035` P1 Unicode 和无效 UTF-8 fixture。

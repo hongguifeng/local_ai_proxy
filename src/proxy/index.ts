@@ -14,6 +14,7 @@ export {
   transformRequestJsonFields,
   type RequestTransformResult,
 } from "./request-transform.js";
+export { REDACTED, SENSITIVE_HEADER_NAMES, redactHeaders } from "./redaction.js";
 export {
   requestModelFromBody,
   rewriteRequestModel,
