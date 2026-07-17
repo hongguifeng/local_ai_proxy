@@ -53,9 +53,35 @@ export const proxyPairSchema = z.object({
   default_target_id: z.string().trim().min(1),
 });
 
-export const proxyConfigFileSchema = z.object({
-  pairs: z.array(proxyPairSchema),
-});
+export const proxyConfigFileSchema = z
+  .object({
+    pairs: z.array(proxyPairSchema),
+  })
+  .superRefine(({ pairs }, context) => {
+    const pairIds = new Set<string>();
+    for (const [pairIndex, pair] of pairs.entries()) {
+      if (pairIds.has(pair.id)) {
+        context.addIssue({
+          code: "custom",
+          message: `duplicate proxy pair id: ${pair.id}`,
+          path: ["pairs", pairIndex, "id"],
+        });
+      }
+      pairIds.add(pair.id);
+
+      const targetIds = new Set<string>();
+      for (const [targetIndex, target] of pair.targets.entries()) {
+        if (targetIds.has(target.id)) {
+          context.addIssue({
+            code: "custom",
+            message: `duplicate target id in pair ${pair.id}: ${target.id}`,
+            path: ["pairs", pairIndex, "targets", targetIndex, "id"],
+          });
+        }
+        targetIds.add(target.id);
+      }
+    }
+  });
 
 export type ProxyPair = z.infer<typeof proxyPairSchema>;
 export type ProxyConfigFile = z.infer<typeof proxyConfigFileSchema>;

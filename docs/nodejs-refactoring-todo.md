@@ -105,7 +105,7 @@
 - [x] `CFG-003` P0 定义 `ProxyPair` schema/type。
 - [x] `CFG-004` P0 定义 public/runtime config 类型。
 - [x] `CFG-005` P0 校验 URL、port、timeout、header line、inject JSON object。
-- [ ] `CFG-006` P1 检测重复 pair ID 和 target ID。
+- [x] `CFG-006` P1 检测重复 pair ID 和 target ID。
 
 ### 5.2 默认值和规范化
 

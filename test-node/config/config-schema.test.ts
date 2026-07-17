@@ -136,3 +136,46 @@ describe("proxyPairSchema", () => {
     ).toThrow();
   });
 });
+
+describe("proxyConfigFileSchema duplicate IDs", () => {
+  const target = targetConfigSchema.parse({
+    id: "target-1",
+    name: "Target",
+    enabled: true,
+    target_url: "http://127.0.0.1:1235",
+    target_api_key: "",
+    target_headers: [],
+    strip_request_fields: "",
+    inject_request_fields: "",
+    timeout: 600,
+    log_root: "logs",
+    redact_logs: false,
+    model_mappings: [],
+  });
+  const pair = {
+    id: "proxy-1",
+    name: "Proxy",
+    enabled: false,
+    listen_host: "127.0.0.1",
+    listen_port: 1234,
+    access_log: false,
+    targets: [target],
+    default_target_id: target.id,
+  };
+
+  it("rejects duplicate proxy pair IDs", () => {
+    const result = proxyConfigFileSchema.safeParse({ pairs: [pair, { ...pair }] });
+
+    expect(result.success).toBe(false);
+    expect(result.error?.issues[0]?.message).toContain("duplicate proxy pair id");
+  });
+
+  it("rejects duplicate target IDs within a pair", () => {
+    const result = proxyConfigFileSchema.safeParse({
+      pairs: [{ ...pair, targets: [target, { ...target }] }],
+    });
+
+    expect(result.success).toBe(false);
+    expect(result.error?.issues[0]?.message).toContain("duplicate target id");
+  });
+});
