@@ -1,6 +1,9 @@
 import { describe, expect, it } from "vitest";
 
-import { ensureAtLeastOneTarget } from "../../src/config/config-normalizer.js";
+import {
+  ensureAtLeastOneTarget,
+  normalizeDefaultTargetId,
+} from "../../src/config/config-normalizer.js";
 import { createDefaultTarget } from "../../src/config/defaults.js";
 
 describe("ensureAtLeastOneTarget", () => {
@@ -15,5 +18,23 @@ describe("ensureAtLeastOneTarget", () => {
 
     expect(result).toEqual(source);
     expect(result).not.toBe(source);
+  });
+});
+
+describe("normalizeDefaultTargetId", () => {
+  const first = createDefaultTarget();
+  const second = { ...createDefaultTarget(), id: "target-2", name: "Second" };
+
+  it("keeps an existing requested target ID", () => {
+    expect(normalizeDefaultTargetId(" target-2 ", [first, second])).toBe("target-2");
+  });
+
+  it("falls back to the first target for missing or unknown IDs", () => {
+    expect(normalizeDefaultTargetId("missing", [first, second])).toBe("target-1");
+    expect(normalizeDefaultTargetId(undefined, [first, second])).toBe("target-1");
+  });
+
+  it("rejects an empty target list", () => {
+    expect(() => normalizeDefaultTargetId("target-1", [])).toThrow(/empty target list/u);
   });
 });
