@@ -3,7 +3,9 @@ import { describe, expect, it } from "vitest";
 import {
   ensureAtLeastOneTarget,
   normalizeDefaultTargetId,
+  normalizeLogRoot,
   normalizeModelMappings,
+  runtimeLogRoot,
 } from "../../src/config/config-normalizer.js";
 import { createDefaultTarget } from "../../src/config/defaults.js";
 
@@ -19,6 +21,20 @@ describe("ensureAtLeastOneTarget", () => {
 
     expect(result).toEqual(source);
     expect(result).not.toBe(source);
+  });
+});
+
+describe("log root normalization", () => {
+  it("preserves an explicit empty string as disabled logging", () => {
+    expect(normalizeLogRoot("", "logs")).toBe("");
+    expect(runtimeLogRoot("")).toBeUndefined();
+  });
+
+  it("uses configured and fallback log roots otherwise", () => {
+    expect(normalizeLogRoot("custom-logs", "logs")).toBe("custom-logs");
+    expect(normalizeLogRoot(undefined, "logs")).toBe("logs");
+    expect(normalizeLogRoot(undefined, undefined)).toBe("");
+    expect(runtimeLogRoot("logs")).toBe("logs");
   });
 });
 

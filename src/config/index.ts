@@ -30,5 +30,7 @@ export {
 export {
   ensureAtLeastOneTarget,
   normalizeDefaultTargetId,
+  normalizeLogRoot,
   normalizeModelMappings,
+  runtimeLogRoot,
 } from "./config-normalizer.js";

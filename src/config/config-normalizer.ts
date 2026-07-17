@@ -41,6 +41,18 @@ export function normalizeModelMappings(value: unknown): ModelMapping[] {
   return mappings;
 }
 
+export function normalizeLogRoot(value: unknown, fallback: string | undefined): string {
+  if (value === "") {
+    return "";
+  }
+  const configured = primitiveText(value);
+  return configured !== "" ? configured : (fallback ?? "");
+}
+
+export function runtimeLogRoot(value: string): string | undefined {
+  return value === "" ? undefined : value;
+}
+
 function primitiveText(value: unknown): string {
   return typeof value === "string" ||
     typeof value === "number" ||
