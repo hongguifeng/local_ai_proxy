@@ -57,7 +57,7 @@
 
 - [x] `ADR-001` P0 选择 `better-sqlite3` 或 `node:sqlite`。
   - 决策要点：FTS5、Windows/Electron 打包、Node 24 稳定性、事务 API、性能、原生模块风险。
-- [ ] `ADR-002` P0 决定是否新增 `original_request_body`。
+- [x] `ADR-002` P0 决定是否新增 `original_request_body`。
 - [ ] `ADR-003` P0 决定日志 body 内存上限和超限策略。
 - [ ] `ADR-004` P0 决定 config apply 失败时整体回滚还是部分成功。
 - [ ] `ADR-005` P0 决定 client abort 后的 upstream/log 行为。
