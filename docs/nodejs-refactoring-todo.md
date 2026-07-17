@@ -31,7 +31,7 @@
 
 - [x] `BASE-001` P0 记录当前 commit、Python 版本和 66 项测试结果。
   - 验收：仓库内有可复现命令和测试报告。
-- [ ] `BASE-002` P0 将现有四张 UI 截图登记为视觉基线。
+- [x] `BASE-002` P0 将现有四张 UI 截图登记为视觉基线。
   - 验收：记录 viewport、浏览器、语言和页面状态。
 - [ ] `BASE-003` P0 创建脱敏的真实 `proxies.json` fixture。
   - 验收：包含多 pair、多 target、默认目标、disabled target、API key 占位、Header、strip/inject、不同 log root。
