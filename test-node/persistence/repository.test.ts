@@ -240,3 +240,33 @@ describe("TrafficRepository.upsertRecord", () => {
     repository.close();
   });
 });
+
+describe("TrafficRepository record sequence helpers", () => {
+  it("returns the next sequence and record count for a task", async () => {
+    const root = await mkdtemp(path.join(os.tmpdir(), "llm-proxy-record-sequence-"));
+    temporaryDirectories.push(root);
+    const repository = new TrafficRepository(root);
+    repository.upsertTask({ id: "task-1", match_strategy_version: 4 });
+
+    expect(repository.nextRecordSequence("task-1")).toBe(1);
+    expect(repository.recordCount("task-1")).toBe(0);
+    for (const [id, sequence] of [
+      ["record-1", 2],
+      ["record-2", 5],
+    ] as const) {
+      repository.upsertRecord({
+        id,
+        task_id: "task-1",
+        sequence,
+        method: "POST",
+        path: "/v1/responses",
+      });
+    }
+
+    expect(repository.nextRecordSequence("task-1")).toBe(6);
+    expect(repository.recordCount("task-1")).toBe(2);
+    expect(repository.nextRecordSequence("missing")).toBe(1);
+    expect(repository.recordCount("missing")).toBe(0);
+    repository.close();
+  });
+});

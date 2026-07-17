@@ -248,6 +248,22 @@ export class TrafficRepository {
       .get(recordId);
     return typeof taskId === "string" ? taskId : undefined;
   }
+
+  nextRecordSequence(taskId: string): number {
+    const value = this.#database
+      .prepare("SELECT COALESCE(MAX(sequence), 0) + 1 FROM records WHERE task_id = ?")
+      .pluck()
+      .get(taskId);
+    return typeof value === "number" ? value : 1;
+  }
+
+  recordCount(taskId: string): number {
+    const value = this.#database
+      .prepare("SELECT COUNT(*) FROM records WHERE task_id = ?")
+      .pluck()
+      .get(taskId);
+    return typeof value === "number" ? value : 0;
+  }
 }
 
 export function decodeTaskRow(row: Readonly<RepositoryRecord>): RepositoryRecord {

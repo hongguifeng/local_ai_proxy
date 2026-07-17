@@ -221,7 +221,7 @@
 - [x] `DB-020` P0 upsert record。
 - [x] `DB-021` P0 update existing pending record。
 - [x] `DB-022` P0 get record/task ID。
-- [ ] `DB-023` P0 next sequence 和 record count。
+- [x] `DB-023` P0 next sequence 和 record count。
 - [ ] `DB-024` P0 task records query/pagination/order。
 - [ ] `DB-025` P0 unique task/sequence 冲突测试。
 
