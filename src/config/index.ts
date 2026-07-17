@@ -27,3 +27,4 @@ export {
   createDefaultProxyPair,
   createDefaultTarget,
 } from "./defaults.js";
+export { ensureAtLeastOneTarget } from "./config-normalizer.js";
