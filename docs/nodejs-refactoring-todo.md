@@ -81,7 +81,7 @@
 
 ### 4.2 基础设施
 
-- [ ] `BOOT-010` P0 创建应用入口和空 lifecycle。
+- [x] `BOOT-010` P0 创建应用入口和空 lifecycle。
 - [ ] `BOOT-011` P0 创建统一错误类型和 error-to-HTTP 映射。
 - [ ] `BOOT-012` P0 创建时间、ID、JSON、path helper。
 - [ ] `BOOT-013` P0 创建幂等 shutdown coordinator。
