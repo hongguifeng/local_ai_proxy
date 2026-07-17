@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 
 import {
   applyTargetHeaderSettings,
+  buildForwardHeaders,
   HOP_BY_HOP_HEADERS,
   headersToDictionary,
   parseHeaderOverrides,
@@ -125,4 +126,58 @@ describe("applyTargetHeaderSettings", () => {
       ["x-repeated", "target-two"],
     ]);
   });
+});
+
+describe("buildForwardHeaders", () => {
+  it("filters connection headers and adds upstream Host and X-Forwarded headers", () => {
+    expect(
+      buildForwardHeaders(
+        [
+          ["Host", "client.example:9000"],
+          ["Connection", "keep-alive"],
+          ["Transfer-Encoding", "chunked"],
+          ["Content-Type", "application/json"],
+          ["X-Repeated", "first"],
+          ["X-Repeated", "second"],
+        ],
+        {
+          clientHost: "127.0.0.1",
+          targetApiKey: "",
+          targetHeaders: [],
+          targetHost: "provider.example",
+          targetPort: 8443,
+          targetScheme: "https",
+        },
+      ),
+    ).toEqual([
+      ["Content-Type", "application/json"],
+      ["X-Repeated", "first"],
+      ["X-Repeated", "second"],
+      ["Host", "provider.example:8443"],
+      ["X-Forwarded-For", "127.0.0.1"],
+      ["X-Forwarded-Host", "client.example:9000"],
+    ]);
+  });
+
+  it.each([
+    ["http", "example.com", 80, "example.com"],
+    ["https", "example.com", 443, "example.com"],
+    ["http", "::1", 1235, "[::1]:1235"],
+    ["https", "::1", 443, "[::1]"],
+  ] as const)(
+    "formats an %s upstream Host",
+    (targetScheme, targetHost, targetPort, expectedHost) => {
+      const headers = buildForwardHeaders([], {
+        clientHost: "client",
+        targetApiKey: "",
+        targetHeaders: [],
+        targetHost,
+        targetPort,
+        targetScheme,
+      });
+
+      expect(headers.find(([name]) => name === "Host")?.[1]).toBe(expectedHost);
+      expect(headers.find(([name]) => name === "X-Forwarded-Host")?.[1]).toBe("");
+    },
+  );
 });

@@ -1,8 +1,10 @@
 export {
   applyTargetHeaderSettings,
+  buildForwardHeaders,
   HOP_BY_HOP_HEADERS,
   headersToDictionary,
   parseHeaderOverrides,
+  type ForwardHeaderOptions,
   type HeaderEntry,
 } from "./headers.js";
 export {

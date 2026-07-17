@@ -11,6 +11,15 @@ export const HOP_BY_HOP_HEADERS: ReadonlySet<string> = new Set([
 
 export type HeaderEntry = readonly [name: string, value: string];
 
+export interface ForwardHeaderOptions {
+  readonly clientHost: string;
+  readonly targetApiKey: string;
+  readonly targetHeaders: readonly HeaderEntry[];
+  readonly targetHost: string;
+  readonly targetPort: number;
+  readonly targetScheme: "http" | "https";
+}
+
 export function parseHeaderOverrides(
   rawHeaders: readonly string[] | null | undefined,
 ): HeaderEntry[] {
@@ -67,4 +76,27 @@ export function applyTargetHeaderSettings(
     ]);
   }
   return forwarded;
+}
+
+export function buildForwardHeaders(
+  clientHeaders: readonly HeaderEntry[],
+  options: ForwardHeaderOptions,
+): HeaderEntry[] {
+  const forwarded = clientHeaders.filter(([name]) => {
+    const lowerName = name.toLowerCase();
+    return lowerName !== "host" && !HOP_BY_HOP_HEADERS.has(lowerName);
+  });
+  const originalHost = clientHeaders.find(([name]) => name.toLowerCase() === "host")?.[1] ?? "";
+  forwarded.push(
+    ["Host", formatHostHeader(options.targetHost, options.targetPort, options.targetScheme)],
+    ["X-Forwarded-For", options.clientHost],
+    ["X-Forwarded-Host", originalHost],
+  );
+  return applyTargetHeaderSettings(forwarded, options.targetHeaders, options.targetApiKey);
+}
+
+function formatHostHeader(host: string, port: number, scheme: "http" | "https"): string {
+  const defaultPort = scheme === "https" ? 443 : 80;
+  const formattedHost = host.includes(":") && !host.startsWith("[") ? `[${host}]` : host;
+  return port === defaultPort ? formattedHost : `${formattedHost}:${port}`;
 }
