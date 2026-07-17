@@ -229,7 +229,7 @@
 
 - [x] `DB-030` P0 response link upsert/query。
 - [x] `DB-031` P0 context link upsert/query。
-- [ ] `DB-032` P0 record search text 生成。
+- [x] `DB-032` P0 record search text 生成。
 - [ ] `DB-033` P0 多 term AND 搜索。
 - [ ] `DB-034` P0 `%`, `_`, `\\` 字面转义。
 - [ ] `DB-035` P0 ISO 和本地时间搜索。

@@ -4,7 +4,12 @@ import path from "node:path";
 
 import { afterEach, describe, expect, it } from "vitest";
 
-import { TrafficRepository, decodeTaskRow } from "../../src/persistence/repository.js";
+import {
+  TrafficRepository,
+  decodeTaskRow,
+  recordSearchDocument,
+  searchText,
+} from "../../src/persistence/repository.js";
 
 const temporaryDirectories: string[] = [];
 
@@ -372,5 +377,32 @@ describe("context links", () => {
     repository.upsertContextLink("", "task-1");
     expect(repository.taskIdForContext("missing")).toBeUndefined();
     repository.close();
+  });
+});
+
+describe("record search document generation", () => {
+  it("separates task, request, response, and error search text", () => {
+    expect(searchText("record", null, "", 42, false)).toBe("record 42 false");
+    const document = recordSearchDocument(
+      {
+        id: "record-1",
+        task_id: "task-1",
+        method: "POST",
+        path: "/v1/responses",
+        request_body_json: '{"prompt":"searchable request"}',
+        response_body_json: '{"output":"searchable response"}',
+        status: 200,
+        error: "fixture error",
+      },
+      { id: "task-1", model: "fixture-model" },
+    );
+    expect(document).toMatchObject({
+      recordId: "record-1",
+      taskId: "task-1",
+      taskText: "task-1 fixture-model",
+      errorText: "fixture error",
+    });
+    expect(document.requestText).toContain("searchable request");
+    expect(document.responseText).toContain("searchable response");
   });
 });

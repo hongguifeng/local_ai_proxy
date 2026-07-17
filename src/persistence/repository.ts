@@ -229,6 +229,7 @@ export class TrafficRepository {
     `,
       )
       .run(values);
+    this.#syncRecordSearch(values);
     const loaded = this.getRecord(values.id);
     if (loaded === undefined) {
       throw new Error(`Record ${values.id} was not saved.`);
@@ -358,6 +359,86 @@ export class TrafficRepository {
       .get(contextKey);
     return typeof taskId === "string" ? taskId : undefined;
   }
+
+  #syncRecordSearch(values: Readonly<RepositoryRecord>): void {
+    const task = this.#database
+      .prepare("SELECT * FROM tasks WHERE id = ?")
+      .get(values["task_id"]) as RepositoryRecord | undefined;
+    const document = recordSearchDocument(values, task);
+    this.#database.prepare("DELETE FROM record_search WHERE record_id = ?").run(document.recordId);
+    this.#database
+      .prepare(
+        `
+        INSERT INTO record_search(record_id, task_id, task_text, request_text, response_text, error_text)
+        VALUES (@recordId, @taskId, @taskText, @requestText, @responseText, @errorText)
+      `,
+      )
+      .run(document);
+  }
+}
+
+export interface RecordSearchDocument {
+  readonly recordId: string;
+  readonly taskId: string;
+  readonly taskText: string;
+  readonly requestText: string;
+  readonly responseText: string;
+  readonly errorText: string;
+}
+
+export function recordSearchDocument(
+  values: Readonly<RepositoryRecord>,
+  task: Readonly<RepositoryRecord> | undefined,
+): RecordSearchDocument {
+  const requestKeys = [
+    "id",
+    "task_id",
+    "sequence",
+    "event",
+    "timestamp",
+    "started_at",
+    "duration_ms",
+    "proxy_id",
+    "proxy_name",
+    "client_host",
+    "client_port",
+    "target_id",
+    "target_name",
+    "target_url",
+    "method",
+    "path",
+    "endpoint",
+    "request_headers_json",
+    "request_body_json",
+    "model_route_json",
+    "stripped_fields_json",
+    "injected_fields_json",
+    "added_upstream_headers_json",
+    "created_at",
+    "updated_at",
+  ];
+  return {
+    recordId: stringValue(values["id"]),
+    taskId: stringValue(values["task_id"]),
+    taskText: searchText(...(task === undefined ? [values["task_id"]] : Object.values(task))),
+    requestText: searchText(...requestKeys.map((key) => values[key])),
+    responseText: searchText(
+      values["status"],
+      values["message_count"],
+      values["token_count"],
+      values["duration_ms"],
+      values["response_headers_json"],
+      values["response_body_json"],
+    ),
+    errorText: searchText(values["error"]),
+  };
+}
+
+export function searchText(...values: readonly unknown[]): string {
+  return values
+    .map((value) => stringValue(value))
+    .filter((value) => value !== "")
+    .join(" ");
 }
 
 export function decodeTaskRow(row: Readonly<RepositoryRecord>): RepositoryRecord {
