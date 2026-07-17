@@ -457,9 +457,12 @@ class ProxyServer(ThreadingHTTPServer):
         config: ProxyServerConfig,
         traffic_logger: TrafficLogger,
     ) -> None:
-        super().__init__(listen, handler_class)
         self.config = config
         self.traffic_logger = traffic_logger
+        # ``TCPServer.__init__`` calls ``server_close`` if bind/activate fails. Set the
+        # attributes used by our override first so the original bind error is preserved
+        # and logger resources are still closed on a port conflict.
+        super().__init__(listen, handler_class)
 
     def server_close(self) -> None:
         loggers: list[TrafficLogger] = [self.traffic_logger]
