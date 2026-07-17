@@ -53,6 +53,8 @@ describe("TrafficRepository.upsertTask", () => {
       created_at: "2026-07-18T01:02:03.000+00:00",
       updated_at: "2026-07-18T00:02:00.000+00:00",
     });
+    expect(repository.getTask("task-1")).toEqual(updated);
+    expect(repository.getTask("missing")).toBeUndefined();
     repository.close();
   });
 });

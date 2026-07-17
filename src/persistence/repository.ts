@@ -78,11 +78,16 @@ export class TrafficRepository {
       `,
       )
       .run(values);
-    const row = this.#database.prepare("SELECT * FROM tasks WHERE id = ?").get(values.id);
-    if (row === undefined) {
+    const loaded = this.getTask(values.id);
+    if (loaded === undefined) {
       throw new Error(`Task ${values.id} was not saved.`);
     }
-    return decodeTaskRow(row as RepositoryRecord);
+    return loaded;
+  }
+
+  getTask(taskId: string): RepositoryRecord | undefined {
+    const row = this.#database.prepare("SELECT * FROM tasks WHERE id = ?").get(taskId);
+    return row === undefined ? undefined : decodeTaskRow(row as RepositoryRecord);
   }
 }
 
