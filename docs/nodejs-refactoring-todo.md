@@ -86,7 +86,7 @@
 - [x] `BOOT-012` P0 创建时间、ID、JSON、path helper。
 - [x] `BOOT-013` P0 创建幂等 shutdown coordinator。
 - [x] `BOOT-014` P1 创建结构化内部日志接口，敏感字段默认不输出。
-- [ ] `BOOT-015` P1 添加 health route。
+- [x] `BOOT-015` P1 添加 health route。
 
 ### 4.3 CI
 
