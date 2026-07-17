@@ -167,7 +167,7 @@
 
 ### 6.5 Record analysis
 
-- [ ] `PURE-040` P0 endpoint kind 和 display endpoint。
+- [x] `PURE-040` P0 endpoint kind 和 display endpoint。
 - [ ] `PURE-041` P0 Responses message count。
 - [ ] `PURE-042` P0 Messages message count。
 - [ ] `PURE-043` P0 Chat/Completions message count。
