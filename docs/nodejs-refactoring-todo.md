@@ -121,7 +121,7 @@
 
 - [x] `CFG-020` P0 读取文件不存在时返回默认 pair。
 - [x] `CFG-021` P0 区分 invalid JSON 和 invalid schema。
-- [ ] `CFG-022` P0 实现同目录临时文件写入。
+- [x] `CFG-022` P0 实现同目录临时文件写入。
 - [ ] `CFG-023` P0 flush/fsync 后 rename/replace。
 - [ ] `CFG-024` P0 失败时删除临时文件且保留旧文件。
 - [ ] `CFG-025` P0 Windows 文件替换集成测试。

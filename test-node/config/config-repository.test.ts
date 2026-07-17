@@ -1,4 +1,4 @@
-import { mkdtemp, rm, writeFile } from "node:fs/promises";
+import { mkdtemp, readdir, readFile, rm, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 
@@ -68,5 +68,21 @@ describe("ConfigRepository.load", () => {
         expect.arrayContaining([expect.objectContaining({ path: "pairs.0.targets.0.target_url" })]),
       );
     }
+  });
+});
+
+describe("ConfigRepository.save", () => {
+  it("writes through a sibling temporary file and replaces the destination", async () => {
+    const directory = await mkdtemp(path.join(os.tmpdir(), "llm-proxy-config-"));
+    temporaryDirectories.push(directory);
+    const configPath = path.join(directory, "nested", "proxies.json");
+    const repository = new ConfigRepository(configPath, "logs", { createId: () => "fixture-id" });
+    const config = { pairs: [createDefaultProxyPair()] };
+
+    await repository.save(config);
+
+    expect(JSON.parse(await readFile(configPath, "utf8"))).toEqual(config);
+    expect(await repository.load()).toEqual(config);
+    expect(await readdir(path.dirname(configPath))).toEqual(["proxies.json"]);
   });
 });

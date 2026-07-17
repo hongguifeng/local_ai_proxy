@@ -46,5 +46,7 @@ export {
 export {
   ConfigLoadError,
   ConfigRepository,
+  type ConfigFileSystem,
   type ConfigLoadErrorKind,
+  type ConfigRepositoryOptions,
 } from "./config-repository.js";
