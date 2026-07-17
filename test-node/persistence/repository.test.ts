@@ -177,6 +177,27 @@ describe("TrafficRepository.listTasks", () => {
   });
 });
 
+describe("literal LIKE search characters", () => {
+  it("treats percent, underscore, and backslash as ordinary text", async () => {
+    const root = await mkdtemp(path.join(os.tmpdir(), "llm-proxy-like-search-"));
+    temporaryDirectories.push(root);
+    const repository = new TrafficRepository(root);
+    for (const [id, model] of [
+      ["percent", "model-100%"],
+      ["underscore", "model_under_score"],
+      ["backslash", "model\\path"],
+      ["plain", "model ordinary"],
+    ] as const) {
+      repository.upsertTask({ id, model, match_strategy_version: 4 });
+    }
+
+    expect(repository.listTasks("%").items.map(({ id }) => id)).toEqual(["percent"]);
+    expect(repository.listTasks("_").items.map(({ id }) => id)).toEqual(["underscore"]);
+    expect(repository.listTasks("\\").items.map(({ id }) => id)).toEqual(["backslash"]);
+    repository.close();
+  });
+});
+
 describe("TrafficRepository.upsertRecord", () => {
   it("inserts a complete traffic record", async () => {
     const root = await mkdtemp(path.join(os.tmpdir(), "llm-proxy-record-"));

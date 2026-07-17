@@ -125,7 +125,7 @@ export class TrafficRepository {
               COALESCE(id, '') || ' ' || COALESCE(kind, '') || ' ' || COALESCE(endpoint, '') || ' ' ||
               COALESCE(anchor, '') || ' ' || COALESCE(model, '') || ' ' || COALESCE(target, '') || ' ' ||
               COALESCE(fingerprints_json, '') || ' ' || COALESCE(boundary_fingerprints_json, '')
-          ) LIKE ?
+          ) LIKE ? ESCAPE '\\'
           OR EXISTS (
             SELECT 1 FROM record_search
             WHERE record_search.task_id = tasks.id
@@ -133,12 +133,12 @@ export class TrafficRepository {
                 COALESCE(record_search.record_id, '') || ' ' || COALESCE(record_search.task_id, '') || ' ' ||
                 COALESCE(record_search.task_text, '') || ' ' || COALESCE(record_search.request_text, '') || ' ' ||
                 COALESCE(record_search.response_text, '') || ' ' || COALESCE(record_search.error_text, '')
-              ) LIKE ?
+              ) LIKE ? ESCAPE '\\'
           )
         )`,
     );
     const whereSql = clauses.length === 0 ? "" : `WHERE ${clauses.join(" AND ")}`;
-    const parameters = terms.flatMap((term) => [`%${term}%`, `%${term}%`]);
+    const parameters = terms.flatMap((term) => [likePattern(term), likePattern(term)]);
     const total = this.#database
       .prepare(`SELECT COUNT(*) AS count FROM tasks ${whereSql}`)
       .pluck()
@@ -290,10 +290,10 @@ export class TrafficRepository {
               COALESCE(path, '') || ' ' || COALESCE(endpoint, '') || ' ' || COALESCE(error, '') || ' ' ||
               COALESCE(request_headers_json, '') || ' ' || COALESCE(response_headers_json, '') || ' ' ||
               COALESCE(request_body_json, '') || ' ' || COALESCE(response_body_json, '')
-            ) LIKE ?`,
+            ) LIKE ? ESCAPE '\\'`,
     );
     const querySql = clauses.length === 0 ? "" : `AND ${clauses.join(" AND ")}`;
-    const parameters = [taskId, ...terms.map((term) => `%${term}%`)];
+    const parameters = [taskId, ...terms.map((term) => likePattern(term))];
     const total = this.#database
       .prepare(`SELECT COUNT(*) FROM records WHERE task_id = ? ${querySql}`)
       .pluck()
@@ -452,6 +452,10 @@ function searchTerms(query: string): string[] {
     .toLowerCase()
     .split(/\s+/u)
     .filter((term) => term !== "");
+}
+
+function likePattern(term: string): string {
+  return `%${term.replaceAll("\\", "\\\\").replaceAll("%", "\\%").replaceAll("_", "\\_")}%`;
 }
 
 export function decodeTaskRow(row: Readonly<RepositoryRecord>): RepositoryRecord {
