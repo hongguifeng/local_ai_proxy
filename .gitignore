@@ -5,3 +5,8 @@ __pycache__/
 build/
 dist/
 *.spec
+node_modules/
+coverage/
+dist-node/
+dist-electron/
+*.tsbuildinfo
