@@ -6,9 +6,12 @@ import path from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 
 import {
+  SCHEMA_VERSION_KEY,
   TRAFFIC_DB_NAME,
   logDatabasePath,
   openLogDatabase,
+  readSchemaVersion,
+  runMigrations,
 } from "../../src/persistence/database.js";
 
 const temporaryDirectories: string[] = [];
@@ -56,6 +59,44 @@ describe("openLogDatabase", () => {
     expect(database.pragma("foreign_keys", { simple: true })).toBe(1);
     expect(database.pragma("busy_timeout", { simple: true })).toBe(5_000);
     expect(database.pragma("synchronous", { simple: true })).toBe(1);
+
+    database.close();
+  });
+});
+
+describe("runMigrations", () => {
+  it("reads version zero, applies pending migrations in order, and skips applied migrations", async () => {
+    const root = await mkdtemp(path.join(os.tmpdir(), "llm-proxy-migrations-"));
+    temporaryDirectories.push(root);
+    const database = openLogDatabase(root);
+    const calls: number[] = [];
+    const migrations = [
+      {
+        version: 2,
+        migrate: () => {
+          calls.push(2);
+          database.exec("CREATE TABLE fixture_two(id TEXT PRIMARY KEY)");
+        },
+      },
+      {
+        version: 1,
+        migrate: () => {
+          calls.push(1);
+          database.exec("CREATE TABLE fixture_one(id TEXT PRIMARY KEY)");
+        },
+      },
+    ];
+
+    expect(readSchemaVersion(database)).toBe(0);
+    expect(runMigrations(database, migrations)).toBe(2);
+    expect(runMigrations(database, migrations)).toBe(2);
+    expect(calls).toEqual([1, 2]);
+    expect(
+      database
+        .prepare("SELECT value FROM schema_meta WHERE key = ?")
+        .pluck()
+        .get(SCHEMA_VERSION_KEY),
+    ).toBe("2");
 
     database.close();
   });
