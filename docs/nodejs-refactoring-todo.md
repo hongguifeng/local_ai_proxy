@@ -134,7 +134,7 @@
 
 - [x] `PURE-001` P0 移植 target URL parser。
 - [x] `PURE-002` P0 移植 base path join 全部边界。
-- [ ] `PURE-003` P0 移植 top-level model 提取。
+- [x] `PURE-003` P0 移植 top-level model 提取。
 - [ ] `PURE-004` P0 移植 target selection 顺序。
 - [ ] `PURE-005` P0 跳过 disabled non-default target。
 - [ ] `PURE-006` P0 default target 永远兜底。
