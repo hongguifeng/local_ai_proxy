@@ -30,4 +30,11 @@ describe("bodyJsonValue", () => {
   it("converts an empty payload to null", () => {
     expect(bodyJsonValue({ text: "", size_bytes: 0 })).toBeNull();
   });
+
+  it.each(["plain text response", "{malformed", "  not-json  "])(
+    "wraps non-JSON text %j with its recorded byte size",
+    (text) => {
+      expect(bodyJsonValue({ text, size_bytes: 1234 })).toEqual({ text, size_bytes: 1234 });
+    },
+  );
 });
