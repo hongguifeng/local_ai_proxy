@@ -102,7 +102,7 @@
 
 - [x] `CFG-001` P0 定义 `ModelMapping` schema/type。
 - [x] `CFG-002` P0 定义 `TargetConfig` schema/type。
-- [ ] `CFG-003` P0 定义 `ProxyPair` schema/type。
+- [x] `CFG-003` P0 定义 `ProxyPair` schema/type。
 - [ ] `CFG-004` P0 定义 public/runtime config 类型。
 - [ ] `CFG-005` P0 校验 URL、port、timeout、header line、inject JSON object。
 - [ ] `CFG-006` P1 检测重复 pair ID 和 target ID。
