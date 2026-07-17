@@ -1,0 +1,8 @@
+coverage/
+dist-electron/
+dist-node/
+node_modules/
+fixtures/parity/database/
+llm_proxy/static/
+doc/
+*.db
