@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 
+import { bodyJsonValue } from "../../src/proxy/payload.js";
 import { parseSseEvents } from "../../src/proxy/streams.js";
 
 describe("parseSseEvents", () => {
@@ -35,4 +36,14 @@ describe("parseSseEvents", () => {
       expect(parseSseEvents(text)).toBeUndefined();
     },
   );
+
+  it("falls back to an ordinary text payload when any data line is not JSON", () => {
+    const text = 'data: {"ok":true}\n\ndata: not-json\n\n';
+
+    expect(parseSseEvents(text)).toBeUndefined();
+    expect(bodyJsonValue({ text, size_bytes: Buffer.byteLength(text) })).toEqual({
+      text,
+      size_bytes: Buffer.byteLength(text),
+    });
+  });
 });
