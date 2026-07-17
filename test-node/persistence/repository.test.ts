@@ -4,7 +4,7 @@ import path from "node:path";
 
 import { afterEach, describe, expect, it } from "vitest";
 
-import { TrafficRepository } from "../../src/persistence/repository.js";
+import { TrafficRepository, decodeTaskRow } from "../../src/persistence/repository.js";
 
 const temporaryDirectories: string[] = [];
 
@@ -49,10 +49,46 @@ describe("TrafficRepository.upsertTask", () => {
       id: "task-1",
       kind: "chat",
       request_count: 2,
-      pending_request_only: 0,
+      pending_request_only: false,
       created_at: "2026-07-18T01:02:03.000+00:00",
       updated_at: "2026-07-18T00:02:00.000+00:00",
     });
     repository.close();
+  });
+});
+
+describe("decodeTaskRow", () => {
+  it("decodes boolean and JSON task columns", () => {
+    expect(
+      decodeTaskRow({
+        id: "task-1",
+        pending_request_only: 1,
+        fingerprints_json: '{"system":"abc"}',
+        boundary_fingerprints_json: '{"first_user":"def"}',
+        last_user_messages_json: '[{"role":"user"}]',
+      }),
+    ).toEqual({
+      id: "task-1",
+      pending_request_only: true,
+      fingerprints: { system: "abc" },
+      boundary_fingerprints: { first_user: "def" },
+      last_user_messages: [{ role: "user" }],
+    });
+  });
+
+  it("uses safe defaults for empty or invalid JSON columns", () => {
+    expect(
+      decodeTaskRow({
+        pending_request_only: 0,
+        fingerprints_json: "{invalid",
+        boundary_fingerprints_json: "",
+        last_user_messages_json: null,
+      }),
+    ).toEqual({
+      pending_request_only: false,
+      fingerprints: {},
+      boundary_fingerprints: {},
+      last_user_messages: [],
+    });
   });
 });

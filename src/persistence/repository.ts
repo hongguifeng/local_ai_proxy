@@ -82,8 +82,20 @@ export class TrafficRepository {
     if (row === undefined) {
       throw new Error(`Task ${values.id} was not saved.`);
     }
-    return row as RepositoryRecord;
+    return decodeTaskRow(row as RepositoryRecord);
   }
+}
+
+export function decodeTaskRow(row: Readonly<RepositoryRecord>): RepositoryRecord {
+  const decoded: RepositoryRecord = { ...row };
+  decoded["pending_request_only"] = Boolean(decoded["pending_request_only"]);
+  decoded["fingerprints"] = jsonValue(decoded["fingerprints_json"], {});
+  decoded["boundary_fingerprints"] = jsonValue(decoded["boundary_fingerprints_json"], {});
+  decoded["last_user_messages"] = jsonValue(decoded["last_user_messages_json"], []);
+  Reflect.deleteProperty(decoded, "fingerprints_json");
+  Reflect.deleteProperty(decoded, "boundary_fingerprints_json");
+  Reflect.deleteProperty(decoded, "last_user_messages_json");
+  return decoded;
 }
 
 function requiredValue(record: Readonly<RepositoryRecord>, key: string): unknown {
@@ -137,4 +149,15 @@ function floatValue(value: unknown, fallback: number): number {
 
 function jsonText(value: unknown, fallback: unknown): string {
   return JSON.stringify(value ?? fallback);
+}
+
+function jsonValue(value: unknown, fallback: unknown): unknown {
+  if (value === null || value === undefined || value === "") {
+    return structuredClone(fallback);
+  }
+  try {
+    return JSON.parse(stringValue(value)) as unknown;
+  } catch {
+    return structuredClone(fallback);
+  }
 }
