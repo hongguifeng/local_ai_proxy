@@ -47,7 +47,7 @@
 - [x] `BASE-012` P0 测试上游 502、timeout、响应开始后断开。
 - [x] `BASE-013` P0 测试多 target 使用不同 log root。
 - [x] `BASE-014` P0 测试 config invalid JSON、invalid shape、port conflict。
-- [ ] `BASE-015` P0 测试管理 API 400/404 和非法 query。
+- [x] `BASE-015` P0 测试管理 API 400/404 和非法 query。
 - [ ] `BASE-016` P0 测试所有 stream summary 字段和未知事件。
 - [ ] `BASE-017` P0 测试 task 24 小时边界、user message 前缀和 context key 优先级。
 - [ ] `BASE-018` P1 测试导出全部任务与 cleanup 三种策略。
