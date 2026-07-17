@@ -94,7 +94,7 @@
 - [x] `CI-002` P0 执行 `npm ci`、typecheck、lint、test、build。
 - [x] `CI-003` P0 暂时保留 Python CI 作为 parity gate。
 - [x] `CI-004` P1 缓存 npm 依赖。
-- [ ] `CI-005` P1 上传 coverage/test report artifact。
+- [x] `CI-005` P1 上传 coverage/test report artifact。
 
 ## 5. 阶段 2：配置与类型
 

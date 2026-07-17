@@ -27,6 +27,19 @@ jobs:
       - name: Typecheck, lint, test, and build
         run: npm run check
 
+      - name: Generate Node coverage report
+        run: npm run test:coverage
+
+      - name: Upload Node test reports
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: node-test-reports
+          path: |
+            coverage/
+            test-results/vitest-junit.xml
+          if-no-files-found: error
+
   python-parity:
     name: Python parity (${{ matrix.python-version }})
     runs-on: windows-latest

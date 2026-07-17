@@ -12,8 +12,11 @@ export default defineConfig({
       reportsDirectory: "coverage",
     },
     include: ["test-node/**/*.test.ts"],
+    outputFile: {
+      junit: "test-results/vitest-junit.xml",
+    },
     passWithNoTests: true,
-    reporters: ["default"],
+    reporters: ["default", "junit"],
     restoreMocks: true,
     testTimeout: 10_000,
   },
