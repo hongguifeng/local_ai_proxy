@@ -110,4 +110,21 @@ describe("admin UI proxy page", () => {
     await expectPage(card.locator(".target-card")).toHaveCount(1);
     await expectPage(card.locator('[data-target-field="name"]')).toHaveValue("Fixture Target");
   });
+
+  it("keeps the selected default target enabled", async () => {
+    await page.goto(baseUrl, { waitUntil: "networkidle" });
+    const card = page.locator('.proxy-card[data-index="0"]');
+    await card.locator("[data-add-target]").click();
+    await card.locator(".target-card").nth(1).locator("[data-default-target]").check();
+
+    // Adding another target collects the form and rerenders from the current default selection.
+    await card.locator("[data-add-target]").click();
+    const targets = card.locator(".target-card");
+    await expectPage(targets).toHaveCount(3);
+    await expectPage(targets.nth(1).locator("[data-default-target]")).toBeChecked();
+    await expectPage(targets.nth(1).locator("[data-target-enabled]")).toHaveCount(0);
+    await expectPage(targets.nth(0).locator("[data-target-enabled]")).toBeChecked();
+    await targets.nth(0).locator("[data-target-enabled]").uncheck();
+    await expectPage(targets.nth(0).locator("[data-target-enabled]")).not.toBeChecked();
+  });
 });
