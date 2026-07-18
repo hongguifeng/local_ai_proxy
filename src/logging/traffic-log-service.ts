@@ -7,12 +7,13 @@ import {
   requestMessageCount,
   responseTokenCount,
 } from "../proxy/index.js";
-import { isRecord, stableJsonStringify } from "../shared/index.js";
+import { isRecord, stableJsonStringify, StructuredLogger } from "../shared/index.js";
 import { TaskMatcher } from "./task-matcher.js";
 import { type SerialWriteQueue, writeQueueForLogRoot } from "./write-queue.js";
 
 export interface TrafficLogServiceOptions {
   readonly redactLogs?: boolean;
+  readonly logger?: Pick<StructuredLogger, "warn">;
 }
 
 export class TrafficLogService {
@@ -20,11 +21,13 @@ export class TrafficLogService {
   readonly #taskMatcher: TaskMatcher | undefined;
   readonly #redactLogs: boolean;
   readonly #writeQueue: SerialWriteQueue | undefined;
+  readonly #logger: Pick<StructuredLogger, "warn">;
   #closed = false;
   #closePromise: Promise<void> | undefined;
 
   constructor(logRoot: string | null | undefined, options: TrafficLogServiceOptions = {}) {
     this.#redactLogs = options.redactLogs ?? false;
+    this.#logger = options.logger ?? new StructuredLogger({ service: "llm-proxy-traffic-log" });
     this.#repository =
       logRoot === null || logRoot === undefined ? undefined : new TrafficRepository(logRoot);
     this.#taskMatcher =
@@ -59,8 +62,10 @@ export class TrafficLogService {
     }
     try {
       await this.#writeQueue.enqueue(() => this.#save(record));
-    } catch {
-      // Traffic logging is observational and must never fail an active proxy request.
+    } catch (error) {
+      this.#logger.warn("Traffic log write failed", {
+        error_type: error instanceof Error ? error.name : "UnknownError",
+      });
     }
   }
 

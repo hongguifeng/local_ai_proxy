@@ -271,7 +271,7 @@
 - [x] `LOG-006` P0 original/upstream body 按 ADR 实现。
 - [x] `LOG-007` P0 日志错误不破坏代理响应。
 - [x] `LOG-008` P1 写队列关闭和 drain。
-- [ ] `LOG-009` P1 日志失败内部告警脱敏。
+- [x] `LOG-009` P1 日志失败内部告警脱敏。
 
 ## 9. 阶段 6：HTTP 代理数据面
 

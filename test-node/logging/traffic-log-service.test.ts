@@ -3,6 +3,7 @@ import os from "node:os";
 import path from "node:path";
 
 import { afterEach, describe, expect, it } from "vitest";
+import Database from "better-sqlite3";
 
 import { TrafficLogService, writeQueueForLogRoot } from "../../src/logging/index.js";
 import { TrafficRepository } from "../../src/persistence/index.js";
@@ -59,6 +60,32 @@ describe("TrafficLogService failure isolation", () => {
     await service.close();
 
     await expect(service.write(trafficRecord("closed-database-request"))).resolves.toBeUndefined();
+  });
+
+  it("emits a sanitized internal warning for persistence failures", async () => {
+    const root = await mkdtemp(path.join(os.tmpdir(), "llm-proxy-log-warning-"));
+    temporaryDirectories.push(root);
+    const warnings: { message: string; context: Readonly<Record<string, unknown>> }[] = [];
+    const service = new TrafficLogService(root, {
+      logger: {
+        warn(message, context = {}) {
+          warnings.push({ message, context });
+        },
+      },
+    });
+    const breaker = new Database(path.join(root, "traffic.db"));
+    breaker.exec("PRAGMA foreign_keys = OFF; DROP TABLE tasks");
+    breaker.close();
+
+    await expect(service.write(trafficRecord("secret-api-key"))).resolves.toBeUndefined();
+    expect(warnings).toEqual([
+      {
+        message: "Traffic log write failed",
+        context: { error_type: "SqliteError" },
+      },
+    ]);
+    expect(JSON.stringify(warnings)).not.toContain("secret-api-key");
+    await service.close();
   });
 });
 
