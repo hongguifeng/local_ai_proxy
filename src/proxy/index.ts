@@ -18,6 +18,7 @@ export {
   type HeaderEntry,
 } from "./headers.js";
 export { bodyJsonValue, bytesPayload, type BytePayload } from "./payload.js";
+export { ResponseLogCapture, type ResponseLogPayload } from "./response-log-capture.js";
 export {
   displayEndpoint,
   endpointKind,

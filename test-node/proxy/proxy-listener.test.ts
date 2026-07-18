@@ -824,20 +824,28 @@ describe("ProxyListener", () => {
   });
 
   it("forwards the first SSE event before the upstream stream completes", async () => {
+    const finalRecords: Readonly<Record<string, unknown>>[] = [];
     let releaseSecond: (() => void) | undefined;
     const secondGate = new Promise<void>((resolve) => {
       releaseSecond = resolve;
     });
     const upstream = http.createServer((_request, response) => {
       response.writeHead(200, { "content-type": "text/event-stream" });
-      response.write('data: {"delta":"first"}\n\n');
+      response.write('data: {"type":"response.output_text.delta","delta":"first"}\n\n');
       void secondGate.then(() => {
-        response.end('data: {"delta":"second"}\n\n');
+        response.end(
+          'data: {"type":"response.output_text.delta","delta":"second"}\n\ndata: [DONE]\n\n',
+        );
       });
     });
     const upstreamPort = await listenServer(upstream);
     const trafficLog: TrafficLogWriter = {
-      write: () => Promise.resolve(),
+      write(record) {
+        if (record["event"] === "request_finished") {
+          finalRecords.push(record);
+        }
+        return Promise.resolve();
+      },
       update: () => Promise.resolve(),
     };
     const pipeline = new ProxyRequestPipeline({
@@ -876,9 +884,20 @@ describe("ProxyListener", () => {
       request.once("error", reject);
     });
 
-    await expect(firstChunk).resolves.toContain('data: {"delta":"first"}');
+    await expect(firstChunk).resolves.toContain('"delta":"first"');
     releaseSecond?.();
     await clientDone;
+    expect(finalRecords[0]).toMatchObject({
+      response: {
+        body: {
+          stream_summary: {
+            content: "firstsecond",
+            event_count: 2,
+            done_seen: true,
+          },
+        },
+      },
+    });
     await listener.close();
     await closeServer(upstream);
   });

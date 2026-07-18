@@ -363,10 +363,11 @@ function bodyPayload(value: unknown): unknown {
   if (typeof sizeBytes !== "number" || typeof text !== "string") {
     return null;
   }
-  return bodyJsonValue({ size_bytes: sizeBytes, text } satisfies Pick<
-    BytePayload,
-    "size_bytes" | "text"
-  >);
+  return bodyJsonValue({
+    size_bytes: sizeBytes,
+    text,
+    ...(isRecord(value["stream_summary"]) ? { stream_summary: value["stream_summary"] } : {}),
+  } satisfies Pick<BytePayload, "size_bytes" | "stream_summary" | "text">);
 }
 
 function recordRequestPath(record: Readonly<RepositoryRecord>): string {

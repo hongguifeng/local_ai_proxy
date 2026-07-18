@@ -2,6 +2,7 @@ export interface BytePayload {
   readonly size_bytes: number;
   readonly base64: string;
   readonly text: string;
+  readonly stream_summary?: Readonly<Record<string, unknown>>;
 }
 
 const UTF8_DECODER = new TextDecoder("utf-8");
@@ -14,7 +15,12 @@ export function bytesPayload(data: Uint8Array): BytePayload {
   };
 }
 
-export function bodyJsonValue(body: Pick<BytePayload, "size_bytes" | "text">): unknown {
+export function bodyJsonValue(
+  body: Pick<BytePayload, "size_bytes" | "stream_summary" | "text">,
+): unknown {
+  if (body.stream_summary !== undefined) {
+    return { stream_summary: body.stream_summary };
+  }
   if (body.text === "") {
     return null;
   }

@@ -174,6 +174,10 @@ function bodyValue(value: unknown): unknown {
   const sizeBytes = value["size_bytes"];
   const text = value["text"];
   return typeof sizeBytes === "number" && typeof text === "string"
-    ? bodyJsonValue({ size_bytes: sizeBytes, text })
+    ? bodyJsonValue({
+        size_bytes: sizeBytes,
+        text,
+        ...(isRecord(value["stream_summary"]) ? { stream_summary: value["stream_summary"] } : {}),
+      })
     : null;
 }

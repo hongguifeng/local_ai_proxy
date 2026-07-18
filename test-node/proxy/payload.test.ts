@@ -51,6 +51,18 @@ describe("bodyJsonValue", () => {
     expect(bodyJsonValue({ text: "", size_bytes: 0 })).toBeNull();
   });
 
+  it("uses an incrementally captured SSE summary without reparsing the raw stream", () => {
+    expect(
+      bodyJsonValue({
+        text: "raw stream may be incomplete",
+        size_bytes: 24,
+        stream_summary: { content: "captured incrementally", event_count: 2 },
+      }),
+    ).toEqual({
+      stream_summary: { content: "captured incrementally", event_count: 2 },
+    });
+  });
+
   it.each(["plain text response", "{malformed", "  not-json  "])(
     "wraps non-JSON text %j with its recorded byte size",
     (text) => {

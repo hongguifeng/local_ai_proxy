@@ -17,6 +17,7 @@ import {
 } from "./headers.js";
 import type { ProxyRequestContext } from "./proxy-listener.js";
 import { transformRequestJsonFields } from "./request-transform.js";
+import { ResponseLogCapture, type ResponseLogPayload } from "./response-log-capture.js";
 import { rewriteRequestModel, selectTargetByModel } from "./routing.js";
 import { joinTargetPath } from "./target.js";
 import { openUpstreamResponse } from "./upstream-forwarder.js";
@@ -140,7 +141,7 @@ export class ProxyRequestPipeline {
       await selectedTarget.trafficLog.write(eventRecord(baseRecord, "request_received", 0));
     }
     await selectedTarget.trafficLog.update(eventRecord(baseRecord, "request_pending_response", 0));
-    let responseBody: Buffer;
+    let responseCapture = new ResponseLogCapture(false);
     let responseStatus: number;
     let responseHeaders: Record<string, string[]>;
     try {
@@ -154,34 +155,37 @@ export class ProxyRequestPipeline {
       });
       responseStatus = upstream.statusCode ?? 502;
       responseHeaders = incomingHeaders(upstream);
+      responseCapture = new ResponseLogCapture(isSseResponse(upstream));
       response.writeHead(
         responseStatus,
         upstream.statusMessage ?? undefined,
         forwardedResponseHeaders(upstream),
       );
-      responseBody = await forwardResponseBody(upstream, response, request.method === "HEAD");
+      await forwardResponseBody(upstream, response, request.method === "HEAD", responseCapture);
     } catch (error) {
       responseStatus = response.headersSent ? response.statusCode : 502;
       responseHeaders = response.headersSent
         ? {}
         : { "content-type": ["text/plain; charset=utf-8"] };
-      responseBody = response.headersSent ? Buffer.alloc(0) : Buffer.from("Bad Gateway", "utf8");
       if (response.headersSent) {
         response.destroy();
       } else {
+        const badGatewayBody = Buffer.from("Bad Gateway", "utf8");
+        responseCapture.addChunk(badGatewayBody);
         response.writeHead(502, {
           "content-type": "text/plain; charset=utf-8",
           connection: "close",
         });
-        response.end(request.method === "HEAD" ? undefined : responseBody);
+        response.end(request.method === "HEAD" ? undefined : badGatewayBody);
       }
       baseRecord["error"] = error instanceof Error ? error.name : "UpstreamError";
     }
+    const responseBody: ResponseLogPayload = responseCapture.finalize();
     await selectedTarget.trafficLog.write(
       eventRecord(baseRecord, "request_finished", 0, {
         status: responseStatus,
         headers: responseHeaders,
-        body: bytesPayload(responseBody),
+        body: responseBody,
       }),
     );
   }
@@ -377,15 +381,20 @@ async function forwardResponseBody(
   upstream: IncomingMessage,
   response: ServerResponse,
   headRequest: boolean,
-): Promise<Buffer> {
-  const chunks: Buffer[] = [];
+  capture: ResponseLogCapture,
+): Promise<void> {
   for await (const chunkValue of upstream) {
     const chunk = Buffer.isBuffer(chunkValue) ? chunkValue : Buffer.from(chunkValue as Uint8Array);
-    chunks.push(chunk);
+    capture.addChunk(chunk);
     if (!headRequest && !response.write(chunk)) {
       await once(response, "drain");
     }
   }
   response.end();
-  return Buffer.concat(chunks);
+}
+
+function isSseResponse(upstream: IncomingMessage): boolean {
+  const contentType = upstream.headers["content-type"];
+  const value = Array.isArray(contentType) ? contentType.join(",") : (contentType ?? "");
+  return value.toLowerCase().includes("text/event-stream");
 }
