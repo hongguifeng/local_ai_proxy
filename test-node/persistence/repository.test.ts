@@ -324,6 +324,72 @@ describe("Python database compatibility", () => {
       context_task_id: "task-node-roundtrip",
     });
   });
+
+  it("creates a fresh database that the Python repository can read", async () => {
+    const root = await mkdtemp(path.join(os.tmpdir(), "llm-proxy-fresh-node-db-"));
+    temporaryDirectories.push(root);
+    const repository = new TrafficRepository(root, { now: () => "2026-07-18T09:00:00.000+08:00" });
+    repository.upsertTask({
+      id: "task-fresh-node",
+      kind: "responses",
+      endpoint: "/v1/responses",
+      model: "gpt-node",
+      request_count: 1,
+      pending_request_only: false,
+      match_strategy_version: 4,
+      boundary_fingerprints: { first_user: "fresh-boundary" },
+      last_user_messages: [{ role: "user", content: "fresh database" }],
+    });
+    repository.upsertRecord({
+      id: "record-fresh-node",
+      task_id: "task-fresh-node",
+      sequence: 1,
+      method: "POST",
+      path: "/v1/responses",
+      status: 200,
+      request_headers: { authorization: "[REDACTED]" },
+      response_headers: { "content-type": "application/json" },
+      request_body: { model: "gpt-node", input: "fresh database" },
+      response_body: { id: "resp_fresh_node", output_text: "created by Node" },
+      model_route: { requested: "gpt-node", effective: "gpt-node" },
+      stripped_fields: ["temperature"],
+      injected_fields: ["stream"],
+      added_upstream_headers: ["x-node-test"],
+    });
+    repository.upsertResponseLink("resp_fresh_node", "task-fresh-node");
+    repository.upsertContextLink("conversation:fresh-node", "task-fresh-node");
+    repository.close();
+
+    const result = runPythonDatabaseCheck(
+      root,
+      "task-fresh-node",
+      "record-fresh-node",
+      "resp_fresh_node",
+      "conversation:fresh-node",
+    );
+    expect(result.status, result.stderr).toBe(0);
+    expect(JSON.parse(result.stdout)).toMatchObject({
+      task: {
+        id: "task-fresh-node",
+        kind: "responses",
+        match_strategy_version: 4,
+        boundary_fingerprints: { first_user: "fresh-boundary" },
+        last_user_messages: [{ role: "user", content: "fresh database" }],
+      },
+      record: {
+        id: "record-fresh-node",
+        status: 200,
+        request_headers: { authorization: "[REDACTED]" },
+        response_body: { id: "resp_fresh_node", output_text: "created by Node" },
+        model_route: { requested: "gpt-node", effective: "gpt-node" },
+        stripped_fields: ["temperature"],
+        injected_fields: ["stream"],
+        added_upstream_headers: ["x-node-test"],
+      },
+      response_task_id: "task-fresh-node",
+      context_task_id: "task-fresh-node",
+    });
+  });
 });
 
 function findPython(): string {
@@ -333,6 +399,34 @@ function findPython(): string {
     }
   }
   throw new Error("Python 3 is required for database compatibility tests.");
+}
+
+function runPythonDatabaseCheck(
+  root: string,
+  taskId: string,
+  recordId: string,
+  responseId: string,
+  contextKey: string,
+) {
+  return spawnSync(
+    findPython(),
+    [
+      path.join(process.cwd(), "scripts", "check_database_roundtrip.py"),
+      root,
+      taskId,
+      recordId,
+      responseId,
+      contextKey,
+    ],
+    {
+      cwd: process.cwd(),
+      encoding: "utf8",
+      env: {
+        ...process.env,
+        PYTHONPATH: [process.cwd(), process.env["PYTHONPATH"]].filter(Boolean).join(path.delimiter),
+      },
+    },
+  );
 }
 
 describe("TrafficRepository.deleteTasks", () => {
