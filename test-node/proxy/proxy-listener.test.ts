@@ -61,6 +61,73 @@ describe("ProxyListener", () => {
     registry.end("abort-upstream");
   });
 
+  it("aborts the upstream connection when the downstream client disconnects", async () => {
+    let markUpstreamStarted: (() => void) | undefined;
+    const upstreamStarted = new Promise<void>((resolve) => {
+      markUpstreamStarted = resolve;
+    });
+    let markUpstreamClosed: (() => void) | undefined;
+    const upstreamClosed = new Promise<void>((resolve) => {
+      markUpstreamClosed = resolve;
+    });
+    const upstream = http.createServer((_request, response) => {
+      markUpstreamStarted?.();
+      response.once("close", () => markUpstreamClosed?.());
+    });
+    const upstreamPort = await listenServer(upstream);
+    let finishRecord: ((record: Readonly<Record<string, unknown>>) => void) | undefined;
+    const finalRecord = new Promise<Readonly<Record<string, unknown>>>((resolve) => {
+      finishRecord = resolve;
+    });
+    const trafficLog: TrafficLogWriter = {
+      write(record) {
+        if (record["event"] === "request_finished") {
+          finishRecord?.(record);
+        }
+        return Promise.resolve();
+      },
+      update: () => Promise.resolve(),
+    };
+    const activeRequests = new ActiveRequestRegistry();
+    const pipeline = new ProxyRequestPipeline({
+      activeRequests,
+      targets: [
+        {
+          enabled: true,
+          id: "client-abort-target",
+          modelMappings: [],
+          name: "Client abort target",
+          targetScheme: "http",
+          targetHost: "127.0.0.1",
+          targetPort: upstreamPort,
+          targetBasePath: "",
+          trafficLog,
+        },
+      ],
+    });
+    const listener = new ProxyListener({
+      host: "127.0.0.1",
+      port: 0,
+      onRequest: (request, response, context) => pipeline.handle(request, response, context),
+    });
+    const address = await listener.start();
+    const client = http.get({ host: "127.0.0.1", port: address.port, path: "/abort-client" });
+    client.once("error", () => undefined);
+
+    await upstreamStarted;
+    expect(activeRequests.size).toBe(1);
+    client.destroy(new Error("client abort fixture"));
+    await upstreamClosed;
+    await expect(finalRecord).resolves.toMatchObject({
+      event: "request_finished",
+      error: "AbortError",
+      response: { status: 502 },
+    });
+    expect(activeRequests.size).toBe(0);
+    await listener.close();
+    await closeServer(upstream);
+  });
+
   it("serves requests with a native Node HTTP listener", async () => {
     const listener = new ProxyListener({
       host: "127.0.0.1",
