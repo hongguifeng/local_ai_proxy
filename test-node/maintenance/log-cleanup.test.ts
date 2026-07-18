@@ -83,6 +83,35 @@ describe("keep-latest log cleanup", () => {
   });
 });
 
+describe("cleanup relational consistency", () => {
+  it("removes search documents and response/context links with the task", async () => {
+    const root = await mkdtemp(path.join(os.tmpdir(), "llm-proxy-cleanup-links-"));
+    temporaryDirectories.push(root);
+    const repository = new TrafficRepository(root);
+    repository.upsertTask({ id: "linked-task", kind: "responses", model: "searchable-model" });
+    repository.upsertRecord({
+      id: "linked-record",
+      task_id: "linked-task",
+      method: "POST",
+      path: "/v1/responses",
+      request_body: { input: "searchable-body" },
+    });
+    repository.upsertResponseLink("response-linked", "linked-task");
+    repository.upsertContextLink("conversation:linked", "linked-task");
+    expect(repository.listTasks("searchable-body").total).toBe(1);
+    repository.close();
+
+    cleanupSelectedLogGroups([root], ["linked-task"]);
+
+    const inspected = new TrafficRepository(root);
+    expect(inspected.listTasks("searchable-body").total).toBe(0);
+    expect(inspected.taskIdForResponse("response-linked")).toBeUndefined();
+    expect(inspected.taskIdForContext("conversation:linked")).toBeUndefined();
+    expect(inspected.getRecord("linked-record")).toBeUndefined();
+    inspected.close();
+  });
+});
+
 async function rootWithTasks(...taskIds: string[]): Promise<string> {
   const root = await mkdtemp(path.join(os.tmpdir(), "llm-proxy-cleanup-"));
   temporaryDirectories.push(root);

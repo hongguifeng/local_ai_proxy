@@ -379,7 +379,7 @@
 - [x] `API-035` P0 selected group cleanup。
 - [x] `API-036` P0 older-than cleanup。
 - [x] `API-037` P0 keep-latest cleanup。
-- [ ] `API-038` P0 cleanup 后搜索和 links 一致。
+- [x] `API-038` P0 cleanup 后搜索和 links 一致。
 
 ## 12. 阶段 9：UI 与浏览器测试
 
