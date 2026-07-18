@@ -371,6 +371,52 @@ describe("TaskAssignment", () => {
     expect(changedHistory?.task["id"]).toBe("prefix-task-2");
     repository.close();
   });
+
+  it("requires continuation evidence instead of grouping identical requests", async () => {
+    const root = await mkdtemp(path.join(os.tmpdir(), "llm-proxy-task-continuation-"));
+    temporaryDirectories.push(root);
+    const repository = new TrafficRepository(root);
+    let taskNumber = 0;
+    const matcher = new TaskMatcher(repository, {
+      createId: () => `continuation-task-${++taskNumber}`,
+      now: () => "2026-07-18T10:00:00.000+08:00",
+    });
+    const baselinePayload = {
+      model: "gpt-5",
+      messages: [
+        { role: "user", content: "hello" },
+        { role: "assistant", content: "first answer" },
+      ],
+    };
+    const first = matcher.assign(
+      trafficRecord("continuation-request-1", false, baselinePayload, "/v1/chat/completions"),
+    );
+    if (first === undefined) {
+      throw new Error("Continuation baseline request was not assigned.");
+    }
+    persistAssignment(repository, first, "continuation-request-1");
+
+    const duplicate = matcher.assign(
+      trafficRecord("continuation-request-2", false, baselinePayload, "/v1/chat/completions"),
+    );
+    const changedConversation = matcher.assign(
+      trafficRecord(
+        "continuation-request-3",
+        false,
+        {
+          model: "gpt-5",
+          messages: [
+            { role: "user", content: "hello" },
+            { role: "assistant", content: "revised answer" },
+          ],
+        },
+        "/v1/chat/completions",
+      ),
+    );
+    expect(duplicate?.task["id"]).toBe("continuation-task-2");
+    expect(changedConversation?.task["id"]).toBe("continuation-task-1");
+    repository.close();
+  });
 });
 
 function trafficRecord(

@@ -192,6 +192,12 @@ export class TaskMatcher {
       ) {
         continue;
       }
+      if (
+        (kind === "chat" || kind === "messages" || kind === "responses") &&
+        !taskHasContinuationEvidence(task, kind, payload)
+      ) {
+        continue;
+      }
       if (age <= TASK_MATCH_WINDOW_MS && age < bestAge) {
         bestAge = age;
         bestTask = task;
@@ -381,5 +387,31 @@ function taskUserMessagesMatch(
   return (
     stableJsonStringify(currentUserMessages.slice(0, previousUserMessages.length)) ===
     stableJsonStringify(previousUserMessages)
+  );
+}
+
+function taskHasContinuationEvidence(
+  task: Readonly<RepositoryRecord>,
+  kind: EndpointKind,
+  payload: unknown,
+): boolean {
+  const previousUserMessages = task["last_user_messages"];
+  const currentUserMessages = requestUserMessages(kind, payload);
+  if (
+    Array.isArray(previousUserMessages) &&
+    currentUserMessages.length > previousUserMessages.length
+  ) {
+    return true;
+  }
+  const previousFingerprints = task["fingerprints"];
+  if (!isRecord(previousFingerprints)) {
+    return false;
+  }
+  const currentFingerprints = requestFingerprints(kind, payload);
+  return ["input", "messages"].some(
+    (key) =>
+      typeof previousFingerprints[key] === "string" &&
+      typeof currentFingerprints[key] === "string" &&
+      previousFingerprints[key] !== currentFingerprints[key],
   );
 }
