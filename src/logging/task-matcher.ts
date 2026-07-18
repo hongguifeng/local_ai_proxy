@@ -3,6 +3,7 @@ import type { TrafficRepository } from "../persistence/index.js";
 import {
   bodyJsonValue,
   endpointKind,
+  responseIdsFromBody,
   type BytePayload,
   type EndpointKind,
 } from "../proxy/index.js";
@@ -60,7 +61,8 @@ export class TaskMatcher {
     const requestPayload = bodyPayload(request["body"]);
     const response = record["response"];
     const responsePayload = isRecord(response) ? bodyPayload(response["body"]) : null;
-    const existing = this.#existingTask(requestId);
+    const existing =
+      this.#existingTask(requestId) ?? this.#taskForPreviousResponse(kind, requestPayload);
     const task =
       existing === undefined
         ? this.#newTask(record, kind)
@@ -73,13 +75,25 @@ export class TaskMatcher {
       kind,
       requestPayload,
       responsePayload,
-      responseIds: [],
+      responseIds: responseIdsFromBody(responsePayload),
       contextKeys: [],
     };
   }
 
   #existingTask(requestId: string): RepositoryRecord | undefined {
     const taskId = this.#repository.taskIdForRecord(requestId);
+    return taskId === undefined ? undefined : this.#repository.getTask(taskId);
+  }
+
+  #taskForPreviousResponse(kind: EndpointKind, payload: unknown): RepositoryRecord | undefined {
+    if (kind !== "responses" || !isRecord(payload)) {
+      return undefined;
+    }
+    const previousResponseId = payload["previous_response_id"];
+    if (typeof previousResponseId !== "string" || previousResponseId === "") {
+      return undefined;
+    }
+    const taskId = this.#repository.taskIdForResponse(previousResponseId);
     return taskId === undefined ? undefined : this.#repository.getTask(taskId);
   }
 

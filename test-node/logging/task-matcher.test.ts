@@ -95,6 +95,36 @@ describe("TaskAssignment", () => {
     expect(repeated).toMatchObject({ task: { id: "task-pending" }, sequence: 1 });
     repository.close();
   });
+
+  it("uses a Responses previous_response_id link for follow-up requests", async () => {
+    const root = await mkdtemp(path.join(os.tmpdir(), "llm-proxy-task-response-link-"));
+    temporaryDirectories.push(root);
+    const repository = new TrafficRepository(root);
+    let taskNumber = 0;
+    const matcher = new TaskMatcher(repository, {
+      createId: () => `task-${++taskNumber}`,
+      now: () => "2026-07-18T10:00:00.000+08:00",
+    });
+    const first = matcher.assign(
+      trafficRecord("request-1", false, { model: "gpt-5", input: "start" }),
+    );
+    if (first === undefined) {
+      throw new Error("Initial Responses request was not assigned.");
+    }
+    expect(first.responseIds).toEqual(["resp-request-1"]);
+    persistAssignment(repository, first, "request-1");
+
+    const followup = matcher.assign(
+      trafficRecord("request-2", false, {
+        model: "gpt-5",
+        previous_response_id: "resp-request-1",
+        input: "continue",
+      }),
+    );
+    expect(followup).toMatchObject({ task: { id: "task-1" }, sequence: 2 });
+    expect(followup?.responseIds).toEqual(["resp-request-2"]);
+    repository.close();
+  });
 });
 
 function trafficRecord(id: string, bodyPending: boolean, payload: unknown) {
@@ -109,7 +139,31 @@ function trafficRecord(id: string, bodyPending: boolean, payload: unknown) {
     },
     response: {
       status: 200,
-      body: { size_bytes: 0, text: JSON.stringify({ id: "resp-1" }) },
+      body: { size_bytes: 0, text: JSON.stringify({ id: `resp-${id}` }) },
     },
   };
+}
+
+function persistAssignment(
+  repository: TrafficRepository,
+  assignment: TaskAssignment,
+  requestId: string,
+): void {
+  const taskId = assignment.task["id"];
+  if (typeof taskId !== "string") {
+    throw new Error("Task assignment is missing a string task ID.");
+  }
+  repository.upsertTask(assignment.task);
+  repository.upsertRecord({
+    id: requestId,
+    task_id: taskId,
+    sequence: assignment.sequence,
+    method: "POST",
+    path: "/v1/responses",
+    request_body: assignment.requestPayload,
+    response_body: assignment.responsePayload,
+  });
+  for (const responseId of assignment.responseIds) {
+    repository.upsertResponseLink(responseId, taskId);
+  }
 }
