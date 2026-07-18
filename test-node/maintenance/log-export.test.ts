@@ -29,7 +29,7 @@ describe("log export directory names", () => {
       id: "task/id-with-a-very-long-suffix",
       kind: "responses api",
       model: "vendor/model:测试",
-      started_at: "2026-07-18T12:34:56+08:00",
+      started_at: "2026-07-18T12:34:56",
     });
 
     expect(name).toMatch(
@@ -101,7 +101,7 @@ describe("record export Markdown", () => {
       {
         id: "record-1",
         sequence: 3,
-        timestamp: "2026-07-18T12:34:56+08:00",
+        timestamp: "2026-07-18T12:34:56",
         event: "request_finished",
         duration_ms: 42,
         target_url: "http://fixture/v1/responses",
