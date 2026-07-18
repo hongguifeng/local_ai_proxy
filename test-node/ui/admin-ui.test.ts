@@ -332,6 +332,34 @@ describe("admin UI history page", () => {
     expect(logQueries).toEqual(["needle"]);
     await expectPage(page.locator(".log-group-title")).toHaveText("Needle task");
   });
+
+  it("supports manual and automatic history refresh", async () => {
+    await page.goto(baseUrl, { waitUntil: "networkidle" });
+    await Promise.all([
+      page.waitForResponse((response) => response.url().includes("/api/logs?")),
+      page.locator('[data-tab="logs"]').click(),
+    ]);
+    logQueries.splice(0);
+
+    await Promise.all([
+      page.waitForResponse((response) => response.url().includes("/api/logs?")),
+      page.locator("#refreshLogs").click(),
+    ]);
+    expect(logQueries).toEqual([""]);
+
+    const autoRefresh = page.locator("#autoRefreshLogs");
+    await autoRefresh.uncheck();
+    logQueries.splice(0);
+    const automaticResponse = page.waitForResponse((response) =>
+      response.url().includes("/api/logs?"),
+    );
+    const startedAt = Date.now();
+    await autoRefresh.check();
+    await automaticResponse;
+    expect(Date.now() - startedAt).toBeGreaterThanOrEqual(200);
+    expect(logQueries).toEqual([""]);
+    await autoRefresh.uncheck();
+  });
 });
 
 function publicPair(pair: ProxyPair): PublicProxyPair {

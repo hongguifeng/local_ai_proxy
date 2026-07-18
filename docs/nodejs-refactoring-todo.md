@@ -407,7 +407,7 @@
 ### 12.3 History 页面 E2E
 
 - [x] `UI-020` P0 search 180 ms debounce。
-- [ ] `UI-021` P0 refresh/auto refresh。
+- [x] `UI-021` P0 refresh/auto refresh。
 - [ ] `UI-022` P0 group lazy expand。
 - [ ] `UI-023` P0 load more。
 - [ ] `UI-024` P0 selected task cleanup。
