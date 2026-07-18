@@ -733,6 +733,46 @@ describe("ProxyListener", () => {
     }
     await closeServer(tlsUpstream);
   });
+
+  it("preserves the upstream status code and reason phrase", async () => {
+    const upstream = http.createServer((_request, response) => {
+      response.writeHead(299, "Custom Upstream Status");
+      response.end("custom status");
+    });
+    const upstreamPort = await listenServer(upstream);
+    const trafficLog: TrafficLogWriter = {
+      write: () => Promise.resolve(),
+      update: () => Promise.resolve(),
+    };
+    const pipeline = new ProxyRequestPipeline({
+      targets: [
+        {
+          enabled: true,
+          id: "status-target",
+          modelMappings: [],
+          name: "Status target",
+          targetScheme: "http",
+          targetHost: "127.0.0.1",
+          targetPort: upstreamPort,
+          targetBasePath: "",
+          trafficLog,
+        },
+      ],
+    });
+    const listener = new ProxyListener({
+      host: "127.0.0.1",
+      port: 0,
+      onRequest: (request, response, context) => pipeline.handle(request, response, context),
+    });
+    const address = await listener.start();
+
+    expect(await requestStatus(address.port, "/status")).toEqual({
+      status: 299,
+      statusMessage: "Custom Upstream Status",
+    });
+    await listener.close();
+    await closeServer(upstream);
+  });
 });
 
 function requestText(
@@ -793,6 +833,24 @@ function listenServer(server: http.Server): Promise<number> {
         resolve(address.port);
       }
     });
+  });
+}
+
+function requestStatus(
+  port: number,
+  requestPath: string,
+): Promise<{ status: number; statusMessage: string }> {
+  return new Promise((resolve, reject) => {
+    const request = http.get({ host: "127.0.0.1", port, path: requestPath }, (response) => {
+      response.resume();
+      response.once("end", () => {
+        resolve({
+          status: response.statusCode ?? 0,
+          statusMessage: response.statusMessage ?? "",
+        });
+      });
+    });
+    request.once("error", reject);
   });
 }
 

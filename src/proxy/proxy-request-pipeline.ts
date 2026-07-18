@@ -158,7 +158,11 @@ export class ProxyRequestPipeline {
         chunks.push(Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk as Uint8Array));
       }
       responseBody = Buffer.concat(chunks);
-      response.writeHead(responseStatus, forwardedResponseHeaders(upstream));
+      response.writeHead(
+        responseStatus,
+        upstream.statusMessage ?? undefined,
+        forwardedResponseHeaders(upstream),
+      );
       response.end(request.method === "HEAD" ? undefined : responseBody);
     } catch (error) {
       responseStatus = 502;
