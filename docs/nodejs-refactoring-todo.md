@@ -498,7 +498,7 @@
 ### 14.4 Release gate
 
 - [x] `REL-001` P0 所有 Node unit/integration/E2E 通过。
-- [ ] `REL-002` P0 parity fixture 通过。
+- [x] `REL-002` P0 parity fixture 通过。
 - [ ] `REL-003` P0 Windows artifact smoke test 通过。
 - [ ] `REL-004` P0 真实数据副本演练通过。
 - [ ] `REL-005` P0 无 P0 bug。
