@@ -51,6 +51,83 @@ describe("disabled TrafficLogService", () => {
   });
 });
 
+describe("TrafficLogService record mapping", () => {
+  it("maps target metadata and message/token summaries", async () => {
+    const root = await mkdtemp(path.join(os.tmpdir(), "llm-proxy-log-record-row-"));
+    temporaryDirectories.push(root);
+    const service = new TrafficLogService(root);
+    await service.write({
+      id: "mapped-request",
+      timestamp: "2026-07-18T11:00:00.000+08:00",
+      started_timestamp: "2026-07-18T10:59:59.500+08:00",
+      event: "request_finished",
+      duration_ms: 500,
+      proxy: { id: "proxy-1", name: "Primary proxy" },
+      client: { host: "127.0.0.1", port: 43123 },
+      target: {
+        id: "target-1",
+        name: "Primary target",
+        scheme: "https",
+        host: "api.example.com",
+        port: 443,
+        path: "/base",
+      },
+      request: {
+        method: "POST",
+        path: "/v1/responses/?trace=1",
+        headers: { "content-type": "application/json" },
+        body: {
+          size_bytes: 0,
+          base64: "",
+          text: JSON.stringify({
+            model: "gpt-5",
+            instructions: "system",
+            input: [
+              { role: "user", content: "hello" },
+              { role: "assistant", content: "hi" },
+            ],
+          }),
+        },
+        model_route: { requested: "alias", upstream: "gpt-5" },
+        stripped_fields: ["temperature"],
+        injected_fields: ["stream"],
+        added_upstream_headers: ["authorization"],
+      },
+      response: {
+        status: 200,
+        headers: { "content-type": "application/json" },
+        body: {
+          size_bytes: 0,
+          base64: "",
+          text: JSON.stringify({ id: "resp-mapped", usage: { total_tokens: 42 } }),
+        },
+      },
+    });
+    service.close();
+
+    const repository = new TrafficRepository(root);
+    expect(repository.getRecord("mapped-request")).toMatchObject({
+      proxy_id: "proxy-1",
+      proxy_name: "Primary proxy",
+      client_host: "127.0.0.1",
+      client_port: 43123,
+      target_id: "target-1",
+      target_name: "Primary target",
+      target_url: "https://api.example.com:443/base",
+      method: "POST",
+      path: "/v1/responses/?trace=1",
+      endpoint: "/v1/responses",
+      message_count: 3,
+      token_count: 42,
+      model_route: { requested: "alias", upstream: "gpt-5" },
+      stripped_fields: ["temperature"],
+      injected_fields: ["stream"],
+      added_upstream_headers: ["authorization"],
+    });
+    repository.close();
+  });
+});
+
 describe("per-log-root write queue", () => {
   it("shares a serial executor for services writing the same root", async () => {
     const root = await mkdtemp(path.join(os.tmpdir(), "llm-proxy-log-queue-"));

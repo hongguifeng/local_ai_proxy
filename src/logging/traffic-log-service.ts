@@ -1,5 +1,11 @@
 import { TrafficRepository, type RepositoryRecord } from "../persistence/index.js";
-import { redactRecord } from "../proxy/index.js";
+import {
+  displayEndpoint,
+  endpointKind,
+  redactRecord,
+  requestMessageCount,
+  responseTokenCount,
+} from "../proxy/index.js";
 import { isRecord } from "../shared/index.js";
 import { TaskMatcher } from "./task-matcher.js";
 import { type SerialWriteQueue, writeQueueForLogRoot } from "./write-queue.js";
@@ -60,6 +66,11 @@ export class TrafficLogService {
     }
     const request = mapping(recordToWrite["request"]);
     const response = mapping(recordToWrite["response"]);
+    const target = mapping(recordToWrite["target"]);
+    const client = mapping(recordToWrite["client"]);
+    const proxy = mapping(recordToWrite["proxy"]);
+    const endpoint = displayEndpoint(stringValue(request["path"]));
+    const kind = endpointKind(endpoint);
     repository.transaction(() => {
       repository.upsertTask(assignment.task);
       repository.upsertRecord({
@@ -72,14 +83,28 @@ export class TrafficLogService {
           stringValue(recordToWrite["started_timestamp"]) ||
           stringValue(recordToWrite["timestamp"]),
         duration_ms: recordToWrite["duration_ms"],
+        proxy_id: proxy["id"],
+        proxy_name: proxy["name"],
+        client_host: client["host"],
+        client_port: client["port"],
+        target_id: target["id"],
+        target_name: target["name"],
+        target_url: targetUrl(target),
         method: stringValue(request["method"]),
         path: stringValue(request["path"]),
+        endpoint,
         status: response["status"],
         error: recordToWrite["error"],
+        message_count: requestMessageCount(kind, assignment.requestPayload),
+        token_count: responseTokenCount(assignment.responsePayload),
         request_headers: mapping(request["headers"]),
         response_headers: mapping(response["headers"]),
         request_body: assignment.requestPayload,
         response_body: assignment.responsePayload,
+        model_route: request["model_route"],
+        stripped_fields: listValue(request["stripped_fields"]),
+        injected_fields: listValue(request["injected_fields"]),
+        added_upstream_headers: listValue(request["added_upstream_headers"]),
       });
       for (const responseId of assignment.responseIds) {
         repository.upsertResponseLink(responseId, taskId);
@@ -97,4 +122,18 @@ function mapping(value: unknown): Readonly<Record<string, unknown>> {
 
 function stringValue(value: unknown): string {
   return typeof value === "string" || typeof value === "number" ? String(value) : "";
+}
+
+function listValue(value: unknown): readonly unknown[] {
+  return Array.isArray(value) ? [...(value as unknown[])] : [];
+}
+
+function targetUrl(target: Readonly<Record<string, unknown>>): string {
+  const scheme = stringValue(target["scheme"]);
+  const host = stringValue(target["host"]);
+  const port = stringValue(target["port"]);
+  if (scheme === "" || host === "" || port === "") {
+    return "";
+  }
+  return `${scheme}://${host}:${port}${stringValue(target["path"])}`;
 }

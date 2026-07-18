@@ -267,7 +267,7 @@
 - [x] `LOG-002` P0 task/record/link 单事务写入。
 - [x] `LOG-003` P0 per-log-root 串行写队列。
 - [x] `LOG-004` P0 disabled logger no-op。
-- [ ] `LOG-005` P0 target URL、message/token summary row mapping。
+- [x] `LOG-005` P0 target URL、message/token summary row mapping。
 - [ ] `LOG-006` P0 original/upstream body 按 ADR 实现。
 - [ ] `LOG-007` P0 日志错误不破坏代理响应。
 - [ ] `LOG-008` P1 写队列关闭和 drain。
