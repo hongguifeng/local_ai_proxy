@@ -500,7 +500,7 @@
 - [x] `REL-001` P0 所有 Node unit/integration/E2E 通过。
 - [x] `REL-002` P0 parity fixture 通过。
 - [x] `REL-003` P0 Windows artifact smoke test 通过。
-- [ ] `REL-004` P0 真实数据副本演练通过。
+- [x] `REL-004` P0 真实数据副本演练通过。
 - [ ] `REL-005` P0 无 P0 bug。
 - [ ] `REL-006` P0 release note 列出所有批准的行为差异。
 - [ ] `REL-007` P0 发布 RC 并完成手工验收。

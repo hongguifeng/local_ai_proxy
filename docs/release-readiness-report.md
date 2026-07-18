@@ -27,3 +27,13 @@
 - 关闭：测试通过退出信号执行应用自身的优雅关闭路径，管理端口释放，且没有遗留的打包进程。
 
 本门禁首次执行时发现 ESM main 顶层等待 `app.whenReady()` 的启动死锁；修复后重新进行完整 Windows 打包和 smoke，最终通过。
+
+## REL-004：真实数据副本演练
+
+- 数据源：Windows 上正在使用的 7,584,448,512-byte `traffic.db` 与实际 `proxies.json`。
+- 隔离：通过 SQLite online backup 创建独立副本，未停止、checkpoint 或修改源数据库；后续操作只针对演练目录。
+- 性能：在线备份耗时 48.40 秒。
+- 配置：1 个实际 proxy pair 完成加载、保存、备份恢复和再次加载。
+- 数据：73 tasks、4,199 records、5 response links、23 context links、3,924 search documents。
+- 完整性：所有关系 orphan 计数为 0。
+- 回滚：恢复后的数据库与 `before-node` 副本 SHA-256 完全一致；再次由 Node 打开后计数与关系仍一致。

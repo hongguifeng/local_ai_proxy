@@ -41,3 +41,16 @@ documents. Validation found zero orphan records, links, or search documents. Sam
 command is `npm run validate:migration -- <log-root>` after `npm run build`.
 
 The operator-facing backup and rollback sequence is maintained in `docs/migration-rollback.md`.
+
+## Real production-data copy rehearsal
+
+On 2026-07-18, `npm run rehearse:real-data -- <source-log-root> <empty-rehearsal-root>` was run
+with Windows Node.js against an active 7,584,448,512-byte production database on the Windows host.
+The SQLite online backup completed in 48.40 seconds without stopping or modifying the source. All
+work after that point used an isolated directory on the same data drive.
+
+The copied configuration loaded, saved, and restored successfully with one proxy pair. The migrated
+database contained 73 tasks, 4,199 records, 5 response links, 23 context links, and 3,924 search
+documents. Validation found zero orphan records, response links, context links, or search documents.
+The rollback copy matched the online-backup SHA-256 exactly, and reopening it through the Node
+repository reproduced the same counts and zero-orphan result.
