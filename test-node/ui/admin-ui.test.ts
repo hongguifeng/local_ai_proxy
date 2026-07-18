@@ -25,6 +25,7 @@ const logQueries: string[] = [];
 const groupLogQueries: string[] = [];
 let useLargeLogFixture = false;
 const deletedLogGroups = new Set<string>();
+const detailReads = new Map<string, number>();
 
 const pairs: PublicProxyPair[] = [];
 
@@ -167,6 +168,22 @@ beforeAll(async () => {
         return { deleted: groupIds, deleted_count: groupIds.length };
       },
       exportLogs: () => Readable.from([Buffer.from("zip-fixture")]),
+      getRecordDetail: (recordId) => {
+        const reads = (detailReads.get(recordId) ?? 0) + 1;
+        detailReads.set(recordId, reads);
+        if (recordId !== "record-one" && recordId !== "record-two") {
+          return undefined;
+        }
+        const pending = recordId === "record-one" && reads === 1;
+        return {
+          id: recordId,
+          pending,
+          request: { input: "hello", nested: { value: 1 } },
+          response: pending ? null : { output: "done", nested: { value: 2 } },
+          request_meta: { method: "POST", endpoint: "/v1/responses" },
+          response_meta: pending ? {} : { status: 200, token_count: 12 },
+        };
+      },
     },
     staticAssets: await loadAdminStaticAssets(),
   });
@@ -187,6 +204,7 @@ beforeEach(() => {
   groupLogQueries.splice(0);
   useLargeLogFixture = false;
   deletedLogGroups.clear();
+  detailReads.clear();
 });
 
 afterAll(async () => {
@@ -497,6 +515,37 @@ describe("admin UI history page", () => {
     const downloadPath = await download.path();
     expect(await readFile(downloadPath)).toEqual(Buffer.from("zip-fixture"));
     await expectPage(page.locator("#toast")).toContainText("Logs exported");
+  });
+
+  it("loads record detail and refreshes a pending response to finished", async () => {
+    await page.goto(baseUrl, { waitUntil: "networkidle" });
+    await Promise.all([
+      page.waitForResponse((response) => response.url().includes("/api/logs?")),
+      page.locator('[data-tab="logs"]').click(),
+    ]);
+    await Promise.all([
+      page.waitForResponse((response) => response.url().includes("/api/log-groups/task-one/logs")),
+      page.locator('[data-group-id="task-one"]').click(),
+    ]);
+    await Promise.all([
+      page.waitForResponse((response) => response.url().endsWith("/api/logs/record-one")),
+      page.locator('[data-log-id="record-one"]').click(),
+    ]);
+    await expectPage(page.locator("#requestJson")).toContainText("hello");
+    await expectPage(page.locator("#responseJson")).toContainText("null");
+    expect(detailReads.get("record-one")).toBe(1);
+
+    const autoRefresh = page.locator("#autoRefreshLogs");
+    await autoRefresh.uncheck();
+    const finishedDetail = page.waitForResponse((response) =>
+      response.url().endsWith("/api/logs/record-one"),
+    );
+    await autoRefresh.check();
+    await finishedDetail;
+    await expectPage(page.locator("#responseJson")).toContainText("done");
+    await expectPage(page.locator("#responseMeta")).toBeHidden();
+    expect(detailReads.get("record-one")).toBe(2);
+    await autoRefresh.uncheck();
   });
 });
 
