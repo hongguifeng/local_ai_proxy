@@ -1,0 +1,9 @@
+appId: com.localai.llmproxy
+productName: LLM Proxy
+directories:
+  output: release
+files:
+  - dist-node/**/*
+  - package.json
+asar: true
+npmRebuild: true
