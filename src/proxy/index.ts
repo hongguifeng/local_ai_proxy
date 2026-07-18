@@ -87,6 +87,7 @@ export {
   type ProxyRuntimeSnapshot,
   type ProxyRuntimeState,
 } from "./proxy-runtime-state.js";
+export { ProxyRuntimeRegistry } from "./proxy-runtime-registry.js";
 export {
   ProxyRequestPipeline,
   readRequestBody,

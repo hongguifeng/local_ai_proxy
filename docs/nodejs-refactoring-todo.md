@@ -331,7 +331,7 @@
 ## 10. 阶段 7：多代理管理
 
 - [x] `MGR-001` P0 实现 runtime state machine。
-- [ ] `MGR-002` P0 start pair。
+- [x] `MGR-002` P0 start pair。
 - [ ] `MGR-003` P0 stop pair。
 - [ ] `MGR-004` P0 restart pair。
 - [ ] `MGR-005` P0 start enabled / stop all。
