@@ -1,4 +1,5 @@
 import { afterEach, describe, expect, it } from "vitest";
+import { Readable } from "node:stream";
 
 import { applicationHealth, createAdminServer } from "../../src/admin/index.js";
 
@@ -9,6 +10,32 @@ afterEach(async () => {
 });
 
 describe("GET /api/logs", () => {
+  it("streams the ZIP export with download headers", async () => {
+    const server = createAdminServer({
+      getHealth: () => applicationHealth("running"),
+      logService: {
+        listGroups: () => ({
+          groups: [],
+          total: 0,
+          limit: 100,
+          offset: 0,
+          next_offset: 0,
+          has_more: false,
+        }),
+        exportLogs: () => Readable.from([Buffer.from("zip-stream")]),
+      },
+    });
+    servers.push(server);
+
+    const response = await server.inject({ method: "GET", url: "/api/logs/export" });
+    expect(response.statusCode).toBe(200);
+    expect(response.headers["content-type"]).toBe("application/zip");
+    expect(response.headers["content-disposition"]).toBe(
+      'attachment; filename="llm-proxy-logs.zip"',
+    );
+    expect(response.rawPayload.toString()).toBe("zip-stream");
+  });
+
   it("passes search and pagination query values to the log service", async () => {
     const calls: unknown[] = [];
     const page = {

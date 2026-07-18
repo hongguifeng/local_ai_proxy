@@ -1,9 +1,46 @@
-import type { RepositoryRecord } from "../persistence/index.js";
+import { ZipArchive } from "archiver";
+import type { Readable } from "node:stream";
+
+import { TrafficRepository, type RepositoryRecord } from "../persistence/index.js";
 import { formatLocalTimestamp, safeIdentifierPart } from "../shared/index.js";
 
 export interface LogExportEntry {
   readonly name: "request.json" | "response.json";
   readonly text: string;
+}
+
+export function createLogExportStream(logRoots: readonly string[]): Readable {
+  const archive = new ZipArchive({ zlib: { level: 6 } });
+  queueMicrotask(() => {
+    try {
+      for (const root of [...new Set(logRoots.filter((value) => value !== ""))]) {
+        const repository = new TrafficRepository(root);
+        try {
+          for (const task of allTasks(repository)) {
+            const taskDirectory = taskExportDirectory(task);
+            const records = allRecords(repository, text(task["id"]));
+            const base = `tasks/${taskDirectory}`;
+            archive.append(renderTaskIndexMarkdown(task, records), { name: `${base}/index.md` });
+            for (const record of records) {
+              const recordBase = `${base}/${recordExportDirectory(record)}`;
+              archive.append(renderRecordSummaryMarkdown(task, record), {
+                name: `${recordBase}/summary.md`,
+              });
+              for (const entry of recordJsonEntries(record)) {
+                archive.append(entry.text, { name: `${recordBase}/${entry.name}` });
+              }
+            }
+          }
+        } finally {
+          repository.close();
+        }
+      }
+      void archive.finalize();
+    } catch (error) {
+      archive.emit("error", error instanceof Error ? error : new Error("Log export failed."));
+    }
+  });
+  return archive;
 }
 
 export function taskExportDirectory(task: Readonly<RepositoryRecord>): string {
@@ -147,4 +184,26 @@ function integer(value: unknown): number {
 
 function prettyJson(value: unknown): string {
   return JSON.stringify(value, undefined, 2);
+}
+
+function allTasks(repository: TrafficRepository): RepositoryRecord[] {
+  const tasks: RepositoryRecord[] = [];
+  let page = repository.listTasks("", 500, 0);
+  tasks.push(...page.items);
+  while (page.hasMore) {
+    page = repository.listTasks("", 500, page.nextOffset);
+    tasks.push(...page.items);
+  }
+  return tasks;
+}
+
+function allRecords(repository: TrafficRepository, taskId: string): RepositoryRecord[] {
+  const records: RepositoryRecord[] = [];
+  let page = repository.listTaskRecords(taskId, "", 500, 0);
+  records.push(...page.items);
+  while (page.hasMore) {
+    page = repository.listTaskRecords(taskId, "", 500, page.nextOffset);
+    records.push(...page.items);
+  }
+  return records;
 }

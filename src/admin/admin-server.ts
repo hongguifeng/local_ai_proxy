@@ -1,6 +1,7 @@
 import Fastify, { LogController, type FastifyInstance } from "fastify";
 import type { AddressInfo } from "node:net";
 import { performance } from "node:perf_hooks";
+import type { Readable } from "node:stream";
 
 import type { ApplicationState } from "../app/index.js";
 import type { ProxyPair, PublicProxyPair } from "../config/index.js";
@@ -24,6 +25,7 @@ export interface AdminServerOptions {
 }
 
 export interface LogAdminService {
+  readonly exportLogs?: () => Readable;
   readonly getGroupLogs?: (groupId: string, query: string) => LogGroupLogs | undefined;
   readonly getRecordDetail?: (recordId: string) => LogRecordDetail | undefined;
   listGroups(query: string, limit: number, offset: number): LogGroupPage;
@@ -232,6 +234,15 @@ export function createAdminServer(options: AdminServerOptions): FastifyInstance 
     },
   );
   if (options.logService !== undefined) {
+    const exportLogs = options.logService.exportLogs;
+    if (exportLogs !== undefined) {
+      server.get("/api/logs/export", (_request, reply) =>
+        reply
+          .header("content-disposition", 'attachment; filename="llm-proxy-logs.zip"')
+          .type("application/zip")
+          .send(exportLogs()),
+      );
+    }
     server.get<{ Querystring: { limit?: number; offset?: number; q?: string } }>(
       "/api/logs",
       {

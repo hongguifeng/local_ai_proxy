@@ -1,12 +1,27 @@
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it } from "vitest";
+import { mkdtemp, rm } from "node:fs/promises";
+import os from "node:os";
+import path from "node:path";
+import type { Readable } from "node:stream";
+import { fromBufferPromise } from "yauzl";
 
 import {
+  createLogExportStream,
   recordExportDirectory,
   recordJsonEntries,
   renderRecordSummaryMarkdown,
   renderTaskIndexMarkdown,
   taskExportDirectory,
 } from "../../src/maintenance/index.js";
+import { TrafficRepository } from "../../src/persistence/index.js";
+
+const temporaryDirectories: string[] = [];
+
+afterEach(async () => {
+  await Promise.all(
+    temporaryDirectories.splice(0).map(async (root) => rm(root, { recursive: true })),
+  );
+});
 
 describe("log export directory names", () => {
   it("creates bounded safe task directory names", () => {
@@ -117,3 +132,62 @@ describe("record JSON export entries", () => {
     ]);
   });
 });
+
+describe("streaming ZIP export", () => {
+  it("streams every task and record entry from every log root", async () => {
+    const firstRoot = await logRootWithTask("first");
+    const secondRoot = await logRootWithTask("second");
+
+    const stream = createLogExportStream([firstRoot, secondRoot]);
+    expect(Buffer.isBuffer(stream)).toBe(false);
+    expect(typeof stream.pipe).toBe("function");
+    const archive = await streamBuffer(stream);
+    const entries = await zipEntries(archive);
+
+    expect(entries.filter((name) => name.endsWith("/index.md"))).toHaveLength(2);
+    expect(entries.filter((name) => name.endsWith("/summary.md"))).toHaveLength(2);
+    expect(entries.filter((name) => name.endsWith("/request.json"))).toHaveLength(2);
+    expect(entries.filter((name) => name.endsWith("/response.json"))).toHaveLength(2);
+  });
+});
+
+async function logRootWithTask(id: string): Promise<string> {
+  const root = await mkdtemp(path.join(os.tmpdir(), `llm-proxy-export-${id}-`));
+  temporaryDirectories.push(root);
+  const repository = new TrafficRepository(root);
+  repository.upsertTask({
+    id: `task-${id}`,
+    kind: "responses",
+    started_at: "2026-07-18T12:00:00+08:00",
+    last_seen_at: "2026-07-18T12:00:00+08:00",
+    request_count: 1,
+  });
+  repository.upsertRecord({
+    id: `record-${id}`,
+    task_id: `task-${id}`,
+    sequence: 1,
+    method: "POST",
+    path: "/v1/responses",
+    request_body: { input: id },
+    response_body: { output: id },
+  });
+  repository.close();
+  return root;
+}
+
+async function streamBuffer(stream: Readable): Promise<Buffer> {
+  const chunks: Buffer[] = [];
+  for await (const chunk of stream) {
+    chunks.push(Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk as Uint8Array));
+  }
+  return Buffer.concat(chunks);
+}
+
+async function zipEntries(buffer: Buffer): Promise<string[]> {
+  const zipFile = await fromBufferPromise(buffer, { lazyEntries: true });
+  const names: string[] = [];
+  for await (const entry of zipFile.eachEntry()) {
+    names.push(entry.fileName);
+  }
+  return names;
+}

@@ -1,5 +1,7 @@
 import { TrafficRepository, type RepositoryRecord } from "../persistence/index.js";
 import { formatLocalTimestamp } from "../shared/index.js";
+import { createLogExportStream } from "./log-export.js";
+import type { Readable } from "node:stream";
 
 export interface LogGroupSummary {
   readonly id: string;
@@ -121,6 +123,10 @@ export class LogQueryService {
       }
     }
     return undefined;
+  }
+
+  exportLogs(): Readable {
+    return createLogExportStream(this.#logRoots());
   }
 
   #listMergedGroups(

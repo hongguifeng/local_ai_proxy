@@ -10,6 +10,7 @@ export {
 export {
   recordExportDirectory,
   recordJsonEntries,
+  createLogExportStream,
   renderRecordSummaryMarkdown,
   renderTaskIndexMarkdown,
   taskExportDirectory,

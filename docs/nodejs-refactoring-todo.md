@@ -375,7 +375,7 @@
 - [x] `API-031` P0 task index Markdown。
 - [x] `API-032` P0 record summary Markdown。
 - [x] `API-033` P0 request/response JSON entry。
-- [ ] `API-034` P0 GET export 流式 ZIP。
+- [x] `API-034` P0 GET export 流式 ZIP。
 - [ ] `API-035` P0 selected group cleanup。
 - [ ] `API-036` P0 older-than cleanup。
 - [ ] `API-037` P0 keep-latest cleanup。
