@@ -59,53 +59,35 @@ Each upstream target keeps its own timeout, log directory, upstream headers, and
 Start the web console:
 
 ```powershell
-python -m llm_proxy
+npm ci
+npm run build
+npm start
 ```
 
-Or on Windows, run:
+Node.js 24 is required. The browser opens automatically at `http://127.0.0.1:8088`; use
+`npm start -- --no-browser` for a headless launch.
+
+### Windows Tray application
+
+Download either the installer or portable executable from a GitHub Release. To build both locally on
+Windows:
 
 ```powershell
-.\run.bat
-```
-
-The browser opens automatically at:
-
-```text
-http://127.0.0.1:8088
-```
-
-### Windows Tray exe
-
-To build a double-clickable tray app with no console window:
-
-```powershell
-python -m pip install -e ".[tray]" pyinstaller
-python -m PyInstaller `
-  --clean `
-  --onefile `
-  --windowed `
-  --name llm-proxy-tray `
-  --add-data "llm_proxy\static;llm_proxy\static" `
-  --collect-submodules pystray `
-  tray_launcher.py
-```
-
-The executable is created at:
-
-```powershell
-.\dist\llm-proxy-tray.exe
+npm ci
+npm run package:electron
 ```
 
 After launch, LLM Proxy appears as a system tray icon. Left-click the icon to open the admin UI, or right-click for **Open Admin UI** and **Exit**. To open the browser immediately on startup, run:
 
 ```powershell
-.\dist\llm-proxy-tray.exe --open-on-start
+.\release\LLM Proxy-0.1.0-x64-portable.exe --open-on-start
 ```
 
 The project also includes GitHub Actions automation for packaging and releases:
 
-- Regular pushes and pull requests build `llm-proxy-tray.exe` and keep it as a workflow artifact.
-- Pushing a `v*` tag creates or updates a GitHub Release with `llm-proxy-tray.exe` and `llm-proxy-tray.exe.sha256`.
+- Regular pushes and pull requests build the Windows installer, portable executable, CLI ZIP, and
+  `SHA256SUMS.txt` as workflow artifacts.
+- Pushing a `v*` tag creates or updates a GitHub Release with those artifacts.
 
 Publish a release:
 
@@ -207,7 +189,7 @@ Traffic history is stored in `traffic.db` under each configured log root. The da
 ### Inspect A Local Model Server
 
 1. Start your local upstream server, for example `llama.cpp`, on `http://127.0.0.1:1235`.
-2. Start LLM Proxy with `python -m llm_proxy`.
+2. Start LLM Proxy with `npm start` after `npm run build`.
 3. In the UI, enable a proxy pair from `127.0.0.1:1234` to `http://127.0.0.1:1235`.
 4. Configure your client base URL as `http://127.0.0.1:1234`.
 5. Open **History** to inspect the captured interaction.

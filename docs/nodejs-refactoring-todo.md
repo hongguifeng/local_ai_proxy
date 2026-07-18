@@ -475,7 +475,7 @@
 
 ### 14.2 文档切换
 
-- [ ] `DOC-001` P0 更新 README.md 为 Node 运行方式。
+- [x] `DOC-001` P0 更新 README.md 为 Node 运行方式。
 - [ ] `DOC-002` P0 更新 README.cn.md。
 - [ ] `DOC-003` P0 更新安装、开发、测试、打包命令。
 - [ ] `DOC-004` P0 更新项目结构。
