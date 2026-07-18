@@ -1,6 +1,11 @@
 import type { RepositoryRecord } from "../persistence/index.js";
 import { formatLocalTimestamp, safeIdentifierPart } from "../shared/index.js";
 
+export interface LogExportEntry {
+  readonly name: "request.json" | "response.json";
+  readonly text: string;
+}
+
 export function taskExportDirectory(task: Readonly<RepositoryRecord>): string {
   const timestamp = compactTimestamp(task["started_at"]) || "unknown-time";
   const model = safeIdentifierPart(task["model"], "unknown-model", 32);
@@ -91,6 +96,13 @@ export function renderRecordSummaryMarkdown(
   return lines.join("\n");
 }
 
+export function recordJsonEntries(record: Readonly<RepositoryRecord>): readonly LogExportEntry[] {
+  return [
+    { name: "request.json", text: prettyJson(record["request_body"] ?? null) },
+    { name: "response.json", text: prettyJson(record["response_body"] ?? null) },
+  ];
+}
+
 function compactTimestamp(value: unknown): string {
   if (typeof value !== "string" || value === "") {
     return "";
@@ -131,4 +143,8 @@ function text(value: unknown): string {
 function integer(value: unknown): number {
   const parsed = typeof value === "number" ? value : Number(value);
   return Number.isInteger(parsed) ? parsed : 0;
+}
+
+function prettyJson(value: unknown): string {
+  return JSON.stringify(value, undefined, 2);
 }

@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 
 import {
   recordExportDirectory,
+  recordJsonEntries,
   renderRecordSummaryMarkdown,
   renderTaskIndexMarkdown,
   taskExportDirectory,
@@ -105,5 +106,14 @@ describe("record export Markdown", () => {
     expect(markdown).toContain("- Task: responses / task-1 / request 3");
     expect(markdown).toContain("See `request.json`.");
     expect(markdown).toContain("See `response.json`.");
+  });
+});
+
+describe("record JSON export entries", () => {
+  it("writes pretty UTF-8-safe request and response JSON including null", () => {
+    expect(recordJsonEntries({ request_body: { input: "你好" }, response_body: null })).toEqual([
+      { name: "request.json", text: '{\n  "input": "你好"\n}' },
+      { name: "response.json", text: "null" },
+    ]);
   });
 });

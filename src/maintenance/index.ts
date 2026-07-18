@@ -9,7 +9,9 @@ export {
 } from "./log-query-service.js";
 export {
   recordExportDirectory,
+  recordJsonEntries,
   renderRecordSummaryMarkdown,
   renderTaskIndexMarkdown,
   taskExportDirectory,
+  type LogExportEntry,
 } from "./log-export.js";
