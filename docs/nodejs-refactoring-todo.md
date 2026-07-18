@@ -242,7 +242,7 @@
 - [x] `DB-041` P0 Python DB -> Node write -> Python read。
 - [x] `DB-042` P0 Node DB -> Python read。
 - [x] `DB-043` P0 多 connection 并发写测试。
-- [ ] `DB-044` P1 Windows packaged DB smoke test。
+- [x] `DB-044` P1 Windows packaged DB smoke test。
 
 ## 8. 阶段 5：TaskMatcher 和日志服务
 

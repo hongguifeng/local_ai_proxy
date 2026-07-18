@@ -5,6 +5,30 @@ on:
   pull_request:
 
 jobs:
+  windows-packaged-database-smoke:
+    name: Windows packaged database smoke
+    runs-on: windows-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          cache: npm
+          cache-dependency-path: package-lock.json
+          node-version-file: .node-version
+
+      - name: Install and compile application
+        run: |
+          npm ci
+          npm run build
+
+      - name: Reduce install to packaged production dependencies
+        run: npm prune --omit=dev
+
+      - name: Verify packaged SQLite native module and FTS5
+        run: npm run smoke:database
+
   node-test:
     name: Node 24 (${{ matrix.os }})
     runs-on: ${{ matrix.os }}
