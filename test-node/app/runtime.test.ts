@@ -69,6 +69,30 @@ describe("createNodeApplication", () => {
     await expect(fetch(`http://127.0.0.1:${adminPort}/api/health`)).rejects.toThrow();
     await expect(fetch(`http://127.0.0.1:${proxyPort}/v1/models`)).rejects.toThrow();
   });
+
+  it("fails cleanly when the admin port is already occupied", async () => {
+    const occupied = createServer();
+    await new Promise<void>((resolve, reject) => {
+      occupied.once("error", reject);
+      occupied.listen(0, "127.0.0.1", resolve);
+    });
+    const address = occupied.address();
+    if (address === null || typeof address === "string") throw new Error("Expected TCP address.");
+    const root = await mkdtemp(path.join(tmpdir(), "llm-proxy-app-"));
+    temporaryRoots.push(root);
+    const runtime = createNodeApplication({
+      configFile: path.join(root, "missing.json"),
+      logRoot: path.join(root, "logs"),
+      host: "127.0.0.1",
+      port: address.port,
+    });
+
+    await expect(runtime.application.start()).rejects.toMatchObject({ code: "EADDRINUSE" });
+    expect(runtime.application.state).toBe("stopped");
+    await new Promise<void>((resolve, reject) =>
+      occupied.close((error) => (error ? reject(error) : resolve())),
+    );
+  });
 });
 
 async function availablePort(): Promise<number> {
