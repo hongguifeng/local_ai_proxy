@@ -276,51 +276,29 @@ LLM Proxy 面向本地开发和流量检查。除非你已经加了自己的网�
 ## 工程结构
 
 ```text
-llm_proxy/
-  __main__.py       # python -m llm_proxy 入口
-  admin_server.py   # 管理端 HTTP API 和 UI 服务生命周期
-  cli.py            # Web 控制台启动器
-  tray.py           # Windows / 桌面系统托盘启动器
-  ui.py             # 内置 Web 控制台 HTML/CSS/JS
-  file_io.py        # 小文件原子写入
-  log_db.py         # SQLite schema 和连接初始化
-  log_repository.py # SQLite 日志读写、链接和清理基础
-  log_maintenance.py # 基于 SQLite 的日志 ZIP 导出和清理策略
-  log_store.py      # 历史日志读取和搜索
-  manager.py        # 多代理管理和配置持久化
-  models.py         # 共享的配置和日志记录类型结构
-  server.py         # HTTP 代理服务和 handler
-  logger.py         # SQLite 流量日志写入
-  records.py        # 请求/响应分析和任务指纹
-  streams.py        # SSE 流式响应摘要
-  task_matcher.py   # 基于 SQLite 的任务归类规则
-  sanitize.py       # request 字段移除/注入
-  target.py         # 上游 URL 解析和路径拼接
-  payloads.py       # body 编码、解析和渲染辅助
-  redaction.py      # 可选保存日志脱敏
-  static/
-    index.html      # 管理界面前端
-tests/
-  test_admin_ui.py
-  test_file_io.py
-  test_log_db.py
-  test_log_repository.py
-  test_redaction.py
-  test_sanitize_manager.py
-  test_server.py
-  test_sqlite_logger.py
-  test_streams.py
-  test_target.py
-  test_task_matcher.py
+src/
+  main.ts           # Node CLI 入口
+  app/              # 应用组装和关闭生命周期
+  cli/              # 参数、浏览器启动、信号和输出
+  admin/            # Fastify 管理 API 和静态 Web 控制台
+  config/           # schema、规范化、默认值和原子文件 repository
+  proxy/            # 监听、路由、上游转发和 SSE
+  logging/          # 任务归并和持久化流量写入
+  persistence/      # SQLite schema、迁移、备份和 repositories
+  maintenance/      # 历史查询、ZIP 导出和清理
+electron/           # 无窗口托盘应用入口和控制器
+test-node/          # Vitest 单元、集成、浏览器 E2E 和视觉测试
+scripts/            # 构建、smoke、迁移、checksum 和 benchmark 工具
+fixtures/parity/    # 确定性的配置和数据库 fixtures
 .github/workflows/
-  ci.yml
-  release.yml        # Windows exe 打包和 GitHub Release 发布
+  ci.yml             # Linux 和 Windows Node 检查
+  release.yml        # Electron 产物和 v-tag GitHub Release
 doc/
   ui_proxy_cn.png
   ui_logs_cn.png
-run.bat             # Windows UI 启动脚本
-tray_launcher.py    # PyInstaller 托盘版入口
-pyproject.toml
+electron-builder.yml
+package.json
+package-lock.json
 ```
 
 ## 测试

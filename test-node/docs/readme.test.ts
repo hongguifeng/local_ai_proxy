@@ -30,4 +30,14 @@ describe("README runtime instructions", () => {
       }
     }
   });
+
+  it("documents the Node and Electron project structure", async () => {
+    for (const name of ["README.md", "README.cn.md"]) {
+      const readme = await readFile(new URL(`../../${name}`, import.meta.url), "utf8");
+      expect(readme).toContain("src/");
+      expect(readme).toContain("electron/");
+      expect(readme).toContain("test-node/");
+      expect(readme).not.toContain("tray_launcher.py");
+    }
+  });
 });
