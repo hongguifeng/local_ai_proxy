@@ -503,7 +503,7 @@
 - [x] `REL-004` P0 真实数据副本演练通过。
 - [x] `REL-005` P0 无 P0 bug。
 - [x] `REL-006` P0 release note 列出所有批准的行为差异。
-- [ ] `REL-007` P0 发布 RC 并完成手工验收。
+- [x] `REL-007` P0 发布 RC 并完成手工验收。
 - [ ] `REL-008` P0 正式 tag、artifact、checksum、回滚文档齐全。
 
 ## 15. P2 后续优化池
