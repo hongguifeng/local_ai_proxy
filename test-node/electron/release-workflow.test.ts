@@ -2,6 +2,13 @@ import { readFile } from "node:fs/promises";
 import { describe, expect, it } from "vitest";
 
 describe("release workflow", () => {
+  it("keeps electron-builder publishing under workflow control", async () => {
+    const packageJson = JSON.parse(
+      await readFile(new URL("../../package.json", import.meta.url), "utf8"),
+    ) as { scripts?: Record<string, string> };
+    expect(packageJson.scripts?.["package:electron"]).toContain("--publish never");
+  });
+
   it("uploads Electron artifacts and checksums from Windows", async () => {
     const workflow = await readFile(
       new URL("../../.github/workflows/release.yml", import.meta.url),
