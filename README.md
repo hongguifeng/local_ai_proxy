@@ -327,15 +327,26 @@ pyproject.toml
 ## Tests
 
 ```powershell
-python -m unittest discover -s tests
+npm ci
+npm run check
 ```
 
 Development checks:
 
 ```powershell
-python -m pip install -e ".[dev]"
-python -m ruff check .
-python -m mypy
-python -m compileall -q llm_proxy tests
-python -m unittest discover -s tests
+npm run format:check
+npm run lint
+npm run typecheck
+npm test
+npm run build
+```
+
+Development and packaging commands:
+
+```powershell
+npm run dev                 # watch and restart the Node CLI
+npm run package:electron    # Windows installer and portable app
+npm run package:cli         # compiled CLI ZIP
+npm run smoke:artifact      # Windows packaged startup smoke test
+npm run checksums           # release/SHA256SUMS.txt
 ```

@@ -17,4 +17,17 @@ describe("README runtime instructions", () => {
     expect(quickStart).toContain("npm run package:electron");
     expect(quickStart).not.toContain("python -m llm_proxy");
   });
+
+  it("documents current install, test, development, and packaging commands", async () => {
+    const readmes = await Promise.all(
+      ["README.md", "README.cn.md"].map((name) =>
+        readFile(new URL(`../../${name}`, import.meta.url), "utf8"),
+      ),
+    );
+    for (const readme of readmes) {
+      for (const command of ["npm ci", "npm run check", "npm run dev", "npm run package:electron"]) {
+        expect(readme).toContain(command);
+      }
+    }
+  });
 });

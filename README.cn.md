@@ -326,15 +326,26 @@ pyproject.toml
 ## 测试
 
 ```powershell
-python -m unittest discover -s tests
+npm ci
+npm run check
 ```
 
 开发检查：
 
 ```powershell
-python -m pip install -e ".[dev]"
-python -m ruff check .
-python -m mypy
-python -m compileall -q llm_proxy tests
-python -m unittest discover -s tests
+npm run format:check
+npm run lint
+npm run typecheck
+npm test
+npm run build
+```
+
+开发和打包命令：
+
+```powershell
+npm run dev                 # 监听文件并重启 Node CLI
+npm run package:electron    # Windows installer 和 portable 程序
+npm run package:cli         # 编译后的 CLI ZIP
+npm run smoke:artifact      # Windows 打包产物启动检查
+npm run checksums           # release/SHA256SUMS.txt
 ```
