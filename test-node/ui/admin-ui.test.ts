@@ -658,6 +658,16 @@ describe("admin UI visual regression", () => {
 
     expect(await screenshotDifference("doc/ui_proxy_en.png")).toBeLessThan(0.12);
   });
+
+  it("matches the Chinese history page baseline", async () => {
+    await page.setViewportSize({ width: 1384, height: 1212 });
+    await openRecordDetail("record-two");
+    await page.locator("#languageSelect").selectOption("zh");
+    await expectPage(page.locator('[data-i18n="request"]')).toHaveText("请求");
+    await moveRowSplitterTo(875);
+
+    expect(await screenshotDifference("doc/ui_logs_cn.png")).toBeLessThan(0.25);
+  });
 });
 
 function publicPair(pair: ProxyPair): PublicProxyPair {
@@ -806,4 +816,13 @@ async function screenshotDifference(baselinePath: string): Promise<number> {
     { threshold: 0.2 },
   );
   return differentPixels / (baseline.width * baseline.height);
+}
+
+async function moveRowSplitterTo(y: number): Promise<void> {
+  const splitter = page.locator("#splitter");
+  const box = await requiredBox(splitter);
+  await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2);
+  await page.mouse.down();
+  await page.mouse.move(box.x + box.width / 2, y);
+  await page.mouse.up();
 }
