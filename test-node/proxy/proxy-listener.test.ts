@@ -224,6 +224,82 @@ describe("ProxyListener", () => {
     await listener.close();
   });
 
+  it("routes model requests between two live upstream targets", async () => {
+    const defaultPaths: string[] = [];
+    const routedPaths: string[] = [];
+    const defaultUpstream = http.createServer((request, response) => {
+      defaultPaths.push(request.url ?? "");
+      response.writeHead(200, { "content-type": "application/json" });
+      response.end(JSON.stringify({ upstream: "default" }));
+    });
+    const routedUpstream = http.createServer((request, response) => {
+      routedPaths.push(request.url ?? "");
+      response.writeHead(200, { "content-type": "application/json" });
+      response.end(JSON.stringify({ upstream: "routed" }));
+    });
+    const [defaultPort, routedPort] = await Promise.all([
+      listenServer(defaultUpstream),
+      listenServer(routedUpstream),
+    ]);
+    const trafficLog: TrafficLogWriter = {
+      write: () => Promise.resolve(),
+      update: () => Promise.resolve(),
+    };
+    const pipeline = new ProxyRequestPipeline({
+      defaultTargetId: "default-live",
+      targets: [
+        {
+          enabled: true,
+          id: "default-live",
+          modelMappings: [],
+          name: "Default live target",
+          targetScheme: "http",
+          targetHost: "127.0.0.1",
+          targetPort: defaultPort,
+          targetBasePath: "/default-base",
+          trafficLog,
+        },
+        {
+          enabled: true,
+          id: "routed-live",
+          modelMappings: [{ listen: "model-alias", upstream: "model-upstream" }],
+          name: "Routed live target",
+          targetScheme: "http",
+          targetHost: "127.0.0.1",
+          targetPort: routedPort,
+          targetBasePath: "/routed-base",
+          trafficLog,
+        },
+      ],
+    });
+    const listener = new ProxyListener({
+      host: "127.0.0.1",
+      port: 0,
+      onRequest: (request, response, context) => pipeline.handle(request, response, context),
+    });
+    const address = await listener.start();
+
+    try {
+      await expect(
+        requestText(address.port, "/v1/responses?trace=1", {
+          method: "POST",
+          body: JSON.stringify({ model: "model-alias", input: "route me" }),
+        }),
+      ).resolves.toEqual({ status: 200, body: JSON.stringify({ upstream: "routed" }) });
+      await expect(
+        requestText(address.port, "/v1/responses?trace=2", {
+          method: "POST",
+          body: JSON.stringify({ model: "unmapped-model", input: "use default" }),
+        }),
+      ).resolves.toEqual({ status: 200, body: JSON.stringify({ upstream: "default" }) });
+      expect(routedPaths).toEqual(["/routed-base/v1/responses?trace=1"]);
+      expect(defaultPaths).toEqual(["/default-base/v1/responses?trace=2"]);
+    } finally {
+      await listener.close();
+      await Promise.all([closeServer(defaultUpstream), closeServer(routedUpstream)]);
+    }
+  });
+
   it("reads the complete Content-Length request body", async () => {
     const pendingRecords: Readonly<Record<string, unknown>>[] = [];
     const trafficLog: TrafficLogWriter = {
