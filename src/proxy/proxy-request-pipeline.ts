@@ -4,7 +4,8 @@ import type { RepositoryRecord } from "../persistence/index.js";
 import { ActiveRequestRegistry } from "./active-requests.js";
 import { bytesPayload } from "./payload.js";
 import type { ProxyRequestContext } from "./proxy-listener.js";
-import { selectTargetByModel } from "./routing.js";
+import { transformRequestJsonFields } from "./request-transform.js";
+import { rewriteRequestModel, selectTargetByModel } from "./routing.js";
 import { joinTargetPath } from "./target.js";
 
 export interface TrafficLogWriter {
@@ -17,6 +18,8 @@ export interface ProxyPipelineTarget {
   readonly id: string;
   readonly modelMappings: readonly { readonly listen: string; readonly upstream: string }[];
   readonly name: string;
+  readonly injectRequestFields?: Readonly<Record<string, unknown>>;
+  readonly stripRequestFields?: ReadonlySet<string>;
   readonly targetScheme: "http" | "https";
   readonly targetHost: string;
   readonly targetPort: number;
@@ -72,10 +75,21 @@ export class ProxyRequestPipeline {
       );
     }
     const requestBody = await readRequestBody(request);
-    const selectedTarget = this.#selectTarget(requestBody);
-    const baseRecord = withRequestBody(
+    const selection = this.#selectTarget(requestBody);
+    const selectedTarget = selection.target;
+    const rewrittenBody = rewriteRequestModel(requestBody, selection.upstreamModel);
+    const transformed = transformRequestJsonFields(
+      rewrittenBody,
+      selectedTarget.stripRequestFields ?? new Set(),
+      selectedTarget.injectRequestFields ?? {},
+    );
+    const baseRecord = withRequestDetails(
       this.#initialRecord(request, context, selectedTarget),
       requestBody,
+      transformed.body,
+      selection,
+      transformed.strippedFields,
+      transformed.injectedFields,
     );
     if (this.#options.targets.length > 1) {
       await selectedTarget.trafficLog.write(eventRecord(baseRecord, "request_received", 0));
@@ -93,15 +107,27 @@ export class ProxyRequestPipeline {
     );
   }
 
-  #selectTarget(requestBody: Uint8Array): ProxyPipelineTarget {
+  #selectTarget(requestBody: Uint8Array): {
+    readonly target: ProxyPipelineTarget;
+    readonly requestModel: string | undefined;
+    readonly upstreamModel: string | undefined;
+  } {
     const candidates = this.#options.targets.map((target) => ({
       id: target.id,
       enabled: target.enabled,
       model_mappings: target.modelMappings,
       target,
     }));
-    return selectTargetByModel(candidates, this.#options.defaultTargetId ?? "", requestBody).target
-      .target;
+    const selection = selectTargetByModel(
+      candidates,
+      this.#options.defaultTargetId ?? "",
+      requestBody,
+    );
+    return {
+      target: selection.target.target,
+      requestModel: selection.requestModel,
+      upstreamModel: selection.upstreamModel,
+    };
   }
 
   #initialRecord(
@@ -166,11 +192,21 @@ function eventRecord(
   };
 }
 
-function withRequestBody(
+function withRequestDetails(
   record: Readonly<RepositoryRecord>,
   requestBody: Uint8Array,
+  upstreamBody: Uint8Array,
+  selection: {
+    readonly target: ProxyPipelineTarget;
+    readonly requestModel: string | undefined;
+    readonly upstreamModel: string | undefined;
+  },
+  strippedFields: readonly string[],
+  injectedFields: readonly string[],
 ): RepositoryRecord {
   const request = record["request"];
+  const transformed =
+    selection.upstreamModel !== undefined || strippedFields.length > 0 || injectedFields.length > 0;
   return {
     ...record,
     request: {
@@ -179,6 +215,21 @@ function withRequestBody(
         : {}),
       body: bytesPayload(requestBody),
       body_pending: false,
+      ...(transformed ? { upstream_body: bytesPayload(upstreamBody) } : {}),
+      ...(strippedFields.length > 0 ? { stripped_fields: strippedFields } : {}),
+      ...(injectedFields.length > 0 ? { injected_fields: injectedFields } : {}),
+      ...(selection.requestModel === undefined
+        ? {}
+        : {
+            model_route: {
+              requested_model: selection.requestModel,
+              ...(selection.upstreamModel === undefined
+                ? {}
+                : { upstream_model: selection.upstreamModel }),
+              target_id: selection.target.id,
+              target_name: selection.target.name,
+            },
+          }),
     },
   };
 }

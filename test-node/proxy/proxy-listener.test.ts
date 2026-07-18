@@ -234,6 +234,62 @@ describe("ProxyListener", () => {
     await listener.close();
   });
 
+  it("routes, rewrites, strips, and injects the upstream request body", async () => {
+    const pendingRecords: Readonly<Record<string, unknown>>[] = [];
+    const trafficLog: TrafficLogWriter = {
+      write() {
+        return Promise.resolve();
+      },
+      update(record) {
+        pendingRecords.push(record);
+        return Promise.resolve();
+      },
+    };
+    const pipeline = new ProxyRequestPipeline({
+      targets: [
+        {
+          enabled: true,
+          id: "transform-target",
+          modelMappings: [{ listen: "model-alias", upstream: "gpt-upstream" }],
+          name: "Transform target",
+          stripRequestFields: new Set(["temperature"]),
+          injectRequestFields: { stream: true, top_p: 0.9 },
+          targetScheme: "http",
+          targetHost: "127.0.0.1",
+          targetPort: 4327,
+          targetBasePath: "",
+          trafficLog,
+        },
+      ],
+    });
+    const listener = new ProxyListener({
+      host: "127.0.0.1",
+      port: 0,
+      onRequest: (request, response, context) => pipeline.handle(request, response, context),
+    });
+    const address = await listener.start();
+    const original = JSON.stringify({ model: "model-alias", input: "hello", temperature: 1 });
+
+    await requestText(address.port, "/v1/responses", { method: "POST", body: original });
+    expect(pendingRecords[0]).toMatchObject({
+      target: { id: "transform-target" },
+      request: {
+        body: { text: original },
+        upstream_body: {
+          text: JSON.stringify({ model: "gpt-upstream", input: "hello", stream: true, top_p: 0.9 }),
+        },
+        model_route: {
+          requested_model: "model-alias",
+          upstream_model: "gpt-upstream",
+          target_id: "transform-target",
+        },
+        stripped_fields: ["temperature"],
+        injected_fields: ["stream", "top_p"],
+      },
+    });
+    await listener.close();
+  });
+
   it("reads an incoming chunked request body", async () => {
     const pendingRecords: Readonly<Record<string, unknown>>[] = [];
     const trafficLog: TrafficLogWriter = {
