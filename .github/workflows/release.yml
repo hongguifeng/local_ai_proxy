@@ -1,4 +1,4 @@
-name: Windows EXE
+name: Windows Electron Release
 
 on:
   push:
@@ -19,42 +19,31 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - uses: actions/setup-python@v5
+      - uses: actions/setup-node@v4
         with:
-          python-version: "3.12"
+          cache: npm
+          cache-dependency-path: package-lock.json
+          node-version-file: .node-version
 
-      - name: Install build dependencies
-        run: |
-          python -m pip install --upgrade pip
-          python -m pip install -e ".[tray]" pyinstaller
+      - name: Install Node dependencies
+        run: npm ci
 
-      - name: Build tray executable
-        run: |
-          python -m PyInstaller `
-            --clean `
-            --onefile `
-            --windowed `
-            --name llm-proxy-tray `
-            --add-data "llm_proxy\static;llm_proxy\static" `
-            --collect-submodules pystray `
-            tray_launcher.py
+      - name: Build installer and portable application
+        run: npm run package:electron
 
-      - name: Create checksum
-        shell: powershell
-        run: |
-          if (!(Test-Path "dist\llm-proxy-tray.exe")) {
-            throw "dist\llm-proxy-tray.exe was not created"
-          }
-          $hash = Get-FileHash "dist\llm-proxy-tray.exe" -Algorithm SHA256
-          "$($hash.Hash)  llm-proxy-tray.exe" | Set-Content "dist\llm-proxy-tray.exe.sha256" -Encoding ascii
+      - name: Smoke test portable application
+        run: npm run smoke:artifact
+
+      - name: Create checksums
+        run: npm run checksums
 
       - name: Upload build artifact
         uses: actions/upload-artifact@v4
         with:
-          name: llm-proxy-tray-windows
+          name: llm-proxy-windows
           path: |
-            dist/llm-proxy-tray.exe
-            dist/llm-proxy-tray.exe.sha256
+            release/*.exe
+            release/SHA256SUMS.txt
           if-no-files-found: error
 
   release:
@@ -69,7 +58,7 @@ jobs:
       - name: Download Windows artifact
         uses: actions/download-artifact@v4
         with:
-          name: llm-proxy-tray-windows
+          name: llm-proxy-windows
           path: release-assets
 
       - name: Create or update release
