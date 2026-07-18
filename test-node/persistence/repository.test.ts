@@ -229,6 +229,31 @@ describe("timestamp search", () => {
   });
 });
 
+describe("TrafficRepository.deleteTasks", () => {
+  it("cascades task deletion to records and links", async () => {
+    const root = await mkdtemp(path.join(os.tmpdir(), "llm-proxy-delete-task-"));
+    temporaryDirectories.push(root);
+    const repository = new TrafficRepository(root);
+    repository.upsertTask({ id: "task-delete", match_strategy_version: 4 });
+    repository.upsertRecord({
+      id: "record-delete",
+      task_id: "task-delete",
+      method: "POST",
+      path: "/v1/responses",
+    });
+    repository.upsertResponseLink("resp-delete", "task-delete");
+    repository.upsertContextLink("context-delete", "task-delete");
+
+    expect(repository.deleteTasks(["", "task-delete"])).toBe(1);
+    expect(repository.getTask("task-delete")).toBeUndefined();
+    expect(repository.getRecord("record-delete")).toBeUndefined();
+    expect(repository.taskIdForResponse("resp-delete")).toBeUndefined();
+    expect(repository.taskIdForContext("context-delete")).toBeUndefined();
+    expect(repository.deleteTasks([])).toBe(0);
+    repository.close();
+  });
+});
+
 describe("TrafficRepository.upsertRecord", () => {
   it("inserts a complete traffic record", async () => {
     const root = await mkdtemp(path.join(os.tmpdir(), "llm-proxy-record-"));

@@ -371,6 +371,20 @@ export class TrafficRepository {
     return typeof taskId === "string" ? taskId : undefined;
   }
 
+  deleteTasks(taskIds: readonly string[]): number {
+    const selected = taskIds
+      .map((taskId) => String(taskId))
+      .filter((taskId) => taskId.trim() !== "");
+    if (selected.length === 0) {
+      return 0;
+    }
+    const placeholders = selected.map(() => "?").join(",");
+    const result = this.#database
+      .prepare(`DELETE FROM tasks WHERE id IN (${placeholders})`)
+      .run(...selected);
+    return result.changes;
+  }
+
   #syncRecordSearch(values: Readonly<RepositoryRecord>): void {
     const task = this.#database
       .prepare("SELECT * FROM tasks WHERE id = ?")
