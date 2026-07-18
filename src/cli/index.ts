@@ -1,6 +1,7 @@
 import { DEFAULT_CONFIG_PATH, DEFAULT_LOG_ROOT, DEFAULT_PROXY_HOST } from "../config/index.js";
 
 export { launchBrowser, openBrowserLater, type BrowserLauncher } from "./browser.js";
+export { installShutdownSignals, type SignalProcess } from "./signals.js";
 
 export interface CliOptions {
   readonly configFile: string;

@@ -1,7 +1,17 @@
 export type ApplicationState = "created" | "starting" | "running" | "stopping" | "stopped";
 
+export interface ApplicationLifecycle {
+  readonly start?: () => Promise<void> | void;
+  readonly stop?: () => Promise<void> | void;
+}
+
 export class Application {
+  readonly #lifecycle: ApplicationLifecycle;
   #state: ApplicationState = "created";
+
+  constructor(lifecycle: ApplicationLifecycle = {}) {
+    this.#lifecycle = lifecycle;
+  }
 
   get state(): ApplicationState {
     return this.#state;
@@ -15,8 +25,13 @@ export class Application {
       throw new Error(`Cannot start application while state is ${this.#state}.`);
     }
     this.#state = "starting";
-    await Promise.resolve();
-    this.#state = "running";
+    try {
+      await this.#lifecycle.start?.();
+      this.#state = "running";
+    } catch (error) {
+      this.#state = "stopped";
+      throw error;
+    }
   }
 
   async stop(): Promise<void> {
@@ -28,7 +43,10 @@ export class Application {
       throw new Error(`Cannot stop application while state is ${this.#state}.`);
     }
     this.#state = "stopping";
-    await Promise.resolve();
-    this.#state = "stopped";
+    try {
+      await this.#lifecycle.stop?.();
+    } finally {
+      this.#state = "stopped";
+    }
   }
 }

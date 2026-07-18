@@ -6,6 +6,7 @@ import {
 } from "../config/index.js";
 import { stableJsonStringify } from "../shared/index.js";
 import { ProxyRuntimeRegistry } from "./proxy-runtime-registry.js";
+import type { StartEnabledResult } from "./proxy-runtime-registry.js";
 
 export type ProxyManagerState = "degraded" | "ready";
 export type ConfigurationApplyStage = "save" | "start" | "stop";
@@ -74,6 +75,25 @@ export class ProxyManager {
 
   listPairs(): readonly PublicProxyPair[] {
     return this.#config.pairs.map((pair) => this.#registry.publicPair(pair));
+  }
+
+  logRoots(): readonly string[] {
+    return [
+      ...new Set(
+        this.#config.pairs.flatMap((pair) =>
+          pair.targets.map((target) => target.log_root).filter((root) => root !== ""),
+        ),
+      ),
+    ];
+  }
+
+  startEnabled(): Promise<StartEnabledResult> {
+    return this.#registry.startEnabled(this.#config.pairs);
+  }
+
+  async stopAll(): Promise<void> {
+    await this.#applyQueue;
+    await this.#registry.stopAll();
   }
 
   replacePairs(pairs: readonly ProxyPair[]): Promise<readonly PublicProxyPair[]> {

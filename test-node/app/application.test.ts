@@ -13,6 +13,29 @@ describe("Application", () => {
     expect(application.state).toBe("stopped");
   });
 
+  it("runs injected lifecycle work and returns to stopped after a start failure", async () => {
+    const events: string[] = [];
+    const application = new Application({
+      start: () => {
+        events.push("start");
+      },
+      stop: () => {
+        events.push("stop");
+      },
+    });
+    await application.start();
+    await application.stop();
+    expect(events).toEqual(["start", "stop"]);
+
+    const failed = new Application({
+      start: () => {
+        throw new Error("startup failed");
+      },
+    });
+    await expect(failed.start()).rejects.toThrow("startup failed");
+    expect(failed.state).toBe("stopped");
+  });
+
   it("makes start and stop idempotent at stable states", async () => {
     const application = new Application();
 
