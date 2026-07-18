@@ -237,6 +237,24 @@ describe("admin UI proxy page", () => {
     expect(pairs[0]?.running).toBe(false);
     await expectPage(page.locator('.proxy-card[data-index="0"] [data-toggle]')).not.toBeChecked();
   }, 20_000);
+
+  it("preserves unsaved form values while switching languages", async () => {
+    await page.goto(baseUrl, { waitUntil: "networkidle" });
+    const name = page.locator('.proxy-card[data-index="0"] [data-field="name"]');
+    await name.fill("Unsaved Name");
+
+    await page.locator("#languageSelect").selectOption("zh");
+    await expectPage(page.locator('.proxy-card[data-index="0"] [data-field="name"]')).toHaveValue(
+      "Unsaved Name",
+    );
+    await expectPage(page.locator("#saveProxies")).toHaveText("保存配置");
+
+    await page.locator("#languageSelect").selectOption("en");
+    await expectPage(page.locator('.proxy-card[data-index="0"] [data-field="name"]')).toHaveValue(
+      "Unsaved Name",
+    );
+    await expectPage(page.locator("#saveProxies")).toHaveText("Save config");
+  });
 });
 
 function publicPair(pair: ProxyPair): PublicProxyPair {
