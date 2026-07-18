@@ -453,7 +453,7 @@
 ### 13.3 构建与发布
 
 - [x] `PKG-001` P0 配置 electron-builder。
-- [ ] `PKG-002` P0 选择并生成 portable/installer。
+- [x] `PKG-002` P0 选择并生成 portable/installer。
 - [ ] `PKG-003` P0 打包静态 UI 和 SQLite native module。
 - [ ] `PKG-004` P0 artifact 启动 smoke test。
 - [ ] `PKG-005` P0 生成 SHA-256。

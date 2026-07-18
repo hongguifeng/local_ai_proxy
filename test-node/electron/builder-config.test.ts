@@ -11,4 +11,11 @@ describe("electron-builder configuration", () => {
     expect(config).toContain("output: release");
     expect(JSON.parse(packageJson)).toMatchObject({ main: "dist-node/electron/index.js" });
   });
+
+  it("builds both an installable and portable Windows application", async () => {
+    const config = await readFile(new URL("../../electron-builder.yml", import.meta.url), "utf8");
+    expect(config).toContain("- nsis");
+    expect(config).toContain("- portable");
+    expect(config).toContain("oneClick: false");
+  });
 });

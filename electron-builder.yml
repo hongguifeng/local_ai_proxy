@@ -7,3 +7,12 @@ files:
   - package.json
 asar: true
 npmRebuild: true
+win:
+  target:
+    - nsis
+    - portable
+  artifactName: ${productName}-${version}-${arch}.${ext}
+nsis:
+  oneClick: false
+  perMachine: false
+  allowToChangeInstallationDirectory: true
