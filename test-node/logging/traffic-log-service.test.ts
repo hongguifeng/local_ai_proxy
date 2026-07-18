@@ -41,6 +41,16 @@ describe("TrafficLogService redaction", () => {
   );
 });
 
+describe("disabled TrafficLogService", () => {
+  it("makes write, update, and close safe no-ops without a log root", async () => {
+    const service = new TrafficLogService(null, { redactLogs: true });
+    await expect(service.write({ id: "disabled-write" })).resolves.toBeUndefined();
+    await expect(service.update({ id: "disabled-update" })).resolves.toBeUndefined();
+    expect(() => service.close()).not.toThrow();
+    expect(() => service.close()).not.toThrow();
+  });
+});
+
 describe("per-log-root write queue", () => {
   it("shares a serial executor for services writing the same root", async () => {
     const root = await mkdtemp(path.join(os.tmpdir(), "llm-proxy-log-queue-"));
