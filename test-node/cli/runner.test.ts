@@ -1,3 +1,4 @@
+import path from "node:path";
 import { describe, expect, it, vi } from "vitest";
 
 import { Application } from "../../src/app/index.js";
@@ -29,10 +30,10 @@ describe("runCli", () => {
     });
 
     expect(output.write.mock.calls.flat().join("")).toContain(
-      "Proxy config: /workspace/state/proxies.json",
+      `Proxy config: ${path.resolve("/workspace", "state/proxies.json")}`,
     );
     expect(output.write.mock.calls.flat().join("")).toContain(
-      "Logs directory: /workspace/state/logs",
+      `Logs directory: ${path.resolve("/workspace", "state/logs")}`,
     );
     expect(openBrowser).toHaveBeenCalledWith("http://127.0.0.1:9090");
     expect(registerSignals).toHaveBeenCalledWith(application);
