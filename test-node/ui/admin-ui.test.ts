@@ -678,6 +678,33 @@ describe("admin UI visual regression", () => {
 
     expect(await screenshotDifference("doc/ui_logs_en.png")).toBeLessThan(0.25);
   });
+
+  it("renders and operates at the 760 px responsive breakpoint", async () => {
+    pairs.splice(0, pairs.length, ...visualPairs());
+    await page.setViewportSize({ width: 760, height: 1000 });
+    await page.goto(baseUrl, { waitUntil: "networkidle" });
+    await page.locator("#languageSelect").selectOption("zh");
+    await expectPage(page.locator("header")).toHaveCSS("flex-direction", "column");
+    await expectPage(page.locator(".proxy-head").first()).toHaveCSS(
+      "grid-template-columns",
+      "698px",
+    );
+    expect(
+      screenshotContentRatio(await page.screenshot({ animations: "disabled" })),
+    ).toBeGreaterThan(0.05);
+
+    await Promise.all([
+      page.waitForResponse((response) => response.url().includes("/api/logs?")),
+      page.locator('[data-tab="logs"]').click(),
+    ]);
+    await expectPage(page.locator(".log-list")).toHaveCSS("border-right-width", "0px");
+    await expectPage(page.locator(".log-list")).toHaveCSS("border-bottom-width", "1px");
+    const screenshot = PNG.sync.read(await page.screenshot({ animations: "disabled" }));
+    expect({ width: screenshot.width, height: screenshot.height }).toEqual({
+      width: 760,
+      height: 1000,
+    });
+  });
 });
 
 function publicPair(pair: ProxyPair): PublicProxyPair {
@@ -835,4 +862,19 @@ async function moveRowSplitterTo(y: number): Promise<void> {
   await page.mouse.down();
   await page.mouse.move(box.x + box.width / 2, y);
   await page.mouse.up();
+}
+
+function screenshotContentRatio(buffer: Buffer): number {
+  const image = PNG.sync.read(buffer);
+  let nonWhitePixels = 0;
+  for (let offset = 0; offset < image.data.length; offset += 4) {
+    if (
+      (image.data[offset] ?? 255) < 250 ||
+      (image.data[offset + 1] ?? 255) < 250 ||
+      (image.data[offset + 2] ?? 255) < 250
+    ) {
+      nonWhitePixels += 1;
+    }
+  }
+  return nonWhitePixels / (image.width * image.height);
 }
