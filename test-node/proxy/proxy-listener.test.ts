@@ -1334,6 +1334,72 @@ describe("ProxyListener", () => {
     }
   });
 
+  it("preserves binary request and response bytes", async () => {
+    const requestBody = Buffer.from([0x00, 0xff, 0x10, 0x80, 0x41]);
+    const responseBody = Buffer.from([0xfe, 0x00, 0x7f, 0x42, 0x81]);
+    const upstreamBodies: Buffer[] = [];
+    const upstream = http.createServer((request, response) => {
+      const chunks: Buffer[] = [];
+      request.on("data", (chunk: Buffer) => chunks.push(chunk));
+      request.on("end", () => {
+        upstreamBodies.push(Buffer.concat(chunks));
+        response.writeHead(200, { "content-type": "application/octet-stream" });
+        response.end(responseBody);
+      });
+    });
+    const upstreamPort = await listenServer(upstream);
+    let finishRecord: ((record: Readonly<Record<string, unknown>>) => void) | undefined;
+    const finalRecord = new Promise<Readonly<Record<string, unknown>>>((resolve) => {
+      finishRecord = resolve;
+    });
+    const trafficLog: TrafficLogWriter = {
+      write(record) {
+        if (record["event"] === "request_finished") {
+          finishRecord?.(record);
+        }
+        return Promise.resolve();
+      },
+      update: () => Promise.resolve(),
+    };
+    const pipeline = new ProxyRequestPipeline({
+      targets: [
+        {
+          enabled: true,
+          id: "binary-target",
+          modelMappings: [],
+          name: "Binary target",
+          targetScheme: "http",
+          targetHost: "127.0.0.1",
+          targetPort: upstreamPort,
+          targetBasePath: "",
+          trafficLog,
+        },
+      ],
+    });
+    const listener = new ProxyListener({
+      host: "127.0.0.1",
+      port: 0,
+      onRequest: (request, response, context) => pipeline.handle(request, response, context),
+    });
+    const address = await listener.start();
+
+    await expect(requestBinary(address.port, "/binary", requestBody)).resolves.toEqual({
+      status: 200,
+      body: responseBody,
+    });
+    expect(upstreamBodies).toEqual([requestBody]);
+    await expect(finalRecord).resolves.toMatchObject({
+      request: {
+        body: { size_bytes: requestBody.byteLength, base64: requestBody.toString("base64") },
+      },
+      response: {
+        body: { size_bytes: responseBody.byteLength, base64: responseBody.toString("base64") },
+      },
+    });
+    await listener.close();
+    await closeServer(upstream);
+  });
+
   it("does not send upstream response bytes for HEAD", async () => {
     const upstream = http.createServer((_request, response) => {
       response.writeHead(200, { "content-type": "text/plain" });
@@ -1485,6 +1551,36 @@ function listenServer(server: http.Server): Promise<number> {
         resolve(address.port);
       }
     });
+  });
+}
+
+function requestBinary(
+  port: number,
+  requestPath: string,
+  body: Buffer,
+): Promise<{ status: number; body: Buffer }> {
+  return new Promise((resolve, reject) => {
+    const request = http.request(
+      {
+        host: "127.0.0.1",
+        port,
+        path: requestPath,
+        method: "POST",
+        headers: {
+          "content-type": "application/octet-stream",
+          "content-length": body.byteLength,
+        },
+      },
+      (response) => {
+        const chunks: Buffer[] = [];
+        response.on("data", (chunk: Buffer) => chunks.push(chunk));
+        response.once("end", () => {
+          resolve({ status: response.statusCode ?? 0, body: Buffer.concat(chunks) });
+        });
+      },
+    );
+    request.once("error", reject);
+    request.end(body);
   });
 }
 
