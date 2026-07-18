@@ -437,7 +437,7 @@
 - [x] `CLI-006` P0 实现全部 `LLM_PROXY_*` 环境变量。
 - [x] `CLI-007` P0 默认延迟打开浏览器。
 - [x] `CLI-008` P0 SIGINT/SIGTERM 优雅关闭。
-- [ ] `CLI-009` P1 输出路径和启动错误可读。
+- [x] `CLI-009` P1 输出路径和启动错误可读。
 
 ### 13.2 Electron Tray
 
