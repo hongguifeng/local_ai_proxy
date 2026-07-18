@@ -20,6 +20,7 @@ let page: Page;
 let server: ReturnType<typeof createAdminServer>;
 let baseUrl: string;
 const logQueries: string[] = [];
+const groupLogQueries: string[] = [];
 
 const pairs: PublicProxyPair[] = [];
 
@@ -107,6 +108,44 @@ beforeAll(async () => {
           has_more: nextOffset < groups.length,
         };
       },
+      getGroupLogs: (groupId, query) => {
+        groupLogQueries.push(`${groupId}:${query}`);
+        if (groupId !== "task-one") {
+          return undefined;
+        }
+        return {
+          id: groupId,
+          total: 2,
+          limit: 200,
+          has_more: false,
+          logs: [
+            {
+              id: "record-two",
+              timestamp: "2026-07-18 12:00:02",
+              sequence: "2",
+              method: "POST",
+              path: "/v1/responses",
+              endpoint: "/v1/responses",
+              message_count: 2,
+              status: 200,
+              token_count: 12,
+              target: "fixture-target",
+            },
+            {
+              id: "record-one",
+              timestamp: "2026-07-18 12:00:01",
+              sequence: "1",
+              method: "POST",
+              path: "/v1/responses",
+              endpoint: "/v1/responses",
+              message_count: 1,
+              status: null,
+              token_count: null,
+              target: "fixture-target",
+            },
+          ],
+        };
+      },
     },
     staticAssets: await loadAdminStaticAssets(),
   });
@@ -124,6 +163,7 @@ beforeAll(async () => {
 beforeEach(() => {
   pairs.splice(0, pairs.length, fixturePair());
   logQueries.splice(0);
+  groupLogQueries.splice(0);
 });
 
 afterAll(async () => {
@@ -359,6 +399,24 @@ describe("admin UI history page", () => {
     expect(Date.now() - startedAt).toBeGreaterThanOrEqual(200);
     expect(logQueries).toEqual([""]);
     await autoRefresh.uncheck();
+  });
+
+  it("loads task records only when a group is expanded", async () => {
+    await page.goto(baseUrl, { waitUntil: "networkidle" });
+    await Promise.all([
+      page.waitForResponse((response) => response.url().includes("/api/logs?")),
+      page.locator('[data-tab="logs"]').click(),
+    ]);
+    await expectPage(page.locator(".log-item")).toHaveCount(0);
+    expect(groupLogQueries).toEqual([]);
+
+    await Promise.all([
+      page.waitForResponse((response) => response.url().includes("/api/log-groups/task-one/logs")),
+      page.locator('[data-group-id="task-one"]').click(),
+    ]);
+    expect(groupLogQueries).toEqual(["task-one:"]);
+    await expectPage(page.locator('[data-log-id="record-two"]')).toContainText("12 tokens");
+    await expectPage(page.locator('[data-log-id="record-one"]')).toContainText("1 messages");
   });
 });
 
