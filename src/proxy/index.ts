@@ -18,7 +18,15 @@ export {
   type HeaderEntry,
 } from "./headers.js";
 export { bodyJsonValue, bytesPayload, type BytePayload } from "./payload.js";
-export { ResponseLogCapture, type ResponseLogPayload } from "./response-log-capture.js";
+export {
+  DEFAULT_MAX_RESPONSE_LOG_BODY_BYTES,
+  DEFAULT_MAX_SSE_SUMMARY_INPUT_BYTES,
+  DEFAULT_RESPONSE_LOG_MEMORY_THRESHOLD_BYTES,
+  ResponseLogCapture,
+  type ResponseLogCaptureOptions,
+  type ResponseLogPayload,
+  type TruncatedResponseLogPayload,
+} from "./response-log-capture.js";
 export {
   displayEndpoint,
   endpointKind,

@@ -63,6 +63,26 @@ describe("bodyJsonValue", () => {
     });
   });
 
+  it("preserves structured response truncation metadata", () => {
+    expect(
+      bodyJsonValue({
+        text: "prefix",
+        size_bytes: 10,
+        captured_bytes: 6,
+        sha256: "fixture-hash",
+        truncated: true,
+        truncation_reason: "log_body_limit",
+      }),
+    ).toEqual({
+      text: "prefix",
+      size_bytes: 10,
+      captured_bytes: 6,
+      sha256: "fixture-hash",
+      truncated: true,
+      truncation_reason: "log_body_limit",
+    });
+  });
+
   it.each(["plain text response", "{malformed", "  not-json  "])(
     "wraps non-JSON text %j with its recorded byte size",
     (text) => {

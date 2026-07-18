@@ -177,6 +177,14 @@ function bodyValue(value: unknown): unknown {
     ? bodyJsonValue({
         size_bytes: sizeBytes,
         text,
+        ...(typeof value["captured_bytes"] === "number"
+          ? { captured_bytes: value["captured_bytes"] }
+          : {}),
+        ...(typeof value["sha256"] === "string" ? { sha256: value["sha256"] } : {}),
+        ...(value["truncated"] === true ? { truncated: true } : {}),
+        ...(typeof value["truncation_reason"] === "string"
+          ? { truncation_reason: value["truncation_reason"] }
+          : {}),
         ...(isRecord(value["stream_summary"]) ? { stream_summary: value["stream_summary"] } : {}),
       })
     : null;

@@ -314,7 +314,7 @@
 - [x] `HTTP-036` P0 Header 前错误返回 502。
 - [x] `HTTP-037` P0 Header 后错误只关闭流并写日志。
 - [x] `HTTP-038` P0 response log tee/summary。
-- [ ] `HTTP-039` P1 超大/无限流内存保护。
+- [x] `HTTP-039` P1 超大/无限流内存保护。
 
 ### 9.5 数据面测试
 

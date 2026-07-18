@@ -17,7 +17,11 @@ import {
 } from "./headers.js";
 import type { ProxyRequestContext } from "./proxy-listener.js";
 import { transformRequestJsonFields } from "./request-transform.js";
-import { ResponseLogCapture, type ResponseLogPayload } from "./response-log-capture.js";
+import {
+  ResponseLogCapture,
+  type ResponseLogCaptureOptions,
+  type ResponseLogPayload,
+} from "./response-log-capture.js";
 import { rewriteRequestModel, selectTargetByModel } from "./routing.js";
 import { joinTargetPath } from "./target.js";
 import { openUpstreamResponse } from "./upstream-forwarder.js";
@@ -51,6 +55,7 @@ export interface ProxyRequestPipelineOptions {
   readonly defaultTargetId?: string;
   readonly pairId?: string;
   readonly pairName?: string;
+  readonly responseCapture?: ResponseLogCaptureOptions;
   readonly targets: readonly ProxyPipelineTarget[];
 }
 
@@ -141,7 +146,7 @@ export class ProxyRequestPipeline {
       await selectedTarget.trafficLog.write(eventRecord(baseRecord, "request_received", 0));
     }
     await selectedTarget.trafficLog.update(eventRecord(baseRecord, "request_pending_response", 0));
-    let responseCapture = new ResponseLogCapture(false);
+    let responseCapture = new ResponseLogCapture(false, this.#options.responseCapture);
     let responseStatus: number;
     let responseHeaders: Record<string, string[]>;
     try {
@@ -155,7 +160,10 @@ export class ProxyRequestPipeline {
       });
       responseStatus = upstream.statusCode ?? 502;
       responseHeaders = incomingHeaders(upstream);
-      responseCapture = new ResponseLogCapture(isSseResponse(upstream));
+      responseCapture = new ResponseLogCapture(
+        isSseResponse(upstream),
+        this.#options.responseCapture,
+      );
       response.writeHead(
         responseStatus,
         upstream.statusMessage ?? undefined,
@@ -180,7 +188,7 @@ export class ProxyRequestPipeline {
       }
       baseRecord["error"] = error instanceof Error ? error.name : "UpstreamError";
     }
-    const responseBody: ResponseLogPayload = responseCapture.finalize();
+    const responseBody: ResponseLogPayload = await responseCapture.finalize();
     await selectedTarget.trafficLog.write(
       eventRecord(baseRecord, "request_finished", 0, {
         status: responseStatus,

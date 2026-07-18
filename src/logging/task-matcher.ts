@@ -7,7 +7,6 @@ import {
   requestFingerprints,
   requestUserMessages,
   responseIdsFromBody,
-  type BytePayload,
   type EndpointKind,
 } from "../proxy/index.js";
 import {
@@ -366,8 +365,16 @@ function bodyPayload(value: unknown): unknown {
   return bodyJsonValue({
     size_bytes: sizeBytes,
     text,
+    ...(typeof value["captured_bytes"] === "number"
+      ? { captured_bytes: value["captured_bytes"] }
+      : {}),
+    ...(typeof value["sha256"] === "string" ? { sha256: value["sha256"] } : {}),
+    ...(value["truncated"] === true ? { truncated: true } : {}),
+    ...(typeof value["truncation_reason"] === "string"
+      ? { truncation_reason: value["truncation_reason"] }
+      : {}),
     ...(isRecord(value["stream_summary"]) ? { stream_summary: value["stream_summary"] } : {}),
-  } satisfies Pick<BytePayload, "size_bytes" | "stream_summary" | "text">);
+  } satisfies Parameters<typeof bodyJsonValue>[0]);
 }
 
 function recordRequestPath(record: Readonly<RepositoryRecord>): string {

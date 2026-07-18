@@ -1,6 +1,9 @@
 import http from "node:http";
 import https from "node:https";
+import { createHash } from "node:crypto";
 import { readFileSync } from "node:fs";
+import { mkdtemp, readdir, rm } from "node:fs/promises";
+import os from "node:os";
 import path from "node:path";
 
 import { describe, expect, it } from "vitest";
@@ -941,6 +944,75 @@ describe("ProxyListener", () => {
     });
     await listener.close();
     await closeServer(upstream);
+  });
+
+  it("continues forwarding after the response log body limit", async () => {
+    const body = "complete-response";
+    const spoolDirectory = await mkdtemp(path.join(os.tmpdir(), "llm-proxy-pipeline-spool-"));
+    let finishRecord: ((record: Readonly<Record<string, unknown>>) => void) | undefined;
+    const finalRecord = new Promise<Readonly<Record<string, unknown>>>((resolve) => {
+      finishRecord = resolve;
+    });
+    const upstream = http.createServer((_request, response) => {
+      response.writeHead(200, { "content-type": "text/plain" });
+      response.end(body);
+    });
+    const upstreamPort = await listenServer(upstream);
+    const trafficLog: TrafficLogWriter = {
+      write(record) {
+        if (record["event"] === "request_finished") {
+          finishRecord?.(record);
+        }
+        return Promise.resolve();
+      },
+      update: () => Promise.resolve(),
+    };
+    const pipeline = new ProxyRequestPipeline({
+      responseCapture: { memoryThresholdBytes: 4, maxBytes: 8, spoolDirectory },
+      targets: [
+        {
+          enabled: true,
+          id: "bounded-log-target",
+          modelMappings: [],
+          name: "Bounded log target",
+          targetScheme: "http",
+          targetHost: "127.0.0.1",
+          targetPort: upstreamPort,
+          targetBasePath: "",
+          trafficLog,
+        },
+      ],
+    });
+    const listener = new ProxyListener({
+      host: "127.0.0.1",
+      port: 0,
+      onRequest: (request, response, context) => pipeline.handle(request, response, context),
+    });
+    const address = await listener.start();
+
+    try {
+      await expect(requestText(address.port, "/large-response")).resolves.toEqual({
+        status: 200,
+        body,
+      });
+      await expect(finalRecord).resolves.toMatchObject({
+        response: {
+          body: {
+            text: body.slice(0, 8),
+            size_bytes: Buffer.byteLength(body),
+            captured_bytes: 8,
+            sha256: createHash("sha256").update(body).digest("hex"),
+            truncated: true,
+            truncation_reason: "log_body_limit",
+          },
+        },
+      });
+      expect(await readdir(spoolDirectory)).toEqual([]);
+    } finally {
+      await listener.close();
+      await closeServer(upstream);
+      await rm(spoolDirectory, { force: true, recursive: true });
+    }
   });
 
   it("does not send upstream response bytes for HEAD", async () => {
