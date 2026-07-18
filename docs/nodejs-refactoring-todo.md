@@ -263,7 +263,7 @@
 
 ### 8.2 TrafficLogService
 
-- [ ] `LOG-001` P0 redaction 可选执行。
+- [x] `LOG-001` P0 redaction 可选执行。
 - [ ] `LOG-002` P0 task/record/link 单事务写入。
 - [ ] `LOG-003` P0 per-log-root 串行写队列。
 - [ ] `LOG-004` P0 disabled logger no-op。
