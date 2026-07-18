@@ -677,6 +677,62 @@ describe("ProxyListener", () => {
     await listener.close();
     await closeServer(upstream);
   });
+
+  it("returns 502 for TLS validation and DNS failures", async () => {
+    const fixtureRoot = path.join(process.cwd(), "fixtures", "parity", "tls");
+    const tlsUpstream = https.createServer(
+      {
+        key: readFileSync(path.join(fixtureRoot, "test-key.pem")),
+        cert: readFileSync(path.join(fixtureRoot, "test-cert.pem")),
+      },
+      (_request, response) => response.end("untrusted"),
+    );
+    const tlsPort = await listenServer(tlsUpstream);
+    const trafficLog: TrafficLogWriter = {
+      write: () => Promise.resolve(),
+      update: () => Promise.resolve(),
+    };
+    for (const target of [
+      {
+        id: "tls-error",
+        targetScheme: "https" as const,
+        targetHost: "127.0.0.1",
+        targetPort: tlsPort,
+      },
+      {
+        id: "dns-error",
+        targetScheme: "http" as const,
+        targetHost: "missing-host.invalid",
+        targetPort: 80,
+      },
+    ]) {
+      const pipeline = new ProxyRequestPipeline({
+        targets: [
+          {
+            enabled: true,
+            id: target.id,
+            modelMappings: [],
+            name: target.id,
+            targetScheme: target.targetScheme,
+            targetHost: target.targetHost,
+            targetPort: target.targetPort,
+            targetBasePath: "",
+            timeoutMs: 500,
+            trafficLog,
+          },
+        ],
+      });
+      const listener = new ProxyListener({
+        host: "127.0.0.1",
+        port: 0,
+        onRequest: (request, response, context) => pipeline.handle(request, response, context),
+      });
+      const address = await listener.start();
+      expect((await requestText(address.port, `/${target.id}`)).status).toBe(502);
+      await listener.close();
+    }
+    await closeServer(tlsUpstream);
+  });
 });
 
 function requestText(
