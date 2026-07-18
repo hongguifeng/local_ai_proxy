@@ -486,7 +486,7 @@
 
 ### 14.3 删除 Python
 
-- [ ] `CLEAN-001` P0 删除 `llm_proxy/` Python 包。
+- [x] `CLEAN-001` P0 删除 `llm_proxy/` Python 包。
 - [ ] `CLEAN-002` P0 删除旧 Python tests 或迁移后重命名 Node tests。
 - [ ] `CLEAN-003` P0 删除 `pyproject.toml`。
 - [ ] `CLEAN-004` P0 删除 `tray_launcher.py`。

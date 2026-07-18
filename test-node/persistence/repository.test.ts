@@ -1,4 +1,4 @@
-import { spawn, spawnSync } from "node:child_process";
+import { spawn } from "node:child_process";
 import { copyFile, mkdtemp, rm } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
@@ -260,8 +260,8 @@ describe("timestamp search", () => {
   });
 });
 
-describe("Python database compatibility", () => {
-  it("reads the comprehensive Python database fixture", async () => {
+describe("legacy database compatibility", () => {
+  it("reads the comprehensive database fixture", async () => {
     const root = await mkdtemp(path.join(os.tmpdir(), "llm-proxy-python-db-"));
     temporaryDirectories.push(root);
     await copyFile(
@@ -291,7 +291,7 @@ describe("Python database compatibility", () => {
     repository.close();
   });
 
-  it("writes rows that the Python repository can read", async () => {
+  it("writes rows and links to an existing database fixture", async () => {
     const root = await mkdtemp(path.join(os.tmpdir(), "llm-proxy-node-python-db-"));
     temporaryDirectories.push(root);
     await copyFile(
@@ -319,42 +319,22 @@ describe("Python database compatibility", () => {
     repository.upsertContextLink("conversation:node-roundtrip", "task-node-roundtrip");
     repository.close();
 
-    const python = findPython();
-    const result = spawnSync(
-      python,
-      [
-        path.join(process.cwd(), "scripts", "check_database_roundtrip.py"),
-        root,
-        "task-node-roundtrip",
-        "record-node-roundtrip",
-        "chatcmpl_node",
-        "conversation:node-roundtrip",
-      ],
-      {
-        cwd: process.cwd(),
-        encoding: "utf8",
-        env: {
-          ...process.env,
-          PYTHONPATH: [process.cwd(), process.env["PYTHONPATH"]]
-            .filter(Boolean)
-            .join(path.delimiter),
-        },
-      },
-    );
-    expect(result.status, result.stderr).toBe(0);
-    expect(JSON.parse(result.stdout)).toMatchObject({
-      task: { id: "task-node-roundtrip", fingerprints: { system: "node-system" } },
-      record: {
-        id: "record-node-roundtrip",
-        request_body: { model: "node-fixture", messages: [{ role: "user", content: "你好" }] },
-        response_body: { id: "chatcmpl_node", usage: { total_tokens: 7 } },
-      },
-      response_task_id: "task-node-roundtrip",
-      context_task_id: "task-node-roundtrip",
+    const reopened = new TrafficRepository(root);
+    expect(reopened.getTask("task-node-roundtrip")).toMatchObject({
+      id: "task-node-roundtrip",
+      fingerprints: { system: "node-system" },
     });
+    expect(reopened.getRecord("record-node-roundtrip")).toMatchObject({
+      id: "record-node-roundtrip",
+      request_body: { model: "node-fixture", messages: [{ role: "user", content: "你好" }] },
+      response_body: { id: "chatcmpl_node", usage: { total_tokens: 7 } },
+    });
+    expect(reopened.taskIdForResponse("chatcmpl_node")).toBe("task-node-roundtrip");
+    expect(reopened.taskIdForContext("conversation:node-roundtrip")).toBe("task-node-roundtrip");
+    reopened.close();
   });
 
-  it("creates a fresh database that the Python repository can read", async () => {
+  it("creates a fresh database that can be reopened with all current fields", async () => {
     const root = await mkdtemp(path.join(os.tmpdir(), "llm-proxy-fresh-node-db-"));
     temporaryDirectories.push(root);
     const repository = new TrafficRepository(root, { now: () => "2026-07-18T09:00:00.000+08:00" });
@@ -389,35 +369,27 @@ describe("Python database compatibility", () => {
     repository.upsertContextLink("conversation:fresh-node", "task-fresh-node");
     repository.close();
 
-    const result = runPythonDatabaseCheck(
-      root,
-      "task-fresh-node",
-      "record-fresh-node",
-      "resp_fresh_node",
-      "conversation:fresh-node",
-    );
-    expect(result.status, result.stderr).toBe(0);
-    expect(JSON.parse(result.stdout)).toMatchObject({
-      task: {
-        id: "task-fresh-node",
-        kind: "responses",
-        match_strategy_version: 4,
-        boundary_fingerprints: { first_user: "fresh-boundary" },
-        last_user_messages: [{ role: "user", content: "fresh database" }],
-      },
-      record: {
-        id: "record-fresh-node",
-        status: 200,
-        request_headers: { authorization: "[REDACTED]" },
-        response_body: { id: "resp_fresh_node", output_text: "created by Node" },
-        model_route: { requested: "gpt-node", effective: "gpt-node" },
-        stripped_fields: ["temperature"],
-        injected_fields: ["stream"],
-        added_upstream_headers: ["x-node-test"],
-      },
-      response_task_id: "task-fresh-node",
-      context_task_id: "task-fresh-node",
+    const reopened = new TrafficRepository(root);
+    expect(reopened.getTask("task-fresh-node")).toMatchObject({
+      id: "task-fresh-node",
+      kind: "responses",
+      match_strategy_version: 4,
+      boundary_fingerprints: { first_user: "fresh-boundary" },
+      last_user_messages: [{ role: "user", content: "fresh database" }],
     });
+    expect(reopened.getRecord("record-fresh-node")).toMatchObject({
+      id: "record-fresh-node",
+      status: 200,
+      request_headers: { authorization: "[REDACTED]" },
+      response_body: { id: "resp_fresh_node", output_text: "created by Node" },
+      model_route: { requested: "gpt-node", effective: "gpt-node" },
+      stripped_fields: ["temperature"],
+      injected_fields: ["stream"],
+      added_upstream_headers: ["x-node-test"],
+    });
+    expect(reopened.taskIdForResponse("resp_fresh_node")).toBe("task-fresh-node");
+    expect(reopened.taskIdForContext("conversation:fresh-node")).toBe("task-fresh-node");
+    reopened.close();
   });
 });
 
@@ -443,43 +415,6 @@ describe("multiple database connections", () => {
     repository.close();
   });
 });
-
-function findPython(): string {
-  for (const candidate of [process.env["PYTHON"], "python3", "python"]) {
-    if (candidate !== undefined && spawnSync(candidate, ["--version"]).status === 0) {
-      return candidate;
-    }
-  }
-  throw new Error("Python 3 is required for database compatibility tests.");
-}
-
-function runPythonDatabaseCheck(
-  root: string,
-  taskId: string,
-  recordId: string,
-  responseId: string,
-  contextKey: string,
-) {
-  return spawnSync(
-    findPython(),
-    [
-      path.join(process.cwd(), "scripts", "check_database_roundtrip.py"),
-      root,
-      taskId,
-      recordId,
-      responseId,
-      contextKey,
-    ],
-    {
-      cwd: process.cwd(),
-      encoding: "utf8",
-      env: {
-        ...process.env,
-        PYTHONPATH: [process.cwd(), process.env["PYTHONPATH"]].filter(Boolean).join(path.delimiter),
-      },
-    },
-  );
-}
 
 function runConcurrentWriter(root: string, writerId: string, count: number): Promise<void> {
   return new Promise((resolve, reject) => {

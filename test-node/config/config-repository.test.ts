@@ -1,4 +1,3 @@
-import { spawnSync } from "node:child_process";
 import {
   copyFile,
   mkdir,
@@ -196,39 +195,6 @@ describe("ConfigRepository.save", () => {
     expect(await repository.load()).toEqual(first);
   });
 
-  it("round-trips a Python config through Node and back to Python", async () => {
-    const directory = await mkdtemp(path.join(os.tmpdir(), "llm-proxy-config-roundtrip-"));
-    temporaryDirectories.push(directory);
-    const sourcePath = path.join(
-      projectRoot,
-      "fixtures",
-      "parity",
-      "config",
-      "proxies-comprehensive.json",
-    );
-    const configPath = path.join(directory, "proxies.json");
-    const sourceRepository = new ConfigRepository(sourcePath);
-    const destinationRepository = new ConfigRepository(configPath);
-    const normalizedConfig = await sourceRepository.load();
-
-    await destinationRepository.save(normalizedConfig);
-
-    const result = spawnSync(
-      findPython(),
-      [path.join(projectRoot, "scripts", "check_config_roundtrip.py"), configPath],
-      {
-        cwd: projectRoot,
-        encoding: "utf8",
-        env: {
-          ...process.env,
-          PYTHONPATH: [projectRoot, process.env["PYTHONPATH"]].filter(Boolean).join(path.delimiter),
-        },
-      },
-    );
-    expect(result.status, result.stderr).toBe(0);
-    expect(JSON.parse(result.stdout)).toEqual(normalizedConfig);
-  });
-
   it("rehearses backup, save, and rollback with the comprehensive config fixture", async () => {
     const directory = await mkdtemp(path.join(os.tmpdir(), "llm-proxy-config-rehearsal-"));
     temporaryDirectories.push(directory);
@@ -283,18 +249,6 @@ describe("ConfigRepository.save", () => {
     },
   );
 });
-
-function findPython(): string {
-  const candidates = [process.env["PYTHON"], "python3", "python"].filter(
-    (candidate): candidate is string => candidate !== undefined && candidate !== "",
-  );
-  for (const candidate of candidates) {
-    if (spawnSync(candidate, ["--version"], { encoding: "utf8" }).status === 0) {
-      return candidate;
-    }
-  }
-  throw new Error("Python 3 is required for the configuration round-trip test.");
-}
 
 function missingFileError(): NodeJS.ErrnoException {
   return Object.assign(new Error("fixture file does not exist"), { code: "ENOENT" });
