@@ -882,6 +882,47 @@ describe("ProxyListener", () => {
     await listener.close();
     await closeServer(upstream);
   });
+
+  it("streams ordinary response chunks in order", async () => {
+    const upstream = http.createServer((_request, response) => {
+      response.writeHead(200, { "content-type": "text/plain" });
+      response.write("first-");
+      setImmediate(() => response.end("second"));
+    });
+    const upstreamPort = await listenServer(upstream);
+    const trafficLog: TrafficLogWriter = {
+      write: () => Promise.resolve(),
+      update: () => Promise.resolve(),
+    };
+    const pipeline = new ProxyRequestPipeline({
+      targets: [
+        {
+          enabled: true,
+          id: "chunk-target",
+          modelMappings: [],
+          name: "Chunk target",
+          targetScheme: "http",
+          targetHost: "127.0.0.1",
+          targetPort: upstreamPort,
+          targetBasePath: "",
+          trafficLog,
+        },
+      ],
+    });
+    const listener = new ProxyListener({
+      host: "127.0.0.1",
+      port: 0,
+      onRequest: (request, response, context) => pipeline.handle(request, response, context),
+    });
+    const address = await listener.start();
+
+    expect(await requestText(address.port, "/chunks")).toEqual({
+      status: 200,
+      body: "first-second",
+    });
+    await listener.close();
+    await closeServer(upstream);
+  });
 });
 
 function requestText(
