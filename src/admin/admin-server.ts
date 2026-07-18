@@ -414,13 +414,13 @@ export function createAdminServer(options: AdminServerOptions): FastifyInstance 
         .type("text/html; charset=utf-8")
         .send(options.staticAssets?.indexHtml),
     );
-    server.get("/app.css", async (_request, reply) =>
+    server.get("/static/app.css", async (_request, reply) =>
       reply
         .header("cache-control", "no-cache")
         .type("text/css; charset=utf-8")
         .send(options.staticAssets?.appCss),
     );
-    server.get("/app.js", async (_request, reply) =>
+    server.get("/static/app.js", async (_request, reply) =>
       reply
         .header("cache-control", "no-cache")
         .type("application/javascript; charset=utf-8")

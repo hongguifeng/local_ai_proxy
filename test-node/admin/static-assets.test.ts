@@ -24,9 +24,9 @@ describe("admin static assets", () => {
 
   it.each([
     ["/", "<!doctype html><title>fixture</title>", "text/html; charset=utf-8", "no-store"],
-    ["/app.css", "body { color: red; }", "text/css; charset=utf-8", "no-cache"],
+    ["/static/app.css", "body { color: red; }", "text/css; charset=utf-8", "no-cache"],
     [
-      "/app.js",
+      "/static/app.js",
       'document.body.dataset.ready = "yes";',
       "application/javascript; charset=utf-8",
       "no-cache",

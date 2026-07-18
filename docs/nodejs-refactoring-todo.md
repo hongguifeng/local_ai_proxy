@@ -390,7 +390,7 @@
 - [x] `UI-003` P0 复制 app.js。
 - [x] `UI-004` P0 替换建议 strip fields 注入方式。
 - [x] `UI-005` P0 保持中文/英文和 localStorage key。
-- [ ] `UI-006` P0 保持所有 DOM ID/data attribute 或同步更新测试。
+- [x] `UI-006` P0 保持所有 DOM ID/data attribute 或同步更新测试。
 
 ### 12.2 Proxy 页面 E2E
 
