@@ -234,6 +234,50 @@ describe("ProxyListener", () => {
     await listener.close();
   });
 
+  it("reads an incoming chunked request body", async () => {
+    const pendingRecords: Readonly<Record<string, unknown>>[] = [];
+    const trafficLog: TrafficLogWriter = {
+      write() {
+        return Promise.resolve();
+      },
+      update(record) {
+        pendingRecords.push(record);
+        return Promise.resolve();
+      },
+    };
+    const pipeline = new ProxyRequestPipeline({
+      targets: [
+        {
+          enabled: true,
+          id: "chunked-target",
+          modelMappings: [],
+          name: "Chunked target",
+          targetScheme: "http",
+          targetHost: "127.0.0.1",
+          targetPort: 4325,
+          targetBasePath: "",
+          trafficLog,
+        },
+      ],
+    });
+    const listener = new ProxyListener({
+      host: "127.0.0.1",
+      port: 0,
+      onRequest: (request, response, context) => pipeline.handle(request, response, context),
+    });
+    const address = await listener.start();
+    const chunks = ['{"model":"gpt-5",', '"input":"chunked"}'];
+
+    await requestText(address.port, "/v1/responses", { method: "POST", chunks });
+    expect(pendingRecords[0]).toMatchObject({
+      request: {
+        headers: { "Transfer-Encoding": ["chunked"] },
+        body: { text: chunks.join(""), size_bytes: Buffer.byteLength(chunks.join("")) },
+      },
+    });
+    await listener.close();
+  });
+
   it("logs pending and final events around request processing", async () => {
     const events: string[] = [];
     const trafficLog: TrafficLogWriter = {
@@ -280,7 +324,11 @@ describe("ProxyListener", () => {
 function requestText(
   port: number,
   path: string,
-  options: { readonly method?: string; readonly body?: string } = {},
+  options: {
+    readonly method?: string;
+    readonly body?: string;
+    readonly chunks?: readonly string[];
+  } = {},
 ): Promise<{ status: number; body: string }> {
   return new Promise((resolve, reject) => {
     const request = http.request(
@@ -306,6 +354,13 @@ function requestText(
       },
     );
     request.on("error", reject);
-    request.end(options.body);
+    if ("chunks" in options && Array.isArray(options.chunks)) {
+      for (const chunk of options.chunks) {
+        request.write(chunk);
+      }
+      request.end();
+    } else {
+      request.end(options.body);
+    }
   });
 }
