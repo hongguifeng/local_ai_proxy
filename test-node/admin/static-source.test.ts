@@ -27,4 +27,18 @@ describe("admin UI source migration", () => {
     ]);
     expect(migrated).toBe(await format(baseline, { parser: "babel", printWidth: 100 }));
   });
+
+  it("preserves Chinese, English, and the existing language preference key", async () => {
+    const [html, script] = await Promise.all([
+      readFile(path.resolve("src/admin/static/index.html"), "utf8"),
+      readFile(path.resolve("src/admin/static/app.js"), "utf8"),
+    ]);
+    expect(html).toContain('<option value="zh">');
+    expect(html).toContain('<option value="en">');
+    expect(script).toContain("zh: {");
+    expect(script).toContain("en: {");
+    expect(script).toContain('localStorage.getItem("llmProxyLanguage")');
+    expect(script).toContain('localStorage.setItem("llmProxyLanguage", language)');
+    expect(script).toContain('(navigator.language || "").toLowerCase().startsWith("zh")');
+  });
 });
