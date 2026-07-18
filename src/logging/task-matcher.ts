@@ -48,7 +48,7 @@ export class TaskMatcher {
       const task = this.#pendingTask(record, requestId, kind);
       return {
         task,
-        sequence: this.#repository.nextRecordSequence(String(task["id"])),
+        sequence: this.#sequenceForRecord(requestId, stringValue(task["id"])),
         kind,
         requestPayload: {},
         responsePayload: null,
@@ -61,12 +61,15 @@ export class TaskMatcher {
     const response = record["response"];
     const responsePayload = isRecord(response) ? bodyPayload(response["body"]) : null;
     const existing = this.#existingTask(requestId);
-    const task = existing?.["pending_request_only"]
-      ? this.#promotePending(existing, record, kind)
-      : this.#newTask(record, kind);
+    const task =
+      existing === undefined
+        ? this.#newTask(record, kind)
+        : existing["pending_request_only"] === true
+          ? this.#promotePending(existing, record, kind)
+          : existing;
     return {
       task,
-      sequence: this.#repository.nextRecordSequence(String(task["id"])),
+      sequence: this.#sequenceForRecord(requestId, stringValue(task["id"])),
       kind,
       requestPayload,
       responsePayload,
@@ -78,6 +81,15 @@ export class TaskMatcher {
   #existingTask(requestId: string): RepositoryRecord | undefined {
     const taskId = this.#repository.taskIdForRecord(requestId);
     return taskId === undefined ? undefined : this.#repository.getTask(taskId);
+  }
+
+  #sequenceForRecord(requestId: string, taskId: string): number {
+    const existing = this.#repository.getRecord(requestId);
+    if (existing?.["task_id"] === taskId) {
+      const sequence = existing["sequence"];
+      return typeof sequence === "number" && Number.isInteger(sequence) ? sequence : 1;
+    }
+    return this.#repository.nextRecordSequence(taskId);
   }
 
   #pendingTask(

@@ -78,6 +78,21 @@ describe("TaskAssignment", () => {
       pending_request_only: false,
       match_confidence: 1,
     });
+    expect(finished?.sequence).toBe(1);
+    if (finished === undefined) {
+      throw new Error("Finished record was not assigned.");
+    }
+    repository.upsertTask(finished.task);
+    repository.upsertRecord({
+      id: "request-1",
+      task_id: "task-pending",
+      sequence: finished.sequence,
+      method: "POST",
+      path: "/v1/responses",
+    });
+
+    const repeated = matcher.assign(trafficRecord("request-1", false, { model: "gpt-5" }));
+    expect(repeated).toMatchObject({ task: { id: "task-pending" }, sequence: 1 });
     repository.close();
   });
 });

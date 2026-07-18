@@ -250,7 +250,7 @@
 
 - [x] `TASK-001` P0 定义 TaskAssignment。
 - [x] `TASK-002` P0 pending task 创建和提升。
-- [ ] `TASK-003` P0 同 request ID 保持 task/sequence。
+- [x] `TASK-003` P0 同 request ID 保持 task/sequence。
 - [ ] `TASK-004` P0 Responses previous_response_id link。
 - [ ] `TASK-005` P0 conversation/thread/session/prompt cache context keys。
 - [ ] `TASK-006` P0 static boundary 比较。
