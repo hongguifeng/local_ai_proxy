@@ -490,7 +490,7 @@
 - [x] `CLEAN-002` P0 删除旧 Python tests 或迁移后重命名 Node tests。
 - [x] `CLEAN-003` P0 删除 `pyproject.toml`。
 - [x] `CLEAN-004` P0 删除 `tray_launcher.py`。
-- [ ] `CLEAN-005` P0 更新或删除旧 `run.bat`。
+- [x] `CLEAN-005` P0 更新或删除旧 `run.bat`。
 - [ ] `CLEAN-006` P0 删除 Python/PyInstaller CI job。
 - [ ] `CLEAN-007` P0 `rg` 检查 README/workflow 中无陈旧 Python 命令。
 - [ ] `CLEAN-008` P0 clean clone 只安装 Node 依赖即可开发和运行。
