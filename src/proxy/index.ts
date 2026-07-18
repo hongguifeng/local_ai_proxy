@@ -56,4 +56,10 @@ export {
   type ParsedSseEvents,
   type StreamSummary,
 } from "./streams.js";
+export {
+  ProxyListener,
+  type ProxyListenerAddress,
+  type ProxyListenerOptions,
+  type ProxyRequestHandler,
+} from "./proxy-listener.js";
 export { joinTargetPath, parseTargetUrl, type ParsedTargetUrl } from "./target.js";
