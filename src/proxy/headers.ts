@@ -95,6 +95,18 @@ export function buildForwardHeaders(
   return applyTargetHeaderSettings(forwarded, options.targetHeaders, options.targetApiKey);
 }
 
+export function replaceContentLength(
+  headers: readonly HeaderEntry[],
+  bodySize: number,
+  preserveEmptyLength = false,
+): HeaderEntry[] {
+  const forwarded = headers.filter(([name]) => name.toLowerCase() !== "content-length");
+  if (bodySize > 0 || preserveEmptyLength) {
+    forwarded.push(["Content-Length", String(bodySize)]);
+  }
+  return forwarded;
+}
+
 function formatHostHeader(host: string, port: number, scheme: "http" | "https"): string {
   const defaultPort = scheme === "https" ? 443 : 80;
   const formattedHost = host.includes(":") && !host.startsWith("[") ? `[${host}]` : host;

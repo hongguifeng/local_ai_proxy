@@ -5,6 +5,7 @@ export {
   HOP_BY_HOP_HEADERS,
   headersToDictionary,
   parseHeaderOverrides,
+  replaceContentLength,
   type ForwardHeaderOptions,
   type HeaderEntry,
 } from "./headers.js";

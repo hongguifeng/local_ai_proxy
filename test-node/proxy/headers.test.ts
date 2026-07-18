@@ -6,6 +6,7 @@ import {
   HOP_BY_HOP_HEADERS,
   headersToDictionary,
   parseHeaderOverrides,
+  replaceContentLength,
 } from "../../src/proxy/headers.js";
 
 describe("HOP_BY_HOP_HEADERS", () => {
@@ -180,4 +181,29 @@ describe("buildForwardHeaders", () => {
       expect(headers.find(([name]) => name === "X-Forwarded-Host")?.[1]).toBe("");
     },
   );
+});
+
+describe("replaceContentLength", () => {
+  it("replaces the client length with the transformed byte length", () => {
+    const transformedBody = Buffer.from('{"input":"你好","stream":true}', "utf8");
+    expect(
+      replaceContentLength(
+        [
+          ["content-length", "999"],
+          ["Content-Type", "application/json"],
+        ],
+        transformedBody.byteLength,
+      ),
+    ).toEqual([
+      ["Content-Type", "application/json"],
+      ["Content-Length", String(transformedBody.byteLength)],
+    ]);
+  });
+
+  it("preserves an explicit zero length only when requested", () => {
+    expect(replaceContentLength([["Content-Length", "1"]], 0)).toEqual([]);
+    expect(replaceContentLength([["Content-Length", "1"]], 0, true)).toEqual([
+      ["Content-Length", "0"],
+    ]);
+  });
 });

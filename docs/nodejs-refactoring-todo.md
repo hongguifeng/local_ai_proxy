@@ -290,7 +290,7 @@
 - [x] `HTTP-011` P0 incoming chunked body。
 - [x] `HTTP-012` P0 空 body 和 HEAD。
 - [x] `HTTP-013` P0 model route/rewrite/strip/inject 全链路。
-- [ ] `HTTP-014` P0 重新计算 Content-Length。
+- [x] `HTTP-014` P0 重新计算 Content-Length。
 - [ ] `HTTP-015` P1 body 大小/落盘策略。
 
 ### 9.3 上游连接
