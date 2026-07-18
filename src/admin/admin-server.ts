@@ -1,7 +1,9 @@
 import Fastify, { LogController, type FastifyInstance } from "fastify";
 import type { AddressInfo } from "node:net";
+import { performance } from "node:perf_hooks";
 
 import type { ApplicationState } from "../app/index.js";
+import { StructuredLogger } from "../shared/index.js";
 
 export type HealthStatus = "degraded" | "ok" | "starting" | "stopping";
 
@@ -13,7 +15,13 @@ export interface HealthSnapshot {
 
 export interface AdminServerOptions {
   readonly getHealth: () => HealthSnapshot;
+  readonly logger?: AdminRequestLogger;
   readonly staticAssets?: AdminStaticAssets;
+}
+
+export interface AdminRequestLogger {
+  info(message: string, context?: Readonly<Record<string, unknown>>): void;
+  warn(message: string, context?: Readonly<Record<string, unknown>>): void;
 }
 
 export interface AdminStaticAssets {
@@ -28,6 +36,34 @@ export interface AdminErrorDto {
     readonly message: string;
   };
 }
+
+export const HEALTH_SNAPSHOT_SCHEMA = {
+  type: "object",
+  additionalProperties: false,
+  required: ["applicationState", "status", "version"],
+  properties: {
+    applicationState: { type: "string" },
+    status: { type: "string", enum: ["degraded", "ok", "starting", "stopping"] },
+    version: { type: "string" },
+  },
+} as const;
+
+export const ADMIN_ERROR_DTO_SCHEMA = {
+  type: "object",
+  additionalProperties: false,
+  required: ["error"],
+  properties: {
+    error: {
+      type: "object",
+      additionalProperties: false,
+      required: ["code", "message"],
+      properties: {
+        code: { type: "string" },
+        message: { type: "string" },
+      },
+    },
+  },
+} as const;
 
 export interface AdminControlPlaneOptions extends AdminServerOptions {
   readonly host: string;
@@ -67,9 +103,31 @@ export class AdminControlPlane {
 }
 
 export function createAdminServer(options: AdminServerOptions): FastifyInstance {
+  const requestLogger = options.logger ?? new StructuredLogger({ service: "llm-proxy-admin" });
+  const requestStarted = new WeakMap<object, number>();
   const server = Fastify({
     logController: new LogController({ disableRequestLogging: true }),
     logger: false,
+  });
+  server.addHook("onRequest", (request, _reply, done) => {
+    requestStarted.set(request, performance.now());
+    done();
+  });
+  server.addHook("onResponse", (request, reply, done) => {
+    requestLogger.info("Admin request completed", {
+      method: request.method,
+      path: request.url.split("?", 1)[0] ?? request.url,
+      status_code: reply.statusCode,
+      duration_ms: Math.max(0, performance.now() - (requestStarted.get(request) ?? 0)),
+    });
+    done();
+  });
+  server.addHook("onError", (_request, reply, error, done) => {
+    requestLogger.warn("Admin request failed", {
+      status_code: errorProperty(error, "statusCode", "number") ?? reply.statusCode,
+      error_type: error.name,
+    });
+    done();
   });
   server.setErrorHandler((error, _request, reply) => {
     const statusCode = errorProperty(error, "statusCode", "number") ?? 500;
@@ -89,10 +147,21 @@ export function createAdminServer(options: AdminServerOptions): FastifyInstance 
   server.setNotFoundHandler((_request, reply) =>
     reply.code(404).send(adminError("not_found", "Route not found.")),
   );
-  server.get("/api/health", async (_request, reply) => {
-    const health = options.getHealth();
-    return reply.code(health.status === "degraded" ? 503 : 200).send(health);
-  });
+  server.get(
+    "/api/health",
+    {
+      schema: {
+        response: {
+          200: HEALTH_SNAPSHOT_SCHEMA,
+          503: HEALTH_SNAPSHOT_SCHEMA,
+        },
+      },
+    },
+    async (_request, reply) => {
+      const health = options.getHealth();
+      return reply.code(health.status === "degraded" ? 503 : 200).send(health);
+    },
+  );
   if (options.staticAssets !== undefined) {
     server.get("/", async (_request, reply) =>
       reply
