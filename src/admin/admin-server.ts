@@ -13,6 +13,13 @@ export interface HealthSnapshot {
 
 export interface AdminServerOptions {
   readonly getHealth: () => HealthSnapshot;
+  readonly staticAssets?: AdminStaticAssets;
+}
+
+export interface AdminStaticAssets {
+  readonly appCss: string;
+  readonly appJs: string;
+  readonly indexHtml: string;
 }
 
 export interface AdminControlPlaneOptions extends AdminServerOptions {
@@ -61,6 +68,26 @@ export function createAdminServer(options: AdminServerOptions): FastifyInstance 
     const health = options.getHealth();
     return reply.code(health.status === "degraded" ? 503 : 200).send(health);
   });
+  if (options.staticAssets !== undefined) {
+    server.get("/", async (_request, reply) =>
+      reply
+        .header("cache-control", "no-store")
+        .type("text/html; charset=utf-8")
+        .send(options.staticAssets?.indexHtml),
+    );
+    server.get("/app.css", async (_request, reply) =>
+      reply
+        .header("cache-control", "no-cache")
+        .type("text/css; charset=utf-8")
+        .send(options.staticAssets?.appCss),
+    );
+    server.get("/app.js", async (_request, reply) =>
+      reply
+        .header("cache-control", "no-cache")
+        .type("application/javascript; charset=utf-8")
+        .send(options.staticAssets?.appJs),
+    );
+  }
   return server;
 }
 

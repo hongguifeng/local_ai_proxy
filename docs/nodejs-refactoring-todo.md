@@ -348,7 +348,7 @@
 ### 11.1 Admin server
 
 - [x] `API-001` P0 启动 Fastify control plane。
-- [ ] `API-002` P0 服务 index/CSS/JS。
+- [x] `API-002` P0 服务 index/CSS/JS。
 - [ ] `API-003` P0 统一 JSON error DTO。
 - [ ] `API-004` P0 请求/响应 schema 和日志脱敏。
 - [ ] `API-005` P1 health endpoint。
