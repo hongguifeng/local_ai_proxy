@@ -37,3 +37,11 @@
 - 数据：73 tasks、4,199 records、5 response links、23 context links、3,924 search documents。
 - 完整性：所有关系 orphan 计数为 0。
 - 回滚：恢复后的数据库与 `before-node` 副本 SHA-256 完全一致；再次由 Node 打开后计数与关系仍一致。
+
+## REL-005：P0 缺陷审计
+
+- 修复后全量 `npm run check` 通过：71 个 test files、494 个测试通过，1 个 Windows 专用测试按设计跳过。
+- Windows installer/portable 构建与真实 portable smoke 通过。
+- 真实数据副本迁移与回滚通过。
+- 发布门禁中发现的 Electron ESM 启动死锁、smoke 单实例隔离和退出残留均已修复并回归。
+- Todo 中剩余 `OPT-*` 均为明确不阻塞切换的 P2 优化，不存在已知 P0 bug。
