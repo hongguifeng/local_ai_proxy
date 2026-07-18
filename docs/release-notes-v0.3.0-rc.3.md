@@ -1,8 +1,8 @@
-# LLM Proxy v0.3.0-rc.2
+# LLM Proxy v0.3.0-rc.3
 
 这是将应用从 Python 完整切换到 Node.js 24 + TypeScript + Electron 的候选版本。代理、管理 UI、历史记录、SQLite 数据、CLI 和 Windows Tray 功能均已迁移；运行和开发不再需要 Python。
 
-相较 `v0.3.0-rc.1`，本版本修复了 Windows CI 的路径可移植性、Chrome 启动路径和浏览器语言状态隔离问题。随后发现 GitHub Windows checkout 的 CRLF 转换会触发格式检查失败，因此本版本已由 `v0.3.0-rc.3` 替代，不作为有效候选版本。
+相较此前候选版本，本版本修复了 Windows CI 的路径可移植性、Chrome 启动路径、浏览器语言状态隔离和 Git checkout 行尾一致性问题。旧 RC.1、RC.2 标签保持不变，但不作为有效候选版本。
 
 ## 已批准的行为差异
 
