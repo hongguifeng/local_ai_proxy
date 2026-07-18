@@ -1,5 +1,5 @@
 import { existsSync } from "node:fs";
-import { mkdtemp, rm } from "node:fs/promises";
+import { copyFile, mkdtemp, rm } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 
@@ -18,6 +18,8 @@ import {
   runMigrations,
   verifyFts5,
 } from "../../src/persistence/database.js";
+import { TrafficRepository } from "../../src/persistence/repository.js";
+import { SCHEMA_V1_MIGRATION } from "../../src/persistence/schema-v1.js";
 
 const temporaryDirectories: string[] = [];
 
@@ -210,5 +212,34 @@ describe("database backup", () => {
     );
     expect(readSchemaVersion(backup)).toBe(2);
     backup.close();
+  });
+
+  it("rehearses a small v1 database migration, write, query, and rollback", async () => {
+    const root = await mkdtemp(path.join(os.tmpdir(), "llm-proxy-small-migration-"));
+    temporaryDirectories.push(root);
+    const database = openLogDatabase(root);
+    runMigrations(database, [SCHEMA_V1_MIGRATION]);
+    database.close();
+    const databasePath = path.join(root, TRAFFIC_DB_NAME);
+    const rollbackPath = path.join(root, "traffic.v1.rollback.db");
+    await copyFile(databasePath, rollbackPath);
+
+    const migrated = new TrafficRepository(root, { now: () => "2026-07-18T06:00:00.000Z" });
+    migrated.upsertTask({
+      id: "task-migration-rehearsal",
+      kind: "responses",
+      model: "fixture-model",
+      match_strategy_version: 4,
+    });
+    expect(migrated.getTask("task-migration-rehearsal")).toMatchObject({
+      id: "task-migration-rehearsal",
+      model: "fixture-model",
+    });
+    migrated.close();
+
+    await copyFile(rollbackPath, databasePath);
+    const restored = new TrafficRepository(root);
+    expect(restored.getTask("task-migration-rehearsal")).toBeUndefined();
+    restored.close();
   });
 });

@@ -467,7 +467,7 @@
 ### 14.1 数据迁移演练
 
 - [x] `MIG-001` P0 对 config fixture 执行备份/读取/保存/回滚。
-- [ ] `MIG-002` P0 对小型 DB 执行 migration/查询/写入/回滚。
+- [x] `MIG-002` P0 对小型 DB 执行 migration/查询/写入/回滚。
 - [ ] `MIG-003` P0 对含 WAL 的活跃 DB 执行 checkpoint/backup 演练。
 - [ ] `MIG-004` P0 对大型 DB 记录耗时和磁盘需求。
 - [ ] `MIG-005` P0 验证 task/record/link/search 数量和抽样内容。
