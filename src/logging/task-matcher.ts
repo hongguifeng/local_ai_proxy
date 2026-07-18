@@ -5,6 +5,7 @@ import {
   endpointKind,
   requestBoundaryFingerprints,
   requestFingerprints,
+  requestUserMessages,
   responseIdsFromBody,
   type BytePayload,
   type EndpointKind,
@@ -185,6 +186,12 @@ export class TaskMatcher {
         continue;
       }
       const age = Math.abs(recordTime - taskTime);
+      if (
+        (kind === "chat" || kind === "messages" || kind === "responses") &&
+        !taskUserMessagesMatch(task, requestUserMessages(kind, payload))
+      ) {
+        continue;
+      }
       if (age <= TASK_MATCH_WINDOW_MS && age < bestAge) {
         bestAge = age;
         bestTask = task;
@@ -288,7 +295,7 @@ export class TaskMatcher {
       ...(typeof model === "string" && model !== "" ? { model } : {}),
       fingerprints: requestFingerprints(kind, payload),
       boundary_fingerprints: requestBoundaryFingerprints(kind, payload),
-      last_user_messages: [],
+      last_user_messages: requestUserMessages(kind, payload),
       request_count: 0,
       pending_request_only: false,
       match_confidence: 1,
@@ -356,4 +363,23 @@ function timestampMilliseconds(value: unknown): number | undefined {
   }
   const milliseconds = Date.parse(value);
   return Number.isNaN(milliseconds) ? undefined : milliseconds;
+}
+
+function taskUserMessagesMatch(
+  task: Readonly<RepositoryRecord>,
+  currentUserMessages: readonly unknown[],
+): boolean {
+  const previousUserMessages = task["last_user_messages"];
+  if (
+    !Array.isArray(previousUserMessages) ||
+    previousUserMessages.length === 0 ||
+    currentUserMessages.length === 0 ||
+    previousUserMessages.length > currentUserMessages.length
+  ) {
+    return false;
+  }
+  return (
+    stableJsonStringify(currentUserMessages.slice(0, previousUserMessages.length)) ===
+    stableJsonStringify(previousUserMessages)
+  );
 }

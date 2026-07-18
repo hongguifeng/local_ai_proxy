@@ -256,7 +256,7 @@
 - [x] `TASK-006` P0 static boundary 比较。
 - [x] `TASK-007` P0 model/path/kind 不同创建新 task。
 - [x] `TASK-008` P0 24 小时最近任务窗口。
-- [ ] `TASK-009` P0 user message sequence prefix。
+- [x] `TASK-009` P0 user message sequence prefix。
 - [ ] `TASK-010` P0 continuation evidence。
 - [ ] `TASK-011` P0 request_count/last_seen/last_response 更新。
 - [ ] `TASK-012` P0 strategy version 保持 4。

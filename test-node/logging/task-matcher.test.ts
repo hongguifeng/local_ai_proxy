@@ -304,6 +304,73 @@ describe("TaskAssignment", () => {
       repository.close();
     }
   });
+
+  it("requires the previous user-message sequence as a heuristic prefix", async () => {
+    const root = await mkdtemp(path.join(os.tmpdir(), "llm-proxy-task-user-prefix-"));
+    temporaryDirectories.push(root);
+    const repository = new TrafficRepository(root);
+    let taskNumber = 0;
+    const matcher = new TaskMatcher(repository, {
+      createId: () => `prefix-task-${++taskNumber}`,
+      now: () => "2026-07-18T10:00:00.000+08:00",
+    });
+    const first = matcher.assign(
+      trafficRecord(
+        "prefix-request-1",
+        false,
+        {
+          model: "gpt-5",
+          messages: [
+            { role: "user", content: "first" },
+            { role: "assistant", content: "answer" },
+            { role: "user", content: "second" },
+          ],
+        },
+        "/v1/chat/completions",
+      ),
+    );
+    if (first === undefined) {
+      throw new Error("User-prefix baseline request was not assigned.");
+    }
+    persistAssignment(repository, first, "prefix-request-1");
+
+    const continuation = matcher.assign(
+      trafficRecord(
+        "prefix-request-2",
+        false,
+        {
+          model: "gpt-5",
+          messages: [
+            { role: "user", content: "first" },
+            { role: "assistant", content: "answer" },
+            { role: "user", content: "second" },
+            { role: "assistant", content: "another answer" },
+            { role: "user", content: "third" },
+          ],
+        },
+        "/v1/chat/completions",
+      ),
+    );
+    const changedHistory = matcher.assign(
+      trafficRecord(
+        "prefix-request-3",
+        false,
+        {
+          model: "gpt-5",
+          messages: [
+            { role: "user", content: "first" },
+            { role: "assistant", content: "different answer" },
+            { role: "user", content: "replacement second" },
+            { role: "user", content: "third" },
+          ],
+        },
+        "/v1/chat/completions",
+      ),
+    );
+    expect(continuation?.task["id"]).toBe("prefix-task-1");
+    expect(changedHistory?.task["id"]).toBe("prefix-task-2");
+    repository.close();
+  });
 });
 
 function trafficRecord(

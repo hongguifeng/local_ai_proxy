@@ -194,6 +194,45 @@ export function requestBoundaryFingerprints(
   return Object.fromEntries(Object.entries(fingerprints).filter(([key]) => boundaryKeys.has(key)));
 }
 
+export function requestUserMessages(kind: EndpointKind, payload: unknown): unknown[] {
+  if (!isRecord(payload)) {
+    return [];
+  }
+  if (kind === "responses") {
+    return responsesInputItems(payload)
+      .filter((item) => isRecord(item) && item["role"] === "user" && !isTaskContextMessage(item))
+      .map((item) => responsesInputItemSummary(item));
+  }
+  if (kind === "chat") {
+    const messages = payload["messages"];
+    const userMessages: unknown[] = [];
+    for (const message of Array.isArray(messages) ? (messages as unknown[]) : []) {
+      if (isRecord(message) && message["role"] === "user" && !isTaskContextMessage(message)) {
+        userMessages.push({
+          role: message["role"] ?? null,
+          content: messageText(message["content"]),
+          name: message["name"] ?? null,
+        });
+      }
+    }
+    return userMessages;
+  }
+  if (kind === "messages") {
+    const messages = payload["messages"];
+    const userMessages: unknown[] = [];
+    for (const message of Array.isArray(messages) ? (messages as unknown[]) : []) {
+      if (isRecord(message) && message["role"] === "user" && !isTaskContextMessage(message)) {
+        userMessages.push(claudeMessageSummary(message));
+      }
+    }
+    return userMessages;
+  }
+  if (kind === "completions" && isPythonTruthy(payload["prompt"])) {
+    return [messageText(payload["prompt"])];
+  }
+  return [];
+}
+
 function responsesInputItems(payload: Readonly<Record<string, unknown>>): unknown[] {
   const input = payload["input"];
   if (Array.isArray(input)) {

@@ -15,6 +15,7 @@ export {
   requestBoundaryFingerprints,
   requestMessageCount,
   requestFingerprints,
+  requestUserMessages,
   responseIdsFromBody,
   responseTokenCount,
   stableHash,
