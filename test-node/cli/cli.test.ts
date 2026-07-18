@@ -18,6 +18,11 @@ describe("parseCliArgs", () => {
     expect(() => parseCliArgs(["--port", "65536"])).toThrow("between 1 and 65535");
   });
 
+  it("parses --config-file", () => {
+    expect(parseCliArgs([]).configFile).toBe("logs/proxies.json");
+    expect(parseCliArgs(["--config-file", "state/pairs.json"]).configFile).toBe("state/pairs.json");
+  });
+
   it("rejects a missing host", () => {
     expect(() => parseCliArgs(["--host"])).toThrow("Option --host requires a value.");
   });

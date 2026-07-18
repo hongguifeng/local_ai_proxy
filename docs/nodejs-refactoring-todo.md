@@ -431,7 +431,7 @@
 
 - [x] `CLI-001` P0 实现 `--host`。
 - [x] `CLI-002` P0 实现 `--port`。
-- [ ] `CLI-003` P0 实现 `--config-file`。
+- [x] `CLI-003` P0 实现 `--config-file`。
 - [ ] `CLI-004` P0 实现 `--log-root`。
 - [ ] `CLI-005` P0 实现 `--no-browser`。
 - [ ] `CLI-006` P0 实现全部 `LLM_PROXY_*` 环境变量。
