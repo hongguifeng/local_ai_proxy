@@ -19,6 +19,7 @@ describe("RC release notes", () => {
       "NSIS installer",
       "portable EXE",
       "CLI ZIP",
+      "npm ci --omit=dev",
       "7.58 GB",
       "migration-rollback.md",
     ]) {

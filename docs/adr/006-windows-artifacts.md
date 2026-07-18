@@ -38,9 +38,9 @@ Electron 能稳定提供 Tray 和系统对话框，但产物明显大于 PyInsta
 ### 3. CLI ZIP
 
 - 面向命令行和自动启动用户。
-- 包含固定 Node 24 runtime、编译后的应用、静态 UI、native addon 和启动脚本。
-- 解压即可运行，不要求系统全局安装 Node。
-- 目录型分发，不追求单 exe。
+- 包含编译后的应用、静态 UI、package manifests 和运行说明。
+- 用户需要安装 Node.js 24，并在解压目录执行 `npm ci --omit=dev` 后运行 `npm start`。
+- 不捆绑 Electron runtime，保持 ZIP 尽可能轻量。
 
 开发者仍可通过 npm scripts 从源码运行，不把项目发布到公共 npm registry 作为本阶段要求。
 

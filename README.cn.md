@@ -342,3 +342,6 @@ npm run package:cli         # 编译后的 CLI ZIP
 npm run smoke:artifact      # Windows 打包产物启动检查
 npm run checksums           # release/SHA256SUMS.txt
 ```
+
+轻量 CLI ZIP 不包含 Node.js 和 `node_modules`。在已安装 Node.js 24 的机器上解压后，先执行一次
+`npm ci --omit=dev`，之后使用 `npm start`。

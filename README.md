@@ -343,3 +343,6 @@ npm run package:cli         # compiled CLI ZIP
 npm run smoke:artifact      # Windows packaged startup smoke test
 npm run checksums           # release/SHA256SUMS.txt
 ```
+
+The lightweight CLI ZIP does not bundle Node.js or `node_modules`. After extracting it on a machine
+with Node.js 24, run `npm ci --omit=dev` once and then use `npm start`.

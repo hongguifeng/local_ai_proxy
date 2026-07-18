@@ -22,7 +22,7 @@
 ## 运行时与发布说明
 
 - 源码开发需要 Node.js 24；执行 `npm ci` 后可运行、测试和打包。
-- Windows x64 Electron 产物内置运行时，不要求用户预装 Node.js。
+- Windows x64 Electron 产物内置运行时，不要求用户预装 Node.js；轻量 CLI ZIP 需要 Node.js 24，并在解压目录执行 `npm ci --omit=dev`。
 - SQLite 使用 `better-sqlite3`，Windows 产物已针对 Electron ABI 重建并完成 FTS5 smoke。
 - 正式切换前请按 [迁移回滚说明](migration-rollback.md) 备份配置、`traffic.db`、WAL/SHM，并确认至少有数据库大小 2.4 倍的可用空间。
 
