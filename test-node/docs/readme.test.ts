@@ -49,4 +49,18 @@ describe("README runtime instructions", () => {
       expect(readme).toContain("validate:migration");
     }
   });
+
+  it("links troubleshooting for Node, Electron, SQLite, and ports", async () => {
+    const troubleshooting = await readFile(
+      new URL("../../docs/troubleshooting.md", import.meta.url),
+      "utf8",
+    );
+    for (const phrase of ["Node 24", "EADDRINUSE", "better-sqlite3", "SmartScreen"]) {
+      expect(troubleshooting).toContain(phrase);
+    }
+    for (const name of ["README.md", "README.cn.md"]) {
+      const readme = await readFile(new URL(`../../${name}`, import.meta.url), "utf8");
+      expect(readme).toContain("docs/troubleshooting.md");
+    }
+  });
 });

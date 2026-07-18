@@ -260,6 +260,7 @@ for free space of at least 2.4 times the current database size.
 
 - [Migration rehearsal results](docs/migration-rehearsal-report.md)
 - [Operator backup and rollback procedure](docs/migration-rollback.md)
+- [Node and Electron troubleshooting](docs/troubleshooting.md)
 
 After migration, run `npm run validate:migration -- <log-root>` from a built checkout and retain the
 JSON count/sample report with the release record.

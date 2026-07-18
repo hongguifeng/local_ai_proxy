@@ -259,6 +259,7 @@ SSE 响应会按上游到达的行逐行转发给客户端。非 SSE 响应仍�
 
 - [迁移演练结果](docs/migration-rehearsal-report.md)
 - [用户备份和回滚步骤](docs/migration-rollback.md)
+- [Node 和 Electron 故障排查](docs/troubleshooting.md)
 
 迁移后，从已构建的 checkout 执行 `npm run validate:migration -- <log-root>`，并将 JSON 数量和抽样
 结果与发布记录一起保存。
