@@ -178,8 +178,8 @@ beforeAll(async () => {
         return {
           id: recordId,
           pending,
-          request: { input: "hello", nested: { value: 1 } },
-          response: pending ? null : { output: "done", nested: { value: 2 } },
+          request: { input: "hello", nested: { deep: { value: 1 } } },
+          response: pending ? null : { output: "done", nested: { deep: { value: 2 } } },
           request_meta: { method: "POST", endpoint: "/v1/responses" },
           response_meta: pending ? {} : { status: 200, token_count: 12 },
         };
@@ -547,6 +547,21 @@ describe("admin UI history page", () => {
     expect(detailReads.get("record-one")).toBe(2);
     await autoRefresh.uncheck();
   });
+
+  it("expands and collapses nested JSON trees", async () => {
+    await openRecordDetail("record-two");
+    const details = page.locator("#requestJson details");
+    await expectPage(details).toHaveCount(3);
+    await expectPage(details.nth(2)).toHaveJSProperty("open", false);
+
+    await page.locator('[data-expand="request"]').click();
+    await expectPage(details.nth(2)).toHaveJSProperty("open", true);
+
+    await page.locator('[data-expand="request"]').click();
+    await expectPage(details.nth(0)).toHaveJSProperty("open", true);
+    await expectPage(details.nth(1)).toHaveJSProperty("open", true);
+    await expectPage(details.nth(2)).toHaveJSProperty("open", false);
+  });
 });
 
 function publicPair(pair: ProxyPair): PublicProxyPair {
@@ -558,4 +573,20 @@ async function scrollLeft(locator: Locator): Promise<number> {
     const value: unknown = Reflect.get(element, "scrollLeft");
     return typeof value === "number" ? value : 0;
   });
+}
+
+async function openRecordDetail(recordId: string): Promise<void> {
+  await page.goto(baseUrl, { waitUntil: "networkidle" });
+  await Promise.all([
+    page.waitForResponse((response) => response.url().includes("/api/logs?")),
+    page.locator('[data-tab="logs"]').click(),
+  ]);
+  await Promise.all([
+    page.waitForResponse((response) => response.url().includes("/api/log-groups/task-one/logs")),
+    page.locator('[data-group-id="task-one"]').click(),
+  ]);
+  await Promise.all([
+    page.waitForResponse((response) => response.url().endsWith(`/api/logs/${recordId}`)),
+    page.locator(`[data-log-id="${recordId}"]`).click(),
+  ]);
 }

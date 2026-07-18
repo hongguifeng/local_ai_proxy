@@ -413,7 +413,7 @@
 - [x] `UI-024` P0 selected task cleanup。
 - [x] `UI-025` P0 ZIP download。
 - [x] `UI-026` P0 record detail 和 pending refresh。
-- [ ] `UI-027` P0 JSON tree expand/collapse。
+- [x] `UI-027` P0 JSON tree expand/collapse。
 - [ ] `UI-028` P0 wrap/format/copy/meta。
 - [ ] `UI-029` P0 row/column splitter drag。
 
