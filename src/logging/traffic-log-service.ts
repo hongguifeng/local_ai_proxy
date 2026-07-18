@@ -20,6 +20,8 @@ export class TrafficLogService {
   readonly #taskMatcher: TaskMatcher | undefined;
   readonly #redactLogs: boolean;
   readonly #writeQueue: SerialWriteQueue | undefined;
+  #closed = false;
+  #closePromise: Promise<void> | undefined;
 
   constructor(logRoot: string | null | undefined, options: TrafficLogServiceOptions = {}) {
     this.#redactLogs = options.redactLogs ?? false;
@@ -39,12 +41,20 @@ export class TrafficLogService {
     await this.#enqueue(record);
   }
 
-  close(): void {
-    this.#repository?.close();
+  close(): Promise<void> {
+    if (this.#closePromise !== undefined) {
+      return this.#closePromise;
+    }
+    this.#closed = true;
+    this.#closePromise = (async () => {
+      await this.#writeQueue?.drain();
+      this.#repository?.close();
+    })();
+    return this.#closePromise;
   }
 
   async #enqueue(record: Readonly<RepositoryRecord>): Promise<void> {
-    if (this.#writeQueue === undefined) {
+    if (this.#writeQueue === undefined || this.#closed) {
       return;
     }
     try {

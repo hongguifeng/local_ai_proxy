@@ -28,7 +28,7 @@ describe("TrafficLogService redaction", () => {
       temporaryDirectories.push(root);
       const service = new TrafficLogService(root, { redactLogs });
       await service.write(trafficRecord("redaction-request"));
-      service.close();
+      await service.close();
 
       const repository = new TrafficRepository(root);
       expect(repository.getRecord("redaction-request")).toMatchObject({
@@ -46,8 +46,8 @@ describe("disabled TrafficLogService", () => {
     const service = new TrafficLogService(null, { redactLogs: true });
     await expect(service.write({ id: "disabled-write" })).resolves.toBeUndefined();
     await expect(service.update({ id: "disabled-update" })).resolves.toBeUndefined();
-    expect(() => service.close()).not.toThrow();
-    expect(() => service.close()).not.toThrow();
+    await expect(service.close()).resolves.toBeUndefined();
+    await expect(service.close()).resolves.toBeUndefined();
   });
 });
 
@@ -56,7 +56,7 @@ describe("TrafficLogService failure isolation", () => {
     const root = await mkdtemp(path.join(os.tmpdir(), "llm-proxy-log-failure-"));
     temporaryDirectories.push(root);
     const service = new TrafficLogService(root);
-    service.close();
+    await service.close();
 
     await expect(service.write(trafficRecord("closed-database-request"))).resolves.toBeUndefined();
   });
@@ -114,7 +114,7 @@ describe("TrafficLogService record mapping", () => {
         },
       },
     });
-    service.close();
+    await service.close();
 
     const repository = new TrafficRepository(root);
     expect(repository.getRecord("mapped-request")).toMatchObject({
@@ -153,7 +153,7 @@ describe("original and upstream request bodies", () => {
       },
     });
     await service.write(record);
-    service.close();
+    await service.close();
 
     const repository = new TrafficRepository(root);
     expect(repository.getRecord("body-request")).toMatchObject({
@@ -170,7 +170,7 @@ describe("original and upstream request bodies", () => {
     const record = trafficRecord("identical-body-request");
     Object.assign(record.request, { upstream_body: { ...record.request.body } });
     await service.write(record);
-    service.close();
+    await service.close();
 
     const repository = new TrafficRepository(root);
     const saved = repository.getRecord("identical-body-request");
@@ -205,6 +205,33 @@ describe("per-log-root write queue", () => {
     releaseFirst?.();
     await Promise.all([first, second]);
     expect(order).toEqual(["first:start", "first:end", "second"]);
+  });
+
+  it("drains queued writes before closing the database", async () => {
+    const root = await mkdtemp(path.join(os.tmpdir(), "llm-proxy-log-drain-"));
+    temporaryDirectories.push(root);
+    const queue = writeQueueForLogRoot(root);
+    let releaseBlocker: (() => void) | undefined;
+    const blocker = new Promise<void>((resolve) => {
+      releaseBlocker = resolve;
+    });
+    const blockingWrite = queue.enqueue(async () => blocker);
+    const service = new TrafficLogService(root);
+    const pendingWrite = service.write(trafficRecord("drained-request"));
+    const close = service.close();
+    let closed = false;
+    void close.then(() => {
+      closed = true;
+    });
+    await Promise.resolve();
+    expect(closed).toBe(false);
+
+    releaseBlocker?.();
+    await Promise.all([blockingWrite, pendingWrite, close]);
+    expect(closed).toBe(true);
+    const repository = new TrafficRepository(root);
+    expect(repository.getRecord("drained-request")).toBeDefined();
+    repository.close();
   });
 });
 

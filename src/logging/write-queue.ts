@@ -11,6 +11,10 @@ export class SerialWriteQueue {
     );
     return result;
   }
+
+  async drain(): Promise<void> {
+    await this.#tail;
+  }
 }
 
 const LOG_ROOT_QUEUES = new Map<string, SerialWriteQueue>();
