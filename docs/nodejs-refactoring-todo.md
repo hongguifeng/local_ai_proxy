@@ -248,7 +248,7 @@
 
 ### 8.1 TaskMatcher
 
-- [ ] `TASK-001` P0 定义 TaskAssignment。
+- [x] `TASK-001` P0 定义 TaskAssignment。
 - [ ] `TASK-002` P0 pending task 创建和提升。
 - [ ] `TASK-003` P0 同 request ID 保持 task/sequence。
 - [ ] `TASK-004` P0 Responses previous_response_id link。
