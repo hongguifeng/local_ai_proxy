@@ -1,1 +1,1 @@
-export type { TaskAssignment } from "./task-matcher.js";
+export { TaskMatcher, type TaskAssignment, type TaskMatcherOptions } from "./task-matcher.js";
