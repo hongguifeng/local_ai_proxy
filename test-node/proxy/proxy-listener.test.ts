@@ -773,6 +773,55 @@ describe("ProxyListener", () => {
     await listener.close();
     await closeServer(upstream);
   });
+
+  it("filters upstream hop-by-hop and Content-Length response headers", async () => {
+    const upstream = http.createServer((_request, response) => {
+      const body = "filtered headers";
+      response.writeHead(200, {
+        Connection: "upstream-connection",
+        "Keep-Alive": "upstream=1",
+        "Proxy-Authenticate": "upstream-secret",
+        "Content-Length": Buffer.byteLength(body),
+        "X-Visible": "preserved",
+      });
+      response.end(body);
+    });
+    const upstreamPort = await listenServer(upstream);
+    const trafficLog: TrafficLogWriter = {
+      write: () => Promise.resolve(),
+      update: () => Promise.resolve(),
+    };
+    const pipeline = new ProxyRequestPipeline({
+      targets: [
+        {
+          enabled: true,
+          id: "response-header-target",
+          modelMappings: [],
+          name: "Response header target",
+          targetScheme: "http",
+          targetHost: "127.0.0.1",
+          targetPort: upstreamPort,
+          targetBasePath: "",
+          trafficLog,
+        },
+      ],
+    });
+    const listener = new ProxyListener({
+      host: "127.0.0.1",
+      port: 0,
+      onRequest: (request, response, context) => pipeline.handle(request, response, context),
+    });
+    const address = await listener.start();
+
+    const headers = await requestHeaders(address.port, "/response-headers");
+    expect(headers["x-visible"]).toBe("preserved");
+    expect(headers["content-length"]).toBeUndefined();
+    expect(headers["proxy-authenticate"]).toBeUndefined();
+    expect(headers["keep-alive"]).not.toBe("upstream=1");
+    expect(headers.connection).not.toBe("upstream-connection");
+    await listener.close();
+    await closeServer(upstream);
+  });
 });
 
 function requestText(
@@ -849,6 +898,16 @@ function requestStatus(
           statusMessage: response.statusMessage ?? "",
         });
       });
+    });
+    request.once("error", reject);
+  });
+}
+
+function requestHeaders(port: number, requestPath: string): Promise<http.IncomingHttpHeaders> {
+  return new Promise((resolve, reject) => {
+    const request = http.get({ host: "127.0.0.1", port, path: requestPath }, (response) => {
+      response.resume();
+      response.once("end", () => resolve(response.headers));
     });
     request.once("error", reject);
   });
