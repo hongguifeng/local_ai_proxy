@@ -556,7 +556,7 @@ describe("admin UI history page", () => {
 
   it("expands and collapses nested JSON trees", async () => {
     await openRecordDetail("record-two");
-    const details = page.locator("#requestJson details");
+    const details = page.locator("#requestJson details[data-json-node-path]");
     await expectPage(details).toHaveCount(3);
     await expectPage(details.nth(2)).toHaveJSProperty("open", false);
 
