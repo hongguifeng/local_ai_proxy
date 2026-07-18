@@ -91,8 +91,13 @@ export { ProxyRuntimeRegistry, type StartEnabledResult } from "./proxy-runtime-r
 export {
   assertNoEnabledListenConflicts,
   diffProxyPairs,
+  ProxyConfigurationApplyError,
   ProxyListenConflictError,
+  ProxyManager,
+  type ConfigurationApplyStage,
   type ProxyPairConfigDiff,
+  type ProxyConfigSaver,
+  type ProxyManagerState,
   type UpdatedProxyPair,
 } from "./proxy-manager.js";
 export {

@@ -339,7 +339,7 @@
 - [x] `MGR-007` P0 config diff：add/update/remove。
 - [x] `MGR-008` P0 监听端口冲突检测。
 - [x] `MGR-009` P0 一个 pair 失败不影响其他 pair。
-- [ ] `MGR-010` P0 apply failure 按 ADR 处理。
+- [x] `MGR-010` P0 apply failure 按 ADR 处理。
 - [ ] `MGR-011` P0 graceful shutdown timeout。
 - [ ] `MGR-012` P0 关闭后 socket/timer/DB 无泄漏测试。
 
