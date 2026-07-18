@@ -83,6 +83,11 @@ export {
   type ProxyRequestHandler,
 } from "./proxy-listener.js";
 export {
+  ProxyRuntimeStateMachine,
+  type ProxyRuntimeSnapshot,
+  type ProxyRuntimeState,
+} from "./proxy-runtime-state.js";
+export {
   ProxyRequestPipeline,
   readRequestBody,
   type ProxyPipelineTarget,
