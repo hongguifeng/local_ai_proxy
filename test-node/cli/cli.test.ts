@@ -33,6 +33,34 @@ describe("parseCliArgs", () => {
     expect(parseCliArgs(["--no-browser"]).noBrowser).toBe(true);
   });
 
+  it("reads all supported environment variables", () => {
+    expect(
+      parseCliArgs([], {
+        LLM_PROXY_UI_HOST: "::1",
+        LLM_PROXY_UI_PORT: "8181",
+        LLM_PROXY_CONFIG_FILE: "env/config.json",
+        LLM_PROXY_LOG_ROOT: "env/logs",
+        LLM_PROXY_NO_BROWSER: "1",
+      }),
+    ).toEqual({
+      host: "::1",
+      port: 8181,
+      configFile: "env/config.json",
+      logRoot: "env/logs",
+      noBrowser: true,
+    });
+  });
+
+  it("lets command-line options override environment variables", () => {
+    expect(
+      parseCliArgs(["--host", "127.0.0.2", "--port", "8282", "--config-file", "cli.json"], {
+        LLM_PROXY_UI_HOST: "::1",
+        LLM_PROXY_UI_PORT: "8181",
+        LLM_PROXY_CONFIG_FILE: "env.json",
+      }),
+    ).toMatchObject({ host: "127.0.0.2", port: 8282, configFile: "cli.json" });
+  });
+
   it("rejects a missing host", () => {
     expect(() => parseCliArgs(["--host"])).toThrow("Option --host requires a value.");
   });

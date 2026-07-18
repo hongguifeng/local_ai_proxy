@@ -10,12 +10,19 @@ export interface CliOptions {
 
 export const DEFAULT_ADMIN_PORT = 8088;
 
-export function parseCliArgs(argv: readonly string[]): CliOptions {
-  let configFile = DEFAULT_CONFIG_PATH;
-  let host = DEFAULT_PROXY_HOST;
-  let logRoot = DEFAULT_LOG_ROOT;
-  let noBrowser = false;
-  let port = DEFAULT_ADMIN_PORT;
+export function parseCliArgs(
+  argv: readonly string[],
+  env: Readonly<NodeJS.ProcessEnv> = process.env,
+): CliOptions {
+  let configFile = env["LLM_PROXY_CONFIG_FILE"] ?? DEFAULT_CONFIG_PATH;
+  let host = env["LLM_PROXY_UI_HOST"] ?? DEFAULT_PROXY_HOST;
+  let logRoot = env["LLM_PROXY_LOG_ROOT"] ?? DEFAULT_LOG_ROOT;
+  let noBrowser = env["LLM_PROXY_NO_BROWSER"] === "1";
+  const environmentPort = env["LLM_PROXY_UI_PORT"];
+  let port =
+    environmentPort === undefined
+      ? DEFAULT_ADMIN_PORT
+      : tcpPort(environmentPort, "LLM_PROXY_UI_PORT");
   for (let index = 0; index < argv.length; index += 1) {
     const argument = argv[index];
     if (argument === "--host") {
