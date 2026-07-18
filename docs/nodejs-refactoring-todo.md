@@ -443,7 +443,7 @@
 
 - [x] `TRAY-001` P0 创建无可见窗口的 Electron main。
 - [x] `TRAY-002` P0 创建 Tray 图标。
-- [ ] `TRAY-003` P0 Open Admin UI 菜单和默认动作。
+- [x] `TRAY-003` P0 Open Admin UI 菜单和默认动作。
 - [ ] `TRAY-004` P0 Exit 菜单等待 shutdown。
 - [ ] `TRAY-005` P0 `--open-on-start` 和环境变量。
 - [ ] `TRAY-006` P0 启动失败系统对话框。
