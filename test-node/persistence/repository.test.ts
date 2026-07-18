@@ -1,4 +1,4 @@
-import { mkdtemp, rm } from "node:fs/promises";
+import { copyFile, mkdtemp, rm } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 
@@ -226,6 +226,38 @@ describe("timestamp search", () => {
     expect(
       repository.listTaskRecords("task-time", localTimestamp).items.map(({ id }) => id),
     ).toEqual(["record-time"]);
+    repository.close();
+  });
+});
+
+describe("Python database compatibility", () => {
+  it("reads the comprehensive Python database fixture", async () => {
+    const root = await mkdtemp(path.join(os.tmpdir(), "llm-proxy-python-db-"));
+    temporaryDirectories.push(root);
+    await copyFile(
+      path.join(process.cwd(), "fixtures", "parity", "database", "comprehensive", "traffic.db"),
+      path.join(root, "traffic.db"),
+    );
+    const repository = new TrafficRepository(root);
+
+    expect(repository.getTask("task-responses-fixture")).toMatchObject({
+      kind: "responses",
+      model: "gpt-fixture",
+      pending_request_only: false,
+      fingerprints: { fixture: "responses-fingerprint" },
+      last_user_messages: [{ role: "user", content: "fixture responses request" }],
+    });
+    expect(repository.getRecord("record-responses-1")).toMatchObject({
+      task_id: "task-responses-fixture",
+      sequence: 1,
+      request_headers: { "X-Repeated": ["one", "two"] },
+      response_body: { stream_summary: { content: "hello from fixture" } },
+      stripped_fields: ["temperature"],
+    });
+    expect(repository.taskIdForResponse("resp_fixture_2")).toBe("task-responses-fixture");
+    expect(repository.taskIdForContext("conversation:conversation-fixture")).toBe(
+      "task-responses-fixture",
+    );
     repository.close();
   });
 });
