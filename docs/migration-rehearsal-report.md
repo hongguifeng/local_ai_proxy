@@ -39,3 +39,5 @@ The comprehensive fixture contains 5 tasks, 6 records, 2 response links, 2 conte
 documents. Validation found zero orphan records, links, or search documents. Sampled content included
 `task-chat-fixture` with model `chat-fixture` and `record-chat-1` with HTTP status 200. The reusable
 command is `npm run validate:migration -- <log-root>` after `npm run build`.
+
+The operator-facing backup and rollback sequence is maintained in `docs/migration-rollback.md`.

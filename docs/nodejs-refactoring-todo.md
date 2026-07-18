@@ -471,7 +471,7 @@
 - [x] `MIG-003` P0 对含 WAL 的活跃 DB 执行 checkpoint/backup 演练。
 - [x] `MIG-004` P0 对大型 DB 记录耗时和磁盘需求。
 - [x] `MIG-005` P0 验证 task/record/link/search 数量和抽样内容。
-- [ ] `MIG-006` P0 编写用户回滚步骤。
+- [x] `MIG-006` P0 编写用户回滚步骤。
 
 ### 14.2 文档切换
 
