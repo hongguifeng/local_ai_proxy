@@ -59,6 +59,29 @@ export function cleanupLogsOlderThan(
   return { deleted, deleted_count: deleted.length };
 }
 
+export function cleanupLogsKeepLatest(
+  logRoots: readonly string[],
+  keepLatest: number,
+): LogCleanupResult {
+  const keep = Math.max(0, Math.trunc(keepLatest));
+  const deleted: string[] = [];
+  for (const root of [...new Set(logRoots.filter((value) => value !== ""))]) {
+    const repository = new TrafficRepository(root);
+    try {
+      const selected = allTasks(repository)
+        .slice(keep)
+        .map((task) => String(task["id"]));
+      if (selected.length > 0) {
+        repository.deleteTasks(selected);
+        deleted.push(...selected);
+      }
+    } finally {
+      repository.close();
+    }
+  }
+  return { deleted, deleted_count: deleted.length };
+}
+
 function allTasks(repository: TrafficRepository): Record<string, unknown>[] {
   const tasks: Record<string, unknown>[] = [];
   let page = repository.listTasks("", 500, 0);

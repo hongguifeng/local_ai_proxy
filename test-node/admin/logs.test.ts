@@ -72,6 +72,37 @@ describe("GET /api/logs", () => {
     expect(calls).toEqual([7]);
   });
 
+  it("cleans all but the latest requested log groups", async () => {
+    const calls: unknown[] = [];
+    const server = createAdminServer({
+      getHealth: () => applicationHealth("running"),
+      logService: {
+        listGroups: () => ({
+          groups: [],
+          total: 0,
+          limit: 100,
+          offset: 0,
+          next_offset: 0,
+          has_more: false,
+        }),
+        cleanupKeepLatest(count) {
+          calls.push(count);
+          return { deleted: ["old"], deleted_count: 1 };
+        },
+      },
+    });
+    servers.push(server);
+
+    const response = await server.inject({
+      method: "POST",
+      url: "/api/logs/cleanup",
+      payload: { keep_latest: 10 },
+    });
+    expect(response.statusCode).toBe(200);
+    expect(response.json()).toEqual({ deleted: ["old"], deleted_count: 1 });
+    expect(calls).toEqual([10]);
+  });
+
   it("streams the ZIP export with download headers", async () => {
     const server = createAdminServer({
       getHealth: () => applicationHealth("running"),

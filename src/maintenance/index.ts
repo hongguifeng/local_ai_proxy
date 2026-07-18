@@ -17,6 +17,7 @@ export {
   type LogExportEntry,
 } from "./log-export.js";
 export {
+  cleanupLogsKeepLatest,
   cleanupLogsOlderThan,
   cleanupSelectedLogGroups,
   type LogCleanupResult,

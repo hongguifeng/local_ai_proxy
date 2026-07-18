@@ -30,6 +30,7 @@ export interface AdminServerOptions {
 }
 
 export interface LogAdminService {
+  readonly cleanupKeepLatest?: (keepLatest: number) => LogCleanupResult;
   readonly cleanupOlderThan?: (olderThanDays: number) => LogCleanupResult;
   readonly cleanupSelectedGroups?: (groupIds: readonly string[]) => LogCleanupResult;
   readonly exportLogs?: () => Readable;
@@ -243,8 +244,15 @@ export function createAdminServer(options: AdminServerOptions): FastifyInstance 
   if (options.logService !== undefined) {
     const cleanupSelectedGroups = options.logService.cleanupSelectedGroups;
     const cleanupOlderThan = options.logService.cleanupOlderThan;
-    if (cleanupSelectedGroups !== undefined || cleanupOlderThan !== undefined) {
-      server.post<{ Body: { group_ids?: string[]; older_than_days?: number } }>(
+    const cleanupKeepLatest = options.logService.cleanupKeepLatest;
+    if (
+      cleanupSelectedGroups !== undefined ||
+      cleanupOlderThan !== undefined ||
+      cleanupKeepLatest !== undefined
+    ) {
+      server.post<{
+        Body: { group_ids?: string[]; keep_latest?: number; older_than_days?: number };
+      }>(
         "/api/logs/cleanup",
         {
           schema: {
@@ -260,6 +268,7 @@ export function createAdminServer(options: AdminServerOptions): FastifyInstance 
                   items: { type: "string", minLength: 1 },
                 },
                 older_than_days: { type: "integer", minimum: 0 },
+                keep_latest: { type: "integer", minimum: 0 },
               },
             },
           },
@@ -270,6 +279,9 @@ export function createAdminServer(options: AdminServerOptions): FastifyInstance 
           }
           if (request.body.older_than_days !== undefined && cleanupOlderThan !== undefined) {
             return cleanupOlderThan(request.body.older_than_days);
+          }
+          if (request.body.keep_latest !== undefined && cleanupKeepLatest !== undefined) {
+            return cleanupKeepLatest(request.body.keep_latest);
           }
           return reply
             .code(400)

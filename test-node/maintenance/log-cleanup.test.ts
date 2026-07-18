@@ -3,7 +3,11 @@ import { mkdtemp, rm } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 
-import { cleanupLogsOlderThan, cleanupSelectedLogGroups } from "../../src/maintenance/index.js";
+import {
+  cleanupLogsKeepLatest,
+  cleanupLogsOlderThan,
+  cleanupSelectedLogGroups,
+} from "../../src/maintenance/index.js";
 import { TrafficRepository } from "../../src/persistence/index.js";
 
 const temporaryDirectories: string[] = [];
@@ -51,6 +55,31 @@ describe("older-than log cleanup", () => {
     expect(repository.getTask("new")).toBeDefined();
     expect(repository.getTask("invalid")).toBeDefined();
     repository.close();
+  });
+});
+
+describe("keep-latest log cleanup", () => {
+  it("keeps the requested number of newest tasks independently in each root", async () => {
+    const firstRoot = await rootWithTimestampedTasks([
+      ["first-old", "2026-07-16T00:00:00Z"],
+      ["first-new", "2026-07-18T00:00:00Z"],
+    ]);
+    const secondRoot = await rootWithTimestampedTasks([
+      ["second-old", "2026-07-15T00:00:00Z"],
+      ["second-middle", "2026-07-17T00:00:00Z"],
+      ["second-new", "2026-07-18T00:00:00Z"],
+    ]);
+
+    expect(cleanupLogsKeepLatest([firstRoot, secondRoot], 1)).toEqual({
+      deleted: ["first-old", "second-middle", "second-old"],
+      deleted_count: 3,
+    });
+    const first = new TrafficRepository(firstRoot);
+    expect(first.listTasks().items.map((task) => task["id"])).toEqual(["first-new"]);
+    first.close();
+    const second = new TrafficRepository(secondRoot);
+    expect(second.listTasks().items.map((task) => task["id"])).toEqual(["second-new"]);
+    second.close();
   });
 });
 

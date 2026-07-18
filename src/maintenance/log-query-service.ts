@@ -3,6 +3,7 @@ import { formatLocalTimestamp } from "../shared/index.js";
 import { createLogExportStream } from "./log-export.js";
 import {
   cleanupLogsOlderThan,
+  cleanupLogsKeepLatest,
   cleanupSelectedLogGroups,
   type LogCleanupResult,
 } from "./log-cleanup.js";
@@ -140,6 +141,10 @@ export class LogQueryService {
 
   cleanupOlderThan(olderThanDays: number): LogCleanupResult {
     return cleanupLogsOlderThan(this.#logRoots(), olderThanDays);
+  }
+
+  cleanupKeepLatest(keepLatest: number): LogCleanupResult {
+    return cleanupLogsKeepLatest(this.#logRoots(), keepLatest);
   }
 
   #listMergedGroups(
