@@ -17,7 +17,7 @@
 
 ## 2. 里程碑
 
-- [ ] M0：行为基线和 ADR 完成
+- [x] M0：行为基线和 ADR 完成
 - [ ] M1：Node 工程和纯逻辑 parity 完成
 - [ ] M2：SQLite、TaskMatcher、Logger parity 完成
 - [ ] M3：单代理和多代理数据面完成
