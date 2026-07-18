@@ -4,7 +4,11 @@ import path from "node:path";
 
 import { afterEach, describe, expect, it } from "vitest";
 
-import { TaskMatcher, type TaskAssignment } from "../../src/logging/index.js";
+import {
+  TASK_MATCH_STRATEGY_VERSION,
+  TaskMatcher,
+  type TaskAssignment,
+} from "../../src/logging/index.js";
 import { TrafficRepository } from "../../src/persistence/index.js";
 
 const temporaryDirectories: string[] = [];
@@ -18,6 +22,10 @@ afterEach(async () => {
 });
 
 describe("TaskAssignment", () => {
+  it("keeps task matching on strategy version 4", () => {
+    expect(TASK_MATCH_STRATEGY_VERSION).toBe(4);
+  });
+
   it("carries the complete result needed to persist a matched request", () => {
     const assignment = {
       task: { id: "task-1", kind: "responses" },
@@ -440,6 +448,7 @@ describe("TaskAssignment", () => {
       throw new Error("Task update baseline request was not assigned.");
     }
     expect(first.task).toMatchObject({
+      match_strategy_version: 4,
       request_count: 1,
       last_seen_at: "2026-07-18T10:01:00.000+08:00",
       last_response_at: "2026-07-18T10:01:00.000+08:00",

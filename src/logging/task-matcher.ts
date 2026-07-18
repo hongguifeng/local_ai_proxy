@@ -33,6 +33,8 @@ export interface TaskMatcherOptions {
   readonly now?: () => string;
 }
 
+export const TASK_MATCH_STRATEGY_VERSION = 4;
+
 const MODEL_TASK_KINDS = new Set<EndpointKind>(["responses", "chat", "messages", "completions"]);
 const TASK_MATCH_WINDOW_MS = 24 * 60 * 60 * 1_000;
 
@@ -305,7 +307,7 @@ export class TaskMatcher {
       started_at: record["started_timestamp"] ?? record["timestamp"] ?? now,
       last_seen_at: record["timestamp"] ?? now,
       endpoint: recordRequestPath(record),
-      match_strategy_version: 4,
+      match_strategy_version: TASK_MATCH_STRATEGY_VERSION,
       ...(typeof model === "string" && model !== "" ? { model } : {}),
       fingerprints: requestFingerprints(kind, payload),
       boundary_fingerprints: requestBoundaryFingerprints(kind, payload),
