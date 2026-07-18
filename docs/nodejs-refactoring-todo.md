@@ -336,7 +336,7 @@
 - [x] `MGR-004` P0 restart pair。
 - [x] `MGR-005` P0 start enabled / stop all。
 - [x] `MGR-006` P0 public pair running/actual port。
-- [ ] `MGR-007` P0 config diff：add/update/remove。
+- [x] `MGR-007` P0 config diff：add/update/remove。
 - [ ] `MGR-008` P0 监听端口冲突检测。
 - [ ] `MGR-009` P0 一个 pair 失败不影响其他 pair。
 - [ ] `MGR-010` P0 apply failure 按 ADR 处理。

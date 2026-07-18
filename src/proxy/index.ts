@@ -89,6 +89,11 @@ export {
 } from "./proxy-runtime-state.js";
 export { ProxyRuntimeRegistry } from "./proxy-runtime-registry.js";
 export {
+  diffProxyPairs,
+  type ProxyPairConfigDiff,
+  type UpdatedProxyPair,
+} from "./proxy-manager.js";
+export {
   ProxyRequestPipeline,
   readRequestBody,
   type ProxyPipelineTarget,
