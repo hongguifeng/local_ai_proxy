@@ -30,6 +30,7 @@ export interface ProxyPipelineTarget {
   readonly id: string;
   readonly modelMappings: readonly { readonly listen: string; readonly upstream: string }[];
   readonly name: string;
+  readonly rejectUnauthorized?: boolean;
   readonly injectRequestFields?: Readonly<Record<string, unknown>>;
   readonly stripRequestFields?: ReadonlySet<string>;
   readonly targetScheme: "http" | "https";

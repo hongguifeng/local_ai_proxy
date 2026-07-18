@@ -296,7 +296,7 @@
 ### 9.3 上游连接
 
 - [x] `HTTP-020` P0 HTTP target。
-- [ ] `HTTP-021` P0 HTTPS target。
+- [x] `HTTP-021` P0 HTTPS target。
 - [ ] `HTTP-022` P0 base path/query。
 - [ ] `HTTP-023` P0 Header 过滤和覆盖。
 - [ ] `HTTP-024` P0 timeout。

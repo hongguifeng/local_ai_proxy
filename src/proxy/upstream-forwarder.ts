@@ -4,6 +4,7 @@ import https from "node:https";
 import type { HeaderEntry } from "./headers.js";
 
 export interface UpstreamTarget {
+  readonly rejectUnauthorized?: boolean;
   readonly targetHost: string;
   readonly targetPort: number;
   readonly targetScheme: "http" | "https";
@@ -33,6 +34,7 @@ export function openUpstreamResponse(
         headers: options.headers.flatMap(([name, value]) => [name, value]),
         signal: options.signal,
         timeout: options.target.timeoutMs,
+        rejectUnauthorized: options.target.rejectUnauthorized,
       },
       resolve,
     );

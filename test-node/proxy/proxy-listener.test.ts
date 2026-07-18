@@ -1,4 +1,7 @@
 import http from "node:http";
+import https from "node:https";
+import { readFileSync } from "node:fs";
+import path from "node:path";
 
 import { describe, expect, it } from "vitest";
 
@@ -498,6 +501,54 @@ describe("ProxyListener", () => {
       await requestText(address.port, "/v1/responses?trace=1", { method: "POST", body }),
     ).toEqual({ status: 201, body: "POST /base/v1/responses?trace=1" });
     expect(receivedBodies).toEqual([body]);
+    await listener.close();
+    await closeServer(upstream);
+  });
+
+  it("forwards requests to an HTTPS target", async () => {
+    const fixtureRoot = path.join(process.cwd(), "fixtures", "parity", "tls");
+    const upstream = https.createServer(
+      {
+        key: readFileSync(path.join(fixtureRoot, "test-key.pem")),
+        cert: readFileSync(path.join(fixtureRoot, "test-cert.pem")),
+      },
+      (request, response) => {
+        response.writeHead(200, { "content-type": "text/plain" });
+        response.end(`secure ${request.url}`);
+      },
+    );
+    const upstreamPort = await listenServer(upstream);
+    const trafficLog: TrafficLogWriter = {
+      write: () => Promise.resolve(),
+      update: () => Promise.resolve(),
+    };
+    const pipeline = new ProxyRequestPipeline({
+      targets: [
+        {
+          enabled: true,
+          id: "https-target",
+          modelMappings: [],
+          name: "HTTPS target",
+          rejectUnauthorized: false,
+          targetScheme: "https",
+          targetHost: "127.0.0.1",
+          targetPort: upstreamPort,
+          targetBasePath: "/secure",
+          trafficLog,
+        },
+      ],
+    });
+    const listener = new ProxyListener({
+      host: "127.0.0.1",
+      port: 0,
+      onRequest: (request, response, context) => pipeline.handle(request, response, context),
+    });
+    const address = await listener.start();
+
+    expect(await requestText(address.port, "/v1/models")).toEqual({
+      status: 200,
+      body: "secure /secure/v1/models",
+    });
     await listener.close();
     await closeServer(upstream);
   });
