@@ -648,6 +648,16 @@ describe("admin UI visual regression", () => {
 
     expect(await screenshotDifference("doc/ui_proxy_cn.png")).toBeLessThan(0.12);
   });
+
+  it("matches the English proxy page baseline", async () => {
+    pairs.splice(0, pairs.length, ...visualPairs());
+    await page.setViewportSize({ width: 1278, height: 1208 });
+    await page.goto(baseUrl, { waitUntil: "networkidle" });
+    await page.locator("#languageSelect").selectOption("en");
+    await expectPage(page.locator("#saveProxies")).toHaveText("Save config");
+
+    expect(await screenshotDifference("doc/ui_proxy_en.png")).toBeLessThan(0.12);
+  });
 });
 
 function publicPair(pair: ProxyPair): PublicProxyPair {
