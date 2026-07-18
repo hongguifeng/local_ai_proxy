@@ -17,6 +17,8 @@ describe("electron-builder configuration", () => {
     expect(config).toContain("- nsis");
     expect(config).toContain("- portable");
     expect(config).toContain("oneClick: false");
+    expect(config).toContain("artifactName: LLM-Proxy-${version}-${arch}-setup.${ext}");
+    expect(config).toContain("artifactName: LLM-Proxy-${version}-${arch}-portable.${ext}");
   });
 
   it("unpacks the SQLite native module from the application archive", async () => {
