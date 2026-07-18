@@ -178,7 +178,11 @@ beforeAll(async () => {
         return {
           id: recordId,
           pending,
-          request: { input: "hello", nested: { deep: { value: 1 } } },
+          request: {
+            input: "hello",
+            formatted: "long-text-".repeat(30),
+            nested: { deep: { value: 1 } },
+          },
           response: pending ? null : { output: "done", nested: { deep: { value: 2 } } },
           request_meta: { method: "POST", endpoint: "/v1/responses" },
           response_meta: pending ? {} : { status: 200, token_count: 12 },
@@ -561,6 +565,48 @@ describe("admin UI history page", () => {
     await expectPage(details.nth(0)).toHaveJSProperty("open", true);
     await expectPage(details.nth(1)).toHaveJSProperty("open", true);
     await expectPage(details.nth(2)).toHaveJSProperty("open", false);
+  });
+
+  it("wraps, formats, copies, and shows JSON metadata", async () => {
+    await openRecordDetail("record-two");
+    const requestJson = page.locator("#requestJson");
+    await expectPage(requestJson).toHaveClass(/nowrap/);
+    await page.locator('[data-wrap="request"]').click();
+    await expectPage(requestJson).toHaveClass(/wrap/);
+
+    await expectPage(requestJson.locator(".json-str-body")).toContainText("long-text-long-text");
+    await page.locator('[data-format="request"]').click();
+    await expectPage(requestJson.locator(".json-str-body")).toHaveCount(0);
+    await page.locator('[data-format="request"]').click();
+    await expectPage(requestJson.locator(".json-str-body")).toContainText("long-text-long-text");
+
+    await page.evaluate(() => {
+      Object.defineProperty(navigator, "clipboard", {
+        configurable: true,
+        value: {
+          writeText: (text: string) => {
+            Reflect.set(globalThis, "__copiedJson", text);
+            return Promise.resolve();
+          },
+        },
+      });
+    });
+    await page.locator('[data-copy="request"]').click();
+    await expectPage(page.locator("#toast")).toContainText("Copied JSON");
+    expect(
+      await page.evaluate(() => {
+        const value: unknown = Reflect.get(globalThis, "__copiedJson");
+        return typeof value === "string" ? value : "";
+      }),
+    ).toContain('"input": "hello"');
+
+    const metadata = page.locator("#requestMeta");
+    await expectPage(metadata).toBeHidden();
+    await page.locator('[data-meta="request"]').click();
+    await expectPage(metadata).toBeVisible();
+    await expectPage(metadata).toContainText("/v1/responses");
+    await page.locator('[data-meta="request"]').click();
+    await expectPage(metadata).toBeHidden();
   });
 });
 
