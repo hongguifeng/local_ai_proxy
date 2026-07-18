@@ -22,6 +22,13 @@ export interface AdminStaticAssets {
   readonly indexHtml: string;
 }
 
+export interface AdminErrorDto {
+  readonly error: {
+    readonly code: string;
+    readonly message: string;
+  };
+}
+
 export interface AdminControlPlaneOptions extends AdminServerOptions {
   readonly host: string;
   readonly port: number;
@@ -64,6 +71,24 @@ export function createAdminServer(options: AdminServerOptions): FastifyInstance 
     logController: new LogController({ disableRequestLogging: true }),
     logger: false,
   });
+  server.setErrorHandler((error, _request, reply) => {
+    const statusCode = errorProperty(error, "statusCode", "number") ?? 500;
+    const publicError = statusCode < 500;
+    return reply
+      .code(statusCode)
+      .send(
+        adminError(
+          errorProperty(error, "code", "string") ??
+            (publicError ? "bad_request" : "internal_error"),
+          publicError
+            ? (errorProperty(error, "message", "string") ?? "Request failed.")
+            : "Internal server error.",
+        ),
+      );
+  });
+  server.setNotFoundHandler((_request, reply) =>
+    reply.code(404).send(adminError("not_found", "Route not found.")),
+  );
   server.get("/api/health", async (_request, reply) => {
     const health = options.getHealth();
     return reply.code(health.status === "degraded" ? 503 : 200).send(health);
@@ -89,6 +114,24 @@ export function createAdminServer(options: AdminServerOptions): FastifyInstance 
     );
   }
   return server;
+}
+
+export function adminError(code: string, message: string): AdminErrorDto {
+  return { error: { code, message } };
+}
+
+function errorProperty<T extends "number" | "string">(
+  error: unknown,
+  property: string,
+  expectedType: T,
+): T extends "number" ? number | undefined : string | undefined {
+  const value =
+    typeof error === "object" && error !== null
+      ? (error as Record<string, unknown>)[property]
+      : undefined;
+  return (typeof value === expectedType ? value : undefined) as T extends "number"
+    ? number | undefined
+    : string | undefined;
 }
 
 export function applicationHealth(
