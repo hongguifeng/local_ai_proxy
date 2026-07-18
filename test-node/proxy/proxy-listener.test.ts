@@ -724,6 +724,69 @@ describe("ProxyListener", () => {
     await closeServer(upstream);
   });
 
+  it("forwards more than ten concurrent requests without mixing responses", async () => {
+    const requestCount = 16;
+    let concurrent = 0;
+    let maximumConcurrent = 0;
+    let releaseAll: (() => void) | undefined;
+    const allArrived = new Promise<void>((resolve) => {
+      releaseAll = resolve;
+    });
+    const upstream = http.createServer((request, response) => {
+      concurrent += 1;
+      maximumConcurrent = Math.max(maximumConcurrent, concurrent);
+      if (concurrent === requestCount) {
+        releaseAll?.();
+      }
+      void allArrived.then(() => {
+        response.writeHead(200, { "content-type": "text/plain" });
+        response.end(request.url ?? "");
+        concurrent -= 1;
+      });
+    });
+    const upstreamPort = await listenServer(upstream);
+    const trafficLog: TrafficLogWriter = {
+      write: () => Promise.resolve(),
+      update: () => Promise.resolve(),
+    };
+    const pipeline = new ProxyRequestPipeline({
+      targets: [
+        {
+          enabled: true,
+          id: "concurrent-target",
+          modelMappings: [],
+          name: "Concurrent target",
+          targetScheme: "http",
+          targetHost: "127.0.0.1",
+          targetPort: upstreamPort,
+          targetBasePath: "",
+          trafficLog,
+        },
+      ],
+    });
+    const listener = new ProxyListener({
+      host: "127.0.0.1",
+      port: 0,
+      onRequest: (request, response, context) => pipeline.handle(request, response, context),
+    });
+    const address = await listener.start();
+
+    const results = await Promise.all(
+      Array.from({ length: requestCount }, (_, index) =>
+        requestText(address.port, `/concurrent/${index}`),
+      ),
+    );
+    expect(maximumConcurrent).toBe(requestCount);
+    expect(results).toEqual(
+      Array.from({ length: requestCount }, (_, index) => ({
+        status: 200,
+        body: `/concurrent/${index}`,
+      })),
+    );
+    await listener.close();
+    await closeServer(upstream);
+  });
+
   it("forwards requests to an HTTPS target", async () => {
     const fixtureRoot = path.join(process.cwd(), "fixtures", "parity", "tls");
     const upstream = https.createServer(
