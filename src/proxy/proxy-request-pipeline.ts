@@ -1,4 +1,5 @@
 import type { IncomingMessage, ServerResponse } from "node:http";
+import { once } from "node:events";
 
 import type { RepositoryRecord } from "../persistence/index.js";
 import { ActiveRequestRegistry } from "./active-requests.js";
@@ -153,17 +154,12 @@ export class ProxyRequestPipeline {
       });
       responseStatus = upstream.statusCode ?? 502;
       responseHeaders = incomingHeaders(upstream);
-      const chunks: Buffer[] = [];
-      for await (const chunk of upstream) {
-        chunks.push(Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk as Uint8Array));
-      }
-      responseBody = Buffer.concat(chunks);
       response.writeHead(
         responseStatus,
         upstream.statusMessage ?? undefined,
         forwardedResponseHeaders(upstream),
       );
-      response.end(request.method === "HEAD" ? undefined : responseBody);
+      responseBody = await forwardResponseBody(upstream, response, request.method === "HEAD");
     } catch (error) {
       responseStatus = 502;
       responseHeaders = { "content-type": ["text/plain; charset=utf-8"] };
@@ -366,4 +362,21 @@ function forwardedResponseHeaders(upstream: IncomingMessage): [string, string][]
     .map(([name, value]): [string, string] => [name, value]);
   forwarded.push(["Connection", "close"]);
   return forwarded;
+}
+
+async function forwardResponseBody(
+  upstream: IncomingMessage,
+  response: ServerResponse,
+  headRequest: boolean,
+): Promise<Buffer> {
+  const chunks: Buffer[] = [];
+  for await (const chunkValue of upstream) {
+    const chunk = Buffer.isBuffer(chunkValue) ? chunkValue : Buffer.from(chunkValue as Uint8Array);
+    chunks.push(chunk);
+    if (!headRequest && !response.write(chunk)) {
+      await once(response, "drain");
+    }
+  }
+  response.end();
+  return Buffer.concat(chunks);
 }

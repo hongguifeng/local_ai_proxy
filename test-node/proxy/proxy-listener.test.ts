@@ -822,6 +822,66 @@ describe("ProxyListener", () => {
     await listener.close();
     await closeServer(upstream);
   });
+
+  it("forwards the first SSE event before the upstream stream completes", async () => {
+    let releaseSecond: (() => void) | undefined;
+    const secondGate = new Promise<void>((resolve) => {
+      releaseSecond = resolve;
+    });
+    const upstream = http.createServer((_request, response) => {
+      response.writeHead(200, { "content-type": "text/event-stream" });
+      response.write('data: {"delta":"first"}\n\n');
+      void secondGate.then(() => {
+        response.end('data: {"delta":"second"}\n\n');
+      });
+    });
+    const upstreamPort = await listenServer(upstream);
+    const trafficLog: TrafficLogWriter = {
+      write: () => Promise.resolve(),
+      update: () => Promise.resolve(),
+    };
+    const pipeline = new ProxyRequestPipeline({
+      targets: [
+        {
+          enabled: true,
+          id: "sse-target",
+          modelMappings: [],
+          name: "SSE target",
+          targetScheme: "http",
+          targetHost: "127.0.0.1",
+          targetPort: upstreamPort,
+          targetBasePath: "",
+          trafficLog,
+        },
+      ],
+    });
+    const listener = new ProxyListener({
+      host: "127.0.0.1",
+      port: 0,
+      onRequest: (request, response, context) => pipeline.handle(request, response, context),
+    });
+    const address = await listener.start();
+    let finishClient: (() => void) | undefined;
+    const clientDone = new Promise<void>((resolve) => {
+      finishClient = resolve;
+    });
+    const firstChunk = new Promise<string>((resolve, reject) => {
+      const request = http.get(
+        { host: "127.0.0.1", port: address.port, path: "/events" },
+        (response) => {
+          response.once("data", (chunk: Buffer) => resolve(chunk.toString("utf8")));
+          response.once("end", () => finishClient?.());
+        },
+      );
+      request.once("error", reject);
+    });
+
+    await expect(firstChunk).resolves.toContain('data: {"delta":"first"}');
+    releaseSecond?.();
+    await clientDone;
+    await listener.close();
+    await closeServer(upstream);
+  });
 });
 
 function requestText(
