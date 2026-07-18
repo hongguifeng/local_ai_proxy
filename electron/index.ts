@@ -3,6 +3,7 @@ import { app, dialog, Menu, nativeImage, shell, Tray } from "electron";
 import { createNodeApplication } from "../src/app/index.js";
 import { shutdownAndQuit } from "./exit.js";
 import { startHeadlessElectronMain } from "./headless-main.js";
+import { installSmokeExitSignal } from "./smoke-exit.js";
 import { TRAY_ICON_DATA_URL } from "./tray-icon.js";
 import { installOpenAdminActions } from "./tray-menu.js";
 import { parseTrayOptions } from "./tray-options.js";
@@ -26,6 +27,9 @@ async function start(): Promise<void> {
   const trayOptions = parseTrayOptions(process.argv.slice(app.isPackaged ? 1 : 2));
   const options = trayOptions.cli;
   const runtime = createNodeApplication({ ...options, version: app.getVersion() });
+  installSmokeExitSignal(process.env["LLM_PROXY_SMOKE_EXIT_FILE"], () =>
+    shutdownAndQuit(runtime.application, app),
+  );
   await runtime.application.start();
   const adminPort = runtime.address()?.port ?? options.port;
   const adminUrl = `http://${options.host}:${adminPort}`;

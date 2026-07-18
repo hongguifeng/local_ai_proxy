@@ -1,5 +1,5 @@
 import { spawn } from "node:child_process";
-import { mkdir, readFile, readdir } from "node:fs/promises";
+import { mkdir, readFile, readdir, writeFile } from "node:fs/promises";
 import { createServer } from "node:net";
 import path from "node:path";
 import { pathToFileURL } from "node:url";
@@ -22,6 +22,7 @@ export async function smokeWindowsArtifact(
   const smokeDirectory = path.join(releaseDirectory, "smoke");
   await mkdir(smokeDirectory, { recursive: true });
   const startupErrorFile = path.join(smokeDirectory, `startup-error-${port}.txt`);
+  const exitFile = path.join(smokeDirectory, `exit-${port}.signal`);
   const child = spawn(
     executable,
     ["--port", String(port), "--config-file", "smoke/proxies.json", "--log-root", "smoke/logs"],
@@ -29,6 +30,7 @@ export async function smokeWindowsArtifact(
       cwd: releaseDirectory,
       env: {
         ...process.env,
+        LLM_PROXY_SMOKE_EXIT_FILE: exitFile,
         LLM_PROXY_STARTUP_ERROR_FILE: startupErrorFile,
         LLM_PROXY_USER_DATA_DIR: path.join(smokeDirectory, `user-data-${port}`),
       },
@@ -36,10 +38,26 @@ export async function smokeWindowsArtifact(
     },
   );
   try {
-    await waitForHealth(`http://127.0.0.1:${port}/api/health`, startupErrorFile);
+    const healthUrl = `http://127.0.0.1:${port}/api/health`;
+    await waitForHealth(healthUrl, startupErrorFile);
+    await writeFile(exitFile, "exit\n", "utf8");
+    await waitForShutdown(healthUrl);
   } finally {
     child.kill();
   }
+}
+
+async function waitForShutdown(url: string): Promise<void> {
+  const deadline = Date.now() + 10_000;
+  while (Date.now() < deadline) {
+    try {
+      await fetch(url);
+    } catch {
+      return;
+    }
+    await new Promise((resolve) => setTimeout(resolve, 100));
+  }
+  throw new Error(`Packaged application did not release its admin port: ${url}`);
 }
 
 async function availablePort(): Promise<number> {
