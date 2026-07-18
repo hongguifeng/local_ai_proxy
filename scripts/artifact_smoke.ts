@@ -1,5 +1,5 @@
 import { spawn } from "node:child_process";
-import { mkdir, readdir } from "node:fs/promises";
+import { mkdir, readFile, readdir } from "node:fs/promises";
 import { createServer } from "node:net";
 import path from "node:path";
 import { pathToFileURL } from "node:url";
@@ -21,6 +21,7 @@ export async function smokeWindowsArtifact(
   const port = await availablePort();
   const smokeDirectory = path.join(releaseDirectory, "smoke");
   await mkdir(smokeDirectory, { recursive: true });
+  const startupErrorFile = path.join(smokeDirectory, `startup-error-${port}.txt`);
   const child = spawn(
     executable,
     ["--port", String(port), "--config-file", "smoke/proxies.json", "--log-root", "smoke/logs"],
@@ -28,13 +29,14 @@ export async function smokeWindowsArtifact(
       cwd: releaseDirectory,
       env: {
         ...process.env,
+        LLM_PROXY_STARTUP_ERROR_FILE: startupErrorFile,
         LLM_PROXY_USER_DATA_DIR: path.join(smokeDirectory, `user-data-${port}`),
       },
       stdio: "ignore",
     },
   );
   try {
-    await waitForHealth(`http://127.0.0.1:${port}/api/health`);
+    await waitForHealth(`http://127.0.0.1:${port}/api/health`, startupErrorFile);
   } finally {
     child.kill();
   }
@@ -54,9 +56,16 @@ async function availablePort(): Promise<number> {
   return address.port;
 }
 
-async function waitForHealth(url: string): Promise<void> {
+async function waitForHealth(url: string, startupErrorFile: string): Promise<void> {
   const deadline = Date.now() + 30_000;
   while (Date.now() < deadline) {
+    const startupError = await readFile(startupErrorFile, "utf8").catch((error: unknown) => {
+      if (isMissingFile(error)) return undefined;
+      throw error;
+    });
+    if (startupError !== undefined) {
+      throw new Error(`Packaged application startup failed: ${startupError.trim()}`);
+    }
     try {
       const response = await fetch(url);
       if (response.ok) return;
@@ -66,6 +75,12 @@ async function waitForHealth(url: string): Promise<void> {
     await new Promise((resolve) => setTimeout(resolve, 250));
   }
   throw new Error(`Packaged application did not become healthy: ${url}`);
+}
+
+function isMissingFile(error: unknown): boolean {
+  return (
+    error instanceof Error && "code" in error && (error as NodeJS.ErrnoException).code === "ENOENT"
+  );
 }
 
 if (process.argv[1] !== undefined && import.meta.url === pathToFileURL(process.argv[1]).href) {

@@ -18,7 +18,7 @@ if (configureSingleInstance(app, () => openAdmin())) {
   try {
     await start();
   } catch (error) {
-    showStartupError(error, dialog);
+    showStartupError(error, dialog, process.env);
     app.quit();
   }
 }
