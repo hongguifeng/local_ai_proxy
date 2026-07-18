@@ -16,3 +16,4 @@ export {
   taskExportDirectory,
   type LogExportEntry,
 } from "./log-export.js";
+export { cleanupSelectedLogGroups, type LogCleanupResult } from "./log-cleanup.js";

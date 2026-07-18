@@ -10,6 +10,37 @@ afterEach(async () => {
 });
 
 describe("GET /api/logs", () => {
+  it("cleans selected log groups", async () => {
+    const calls: unknown[] = [];
+    const server = createAdminServer({
+      getHealth: () => applicationHealth("running"),
+      logService: {
+        listGroups: () => ({
+          groups: [],
+          total: 0,
+          limit: 100,
+          offset: 0,
+          next_offset: 0,
+          has_more: false,
+        }),
+        cleanupSelectedGroups(groupIds) {
+          calls.push(groupIds);
+          return { deleted: groupIds, deleted_count: groupIds.length };
+        },
+      },
+    });
+    servers.push(server);
+
+    const response = await server.inject({
+      method: "POST",
+      url: "/api/logs/cleanup",
+      payload: { group_ids: ["task-1"] },
+    });
+    expect(response.statusCode).toBe(200);
+    expect(response.json()).toEqual({ deleted: ["task-1"], deleted_count: 1 });
+    expect(calls).toEqual([["task-1"]]);
+  });
+
   it("streams the ZIP export with download headers", async () => {
     const server = createAdminServer({
       getHealth: () => applicationHealth("running"),

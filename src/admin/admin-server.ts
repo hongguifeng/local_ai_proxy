@@ -5,7 +5,12 @@ import type { Readable } from "node:stream";
 
 import type { ApplicationState } from "../app/index.js";
 import type { ProxyPair, PublicProxyPair } from "../config/index.js";
-import type { LogGroupLogs, LogGroupPage, LogRecordDetail } from "../maintenance/index.js";
+import type {
+  LogCleanupResult,
+  LogGroupLogs,
+  LogGroupPage,
+  LogRecordDetail,
+} from "../maintenance/index.js";
 import { StructuredLogger } from "../shared/index.js";
 
 export type HealthStatus = "degraded" | "ok" | "starting" | "stopping";
@@ -25,6 +30,7 @@ export interface AdminServerOptions {
 }
 
 export interface LogAdminService {
+  readonly cleanupSelectedGroups?: (groupIds: readonly string[]) => LogCleanupResult;
   readonly exportLogs?: () => Readable;
   readonly getGroupLogs?: (groupId: string, query: string) => LogGroupLogs | undefined;
   readonly getRecordDetail?: (recordId: string) => LogRecordDetail | undefined;
@@ -234,6 +240,30 @@ export function createAdminServer(options: AdminServerOptions): FastifyInstance 
     },
   );
   if (options.logService !== undefined) {
+    const cleanupSelectedGroups = options.logService.cleanupSelectedGroups;
+    if (cleanupSelectedGroups !== undefined) {
+      server.post<{ Body: { group_ids: string[] } }>(
+        "/api/logs/cleanup",
+        {
+          schema: {
+            body: {
+              type: "object",
+              additionalProperties: false,
+              required: ["group_ids"],
+              properties: {
+                group_ids: {
+                  type: "array",
+                  minItems: 1,
+                  uniqueItems: true,
+                  items: { type: "string", minLength: 1 },
+                },
+              },
+            },
+          },
+        },
+        (request) => cleanupSelectedGroups(request.body.group_ids),
+      );
+    }
     const exportLogs = options.logService.exportLogs;
     if (exportLogs !== undefined) {
       server.get("/api/logs/export", (_request, reply) =>

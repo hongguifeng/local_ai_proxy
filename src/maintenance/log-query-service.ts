@@ -1,6 +1,7 @@
 import { TrafficRepository, type RepositoryRecord } from "../persistence/index.js";
 import { formatLocalTimestamp } from "../shared/index.js";
 import { createLogExportStream } from "./log-export.js";
+import { cleanupSelectedLogGroups, type LogCleanupResult } from "./log-cleanup.js";
 import type { Readable } from "node:stream";
 
 export interface LogGroupSummary {
@@ -127,6 +128,10 @@ export class LogQueryService {
 
   exportLogs(): Readable {
     return createLogExportStream(this.#logRoots());
+  }
+
+  cleanupSelectedGroups(groupIds: readonly string[]): LogCleanupResult {
+    return cleanupSelectedLogGroups(this.#logRoots(), groupIds);
   }
 
   #listMergedGroups(
