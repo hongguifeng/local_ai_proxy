@@ -7,4 +7,8 @@ export {
   type LogListItem,
   type LogRecordDetail,
 } from "./log-query-service.js";
-export { recordExportDirectory, taskExportDirectory } from "./log-export.js";
+export {
+  recordExportDirectory,
+  renderTaskIndexMarkdown,
+  taskExportDirectory,
+} from "./log-export.js";

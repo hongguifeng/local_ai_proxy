@@ -1,6 +1,10 @@
 import { describe, expect, it } from "vitest";
 
-import { recordExportDirectory, taskExportDirectory } from "../../src/maintenance/index.js";
+import {
+  recordExportDirectory,
+  renderTaskIndexMarkdown,
+  taskExportDirectory,
+} from "../../src/maintenance/index.js";
 
 describe("log export directory names", () => {
   it("creates bounded safe task directory names", () => {
@@ -25,5 +29,50 @@ describe("log export directory names", () => {
     expect(taskExportDirectory({ started_at: "invalid/date" })).toBe(
       "invalid-date__unknown-model__task__task",
     );
+  });
+});
+
+describe("task export Markdown", () => {
+  it("renders summary fields and an ascending linked timeline", () => {
+    const markdown = renderTaskIndexMarkdown(
+      {
+        id: "task-1",
+        kind: "responses",
+        model: "gpt-5",
+        target: "fixture-target",
+        started_at: "2026-07-18T12:00:00+08:00",
+        last_seen_at: "2026-07-18T12:00:02+08:00",
+        last_response_at: "2026-07-18T12:00:03+08:00",
+        request_count: 2,
+      },
+      [
+        {
+          id: "record-2",
+          sequence: 2,
+          method: "POST",
+          path: "/v1/responses",
+          duration_ms: 12,
+          status: 200,
+          endpoint: "/v1/responses",
+        },
+        {
+          id: "record-1",
+          sequence: 1,
+          method: "POST",
+          path: "/v1/responses",
+          duration_ms: 0,
+          status: null,
+          endpoint: "/v1/responses",
+        },
+      ],
+    );
+
+    expect(markdown).toContain("# LLM Task task-1");
+    expect(markdown).toContain("- Model: gpt-5");
+    expect(markdown).toContain("- Target: fixture-target");
+    expect(markdown.indexOf("001 `POST /v1/responses` -> pending")).toBeLessThan(
+      markdown.indexOf("002 `POST /v1/responses` -> 200"),
+    );
+    expect(markdown).toContain("[record-2](002__v1-responses__record-2/)");
   });
 });
