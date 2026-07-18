@@ -12,6 +12,7 @@ export {
   displayEndpoint,
   endpointKind,
   isTaskContextMessage,
+  requestBoundaryFingerprints,
   requestMessageCount,
   requestFingerprints,
   responseIdsFromBody,

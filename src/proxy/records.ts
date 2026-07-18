@@ -178,6 +178,22 @@ export function requestFingerprints(kind: EndpointKind, payload: unknown): Recor
   return fingerprints;
 }
 
+export function requestBoundaryFingerprints(
+  kind: EndpointKind,
+  payload: unknown,
+): Record<string, string> {
+  const fingerprints = requestFingerprints(kind, payload);
+  const boundaryKeys =
+    kind === "responses"
+      ? new Set(["instructions", "first_user"])
+      : kind === "chat" || kind === "messages"
+        ? new Set(["system", "first_user"])
+        : kind === "completions"
+          ? new Set(["prompt"])
+          : new Set<string>();
+  return Object.fromEntries(Object.entries(fingerprints).filter(([key]) => boundaryKeys.has(key)));
+}
+
 function responsesInputItems(payload: Readonly<Record<string, unknown>>): unknown[] {
   const input = payload["input"];
   if (Array.isArray(input)) {

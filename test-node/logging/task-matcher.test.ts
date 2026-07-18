@@ -168,6 +168,40 @@ describe("TaskAssignment", () => {
     expect(followup).toMatchObject({ task: { id: "context-task-1" }, sequence: 2 });
     repository.close();
   });
+
+  it("rejects an explicit context link when static request boundaries change", async () => {
+    const root = await mkdtemp(path.join(os.tmpdir(), "llm-proxy-task-boundaries-"));
+    temporaryDirectories.push(root);
+    const repository = new TrafficRepository(root);
+    let taskNumber = 0;
+    const matcher = new TaskMatcher(repository, {
+      createId: () => `boundary-task-${++taskNumber}`,
+      now: () => "2026-07-18T10:00:00.000+08:00",
+    });
+    const first = matcher.assign(
+      trafficRecord("boundary-request-1", false, {
+        model: "gpt-5",
+        instructions: "first system boundary",
+        conversation_id: "boundary-conversation",
+        input: [{ role: "user", content: "start" }],
+      }),
+    );
+    if (first === undefined) {
+      throw new Error("Boundary request was not assigned.");
+    }
+    persistAssignment(repository, first, "boundary-request-1");
+
+    const changed = matcher.assign(
+      trafficRecord("boundary-request-2", false, {
+        model: "gpt-5",
+        instructions: "different system boundary",
+        conversation_id: "boundary-conversation",
+        input: [{ role: "user", content: "continue" }],
+      }),
+    );
+    expect(changed?.task["id"]).toBe("boundary-task-2");
+    repository.close();
+  });
 });
 
 function trafficRecord(id: string, bodyPending: boolean, payload: unknown) {

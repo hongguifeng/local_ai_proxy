@@ -3,11 +3,19 @@ import type { TrafficRepository } from "../persistence/index.js";
 import {
   bodyJsonValue,
   endpointKind,
+  requestBoundaryFingerprints,
+  requestFingerprints,
   responseIdsFromBody,
   type BytePayload,
   type EndpointKind,
 } from "../proxy/index.js";
-import { createRequestId, isRecord, localNowIso, safeIdentifierPart } from "../shared/index.js";
+import {
+  createRequestId,
+  isRecord,
+  localNowIso,
+  safeIdentifierPart,
+  stableJsonStringify,
+} from "../shared/index.js";
 
 export interface TaskAssignment {
   readonly task: Readonly<RepositoryRecord>;
@@ -64,8 +72,8 @@ export class TaskMatcher {
     const contextKeys = isRecord(requestPayload) ? this.#contextKeys(requestPayload, record) : [];
     const existing =
       this.#existingTask(requestId) ??
-      this.#taskForPreviousResponse(kind, requestPayload) ??
-      this.#taskForContextKeys(contextKeys);
+      this.#taskForPreviousResponse(record, kind, requestPayload) ??
+      this.#taskForContextKeys(contextKeys, record, kind, requestPayload);
     const task =
       existing === undefined
         ? this.#newTask(record, kind)
@@ -88,7 +96,11 @@ export class TaskMatcher {
     return taskId === undefined ? undefined : this.#repository.getTask(taskId);
   }
 
-  #taskForPreviousResponse(kind: EndpointKind, payload: unknown): RepositoryRecord | undefined {
+  #taskForPreviousResponse(
+    record: Readonly<RepositoryRecord>,
+    kind: EndpointKind,
+    payload: unknown,
+  ): RepositoryRecord | undefined {
     if (kind !== "responses" || !isRecord(payload)) {
       return undefined;
     }
@@ -97,20 +109,57 @@ export class TaskMatcher {
       return undefined;
     }
     const taskId = this.#repository.taskIdForResponse(previousResponseId);
-    return taskId === undefined ? undefined : this.#repository.getTask(taskId);
+    const task = taskId === undefined ? undefined : this.#repository.getTask(taskId);
+    return task !== undefined && this.#staticBoundariesMatch(task, record, kind, payload, false)
+      ? task
+      : undefined;
   }
 
-  #taskForContextKeys(contextKeys: readonly string[]): RepositoryRecord | undefined {
+  #taskForContextKeys(
+    contextKeys: readonly string[],
+    record: Readonly<RepositoryRecord>,
+    kind: EndpointKind,
+    payload: unknown,
+  ): RepositoryRecord | undefined {
     for (const contextKey of contextKeys) {
       const taskId = this.#repository.taskIdForContext(contextKey);
       if (taskId !== undefined) {
         const task = this.#repository.getTask(taskId);
-        if (task !== undefined) {
+        if (task !== undefined && this.#staticBoundariesMatch(task, record, kind, payload, false)) {
           return task;
         }
       }
     }
     return undefined;
+  }
+
+  #staticBoundariesMatch(
+    task: Readonly<RepositoryRecord>,
+    record: Readonly<RepositoryRecord>,
+    kind: EndpointKind,
+    payload: unknown,
+    includeUserBoundary: boolean,
+  ): boolean {
+    if (task["kind"] !== kind) {
+      return false;
+    }
+    const endpoint = task["endpoint"];
+    if (typeof endpoint === "string" && endpoint !== "" && endpoint !== recordRequestPath(record)) {
+      return false;
+    }
+    const requestedModel = isRecord(payload) ? (payload["model"] ?? null) : null;
+    if ((task["model"] ?? null) !== requestedModel) {
+      return false;
+    }
+    const taskFingerprints = isRecord(task["boundary_fingerprints"])
+      ? { ...task["boundary_fingerprints"] }
+      : {};
+    const requestFingerprints = requestBoundaryFingerprints(kind, payload);
+    if (!includeUserBoundary) {
+      delete taskFingerprints["first_user"];
+      delete requestFingerprints["first_user"];
+    }
+    return stableJsonStringify(taskFingerprints) === stableJsonStringify(requestFingerprints);
   }
 
   #contextKeys(
@@ -190,6 +239,9 @@ export class TaskMatcher {
 
   #newTask(record: Readonly<RepositoryRecord>, kind: EndpointKind): RepositoryRecord {
     const now = this.#now();
+    const request = record["request"];
+    const payload = isRecord(request) ? bodyPayload(request["body"]) : null;
+    const model = isRecord(payload) ? payload["model"] : undefined;
     return {
       id: this.#createId(),
       kind,
@@ -198,8 +250,9 @@ export class TaskMatcher {
       last_seen_at: record["timestamp"] ?? now,
       endpoint: recordRequestPath(record),
       match_strategy_version: 4,
-      fingerprints: {},
-      boundary_fingerprints: {},
+      ...(typeof model === "string" && model !== "" ? { model } : {}),
+      fingerprints: requestFingerprints(kind, payload),
+      boundary_fingerprints: requestBoundaryFingerprints(kind, payload),
       last_user_messages: [],
       request_count: 0,
       pending_request_only: false,
