@@ -19,6 +19,11 @@ interface ProxyRuntimeEntry {
   readonly state: ProxyRuntimeStateMachine;
 }
 
+export interface StartEnabledResult {
+  readonly failed: ReadonlyMap<string, Error>;
+  readonly started: ReadonlyMap<string, ProxyRuntimeSnapshot>;
+}
+
 export class ProxyRuntimeRegistry {
   readonly #entries = new Map<string, ProxyRuntimeEntry>();
 
@@ -78,16 +83,19 @@ export class ProxyRuntimeRegistry {
     }
   }
 
-  async startEnabled(
-    pairs: readonly ProxyPair[],
-  ): Promise<ReadonlyMap<string, ProxyRuntimeSnapshot>> {
+  async startEnabled(pairs: readonly ProxyPair[]): Promise<StartEnabledResult> {
     const started = new Map<string, ProxyRuntimeSnapshot>();
+    const failed = new Map<string, Error>();
     for (const pair of pairs) {
       if (pair.enabled) {
-        started.set(pair.id, await this.startPair(pair));
+        try {
+          started.set(pair.id, await this.startPair(pair));
+        } catch (error) {
+          failed.set(pair.id, error instanceof Error ? error : new Error(String(error)));
+        }
       }
     }
-    return started;
+    return { failed, started };
   }
 
   async stopPair(pairId: string): Promise<ProxyRuntimeSnapshot> {

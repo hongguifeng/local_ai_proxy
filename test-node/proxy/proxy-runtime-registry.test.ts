@@ -88,7 +88,8 @@ describe("ProxyRuntimeRegistry", () => {
 
     try {
       const started = await registry.startEnabled([first, disabled, second]);
-      expect([...started.keys()]).toEqual(["enabled-one", "enabled-two"]);
+      expect([...started.started.keys()]).toEqual(["enabled-one", "enabled-two"]);
+      expect(started.failed.size).toBe(0);
       expect(registry.status(first.id).running).toBe(true);
       expect(registry.status(second.id).running).toBe(true);
       expect(registry.status(disabled.id).state).toBe("stopped");
@@ -99,6 +100,28 @@ describe("ProxyRuntimeRegistry", () => {
     } finally {
       await registry.stopAll();
       await close(upstream);
+    }
+  });
+
+  it("continues starting other pairs when one listener fails", async () => {
+    const upstream = http.createServer((_request, response) => response.end("isolated"));
+    const blocker = http.createServer();
+    const [upstreamPort, occupiedPort] = await Promise.all([listen(upstream), listen(blocker)]);
+    const registry = new ProxyRuntimeRegistry();
+    const failing = { ...pairFixture(upstreamPort, "failing"), listen_port: occupiedPort };
+    const healthy = pairFixture(upstreamPort, "healthy");
+
+    try {
+      const result = await registry.startEnabled([failing, healthy]);
+      expect(result.failed.get(failing.id)).toMatchObject({ code: "EADDRINUSE" });
+      expect(result.started.get(healthy.id)).toMatchObject({ state: "running" });
+      expect(registry.status(failing.id).state).toBe("failed");
+      await expect(
+        requestText(result.started.get(healthy.id)?.actualListenPort ?? 0, "/isolated"),
+      ).resolves.toBe("isolated");
+    } finally {
+      await registry.stopAll();
+      await Promise.all([close(upstream), close(blocker)]);
     }
   });
 });
