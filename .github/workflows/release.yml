@@ -34,6 +34,9 @@ jobs:
       - name: Smoke test portable application
         run: npm run smoke:artifact
 
+      - name: Build lightweight CLI archive
+        run: npm run package:cli
+
       - name: Create checksums
         run: npm run checksums
 
@@ -43,6 +46,7 @@ jobs:
           name: llm-proxy-windows
           path: |
             release/*.exe
+            release/*.zip
             release/SHA256SUMS.txt
           if-no-files-found: error
 
