@@ -93,6 +93,7 @@ describe("TaskAssignment", () => {
 
     const repeated = matcher.assign(trafficRecord("request-1", false, { model: "gpt-5" }));
     expect(repeated).toMatchObject({ task: { id: "task-pending" }, sequence: 1 });
+    expect(repeated?.task["request_count"]).toBe(1);
     repository.close();
   });
 
@@ -415,6 +416,51 @@ describe("TaskAssignment", () => {
     );
     expect(duplicate?.task["id"]).toBe("continuation-task-2");
     expect(changedConversation?.task["id"]).toBe("continuation-task-1");
+    repository.close();
+  });
+
+  it("updates request count and last-seen/response timestamps", async () => {
+    const root = await mkdtemp(path.join(os.tmpdir(), "llm-proxy-task-updates-"));
+    temporaryDirectories.push(root);
+    const repository = new TrafficRepository(root);
+    const matcher = new TaskMatcher(repository, {
+      createId: () => "updated-task",
+      now: () => "2026-07-18T10:00:00.000+08:00",
+    });
+    const firstRecord = {
+      ...trafficRecord("updated-request-1", false, {
+        model: "gpt-5",
+        conversation_id: "updated-conversation",
+        input: "start",
+      }),
+      timestamp: "2026-07-18T10:01:00.000+08:00",
+    };
+    const first = matcher.assign(firstRecord);
+    if (first === undefined) {
+      throw new Error("Task update baseline request was not assigned.");
+    }
+    expect(first.task).toMatchObject({
+      request_count: 1,
+      last_seen_at: "2026-07-18T10:01:00.000+08:00",
+      last_response_at: "2026-07-18T10:01:00.000+08:00",
+    });
+    persistAssignment(repository, first, "updated-request-1");
+
+    const secondRecord = {
+      ...trafficRecord("updated-request-2", false, {
+        model: "gpt-5",
+        conversation_id: "updated-conversation",
+        input: "continue",
+      }),
+      timestamp: "2026-07-18T10:02:00.000+08:00",
+    };
+    const second = matcher.assign(secondRecord);
+    expect(second?.task).toMatchObject({
+      id: "updated-task",
+      request_count: 2,
+      last_seen_at: "2026-07-18T10:02:00.000+08:00",
+      last_response_at: "2026-07-18T10:02:00.000+08:00",
+    });
     repository.close();
   });
 });

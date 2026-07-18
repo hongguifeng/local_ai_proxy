@@ -81,12 +81,20 @@ export class TaskMatcher {
       (MODEL_TASK_KINDS.has(kind)
         ? this.#bestHeuristicTask(record, kind, requestPayload)
         : undefined);
-    const task =
+    const matchedTask =
       existing === undefined
         ? this.#newTask(record, kind)
         : existing["pending_request_only"] === true
           ? this.#promotePending(existing, record, kind)
           : existing;
+    const task = this.#updatedTask(
+      matchedTask,
+      record,
+      requestId,
+      kind,
+      requestPayload,
+      responsePayload,
+    );
     return {
       task,
       sequence: this.#sequenceForRecord(requestId, stringValue(task["id"])),
@@ -307,6 +315,39 @@ export class TaskMatcher {
       match_confidence: 1,
       created_at: now,
       updated_at: now,
+    };
+  }
+
+  #updatedTask(
+    task: Readonly<RepositoryRecord>,
+    record: Readonly<RepositoryRecord>,
+    requestId: string,
+    kind: EndpointKind,
+    payload: unknown,
+    responsePayload: unknown,
+  ): RepositoryRecord {
+    const taskId = stringValue(task["id"]);
+    const timestamp = record["timestamp"] ?? task["last_seen_at"] ?? this.#now();
+    const response = record["response"];
+    const status = isRecord(response) ? response["status"] : undefined;
+    const model = isRecord(payload) ? payload["model"] : undefined;
+    const existingRecord = this.#repository.getRecord(requestId);
+    const responseIds = responseIdsFromBody(responsePayload);
+    return {
+      ...task,
+      pending_request_only: false,
+      kind,
+      endpoint: recordRequestPath(record),
+      last_seen_at: timestamp,
+      ...((status !== null && status !== undefined) || responseIds.length > 0
+        ? { last_response_at: timestamp }
+        : {}),
+      ...(typeof model === "string" && model !== "" ? { model } : {}),
+      fingerprints: requestFingerprints(kind, payload),
+      boundary_fingerprints: requestBoundaryFingerprints(kind, payload),
+      last_user_messages: requestUserMessages(kind, payload),
+      request_count: this.#repository.recordCount(taskId) + (existingRecord === undefined ? 1 : 0),
+      updated_at: this.#now(),
     };
   }
 }
