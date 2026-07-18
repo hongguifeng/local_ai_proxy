@@ -1,6 +1,7 @@
 import type { IncomingMessage, ServerResponse } from "node:http";
 
 import type { RepositoryRecord } from "../persistence/index.js";
+import { ActiveRequestRegistry } from "./active-requests.js";
 import { bytesPayload } from "./payload.js";
 import type { ProxyRequestContext } from "./proxy-listener.js";
 import { selectTargetByModel } from "./routing.js";
@@ -24,6 +25,7 @@ export interface ProxyPipelineTarget {
 }
 
 export interface ProxyRequestPipelineOptions {
+  readonly activeRequests?: ActiveRequestRegistry;
   readonly defaultTargetId?: string;
   readonly pairId?: string;
   readonly pairName?: string;
@@ -31,16 +33,31 @@ export interface ProxyRequestPipelineOptions {
 }
 
 export class ProxyRequestPipeline {
+  readonly #activeRequests: ActiveRequestRegistry;
   readonly #options: ProxyRequestPipelineOptions;
 
   constructor(options: ProxyRequestPipelineOptions) {
     if (options.targets.length === 0) {
       throw new TypeError("Proxy request pipeline requires at least one target.");
     }
+    this.#activeRequests = options.activeRequests ?? new ActiveRequestRegistry();
     this.#options = options;
   }
 
   async handle(
+    request: IncomingMessage,
+    response: ServerResponse,
+    context: ProxyRequestContext,
+  ): Promise<void> {
+    this.#activeRequests.begin(context);
+    try {
+      await this.#handleActiveRequest(request, response, context);
+    } finally {
+      this.#activeRequests.end(context.id);
+    }
+  }
+
+  async #handleActiveRequest(
     request: IncomingMessage,
     response: ServerResponse,
     context: ProxyRequestContext,

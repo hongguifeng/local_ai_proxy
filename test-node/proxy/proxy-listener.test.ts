@@ -3,12 +3,32 @@ import http from "node:http";
 import { describe, expect, it } from "vitest";
 
 import {
+  ActiveRequestRegistry,
   ProxyListener,
   ProxyRequestPipeline,
   type TrafficLogWriter,
 } from "../../src/proxy/index.js";
 
 describe("ProxyListener", () => {
+  it("tracks and aborts active request contexts", () => {
+    const registry = new ActiveRequestRegistry();
+    const signal = registry.begin({
+      id: "active-request",
+      startedAt: "2026-07-18T13:00:00.000+08:00",
+      startedMonotonicMs: 1,
+    });
+    expect(registry.size).toBe(1);
+    expect(registry.ids()).toEqual(["active-request"]);
+    expect(registry.get("active-request")?.context.startedAt).toBe("2026-07-18T13:00:00.000+08:00");
+
+    const reason = new Error("shutdown fixture");
+    registry.abortAll(reason);
+    expect(signal.aborted).toBe(true);
+    expect(signal.reason).toBe(reason);
+    registry.end("active-request");
+    expect(registry.size).toBe(0);
+  });
+
   it("serves requests with a native Node HTTP listener", async () => {
     const listener = new ProxyListener({
       host: "127.0.0.1",
@@ -184,7 +204,9 @@ describe("ProxyListener", () => {
         return Promise.resolve();
       },
     };
+    const activeRequests = new ActiveRequestRegistry();
     const pipeline = new ProxyRequestPipeline({
+      activeRequests,
       targets: [
         {
           enabled: true,
@@ -208,6 +230,7 @@ describe("ProxyListener", () => {
 
     expect((await requestText(address.port, "/lifecycle")).status).toBe(501);
     expect(events).toEqual(["request_received", "request_pending_response", "request_finished"]);
+    expect(activeRequests.size).toBe(0);
     await listener.close();
   });
 });

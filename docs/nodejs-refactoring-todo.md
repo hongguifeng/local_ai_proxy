@@ -282,7 +282,7 @@
 - [x] `HTTP-003` P0 单目标早期 received logging。
 - [x] `HTTP-004` P0 多目标读取 body 后 selected logger。
 - [x] `HTTP-005` P0 pending/final logging。
-- [ ] `HTTP-006` P0 active request registry。
+- [x] `HTTP-006` P0 active request registry。
 
 ### 9.2 请求读取与变换
 

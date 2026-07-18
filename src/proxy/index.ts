@@ -1,3 +1,4 @@
+export { ActiveRequestRegistry, type ActiveRequest } from "./active-requests.js";
 export {
   applyTargetHeaderSettings,
   buildForwardHeaders,
