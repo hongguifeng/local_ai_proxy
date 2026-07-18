@@ -18,4 +18,10 @@ describe("electron-builder configuration", () => {
     expect(config).toContain("- portable");
     expect(config).toContain("oneClick: false");
   });
+
+  it("unpacks the SQLite native module from the application archive", async () => {
+    const config = await readFile(new URL("../../electron-builder.yml", import.meta.url), "utf8");
+    expect(config).toContain("node_modules/better-sqlite3/**/*");
+    expect(config).toContain("npmRebuild: true");
+  });
 });

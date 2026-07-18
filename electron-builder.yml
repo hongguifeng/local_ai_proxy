@@ -6,6 +6,8 @@ files:
   - dist-node/**/*
   - package.json
 asar: true
+asarUnpack:
+  - node_modules/better-sqlite3/**/*
 npmRebuild: true
 win:
   target:
