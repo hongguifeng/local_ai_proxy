@@ -255,7 +255,7 @@
 - [x] `TASK-005` P0 conversation/thread/session/prompt cache context keys。
 - [x] `TASK-006` P0 static boundary 比较。
 - [x] `TASK-007` P0 model/path/kind 不同创建新 task。
-- [ ] `TASK-008` P0 24 小时最近任务窗口。
+- [x] `TASK-008` P0 24 小时最近任务窗口。
 - [ ] `TASK-009` P0 user message sequence prefix。
 - [ ] `TASK-010` P0 continuation evidence。
 - [ ] `TASK-011` P0 request_count/last_seen/last_response 更新。

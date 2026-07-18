@@ -262,6 +262,48 @@ describe("TaskAssignment", () => {
     ]);
     repository.close();
   });
+
+  it("uses an inclusive 24-hour window for heuristic task matching", async () => {
+    for (const [timestamp, expectedTaskId] of [
+      ["2026-07-19T10:00:01.000+08:00", "window-task-1"],
+      ["2026-07-19T10:00:01.001+08:00", "window-task-2"],
+    ] as const) {
+      const root = await mkdtemp(path.join(os.tmpdir(), "llm-proxy-task-window-"));
+      temporaryDirectories.push(root);
+      const repository = new TrafficRepository(root);
+      let taskNumber = 0;
+      const matcher = new TaskMatcher(repository, {
+        createId: () => `window-task-${++taskNumber}`,
+        now: () => "2026-07-18T10:00:00.000+08:00",
+      });
+      const firstRecord = {
+        ...trafficRecord(
+          "window-request-1",
+          false,
+          { model: "gpt-5", prompt: "same prompt" },
+          "/v1/completions",
+        ),
+        timestamp: "2026-07-18T10:00:01.000+08:00",
+      };
+      const first = matcher.assign(firstRecord);
+      if (first === undefined) {
+        throw new Error("Window baseline request was not assigned.");
+      }
+      persistAssignment(repository, first, "window-request-1");
+
+      const followupRecord = {
+        ...trafficRecord(
+          "window-request-2",
+          false,
+          { model: "gpt-5", prompt: "same prompt" },
+          "/v1/completions",
+        ),
+        timestamp,
+      };
+      expect(matcher.assign(followupRecord)?.task["id"]).toBe(expectedTaskId);
+      repository.close();
+    }
+  });
 });
 
 function trafficRecord(

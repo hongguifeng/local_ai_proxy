@@ -32,6 +32,9 @@ export interface TaskMatcherOptions {
   readonly now?: () => string;
 }
 
+const MODEL_TASK_KINDS = new Set<EndpointKind>(["responses", "chat", "messages", "completions"]);
+const TASK_MATCH_WINDOW_MS = 24 * 60 * 60 * 1_000;
+
 export class TaskMatcher {
   readonly #repository: TrafficRepository;
   readonly #createId: () => string;
@@ -73,7 +76,10 @@ export class TaskMatcher {
     const existing =
       this.#existingTask(requestId) ??
       this.#taskForPreviousResponse(record, kind, requestPayload) ??
-      this.#taskForContextKeys(contextKeys, record, kind, requestPayload);
+      this.#taskForContextKeys(contextKeys, record, kind, requestPayload) ??
+      (MODEL_TASK_KINDS.has(kind)
+        ? this.#bestHeuristicTask(record, kind, requestPayload)
+        : undefined);
     const task =
       existing === undefined
         ? this.#newTask(record, kind)
@@ -160,6 +166,35 @@ export class TaskMatcher {
       delete requestFingerprints["first_user"];
     }
     return stableJsonStringify(taskFingerprints) === stableJsonStringify(requestFingerprints);
+  }
+
+  #bestHeuristicTask(
+    record: Readonly<RepositoryRecord>,
+    kind: EndpointKind,
+    payload: unknown,
+  ): RepositoryRecord | undefined {
+    const recordTime = timestampMilliseconds(record["timestamp"]) ?? this.#nowMilliseconds();
+    let bestTask: RepositoryRecord | undefined;
+    let bestAge = Number.POSITIVE_INFINITY;
+    for (const task of this.#repository.recentTasks()) {
+      if (!this.#staticBoundariesMatch(task, record, kind, payload, true)) {
+        continue;
+      }
+      const taskTime = timestampMilliseconds(task["last_seen_at"] ?? task["started_at"]);
+      if (taskTime === undefined) {
+        continue;
+      }
+      const age = Math.abs(recordTime - taskTime);
+      if (age <= TASK_MATCH_WINDOW_MS && age < bestAge) {
+        bestAge = age;
+        bestTask = task;
+      }
+    }
+    return bestTask === undefined ? undefined : { ...bestTask, match_confidence: 0.95 };
+  }
+
+  #nowMilliseconds(): number {
+    return timestampMilliseconds(this.#now()) ?? Date.now();
   }
 
   #contextKeys(
@@ -313,4 +348,12 @@ function firstString(...values: readonly unknown[]): string | undefined {
     }
   }
   return undefined;
+}
+
+function timestampMilliseconds(value: unknown): number | undefined {
+  if (typeof value !== "string") {
+    return undefined;
+  }
+  const milliseconds = Date.parse(value);
+  return Number.isNaN(milliseconds) ? undefined : milliseconds;
 }
