@@ -70,9 +70,22 @@ export class ProxyRequestPipeline {
     context: ProxyRequestContext,
   ): Promise<void> {
     const signal = this.#activeRequests.begin(context);
+    const activeRequest = this.#activeRequests.get(context.id);
+    const abortForClient = (): void => {
+      activeRequest?.controller.abort(new Error("Client disconnected"));
+    };
+    const abortForResponseClose = (): void => {
+      if (!response.writableFinished) {
+        abortForClient();
+      }
+    };
+    request.once("aborted", abortForClient);
+    response.once("close", abortForResponseClose);
     try {
       await this.#handleActiveRequest(request, response, context, signal);
     } finally {
+      request.off("aborted", abortForClient);
+      response.off("close", abortForResponseClose);
       this.#activeRequests.end(context.id);
     }
   }

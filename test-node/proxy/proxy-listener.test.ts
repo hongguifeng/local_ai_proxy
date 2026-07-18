@@ -7,6 +7,7 @@ import { describe, expect, it } from "vitest";
 
 import {
   ActiveRequestRegistry,
+  openUpstreamResponse,
   ProxyListener,
   ProxyRequestPipeline,
   type TrafficLogWriter,
@@ -30,6 +31,31 @@ describe("ProxyListener", () => {
     expect(signal.reason).toBe(reason);
     registry.end("active-request");
     expect(registry.size).toBe(0);
+  });
+
+  it("propagates registry shutdown aborts to the upstream request", async () => {
+    const registry = new ActiveRequestRegistry();
+    const signal = registry.begin({
+      id: "abort-upstream",
+      startedAt: "2026-07-18T13:00:00.000+08:00",
+      startedMonotonicMs: 1,
+    });
+    registry.abortAll(new Error("shutdown"));
+    const response = openUpstreamResponse({
+      target: {
+        targetScheme: "http",
+        targetHost: "127.0.0.1",
+        targetPort: 9,
+      },
+      method: "GET",
+      path: "/abort",
+      headers: [],
+      body: new Uint8Array(),
+      signal,
+    });
+
+    await expect(response).rejects.toMatchObject({ name: "AbortError" });
+    registry.end("abort-upstream");
   });
 
   it("serves requests with a native Node HTTP listener", async () => {
@@ -716,6 +742,7 @@ function listenServer(server: http.Server): Promise<number> {
 
 function closeServer(server: http.Server): Promise<void> {
   return new Promise((resolve, reject) => {
+    server.closeAllConnections();
     server.close((error) => (error === undefined ? resolve() : reject(error)));
   });
 }
