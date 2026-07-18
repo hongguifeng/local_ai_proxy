@@ -4,7 +4,7 @@ import path from "node:path";
 
 import { afterEach, describe, expect, it } from "vitest";
 
-import { TrafficLogService } from "../../src/logging/index.js";
+import { TrafficLogService, writeQueueForLogRoot } from "../../src/logging/index.js";
 import { TrafficRepository } from "../../src/persistence/index.js";
 
 const temporaryDirectories: string[] = [];
@@ -27,7 +27,7 @@ describe("TrafficLogService redaction", () => {
       const root = await mkdtemp(path.join(os.tmpdir(), "llm-proxy-log-redaction-"));
       temporaryDirectories.push(root);
       const service = new TrafficLogService(root, { redactLogs });
-      service.write(trafficRecord("redaction-request"));
+      await service.write(trafficRecord("redaction-request"));
       service.close();
 
       const repository = new TrafficRepository(root);
@@ -39,6 +39,35 @@ describe("TrafficLogService redaction", () => {
       repository.close();
     },
   );
+});
+
+describe("per-log-root write queue", () => {
+  it("shares a serial executor for services writing the same root", async () => {
+    const root = await mkdtemp(path.join(os.tmpdir(), "llm-proxy-log-queue-"));
+    temporaryDirectories.push(root);
+    const firstQueue = writeQueueForLogRoot(root);
+    const secondQueue = writeQueueForLogRoot(path.join(root, "."));
+    expect(secondQueue).toBe(firstQueue);
+
+    const order: string[] = [];
+    let releaseFirst: (() => void) | undefined;
+    const gate = new Promise<void>((resolve) => {
+      releaseFirst = resolve;
+    });
+    const first = firstQueue.enqueue(async () => {
+      order.push("first:start");
+      await gate;
+      order.push("first:end");
+    });
+    const second = secondQueue.enqueue(() => {
+      order.push("second");
+    });
+    await Promise.resolve();
+    expect(order).toEqual(["first:start"]);
+    releaseFirst?.();
+    await Promise.all([first, second]);
+    expect(order).toEqual(["first:start", "first:end", "second"]);
+  });
 });
 
 function trafficRecord(id: string) {

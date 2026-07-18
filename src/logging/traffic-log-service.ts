@@ -2,6 +2,7 @@ import { TrafficRepository, type RepositoryRecord } from "../persistence/index.j
 import { redactRecord } from "../proxy/index.js";
 import { isRecord } from "../shared/index.js";
 import { TaskMatcher } from "./task-matcher.js";
+import { type SerialWriteQueue, writeQueueForLogRoot } from "./write-queue.js";
 
 export interface TrafficLogServiceOptions {
   readonly redactLogs?: boolean;
@@ -11,6 +12,7 @@ export class TrafficLogService {
   readonly #repository: TrafficRepository | undefined;
   readonly #taskMatcher: TaskMatcher | undefined;
   readonly #redactLogs: boolean;
+  readonly #writeQueue: SerialWriteQueue | undefined;
 
   constructor(logRoot: string | null | undefined, options: TrafficLogServiceOptions = {}) {
     this.#redactLogs = options.redactLogs ?? false;
@@ -18,18 +20,27 @@ export class TrafficLogService {
       logRoot === null || logRoot === undefined ? undefined : new TrafficRepository(logRoot);
     this.#taskMatcher =
       this.#repository === undefined ? undefined : new TaskMatcher(this.#repository);
+    this.#writeQueue =
+      logRoot === null || logRoot === undefined ? undefined : writeQueueForLogRoot(logRoot);
   }
 
-  write(record: Readonly<RepositoryRecord>): void {
-    this.#save(record);
+  async write(record: Readonly<RepositoryRecord>): Promise<void> {
+    await this.#enqueue(record);
   }
 
-  update(record: Readonly<RepositoryRecord>): void {
-    this.#save(record);
+  async update(record: Readonly<RepositoryRecord>): Promise<void> {
+    await this.#enqueue(record);
   }
 
   close(): void {
     this.#repository?.close();
+  }
+
+  async #enqueue(record: Readonly<RepositoryRecord>): Promise<void> {
+    if (this.#writeQueue === undefined) {
+      return;
+    }
+    await this.#writeQueue.enqueue(() => this.#save(record));
   }
 
   #save(record: Readonly<RepositoryRecord>): void {
