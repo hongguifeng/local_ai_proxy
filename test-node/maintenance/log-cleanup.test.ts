@@ -3,7 +3,7 @@ import { mkdtemp, rm } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 
-import { cleanupSelectedLogGroups } from "../../src/maintenance/index.js";
+import { cleanupLogsOlderThan, cleanupSelectedLogGroups } from "../../src/maintenance/index.js";
 import { TrafficRepository } from "../../src/persistence/index.js";
 
 const temporaryDirectories: string[] = [];
@@ -32,6 +32,28 @@ describe("selected log group cleanup", () => {
   });
 });
 
+describe("older-than log cleanup", () => {
+  it("deletes tasks whose latest activity is older than the cutoff", async () => {
+    const root = await rootWithTimestampedTasks([
+      ["old", "2026-07-01T00:00:00Z"],
+      ["boundary", "2026-07-13T00:00:00Z"],
+      ["new", "2026-07-17T00:00:00Z"],
+      ["invalid", "not-a-time"],
+    ]);
+
+    expect(cleanupLogsOlderThan([root], 5, () => Date.parse("2026-07-18T00:00:00Z"))).toEqual({
+      deleted: ["old"],
+      deleted_count: 1,
+    });
+    const repository = new TrafficRepository(root);
+    expect(repository.getTask("old")).toBeUndefined();
+    expect(repository.getTask("boundary")).toBeDefined();
+    expect(repository.getTask("new")).toBeDefined();
+    expect(repository.getTask("invalid")).toBeDefined();
+    repository.close();
+  });
+});
+
 async function rootWithTasks(...taskIds: string[]): Promise<string> {
   const root = await mkdtemp(path.join(os.tmpdir(), "llm-proxy-cleanup-"));
   temporaryDirectories.push(root);
@@ -43,6 +65,25 @@ async function rootWithTasks(...taskIds: string[]): Promise<string> {
       task_id: taskId,
       method: "POST",
       path: "/v1/responses",
+    });
+  }
+  repository.close();
+  return root;
+}
+
+async function rootWithTimestampedTasks(
+  tasks: readonly (readonly [string, string])[],
+): Promise<string> {
+  const root = await mkdtemp(path.join(os.tmpdir(), "llm-proxy-cleanup-time-"));
+  temporaryDirectories.push(root);
+  const repository = new TrafficRepository(root);
+  for (const [id, timestamp] of tasks) {
+    repository.upsertTask({
+      id,
+      kind: "responses",
+      started_at: timestamp,
+      last_seen_at: timestamp,
+      last_response_at: timestamp,
     });
   }
   repository.close();

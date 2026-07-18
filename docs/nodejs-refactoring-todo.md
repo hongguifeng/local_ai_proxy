@@ -377,7 +377,7 @@
 - [x] `API-033` P0 request/response JSON entry。
 - [x] `API-034` P0 GET export 流式 ZIP。
 - [x] `API-035` P0 selected group cleanup。
-- [ ] `API-036` P0 older-than cleanup。
+- [x] `API-036` P0 older-than cleanup。
 - [ ] `API-037` P0 keep-latest cleanup。
 - [ ] `API-038` P0 cleanup 后搜索和 links 一致。
 

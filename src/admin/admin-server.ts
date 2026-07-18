@@ -30,6 +30,7 @@ export interface AdminServerOptions {
 }
 
 export interface LogAdminService {
+  readonly cleanupOlderThan?: (olderThanDays: number) => LogCleanupResult;
   readonly cleanupSelectedGroups?: (groupIds: readonly string[]) => LogCleanupResult;
   readonly exportLogs?: () => Readable;
   readonly getGroupLogs?: (groupId: string, query: string) => LogGroupLogs | undefined;
@@ -241,15 +242,16 @@ export function createAdminServer(options: AdminServerOptions): FastifyInstance 
   );
   if (options.logService !== undefined) {
     const cleanupSelectedGroups = options.logService.cleanupSelectedGroups;
-    if (cleanupSelectedGroups !== undefined) {
-      server.post<{ Body: { group_ids: string[] } }>(
+    const cleanupOlderThan = options.logService.cleanupOlderThan;
+    if (cleanupSelectedGroups !== undefined || cleanupOlderThan !== undefined) {
+      server.post<{ Body: { group_ids?: string[]; older_than_days?: number } }>(
         "/api/logs/cleanup",
         {
           schema: {
             body: {
               type: "object",
               additionalProperties: false,
-              required: ["group_ids"],
+              minProperties: 1,
               properties: {
                 group_ids: {
                   type: "array",
@@ -257,11 +259,22 @@ export function createAdminServer(options: AdminServerOptions): FastifyInstance 
                   uniqueItems: true,
                   items: { type: "string", minLength: 1 },
                 },
+                older_than_days: { type: "integer", minimum: 0 },
               },
             },
           },
         },
-        (request) => cleanupSelectedGroups(request.body.group_ids),
+        (request, reply) => {
+          if (request.body.group_ids !== undefined && cleanupSelectedGroups !== undefined) {
+            return cleanupSelectedGroups(request.body.group_ids);
+          }
+          if (request.body.older_than_days !== undefined && cleanupOlderThan !== undefined) {
+            return cleanupOlderThan(request.body.older_than_days);
+          }
+          return reply
+            .code(400)
+            .send(adminError("unsupported_cleanup_strategy", "Cleanup strategy is not available."));
+        },
       );
     }
     const exportLogs = options.logService.exportLogs;

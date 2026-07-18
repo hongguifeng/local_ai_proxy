@@ -1,7 +1,11 @@
 import { TrafficRepository, type RepositoryRecord } from "../persistence/index.js";
 import { formatLocalTimestamp } from "../shared/index.js";
 import { createLogExportStream } from "./log-export.js";
-import { cleanupSelectedLogGroups, type LogCleanupResult } from "./log-cleanup.js";
+import {
+  cleanupLogsOlderThan,
+  cleanupSelectedLogGroups,
+  type LogCleanupResult,
+} from "./log-cleanup.js";
 import type { Readable } from "node:stream";
 
 export interface LogGroupSummary {
@@ -132,6 +136,10 @@ export class LogQueryService {
 
   cleanupSelectedGroups(groupIds: readonly string[]): LogCleanupResult {
     return cleanupSelectedLogGroups(this.#logRoots(), groupIds);
+  }
+
+  cleanupOlderThan(olderThanDays: number): LogCleanupResult {
+    return cleanupLogsOlderThan(this.#logRoots(), olderThanDays);
   }
 
   #listMergedGroups(
