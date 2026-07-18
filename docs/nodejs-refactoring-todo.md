@@ -415,7 +415,7 @@
 - [x] `UI-026` P0 record detail 和 pending refresh。
 - [x] `UI-027` P0 JSON tree expand/collapse。
 - [x] `UI-028` P0 wrap/format/copy/meta。
-- [ ] `UI-029` P0 row/column splitter drag。
+- [x] `UI-029` P0 row/column splitter drag。
 
 ### 12.4 视觉回归
 

@@ -608,6 +608,32 @@ describe("admin UI history page", () => {
     await page.locator('[data-meta="request"]').click();
     await expectPage(metadata).toBeHidden();
   });
+
+  it("drags the column and row splitters", async () => {
+    await openRecordDetail("record-two");
+    const logSplitter = page.locator("#logSplitter");
+    const logBox = await requiredBox(logSplitter);
+    await page.mouse.move(logBox.x + logBox.width / 2, logBox.y + logBox.height / 2);
+    await page.mouse.down();
+    await page.mouse.move(logBox.x + 120, logBox.y + logBox.height / 2);
+    await page.mouse.up();
+    await expectPage(page.locator("#logs")).toHaveAttribute("style", /--sidebar-w: \d+(\.\d+)?px/);
+
+    const rowSplitter = page.locator("#splitter");
+    const rowBox = await requiredBox(rowSplitter);
+    await page.mouse.move(rowBox.x + rowBox.width / 2, rowBox.y + rowBox.height / 2);
+    await page.mouse.down();
+    await page.mouse.move(rowBox.x + rowBox.width / 2, rowBox.y + 80);
+    await page.mouse.up();
+    await expectPage(page.locator("#detail")).toHaveAttribute(
+      "style",
+      /--request-fr: \d+(\.\d+)?px/,
+    );
+    await expectPage(page.locator("#detail")).toHaveAttribute(
+      "style",
+      /--response-fr: \d+(\.\d+)?px/,
+    );
+  });
 });
 
 function publicPair(pair: ProxyPair): PublicProxyPair {
@@ -635,4 +661,14 @@ async function openRecordDetail(recordId: string): Promise<void> {
     page.waitForResponse((response) => response.url().endsWith(`/api/logs/${recordId}`)),
     page.locator(`[data-log-id="${recordId}"]`).click(),
   ]);
+}
+
+async function requiredBox(
+  locator: Locator,
+): Promise<NonNullable<Awaited<ReturnType<Locator["boundingBox"]>>>> {
+  const box = await locator.boundingBox();
+  if (box === null) {
+    throw new Error("Expected a visible element bounding box.");
+  }
+  return box;
 }
