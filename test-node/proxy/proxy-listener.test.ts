@@ -417,6 +417,26 @@ describe("ProxyListener", () => {
 
   it("reads an incoming chunked request body", async () => {
     const pendingRecords: Readonly<Record<string, unknown>>[] = [];
+    const upstreamRequests: {
+      readonly body: string;
+      readonly contentLength: string | undefined;
+      readonly transferEncoding: string | undefined;
+    }[] = [];
+    const upstream = http.createServer((request, response) => {
+      const received: Buffer[] = [];
+      request.on("data", (chunk: Buffer) => received.push(chunk));
+      request.on("end", () => {
+        upstreamRequests.push({
+          body: Buffer.concat(received).toString("utf8"),
+          contentLength: request.headers["content-length"],
+          transferEncoding: request.headers["transfer-encoding"],
+        });
+        response.writeHead(200, { "content-type": "text/plain" });
+        response.write("chunked-");
+        setImmediate(() => response.end("response"));
+      });
+    });
+    const upstreamPort = await listenServer(upstream);
     const trafficLog: TrafficLogWriter = {
       write() {
         return Promise.resolve();
@@ -435,7 +455,7 @@ describe("ProxyListener", () => {
           name: "Chunked target",
           targetScheme: "http",
           targetHost: "127.0.0.1",
-          targetPort: 4325,
+          targetPort: upstreamPort,
           targetBasePath: "",
           trafficLog,
         },
@@ -449,7 +469,16 @@ describe("ProxyListener", () => {
     const address = await listener.start();
     const chunks = ['{"model":"gpt-5",', '"input":"chunked"}'];
 
-    await requestText(address.port, "/v1/responses", { method: "POST", chunks });
+    await expect(
+      requestText(address.port, "/v1/responses", { method: "POST", chunks }),
+    ).resolves.toEqual({ status: 200, body: "chunked-response" });
+    expect(upstreamRequests).toEqual([
+      {
+        body: chunks.join(""),
+        contentLength: String(Buffer.byteLength(chunks.join(""))),
+        transferEncoding: undefined,
+      },
+    ]);
     expect(pendingRecords[0]).toMatchObject({
       request: {
         headers: { "Transfer-Encoding": ["chunked"] },
@@ -457,6 +486,7 @@ describe("ProxyListener", () => {
       },
     });
     await listener.close();
+    await closeServer(upstream);
   });
 
   it("handles empty request bodies and suppresses HEAD response bytes", async () => {
