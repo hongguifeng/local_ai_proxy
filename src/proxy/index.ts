@@ -81,3 +81,8 @@ export {
   type TrafficLogWriter,
 } from "./proxy-request-pipeline.js";
 export { joinTargetPath, parseTargetUrl, type ParsedTargetUrl } from "./target.js";
+export {
+  openUpstreamResponse,
+  type OpenUpstreamResponseOptions,
+  type UpstreamTarget,
+} from "./upstream-forwarder.js";

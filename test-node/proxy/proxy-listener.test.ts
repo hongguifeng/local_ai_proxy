@@ -109,7 +109,7 @@ describe("ProxyListener", () => {
     });
     const address = await listener.start();
 
-    expect((await requestText(address.port, "/v1/responses?stream=1")).status).toBe(501);
+    expect((await requestText(address.port, "/v1/responses?stream=1")).status).toBe(502);
     expect(records[0]).toMatchObject({
       id: "early-request",
       event: "request_received",
@@ -175,7 +175,7 @@ describe("ProxyListener", () => {
 
     expect(
       (await requestText(address.port, "/v1/responses", { method: "POST", body })).status,
-    ).toBe(501);
+    ).toBe(502);
     expect(firstRecords).toEqual([]);
     const receivedRecords = secondRecords.filter(
       (record) => record["event"] === "request_received",
@@ -369,8 +369,8 @@ describe("ProxyListener", () => {
 
     const empty = await requestText(address.port, "/empty");
     const head = await requestText(address.port, "/head", { method: "HEAD" });
-    expect(empty.status).toBe(501);
-    expect(head).toEqual({ status: 501, body: "" });
+    expect(empty.status).toBe(502);
+    expect(head).toEqual({ status: 502, body: "" });
     expect(pendingRecords).toHaveLength(2);
     expect(pendingRecords[0]).toMatchObject({ request: { body: { size_bytes: 0, text: "" } } });
     expect(pendingRecords[1]).toMatchObject({
@@ -449,10 +449,57 @@ describe("ProxyListener", () => {
     });
     const address = await listener.start();
 
-    expect((await requestText(address.port, "/lifecycle")).status).toBe(501);
+    expect((await requestText(address.port, "/lifecycle")).status).toBe(502);
     expect(events).toEqual(["request_received", "request_pending_response", "request_finished"]);
     expect(activeRequests.size).toBe(0);
     await listener.close();
+  });
+
+  it("forwards requests to an HTTP target", async () => {
+    const receivedBodies: string[] = [];
+    const upstream = http.createServer((request, response) => {
+      const chunks: Buffer[] = [];
+      request.on("data", (chunk: Buffer) => chunks.push(chunk));
+      request.on("end", () => {
+        receivedBodies.push(Buffer.concat(chunks).toString("utf8"));
+        response.writeHead(201, { "content-type": "text/plain", "x-upstream": "http" });
+        response.end(`${request.method} ${request.url}`);
+      });
+    });
+    const upstreamPort = await listenServer(upstream);
+    const trafficLog: TrafficLogWriter = {
+      write: () => Promise.resolve(),
+      update: () => Promise.resolve(),
+    };
+    const pipeline = new ProxyRequestPipeline({
+      targets: [
+        {
+          enabled: true,
+          id: "http-target",
+          modelMappings: [],
+          name: "HTTP target",
+          targetScheme: "http",
+          targetHost: "127.0.0.1",
+          targetPort: upstreamPort,
+          targetBasePath: "/base",
+          trafficLog,
+        },
+      ],
+    });
+    const listener = new ProxyListener({
+      host: "127.0.0.1",
+      port: 0,
+      onRequest: (request, response, context) => pipeline.handle(request, response, context),
+    });
+    const address = await listener.start();
+    const body = JSON.stringify({ input: "forward over HTTP" });
+
+    expect(
+      await requestText(address.port, "/v1/responses?trace=1", { method: "POST", body }),
+    ).toEqual({ status: 201, body: "POST /base/v1/responses?trace=1" });
+    expect(receivedBodies).toEqual([body]);
+    await listener.close();
+    await closeServer(upstream);
   });
 });
 
@@ -497,5 +544,25 @@ function requestText(
     } else {
       request.end(options.body);
     }
+  });
+}
+
+function listenServer(server: http.Server): Promise<number> {
+  return new Promise((resolve, reject) => {
+    server.once("error", reject);
+    server.listen(0, "127.0.0.1", () => {
+      const address = server.address();
+      if (address === null || typeof address === "string") {
+        reject(new Error("Test upstream did not bind to TCP."));
+      } else {
+        resolve(address.port);
+      }
+    });
+  });
+}
+
+function closeServer(server: http.Server): Promise<void> {
+  return new Promise((resolve, reject) => {
+    server.close((error) => (error === undefined ? resolve() : reject(error)));
   });
 }

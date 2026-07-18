@@ -8,10 +8,17 @@ import {
   type BodyCollectorOptions,
 } from "./body-collector.js";
 import { bytesPayload } from "./payload.js";
+import {
+  buildForwardHeaders,
+  HOP_BY_HOP_HEADERS,
+  replaceContentLength,
+  type HeaderEntry,
+} from "./headers.js";
 import type { ProxyRequestContext } from "./proxy-listener.js";
 import { transformRequestJsonFields } from "./request-transform.js";
 import { rewriteRequestModel, selectTargetByModel } from "./routing.js";
 import { joinTargetPath } from "./target.js";
+import { openUpstreamResponse } from "./upstream-forwarder.js";
 
 export interface TrafficLogWriter {
   write(record: Readonly<RepositoryRecord>): Promise<void>;
@@ -29,6 +36,9 @@ export interface ProxyPipelineTarget {
   readonly targetHost: string;
   readonly targetPort: number;
   readonly targetBasePath: string;
+  readonly targetApiKey?: string;
+  readonly targetHeaders?: readonly HeaderEntry[];
+  readonly timeoutMs?: number;
   readonly trafficLog: TrafficLogWriter;
 }
 
@@ -58,9 +68,9 @@ export class ProxyRequestPipeline {
     response: ServerResponse,
     context: ProxyRequestContext,
   ): Promise<void> {
-    this.#activeRequests.begin(context);
+    const signal = this.#activeRequests.begin(context);
     try {
-      await this.#handleActiveRequest(request, response, context);
+      await this.#handleActiveRequest(request, response, context, signal);
     } finally {
       this.#activeRequests.end(context.id);
     }
@@ -70,6 +80,7 @@ export class ProxyRequestPipeline {
     request: IncomingMessage,
     response: ServerResponse,
     context: ProxyRequestContext,
+    signal: AbortSignal,
   ): Promise<void> {
     const target = this.#options.targets[0];
     if (target === undefined) {
@@ -114,13 +125,39 @@ export class ProxyRequestPipeline {
       await selectedTarget.trafficLog.write(eventRecord(baseRecord, "request_received", 0));
     }
     await selectedTarget.trafficLog.update(eventRecord(baseRecord, "request_pending_response", 0));
-    const responseBody = Buffer.from("Proxy forwarding is not implemented yet.", "utf8");
-    response.writeHead(501, { "content-type": "text/plain; charset=utf-8", connection: "close" });
-    response.end(responseBody);
+    let responseBody: Buffer;
+    let responseStatus: number;
+    let responseHeaders: Record<string, string[]>;
+    try {
+      const upstream = await openUpstreamResponse({
+        target: selectedTarget,
+        method: request.method ?? "GET",
+        path: joinTargetPath(selectedTarget.targetBasePath, request.url ?? "/"),
+        headers: upstreamRequestHeaders(request, selectedTarget, transformed.body.byteLength),
+        body: transformed.body,
+        signal,
+      });
+      responseStatus = upstream.statusCode ?? 502;
+      responseHeaders = incomingHeaders(upstream);
+      const chunks: Buffer[] = [];
+      for await (const chunk of upstream) {
+        chunks.push(Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk as Uint8Array));
+      }
+      responseBody = Buffer.concat(chunks);
+      response.writeHead(responseStatus, forwardedResponseHeaders(upstream));
+      response.end(request.method === "HEAD" ? undefined : responseBody);
+    } catch (error) {
+      responseStatus = 502;
+      responseHeaders = { "content-type": ["text/plain; charset=utf-8"] };
+      responseBody = Buffer.from("Bad Gateway", "utf8");
+      response.writeHead(502, { "content-type": "text/plain; charset=utf-8", connection: "close" });
+      response.end(request.method === "HEAD" ? undefined : responseBody);
+      baseRecord["error"] = error instanceof Error ? error.name : "UpstreamError";
+    }
     await selectedTarget.trafficLog.write(
       eventRecord(baseRecord, "request_finished", 0, {
-        status: 501,
-        headers: { "content-type": ["text/plain; charset=utf-8"] },
+        status: responseStatus,
+        headers: responseHeaders,
         body: bytesPayload(responseBody),
       }),
     );
@@ -268,4 +305,45 @@ function incomingHeaders(request: IncomingMessage): Record<string, string[]> {
     (headers[name] ??= []).push(value);
   }
   return headers;
+}
+
+function incomingHeaderEntries(request: IncomingMessage): HeaderEntry[] {
+  const entries: HeaderEntry[] = [];
+  for (let index = 0; index < request.rawHeaders.length; index += 2) {
+    const name = request.rawHeaders[index];
+    const value = request.rawHeaders[index + 1];
+    if (name !== undefined && value !== undefined) {
+      entries.push([name, value]);
+    }
+  }
+  return entries;
+}
+
+function upstreamRequestHeaders(
+  request: IncomingMessage,
+  target: ProxyPipelineTarget,
+  bodySize: number,
+): HeaderEntry[] {
+  const clientHeaders = incomingHeaderEntries(request);
+  return replaceContentLength(
+    buildForwardHeaders(clientHeaders, {
+      clientHost: request.socket.remoteAddress ?? "",
+      targetApiKey: target.targetApiKey ?? "",
+      targetHeaders: target.targetHeaders ?? [],
+      targetHost: target.targetHost,
+      targetPort: target.targetPort,
+      targetScheme: target.targetScheme,
+    }),
+    bodySize,
+    clientHeaders.some(([name]) => name.toLowerCase() === "content-length"),
+  );
+}
+
+function forwardedResponseHeaders(upstream: IncomingMessage): [string, string][] {
+  return incomingHeaderEntries(upstream)
+    .filter(([name]) => {
+      const lowerName = name.toLowerCase();
+      return lowerName !== "content-length" && !HOP_BY_HOP_HEADERS.has(lowerName);
+    })
+    .map(([name, value]) => [name, value]);
 }
