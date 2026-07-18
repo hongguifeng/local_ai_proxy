@@ -61,8 +61,11 @@ export class TaskMatcher {
     const requestPayload = bodyPayload(request["body"]);
     const response = record["response"];
     const responsePayload = isRecord(response) ? bodyPayload(response["body"]) : null;
+    const contextKeys = isRecord(requestPayload) ? this.#contextKeys(requestPayload, record) : [];
     const existing =
-      this.#existingTask(requestId) ?? this.#taskForPreviousResponse(kind, requestPayload);
+      this.#existingTask(requestId) ??
+      this.#taskForPreviousResponse(kind, requestPayload) ??
+      this.#taskForContextKeys(contextKeys);
     const task =
       existing === undefined
         ? this.#newTask(record, kind)
@@ -76,7 +79,7 @@ export class TaskMatcher {
       requestPayload,
       responsePayload,
       responseIds: responseIdsFromBody(responsePayload),
-      contextKeys: [],
+      contextKeys,
     };
   }
 
@@ -95,6 +98,53 @@ export class TaskMatcher {
     }
     const taskId = this.#repository.taskIdForResponse(previousResponseId);
     return taskId === undefined ? undefined : this.#repository.getTask(taskId);
+  }
+
+  #taskForContextKeys(contextKeys: readonly string[]): RepositoryRecord | undefined {
+    for (const contextKey of contextKeys) {
+      const taskId = this.#repository.taskIdForContext(contextKey);
+      if (taskId !== undefined) {
+        const task = this.#repository.getTask(taskId);
+        if (task !== undefined) {
+          return task;
+        }
+      }
+    }
+    return undefined;
+  }
+
+  #contextKeys(
+    payload: Readonly<Record<string, unknown>>,
+    record: Readonly<RepositoryRecord>,
+  ): string[] {
+    const keys: string[] = [];
+    const seen = new Set<string>();
+    const addKey = (prefix: string, value: unknown): void => {
+      if (typeof value !== "string" || value.trim() === "") {
+        return;
+      }
+      const key = `${prefix}:${value.trim()}`;
+      if (!seen.has(key)) {
+        seen.add(key);
+        keys.push(key);
+      }
+    };
+    const conversation = payload["conversation"];
+    const conversationId = firstString(
+      conversation,
+      nestedValue(conversation, "id"),
+      payload["conversation_id"],
+      payload["thread_id"],
+      nestedValue(payload, "metadata", "conversation_id"),
+      nestedValue(payload, "metadata", "thread_id"),
+      nestedValue(payload, "metadata", "session_id"),
+    );
+    addKey("conversation", conversationId);
+    addKey("prompt_cache", payload["prompt_cache_key"]);
+    addKey("prompt_cache", record["prompt_cache_key"]);
+    addKey("client_thread", nestedValue(record, "client_metadata", "thread_id"));
+    addKey("client_session", nestedValue(record, "client_metadata", "session_id"));
+    return keys;
   }
 
   #sequenceForRecord(requestId: string, taskId: string): number {
@@ -190,4 +240,24 @@ function taskAnchor(record: Readonly<RepositoryRecord>): string {
 
 function stringValue(value: unknown): string {
   return typeof value === "string" || typeof value === "number" ? String(value) : "";
+}
+
+function nestedValue(value: unknown, ...path: readonly string[]): unknown {
+  let current = value;
+  for (const key of path) {
+    if (!isRecord(current)) {
+      return undefined;
+    }
+    current = current[key];
+  }
+  return current;
+}
+
+function firstString(...values: readonly unknown[]): string | undefined {
+  for (const value of values) {
+    if (typeof value === "string" && value.trim() !== "") {
+      return value.trim();
+    }
+  }
+  return undefined;
 }

@@ -125,6 +125,49 @@ describe("TaskAssignment", () => {
     expect(followup?.responseIds).toEqual(["resp-request-2"]);
     repository.close();
   });
+
+  it("generates and matches conversation, thread, session, and prompt-cache context keys", async () => {
+    const root = await mkdtemp(path.join(os.tmpdir(), "llm-proxy-task-context-link-"));
+    temporaryDirectories.push(root);
+    const repository = new TrafficRepository(root);
+    let taskNumber = 0;
+    const matcher = new TaskMatcher(repository, {
+      createId: () => `context-task-${++taskNumber}`,
+      now: () => "2026-07-18T10:00:00.000+08:00",
+    });
+    const firstRecord = {
+      ...trafficRecord("context-request-1", false, {
+        model: "gpt-5",
+        conversation: { id: "conversation-1" },
+        prompt_cache_key: "payload-cache",
+        input: "start",
+      }),
+      prompt_cache_key: "record-cache",
+      client_metadata: { thread_id: "thread-1", session_id: "session-1" },
+    };
+    const first = matcher.assign(firstRecord);
+    if (first === undefined) {
+      throw new Error("Context-linked request was not assigned.");
+    }
+    expect(first.contextKeys).toEqual([
+      "conversation:conversation-1",
+      "prompt_cache:payload-cache",
+      "prompt_cache:record-cache",
+      "client_thread:thread-1",
+      "client_session:session-1",
+    ]);
+    persistAssignment(repository, first, "context-request-1");
+
+    const followup = matcher.assign(
+      trafficRecord("context-request-2", false, {
+        model: "gpt-5",
+        conversation_id: "conversation-1",
+        input: "continue",
+      }),
+    );
+    expect(followup).toMatchObject({ task: { id: "context-task-1" }, sequence: 2 });
+    repository.close();
+  });
 });
 
 function trafficRecord(id: string, bodyPending: boolean, payload: unknown) {
@@ -165,5 +208,8 @@ function persistAssignment(
   });
   for (const responseId of assignment.responseIds) {
     repository.upsertResponseLink(responseId, taskId);
+  }
+  for (const contextKey of assignment.contextKeys) {
+    repository.upsertContextLink(contextKey, taskId);
   }
 }
