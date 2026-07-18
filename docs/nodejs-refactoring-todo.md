@@ -307,7 +307,7 @@
 
 - [x] `HTTP-030` P0 状态和 reason phrase。
 - [x] `HTTP-031` P0 过滤 response hop-by-hop/Content-Length。
-- [ ] `HTTP-032` P0 parity 阶段发送 `Connection: close`。
+- [x] `HTTP-032` P0 parity 阶段发送 `Connection: close`。
 - [ ] `HTTP-033` P0 SSE 第一行立即转发。
 - [ ] `HTTP-034` P0 普通 response chunk/backpressure。
 - [ ] `HTTP-035` P0 HEAD 不发 body。

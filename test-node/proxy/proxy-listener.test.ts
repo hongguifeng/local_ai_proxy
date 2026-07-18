@@ -818,7 +818,7 @@ describe("ProxyListener", () => {
     expect(headers["content-length"]).toBeUndefined();
     expect(headers["proxy-authenticate"]).toBeUndefined();
     expect(headers["keep-alive"]).not.toBe("upstream=1");
-    expect(headers.connection).not.toBe("upstream-connection");
+    expect(headers.connection).toBe("close");
     await listener.close();
     await closeServer(upstream);
   });

@@ -358,10 +358,12 @@ function upstreamRequestHeaders(
 }
 
 function forwardedResponseHeaders(upstream: IncomingMessage): [string, string][] {
-  return incomingHeaderEntries(upstream)
+  const forwarded = incomingHeaderEntries(upstream)
     .filter(([name]) => {
       const lowerName = name.toLowerCase();
       return lowerName !== "content-length" && !HOP_BY_HOP_HEADERS.has(lowerName);
     })
-    .map(([name, value]) => [name, value]);
+    .map(([name, value]): [string, string] => [name, value]);
+  forwarded.push(["Connection", "close"]);
+  return forwarded;
 }
