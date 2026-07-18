@@ -1,6 +1,6 @@
 {
   "name": "llm-proxy",
-  "version": "0.1.0",
+  "version": "0.3.0-rc.1",
   "private": true,
   "description": "Local HTTP proxy and web console for inspecting OpenAI-compatible LLM traffic.",
   "main": "dist-node/electron/index.js",

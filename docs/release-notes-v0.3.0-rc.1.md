@@ -1,4 +1,4 @@
-# LLM Proxy v0.1.0-rc.1
+# LLM Proxy v0.3.0-rc.1
 
 这是将应用从 Python 完整切换到 Node.js 24 + TypeScript + Electron 的首个候选版本。代理、管理 UI、历史记录、SQLite 数据、CLI 和 Windows Tray 功能均已迁移；运行和开发不再需要 Python。
 
