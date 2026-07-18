@@ -239,7 +239,7 @@
 ### 7.5 跨语言兼容
 
 - [x] `DB-040` P0 Python DB -> Node read。
-- [ ] `DB-041` P0 Python DB -> Node write -> Python read。
+- [x] `DB-041` P0 Python DB -> Node write -> Python read。
 - [ ] `DB-042` P0 Node DB -> Python read。
 - [ ] `DB-043` P0 多 connection 并发写测试。
 - [ ] `DB-044` P1 Windows packaged DB smoke test。

@@ -1,3 +1,4 @@
+import { spawnSync } from "node:child_process";
 import { copyFile, mkdtemp, rm } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
@@ -260,7 +261,79 @@ describe("Python database compatibility", () => {
     );
     repository.close();
   });
+
+  it("writes rows that the Python repository can read", async () => {
+    const root = await mkdtemp(path.join(os.tmpdir(), "llm-proxy-node-python-db-"));
+    temporaryDirectories.push(root);
+    await copyFile(
+      path.join(process.cwd(), "fixtures", "parity", "database", "comprehensive", "traffic.db"),
+      path.join(root, "traffic.db"),
+    );
+    const repository = new TrafficRepository(root, { now: () => "2026-07-18T08:00:00.000+08:00" });
+    repository.upsertTask({
+      id: "task-node-roundtrip",
+      kind: "chat",
+      model: "node-fixture",
+      match_strategy_version: 4,
+      fingerprints: { system: "node-system" },
+    });
+    repository.upsertRecord({
+      id: "record-node-roundtrip",
+      task_id: "task-node-roundtrip",
+      sequence: 1,
+      method: "POST",
+      path: "/v1/chat/completions",
+      request_body: { model: "node-fixture", messages: [{ role: "user", content: "你好" }] },
+      response_body: { id: "chatcmpl_node", usage: { total_tokens: 7 } },
+    });
+    repository.upsertResponseLink("chatcmpl_node", "task-node-roundtrip");
+    repository.upsertContextLink("conversation:node-roundtrip", "task-node-roundtrip");
+    repository.close();
+
+    const python = findPython();
+    const result = spawnSync(
+      python,
+      [
+        path.join(process.cwd(), "scripts", "check_database_roundtrip.py"),
+        root,
+        "task-node-roundtrip",
+        "record-node-roundtrip",
+        "chatcmpl_node",
+        "conversation:node-roundtrip",
+      ],
+      {
+        cwd: process.cwd(),
+        encoding: "utf8",
+        env: {
+          ...process.env,
+          PYTHONPATH: [process.cwd(), process.env["PYTHONPATH"]]
+            .filter(Boolean)
+            .join(path.delimiter),
+        },
+      },
+    );
+    expect(result.status, result.stderr).toBe(0);
+    expect(JSON.parse(result.stdout)).toMatchObject({
+      task: { id: "task-node-roundtrip", fingerprints: { system: "node-system" } },
+      record: {
+        id: "record-node-roundtrip",
+        request_body: { model: "node-fixture", messages: [{ role: "user", content: "你好" }] },
+        response_body: { id: "chatcmpl_node", usage: { total_tokens: 7 } },
+      },
+      response_task_id: "task-node-roundtrip",
+      context_task_id: "task-node-roundtrip",
+    });
+  });
 });
+
+function findPython(): string {
+  for (const candidate of [process.env["PYTHON"], "python3", "python"]) {
+    if (candidate !== undefined && spawnSync(candidate, ["--version"]).status === 0) {
+      return candidate;
+    }
+  }
+  throw new Error("Python 3 is required for database compatibility tests.");
+}
 
 describe("TrafficRepository.deleteTasks", () => {
   it("cascades task deletion to records and links", async () => {
