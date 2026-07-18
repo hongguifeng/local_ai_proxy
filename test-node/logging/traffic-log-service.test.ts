@@ -51,6 +51,17 @@ describe("disabled TrafficLogService", () => {
   });
 });
 
+describe("TrafficLogService failure isolation", () => {
+  it("does not reject the proxy path when persistence fails", async () => {
+    const root = await mkdtemp(path.join(os.tmpdir(), "llm-proxy-log-failure-"));
+    temporaryDirectories.push(root);
+    const service = new TrafficLogService(root);
+    service.close();
+
+    await expect(service.write(trafficRecord("closed-database-request"))).resolves.toBeUndefined();
+  });
+});
+
 describe("TrafficLogService record mapping", () => {
   it("maps target metadata and message/token summaries", async () => {
     const root = await mkdtemp(path.join(os.tmpdir(), "llm-proxy-log-record-row-"));

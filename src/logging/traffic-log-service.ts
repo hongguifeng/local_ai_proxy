@@ -47,7 +47,11 @@ export class TrafficLogService {
     if (this.#writeQueue === undefined) {
       return;
     }
-    await this.#writeQueue.enqueue(() => this.#save(record));
+    try {
+      await this.#writeQueue.enqueue(() => this.#save(record));
+    } catch {
+      // Traffic logging is observational and must never fail an active proxy request.
+    }
   }
 
   #save(record: Readonly<RepositoryRecord>): void {
