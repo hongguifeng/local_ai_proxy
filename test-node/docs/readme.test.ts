@@ -40,4 +40,13 @@ describe("README runtime instructions", () => {
       expect(readme).not.toContain("tray_launcher.py");
     }
   });
+
+  it("links the migration rehearsal and rollback procedures", async () => {
+    for (const name of ["README.md", "README.cn.md"]) {
+      const readme = await readFile(new URL(`../../${name}`, import.meta.url), "utf8");
+      expect(readme).toContain("docs/migration-rehearsal-report.md");
+      expect(readme).toContain("docs/migration-rollback.md");
+      expect(readme).toContain("validate:migration");
+    }
+  });
 });

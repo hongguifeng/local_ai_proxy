@@ -251,6 +251,18 @@ SSE 响应会按上游到达的行逐行转发给客户端。非 SSE 响应仍�
 
 历史日志页面可以将任务日志导出为 `llm-proxy-logs.zip`。ZIP 会从 SQLite 按需生成，包含便于阅读的 Markdown 以及 `request.json`、`response.json` 文件。在日志列表中选择一个或多个任务组后，可以从数据库中清理这些任务及其对应的请求记录。
 
+## 数据备份、迁移和回滚
+
+首次启动 Node/Electron 版本前，先停止所有旧写入进程，并备份 `proxies.json` 和完整日志根目录。
+如果存在 `traffic.db-wal` 和 `traffic.db-shm`，必须与 `traffic.db` 一起保存。建议预留至少当前数据库
+大小 2.4 倍的可用空间。
+
+- [迁移演练结果](docs/migration-rehearsal-report.md)
+- [用户备份和回滚步骤](docs/migration-rollback.md)
+
+迁移后，从已构建的 checkout 执行 `npm run validate:migration -- <log-root>`，并将 JSON 数量和抽样
+结果与发布记录一起保存。
+
 ## 安全说明
 
 LLM Proxy 面向本地开发和流量检查。除非你已经加了自己的网络访问控制，否则管理界面应保持绑定在 `127.0.0.1`。

@@ -252,6 +252,18 @@ SSE responses are forwarded to the client line by line as they arrive from the u
 
 The History tab can export task logs as `llm-proxy-logs.zip`. The ZIP is generated from SQLite on demand and contains human-readable Markdown plus `request.json` and `response.json` files. Select one or more task groups in the log list, then use cleanup to delete those tasks and their request records from the database.
 
+## Backup, Migration, and Rollback
+
+Before the first Node/Electron launch, stop all existing writers and back up `proxies.json` plus the
+entire log root. Keep `traffic.db`, `traffic.db-wal`, and `traffic.db-shm` together when present. Plan
+for free space of at least 2.4 times the current database size.
+
+- [Migration rehearsal results](docs/migration-rehearsal-report.md)
+- [Operator backup and rollback procedure](docs/migration-rollback.md)
+
+After migration, run `npm run validate:migration -- <log-root>` from a built checkout and retain the
+JSON count/sample report with the release record.
+
 ## Security Notes
 
 LLM Proxy is designed for local development and traffic inspection. Keep the admin UI bound to `127.0.0.1` unless you have added your own network controls.
