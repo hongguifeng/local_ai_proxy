@@ -433,7 +433,7 @@
 - [x] `CLI-002` P0 实现 `--port`。
 - [x] `CLI-003` P0 实现 `--config-file`。
 - [x] `CLI-004` P0 实现 `--log-root`。
-- [ ] `CLI-005` P0 实现 `--no-browser`。
+- [x] `CLI-005` P0 实现 `--no-browser`。
 - [ ] `CLI-006` P0 实现全部 `LLM_PROXY_*` 环境变量。
 - [ ] `CLI-007` P0 默认延迟打开浏览器。
 - [ ] `CLI-008` P0 SIGINT/SIGTERM 优雅关闭。

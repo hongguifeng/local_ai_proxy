@@ -28,6 +28,11 @@ describe("parseCliArgs", () => {
     expect(parseCliArgs(["--log-root", "state/history"]).logRoot).toBe("state/history");
   });
 
+  it("parses --no-browser", () => {
+    expect(parseCliArgs([]).noBrowser).toBe(false);
+    expect(parseCliArgs(["--no-browser"]).noBrowser).toBe(true);
+  });
+
   it("rejects a missing host", () => {
     expect(() => parseCliArgs(["--host"])).toThrow("Option --host requires a value.");
   });

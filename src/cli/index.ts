@@ -4,6 +4,7 @@ export interface CliOptions {
   readonly configFile: string;
   readonly host: string;
   readonly logRoot: string;
+  readonly noBrowser: boolean;
   readonly port: number;
 }
 
@@ -13,6 +14,7 @@ export function parseCliArgs(argv: readonly string[]): CliOptions {
   let configFile = DEFAULT_CONFIG_PATH;
   let host = DEFAULT_PROXY_HOST;
   let logRoot = DEFAULT_LOG_ROOT;
+  let noBrowser = false;
   let port = DEFAULT_ADMIN_PORT;
   for (let index = 0; index < argv.length; index += 1) {
     const argument = argv[index];
@@ -32,9 +34,13 @@ export function parseCliArgs(argv: readonly string[]): CliOptions {
       logRoot = requiredValue(argv, ++index, argument);
       continue;
     }
+    if (argument === "--no-browser") {
+      noBrowser = true;
+      continue;
+    }
     throw new Error(`Unknown option: ${argument}`);
   }
-  return { configFile, host, logRoot, port };
+  return { configFile, host, logRoot, noBrowser, port };
 }
 
 function requiredValue(argv: readonly string[], index: number, option: string): string {
