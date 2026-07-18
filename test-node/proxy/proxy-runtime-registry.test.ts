@@ -63,11 +63,35 @@ describe("ProxyRuntimeRegistry", () => {
       await Promise.all([close(firstUpstream), close(secondUpstream)]);
     }
   });
+
+  it("starts enabled pairs and stops all registered runtimes", async () => {
+    const upstream = http.createServer((_request, response) => response.end("batch"));
+    const upstreamPort = await listen(upstream);
+    const registry = new ProxyRuntimeRegistry();
+    const first = pairFixture(upstreamPort, "enabled-one");
+    const second = pairFixture(upstreamPort, "enabled-two");
+    const disabled = { ...pairFixture(upstreamPort, "disabled"), enabled: false };
+
+    try {
+      const started = await registry.startEnabled([first, disabled, second]);
+      expect([...started.keys()]).toEqual(["enabled-one", "enabled-two"]);
+      expect(registry.status(first.id).running).toBe(true);
+      expect(registry.status(second.id).running).toBe(true);
+      expect(registry.status(disabled.id).state).toBe("stopped");
+
+      await registry.stopAll();
+      expect(registry.status(first.id).state).toBe("stopped");
+      expect(registry.status(second.id).state).toBe("stopped");
+    } finally {
+      await registry.stopAll();
+      await close(upstream);
+    }
+  });
 });
 
-function pairFixture(upstreamPort: number): ProxyPair {
+function pairFixture(upstreamPort: number, pairId = "runtime-pair"): ProxyPair {
   return {
-    id: "runtime-pair",
+    id: pairId,
     name: "Runtime pair",
     enabled: true,
     listen_host: "127.0.0.1",

@@ -69,6 +69,18 @@ export class ProxyRuntimeRegistry {
     }
   }
 
+  async startEnabled(
+    pairs: readonly ProxyPair[],
+  ): Promise<ReadonlyMap<string, ProxyRuntimeSnapshot>> {
+    const started = new Map<string, ProxyRuntimeSnapshot>();
+    for (const pair of pairs) {
+      if (pair.enabled) {
+        started.set(pair.id, await this.startPair(pair));
+      }
+    }
+    return started;
+  }
+
   async stopPair(pairId: string): Promise<ProxyRuntimeSnapshot> {
     const entry = this.#entry(pairId);
     const snapshot = entry.state.snapshot;
@@ -95,6 +107,10 @@ export class ProxyRuntimeRegistry {
   async restartPair(pair: ProxyPair): Promise<ProxyRuntimeSnapshot> {
     await this.stopPair(pair.id);
     return this.startPair(pair);
+  }
+
+  async stopAll(): Promise<void> {
+    await Promise.all([...this.#entries.keys()].map((pairId) => this.stopPair(pairId)));
   }
 
   #entry(pairId: string): ProxyRuntimeEntry {
