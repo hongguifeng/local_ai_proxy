@@ -90,7 +90,6 @@ describe("ProxyListener", () => {
     const address = await listener.start();
 
     expect((await requestText(address.port, "/v1/responses?stream=1")).status).toBe(501);
-    expect(records).toHaveLength(1);
     expect(records[0]).toMatchObject({
       id: "early-request",
       event: "request_received",
@@ -158,8 +157,11 @@ describe("ProxyListener", () => {
       (await requestText(address.port, "/v1/responses", { method: "POST", body })).status,
     ).toBe(501);
     expect(firstRecords).toEqual([]);
-    expect(secondRecords).toHaveLength(1);
-    expect(secondRecords[0]).toMatchObject({
+    const receivedRecords = secondRecords.filter(
+      (record) => record["event"] === "request_received",
+    );
+    expect(receivedRecords).toHaveLength(1);
+    expect(receivedRecords[0]).toMatchObject({
       event: "request_received",
       target: { id: "routed", port: 4322, path: "/routed/v1/responses" },
       request: {
@@ -167,6 +169,45 @@ describe("ProxyListener", () => {
         body: { size_bytes: Buffer.byteLength(body), text: body },
       },
     });
+    await listener.close();
+  });
+
+  it("logs pending and final events around request processing", async () => {
+    const events: string[] = [];
+    const trafficLog: TrafficLogWriter = {
+      write(record) {
+        events.push(String(record["event"]));
+        return Promise.resolve();
+      },
+      update(record) {
+        events.push(String(record["event"]));
+        return Promise.resolve();
+      },
+    };
+    const pipeline = new ProxyRequestPipeline({
+      targets: [
+        {
+          enabled: true,
+          id: "lifecycle-target",
+          modelMappings: [],
+          name: "Lifecycle target",
+          targetScheme: "http",
+          targetHost: "127.0.0.1",
+          targetPort: 4323,
+          targetBasePath: "",
+          trafficLog,
+        },
+      ],
+    });
+    const listener = new ProxyListener({
+      host: "127.0.0.1",
+      port: 0,
+      onRequest: (request, response, context) => pipeline.handle(request, response, context),
+    });
+    const address = await listener.start();
+
+    expect((await requestText(address.port, "/lifecycle")).status).toBe(501);
+    expect(events).toEqual(["request_received", "request_pending_response", "request_finished"]);
     await listener.close();
   });
 });

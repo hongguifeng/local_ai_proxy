@@ -281,7 +281,7 @@
 - [x] `HTTP-002` P0 生成 request ID 和时间。
 - [x] `HTTP-003` P0 单目标早期 received logging。
 - [x] `HTTP-004` P0 多目标读取 body 后 selected logger。
-- [ ] `HTTP-005` P0 pending/final logging。
+- [x] `HTTP-005` P0 pending/final logging。
 - [ ] `HTTP-006` P0 active request registry。
 
 ### 9.2 请求读取与变换

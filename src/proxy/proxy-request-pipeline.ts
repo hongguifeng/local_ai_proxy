@@ -56,24 +56,24 @@ export class ProxyRequestPipeline {
     }
     const requestBody = await readRequestBody(request);
     const selectedTarget = this.#selectTarget(requestBody);
+    const baseRecord = withRequestBody(
+      this.#initialRecord(request, context, selectedTarget),
+      requestBody,
+    );
     if (this.#options.targets.length > 1) {
-      const record = this.#initialRecord(request, context, selectedTarget);
-      const requestRecord = record["request"];
-      if (
-        typeof requestRecord === "object" &&
-        requestRecord !== null &&
-        !Array.isArray(requestRecord)
-      ) {
-        record["request"] = {
-          ...requestRecord,
-          body: bytesPayload(requestBody),
-          body_pending: false,
-        };
-      }
-      await selectedTarget.trafficLog.write(eventRecord(record, "request_received", 0));
+      await selectedTarget.trafficLog.write(eventRecord(baseRecord, "request_received", 0));
     }
+    await selectedTarget.trafficLog.update(eventRecord(baseRecord, "request_pending_response", 0));
+    const responseBody = Buffer.from("Proxy forwarding is not implemented yet.", "utf8");
     response.writeHead(501, { "content-type": "text/plain; charset=utf-8", connection: "close" });
-    response.end("Proxy forwarding is not implemented yet.");
+    response.end(responseBody);
+    await selectedTarget.trafficLog.write(
+      eventRecord(baseRecord, "request_finished", 0, {
+        status: 501,
+        headers: { "content-type": ["text/plain; charset=utf-8"] },
+        body: bytesPayload(responseBody),
+      }),
+    );
   }
 
   #selectTarget(requestBody: Uint8Array): ProxyPipelineTarget {
@@ -135,12 +135,34 @@ function eventRecord(
   baseRecord: Readonly<RepositoryRecord>,
   event: string,
   durationMs: number,
+  response: Readonly<RepositoryRecord> = {
+    status: null,
+    headers: {},
+    body: bytesPayload(new Uint8Array()),
+  },
 ): RepositoryRecord {
   return {
     ...baseRecord,
     event,
     duration_ms: durationMs,
-    response: { status: null, headers: {}, body: bytesPayload(new Uint8Array()) },
+    response,
+  };
+}
+
+function withRequestBody(
+  record: Readonly<RepositoryRecord>,
+  requestBody: Uint8Array,
+): RepositoryRecord {
+  const request = record["request"];
+  return {
+    ...record,
+    request: {
+      ...(typeof request === "object" && request !== null && !Array.isArray(request)
+        ? request
+        : {}),
+      body: bytesPayload(requestBody),
+      body_pending: false,
+    },
   };
 }
 
