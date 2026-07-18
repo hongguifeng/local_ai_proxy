@@ -20,6 +20,13 @@ export interface OpenUpstreamResponseOptions {
   readonly target: UpstreamTarget;
 }
 
+export class UpstreamTimeoutError extends Error {
+  constructor(timeoutMs: number) {
+    super(`Upstream request timed out after ${timeoutMs} ms.`);
+    this.name = "UpstreamTimeoutError";
+  }
+}
+
 export function openUpstreamResponse(
   options: OpenUpstreamResponseOptions,
 ): Promise<IncomingMessage> {
@@ -33,11 +40,15 @@ export function openUpstreamResponse(
         path: options.path,
         headers: options.headers.flatMap(([name, value]) => [name, value]),
         signal: options.signal,
-        timeout: options.target.timeoutMs,
         rejectUnauthorized: options.target.rejectUnauthorized,
       },
       resolve,
     );
+    if (options.target.timeoutMs !== undefined) {
+      request.setTimeout(options.target.timeoutMs, () => {
+        request.destroy(new UpstreamTimeoutError(options.target.timeoutMs ?? 0));
+      });
+    }
     request.once("error", reject);
     request.end(options.body);
   });

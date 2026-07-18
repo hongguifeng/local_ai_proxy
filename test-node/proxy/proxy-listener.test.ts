@@ -609,6 +609,48 @@ describe("ProxyListener", () => {
     await listener.close();
     await closeServer(upstream);
   });
+
+  it("returns 502 when the upstream response times out", async () => {
+    const upstream = http.createServer(() => {
+      // Intentionally leave the response open until the proxy timeout destroys the socket.
+    });
+    const upstreamPort = await listenServer(upstream);
+    const trafficLog: TrafficLogWriter = {
+      write: () => Promise.resolve(),
+      update: () => Promise.resolve(),
+    };
+    const pipeline = new ProxyRequestPipeline({
+      targets: [
+        {
+          enabled: true,
+          id: "timeout-target",
+          modelMappings: [],
+          name: "Timeout target",
+          targetScheme: "http",
+          targetHost: "127.0.0.1",
+          targetPort: upstreamPort,
+          targetBasePath: "",
+          timeoutMs: 50,
+          trafficLog,
+        },
+      ],
+    });
+    const listener = new ProxyListener({
+      host: "127.0.0.1",
+      port: 0,
+      onRequest: (request, response, context) => pipeline.handle(request, response, context),
+    });
+    const address = await listener.start();
+    const started = performance.now();
+
+    expect(await requestText(address.port, "/timeout")).toEqual({
+      status: 502,
+      body: "Bad Gateway",
+    });
+    expect(performance.now() - started).toBeLessThan(1_000);
+    await listener.close();
+    await closeServer(upstream);
+  });
 });
 
 function requestText(
