@@ -1,5 +1,11 @@
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
-import { chromium, expect as expectPage, type Browser, type Page } from "@playwright/test";
+import {
+  chromium,
+  expect as expectPage,
+  type Browser,
+  type Locator,
+  type Page,
+} from "@playwright/test";
 import type { AddressInfo } from "node:net";
 
 import {
@@ -255,8 +261,30 @@ describe("admin UI proxy page", () => {
     );
     await expectPage(page.locator("#saveProxies")).toHaveText("Save config");
   });
+
+  it("preserves target horizontal scroll during pair rerenders", async () => {
+    await page.goto(baseUrl, { waitUntil: "networkidle" });
+    const card = page.locator('.proxy-card[data-index="0"]');
+    for (let index = 0; index < 4; index += 1) {
+      await card.locator("[data-add-target]").click();
+    }
+    const row = card.locator(".targets-row");
+    await row.evaluate((element) => Reflect.set(element, "scrollLeft", 180));
+    const before = await scrollLeft(row);
+    expect(before).toBeGreaterThan(0);
+
+    await card.locator(".target-card").first().locator("[data-toggle-target-options]").click();
+    expect(await scrollLeft(card.locator(".targets-row"))).toBe(before);
+  });
 });
 
 function publicPair(pair: ProxyPair): PublicProxyPair {
   return { ...structuredClone(pair), actual_listen_port: null, running: pair.enabled };
+}
+
+async function scrollLeft(locator: Locator): Promise<number> {
+  return locator.evaluate((element) => {
+    const value: unknown = Reflect.get(element, "scrollLeft");
+    return typeof value === "number" ? value : 0;
+  });
 }

@@ -402,7 +402,7 @@
 - [x] `UI-015` P0 More settings。
 - [x] `UI-016` P0 save 和 enable toggle。
 - [x] `UI-017` P0 语言切换不丢表单值。
-- [ ] `UI-018` P1 target 横向滚动位置。
+- [x] `UI-018` P1 target 横向滚动位置。
 
 ### 12.3 History 页面 E2E
 
