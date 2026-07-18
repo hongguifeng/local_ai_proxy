@@ -1,4 +1,4 @@
-import type { ProxyPair, TargetConfig } from "../config/index.js";
+import type { ProxyPair, PublicProxyPair, TargetConfig } from "../config/index.js";
 import { TrafficLogService } from "../logging/index.js";
 import { ActiveRequestRegistry } from "./active-requests.js";
 import { parseHeaderOverrides } from "./headers.js";
@@ -24,6 +24,15 @@ export class ProxyRuntimeRegistry {
 
   status(pairId: string): ProxyRuntimeSnapshot {
     return this.#entry(pairId).state.snapshot;
+  }
+
+  publicPair(pair: ProxyPair): PublicProxyPair {
+    const status = this.status(pair.id);
+    return {
+      ...pair,
+      running: status.running,
+      actual_listen_port: status.actualListenPort,
+    };
   }
 
   async startPair(pair: ProxyPair): Promise<ProxyRuntimeSnapshot> {

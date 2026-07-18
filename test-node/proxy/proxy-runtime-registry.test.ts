@@ -16,9 +16,19 @@ describe("ProxyRuntimeRegistry", () => {
     const pair = pairFixture(upstreamPort);
 
     try {
+      expect(registry.publicPair(pair)).toMatchObject({
+        id: pair.id,
+        running: false,
+        actual_listen_port: null,
+      });
       const started = await registry.startPair(pair);
       expect(started).toMatchObject({ state: "running", running: true });
       expect(started.actualListenPort).toBeTypeOf("number");
+      expect(registry.publicPair(pair)).toMatchObject({
+        id: pair.id,
+        running: true,
+        actual_listen_port: started.actualListenPort,
+      });
       await expect(requestText(started.actualListenPort ?? 0, "/runtime-start")).resolves.toBe(
         "upstream /runtime-start",
       );
@@ -29,6 +39,10 @@ describe("ProxyRuntimeRegistry", () => {
         running: false,
         actualListenPort: null,
         error: undefined,
+      });
+      expect(registry.publicPair(pair)).toMatchObject({
+        running: false,
+        actual_listen_port: null,
       });
       await expect(requestText(started.actualListenPort ?? 0, "/after-stop")).rejects.toBeDefined();
       expect(await registry.stopPair(pair.id)).toEqual(stopped);
