@@ -923,6 +923,46 @@ describe("ProxyListener", () => {
     await listener.close();
     await closeServer(upstream);
   });
+
+  it("does not send upstream response bytes for HEAD", async () => {
+    const upstream = http.createServer((_request, response) => {
+      response.writeHead(200, { "content-type": "text/plain" });
+      response.end("body must not reach the client");
+    });
+    const upstreamPort = await listenServer(upstream);
+    const trafficLog: TrafficLogWriter = {
+      write: () => Promise.resolve(),
+      update: () => Promise.resolve(),
+    };
+    const pipeline = new ProxyRequestPipeline({
+      targets: [
+        {
+          enabled: true,
+          id: "head-target",
+          modelMappings: [],
+          name: "HEAD target",
+          targetScheme: "http",
+          targetHost: "127.0.0.1",
+          targetPort: upstreamPort,
+          targetBasePath: "",
+          trafficLog,
+        },
+      ],
+    });
+    const listener = new ProxyListener({
+      host: "127.0.0.1",
+      port: 0,
+      onRequest: (request, response, context) => pipeline.handle(request, response, context),
+    });
+    const address = await listener.start();
+
+    expect(await requestText(address.port, "/head-upstream", { method: "HEAD" })).toEqual({
+      status: 200,
+      body: "",
+    });
+    await listener.close();
+    await closeServer(upstream);
+  });
 });
 
 function requestText(

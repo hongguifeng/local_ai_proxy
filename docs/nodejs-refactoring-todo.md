@@ -310,7 +310,7 @@
 - [x] `HTTP-032` P0 parity 阶段发送 `Connection: close`。
 - [x] `HTTP-033` P0 SSE 第一行立即转发。
 - [x] `HTTP-034` P0 普通 response chunk/backpressure。
-- [ ] `HTTP-035` P0 HEAD 不发 body。
+- [x] `HTTP-035` P0 HEAD 不发 body。
 - [ ] `HTTP-036` P0 Header 前错误返回 502。
 - [ ] `HTTP-037` P0 Header 后错误只关闭流并写日志。
 - [ ] `HTTP-038` P0 response log tee/summary。
