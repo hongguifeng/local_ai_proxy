@@ -74,5 +74,9 @@ jobs:
           if gh release view "$TAG_NAME" >/dev/null 2>&1; then
             gh release upload "$TAG_NAME" release-assets/* --clobber
           else
-            gh release create "$TAG_NAME" release-assets/* --title "$TAG_NAME" --generate-notes
+            release_flags=()
+            if [[ "$TAG_NAME" == *-* ]]; then
+              release_flags+=(--prerelease)
+            fi
+            gh release create "$TAG_NAME" release-assets/* --title "$TAG_NAME" --generate-notes "${release_flags[@]}"
           fi

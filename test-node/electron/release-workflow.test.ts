@@ -29,5 +29,6 @@ describe("release workflow", () => {
     expect(workflow).toContain("startsWith(github.ref, 'refs/tags/v')");
     expect(workflow).toContain("gh release create");
     expect(workflow).toContain("gh release upload");
+    expect(workflow).toContain("--prerelease");
   });
 });
