@@ -254,7 +254,7 @@
 - [x] `TASK-004` P0 Responses previous_response_id link。
 - [x] `TASK-005` P0 conversation/thread/session/prompt cache context keys。
 - [x] `TASK-006` P0 static boundary 比较。
-- [ ] `TASK-007` P0 model/path/kind 不同创建新 task。
+- [x] `TASK-007` P0 model/path/kind 不同创建新 task。
 - [ ] `TASK-008` P0 24 小时最近任务窗口。
 - [ ] `TASK-009` P0 user message sequence prefix。
 - [ ] `TASK-010` P0 continuation evidence。

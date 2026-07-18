@@ -202,15 +202,80 @@ describe("TaskAssignment", () => {
     expect(changed?.task["id"]).toBe("boundary-task-2");
     repository.close();
   });
+
+  it("starts a new task when model, path, or endpoint kind changes", async () => {
+    const root = await mkdtemp(path.join(os.tmpdir(), "llm-proxy-task-static-identity-"));
+    temporaryDirectories.push(root);
+    const repository = new TrafficRepository(root);
+    let taskNumber = 0;
+    const matcher = new TaskMatcher(repository, {
+      createId: () => `identity-task-${++taskNumber}`,
+      now: () => "2026-07-18T10:00:00.000+08:00",
+    });
+    const first = matcher.assign(
+      trafficRecord("identity-request-1", false, {
+        model: "gpt-5",
+        conversation_id: "identity-conversation",
+        input: "start",
+      }),
+    );
+    if (first === undefined) {
+      throw new Error("Identity baseline request was not assigned.");
+    }
+    persistAssignment(repository, first, "identity-request-1");
+
+    const changedModel = matcher.assign(
+      trafficRecord("identity-request-2", false, {
+        model: "qwen3",
+        conversation_id: "identity-conversation",
+        input: "continue",
+      }),
+    );
+    const changedPath = matcher.assign(
+      trafficRecord(
+        "identity-request-3",
+        false,
+        {
+          model: "gpt-5",
+          conversation_id: "identity-conversation",
+          input: "continue",
+        },
+        "/alternate/responses",
+      ),
+    );
+    const changedKind = matcher.assign(
+      trafficRecord(
+        "identity-request-4",
+        false,
+        {
+          model: "gpt-5",
+          conversation_id: "identity-conversation",
+          messages: [{ role: "user", content: "continue" }],
+        },
+        "/v1/chat/completions",
+      ),
+    );
+    expect([changedModel, changedPath, changedKind].map((item) => item?.task["id"])).toEqual([
+      "identity-task-2",
+      "identity-task-3",
+      "identity-task-4",
+    ]);
+    repository.close();
+  });
 });
 
-function trafficRecord(id: string, bodyPending: boolean, payload: unknown) {
+function trafficRecord(
+  id: string,
+  bodyPending: boolean,
+  payload: unknown,
+  requestPath = "/v1/responses",
+) {
   return {
     id,
     timestamp: "2026-07-18T10:00:01.000+08:00",
     request: {
       method: "POST",
-      path: "/v1/responses",
+      path: requestPath,
       body_pending: bodyPending,
       body: { size_bytes: 0, text: JSON.stringify(payload) },
     },
