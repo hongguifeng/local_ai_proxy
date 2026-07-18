@@ -4,6 +4,7 @@ import { performance } from "node:perf_hooks";
 
 import type { ApplicationState } from "../app/index.js";
 import type { ProxyPair, PublicProxyPair } from "../config/index.js";
+import type { LogGroupPage } from "../maintenance/index.js";
 import { StructuredLogger } from "../shared/index.js";
 
 export type HealthStatus = "degraded" | "ok" | "starting" | "stopping";
@@ -16,9 +17,14 @@ export interface HealthSnapshot {
 
 export interface AdminServerOptions {
   readonly getHealth: () => HealthSnapshot;
+  readonly logService?: LogAdminService;
   readonly logger?: AdminRequestLogger;
   readonly pairService?: PairAdminService;
   readonly staticAssets?: AdminStaticAssets;
+}
+
+export interface LogAdminService {
+  listGroups(query: string, limit: number, offset: number): LogGroupPage;
 }
 
 export interface PairAdminService {
@@ -109,6 +115,11 @@ export const PAIR_RESPONSE_SCHEMA = {
   additionalProperties: false,
   required: ["pair"],
   properties: { pair: { type: "object", additionalProperties: true } },
+} as const;
+
+export const LOG_GROUP_PAGE_SCHEMA = {
+  type: "object",
+  additionalProperties: true,
 } as const;
 
 export interface AdminControlPlaneOptions extends AdminServerOptions {
@@ -208,6 +219,31 @@ export function createAdminServer(options: AdminServerOptions): FastifyInstance 
       return reply.code(health.status === "degraded" ? 503 : 200).send(health);
     },
   );
+  if (options.logService !== undefined) {
+    server.get<{ Querystring: { limit?: number; offset?: number; q?: string } }>(
+      "/api/logs",
+      {
+        schema: {
+          querystring: {
+            type: "object",
+            additionalProperties: false,
+            properties: {
+              q: { type: "string", default: "" },
+              limit: { type: "integer", minimum: 1, maximum: 500, default: 100 },
+              offset: { type: "integer", minimum: 0, default: 0 },
+            },
+          },
+          response: { 200: LOG_GROUP_PAGE_SCHEMA },
+        },
+      },
+      (request) =>
+        options.logService?.listGroups(
+          request.query.q ?? "",
+          request.query.limit ?? 100,
+          request.query.offset ?? 0,
+        ),
+    );
+  }
   if (options.pairService !== undefined) {
     server.get("/api/pairs", { schema: { response: { 200: PAIRS_RESPONSE_SCHEMA } } }, () => ({
       pairs: options.pairService?.listPairs() ?? [],

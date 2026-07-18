@@ -5,6 +5,7 @@ export {
   applicationHealth,
   createAdminServer,
   HEALTH_SNAPSHOT_SCHEMA,
+  LOG_GROUP_PAGE_SCHEMA,
   PAIRS_RESPONSE_SCHEMA,
   PAIR_RESPONSE_SCHEMA,
   REPLACE_PAIRS_REQUEST_SCHEMA,
@@ -17,5 +18,6 @@ export {
   type AdminStaticAssets,
   type HealthSnapshot,
   type HealthStatus,
+  type LogAdminService,
   type PairAdminService,
 } from "./admin-server.js";
