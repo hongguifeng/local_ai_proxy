@@ -1,4 +1,4 @@
-import { spawnSync } from "node:child_process";
+import { spawn, spawnSync } from "node:child_process";
 import { copyFile, mkdtemp, rm } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
@@ -392,6 +392,29 @@ describe("Python database compatibility", () => {
   });
 });
 
+describe("multiple database connections", () => {
+  it("serializes concurrent writes from separate processes", async () => {
+    const root = await mkdtemp(path.join(os.tmpdir(), "llm-proxy-concurrent-db-"));
+    temporaryDirectories.push(root);
+    const initializer = new TrafficRepository(root);
+    initializer.close();
+
+    const writers = ["alpha", "bravo", "charlie", "delta"];
+    await Promise.all(writers.map((writer) => runConcurrentWriter(root, writer, 20)));
+
+    const repository = new TrafficRepository(root);
+    expect(repository.listTasks("concurrent-write", 100).total).toBe(80);
+    for (const writer of writers) {
+      expect(repository.getTask(`task-${writer}-19`)).toMatchObject({ model: writer });
+      expect(repository.getRecord(`record-${writer}-19`)).toMatchObject({
+        task_id: `task-${writer}-19`,
+        request_body: { writer, index: 19 },
+      });
+    }
+    repository.close();
+  });
+});
+
 function findPython(): string {
   for (const candidate of [process.env["PYTHON"], "python3", "python"]) {
     if (candidate !== undefined && spawnSync(candidate, ["--version"]).status === 0) {
@@ -427,6 +450,36 @@ function runPythonDatabaseCheck(
       },
     },
   );
+}
+
+function runConcurrentWriter(root: string, writerId: string, count: number): Promise<void> {
+  return new Promise((resolve, reject) => {
+    const child = spawn(
+      process.execPath,
+      [
+        "--import",
+        "tsx",
+        path.join(process.cwd(), "scripts", "database_concurrent_writer.ts"),
+        root,
+        writerId,
+        String(count),
+      ],
+      { cwd: process.cwd(), stdio: ["ignore", "ignore", "pipe"] },
+    );
+    let stderr = "";
+    child.stderr.setEncoding("utf8");
+    child.stderr.on("data", (chunk: string) => {
+      stderr += chunk;
+    });
+    child.on("error", reject);
+    child.on("close", (code) => {
+      if (code === 0) {
+        resolve();
+      } else {
+        reject(new Error(`Concurrent database writer ${writerId} exited with ${code}: ${stderr}`));
+      }
+    });
+  });
 }
 
 describe("TrafficRepository.deleteTasks", () => {
