@@ -161,11 +161,20 @@ export class ProxyRequestPipeline {
       );
       responseBody = await forwardResponseBody(upstream, response, request.method === "HEAD");
     } catch (error) {
-      responseStatus = 502;
-      responseHeaders = { "content-type": ["text/plain; charset=utf-8"] };
-      responseBody = Buffer.from("Bad Gateway", "utf8");
-      response.writeHead(502, { "content-type": "text/plain; charset=utf-8", connection: "close" });
-      response.end(request.method === "HEAD" ? undefined : responseBody);
+      responseStatus = response.headersSent ? response.statusCode : 502;
+      responseHeaders = response.headersSent
+        ? {}
+        : { "content-type": ["text/plain; charset=utf-8"] };
+      responseBody = response.headersSent ? Buffer.alloc(0) : Buffer.from("Bad Gateway", "utf8");
+      if (response.headersSent) {
+        response.destroy();
+      } else {
+        response.writeHead(502, {
+          "content-type": "text/plain; charset=utf-8",
+          connection: "close",
+        });
+        response.end(request.method === "HEAD" ? undefined : responseBody);
+      }
       baseRecord["error"] = error instanceof Error ? error.name : "UpstreamError";
     }
     await selectedTarget.trafficLog.write(

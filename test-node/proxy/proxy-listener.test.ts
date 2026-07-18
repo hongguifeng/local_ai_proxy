@@ -963,6 +963,58 @@ describe("ProxyListener", () => {
     await listener.close();
     await closeServer(upstream);
   });
+
+  it("closes the downstream stream and logs an error after headers were sent", async () => {
+    const finalRecords: Readonly<Record<string, unknown>>[] = [];
+    const upstream = http.createServer((_request, response) => {
+      response.writeHead(200, { "content-type": "text/plain" });
+      response.flushHeaders();
+      response.write("partial-response");
+      setImmediate(() => response.socket?.destroy(new Error("upstream stream fixture")));
+    });
+    const upstreamPort = await listenServer(upstream);
+    const trafficLog: TrafficLogWriter = {
+      write(record) {
+        if (record["event"] === "request_finished") {
+          finalRecords.push(record);
+        }
+        return Promise.resolve();
+      },
+      update: () => Promise.resolve(),
+    };
+    const pipeline = new ProxyRequestPipeline({
+      targets: [
+        {
+          enabled: true,
+          id: "broken-stream-target",
+          modelMappings: [],
+          name: "Broken stream target",
+          targetScheme: "http",
+          targetHost: "127.0.0.1",
+          targetPort: upstreamPort,
+          targetBasePath: "",
+          trafficLog,
+        },
+      ],
+    });
+    const listener = new ProxyListener({
+      host: "127.0.0.1",
+      port: 0,
+      onRequest: (request, response, context) => pipeline.handle(request, response, context),
+    });
+    const address = await listener.start();
+
+    const downstream = await requestUntilClose(address.port, "/broken-stream");
+    expect(downstream.status).toBe(200);
+    expect(downstream.closedEarly).toBe(true);
+    expect(finalRecords[0]).toMatchObject({
+      event: "request_finished",
+      error: "Error",
+      response: { status: 200 },
+    });
+    await listener.close();
+    await closeServer(upstream);
+  });
 });
 
 function requestText(
@@ -1049,6 +1101,33 @@ function requestHeaders(port: number, requestPath: string): Promise<http.Incomin
     const request = http.get({ host: "127.0.0.1", port, path: requestPath }, (response) => {
       response.resume();
       response.once("end", () => resolve(response.headers));
+    });
+    request.once("error", reject);
+  });
+}
+
+function requestUntilClose(
+  port: number,
+  requestPath: string,
+): Promise<{ status: number; body: string; closedEarly: boolean }> {
+  return new Promise((resolve, reject) => {
+    const request = http.get({ host: "127.0.0.1", port, path: requestPath }, (response) => {
+      const chunks: Buffer[] = [];
+      let settled = false;
+      const finish = (closedEarly: boolean): void => {
+        if (!settled) {
+          settled = true;
+          resolve({
+            status: response.statusCode ?? 0,
+            body: Buffer.concat(chunks).toString("utf8"),
+            closedEarly,
+          });
+        }
+      };
+      response.on("data", (chunk: Buffer) => chunks.push(chunk));
+      response.once("end", () => finish(false));
+      response.once("aborted", () => finish(true));
+      response.once("error", () => finish(true));
     });
     request.once("error", reject);
   });
