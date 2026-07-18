@@ -89,6 +89,7 @@ export {
 } from "./proxy-runtime-state.js";
 export {
   ProxyRuntimeRegistry,
+  type ProxyRuntimeDiagnostics,
   type ProxyRuntimeRegistryOptions,
   type StartEnabledResult,
 } from "./proxy-runtime-registry.js";

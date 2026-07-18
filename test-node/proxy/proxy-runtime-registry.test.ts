@@ -1,4 +1,7 @@
 import http from "node:http";
+import { access, mkdtemp, rm } from "node:fs/promises";
+import os from "node:os";
+import path from "node:path";
 import { performance } from "node:perf_hooks";
 
 import { describe, expect, it } from "vitest";
@@ -188,6 +191,51 @@ describe("ProxyRuntimeRegistry", () => {
       await close(upstream);
     }
   });
+
+  it("releases sockets, timers, active requests, and log databases after stop all", async () => {
+    const upstream = http.createServer((_request, response) => response.end("cleanup"));
+    const upstreamPort = await listen(upstream);
+    const portReservation = http.createServer();
+    const fixedPort = await listen(portReservation);
+    await close(portReservation);
+    const logRoot = await mkdtemp(path.join(os.tmpdir(), "llm-proxy-runtime-cleanup-"));
+    const basePair = pairFixture(upstreamPort, "cleanup");
+    const pair: ProxyPair = {
+      ...basePair,
+      listen_port: fixedPort,
+      targets: basePair.targets.map((target) => ({ ...target, log_root: logRoot })),
+    };
+    const timeoutCountBefore = activeResourceCount("Timeout");
+    const registry = new ProxyRuntimeRegistry({ shutdownTimeoutMs: 100 });
+
+    try {
+      await registry.startPair(pair);
+      await expect(requestText(fixedPort, "/cleanup")).resolves.toBe("cleanup");
+      expect(registry.diagnostics()).toEqual({
+        activeRequests: 0,
+        resourcePairs: 1,
+        runningPairs: 1,
+      });
+      await registry.stopAll();
+      await new Promise<void>((resolve) => setImmediate(resolve));
+      expect(registry.diagnostics()).toEqual({
+        activeRequests: 0,
+        resourcePairs: 0,
+        runningPairs: 0,
+      });
+      expect(activeResourceCount("Timeout")).toBeLessThanOrEqual(timeoutCountBefore);
+
+      const rebound = http.createServer();
+      await expect(listenOn(rebound, fixedPort)).resolves.toBeUndefined();
+      await close(rebound);
+      await rm(logRoot, { force: true, recursive: true });
+      await expect(access(logRoot)).rejects.toMatchObject({ code: "ENOENT" });
+    } finally {
+      await registry.stopAll();
+      await close(upstream);
+      await rm(logRoot, { force: true, recursive: true });
+    }
+  });
 });
 
 function pairFixture(upstreamPort: number, pairId = "runtime-pair"): ProxyPair {
@@ -241,6 +289,17 @@ function listen(server: http.Server): Promise<number> {
       }
     });
   });
+}
+
+function listenOn(server: http.Server, port: number): Promise<void> {
+  return new Promise((resolve, reject) => {
+    server.once("error", reject);
+    server.listen(port, "127.0.0.1", resolve);
+  });
+}
+
+function activeResourceCount(type: string): number {
+  return process.getActiveResourcesInfo().filter((resource) => resource === type).length;
 }
 
 function close(server: http.Server): Promise<void> {

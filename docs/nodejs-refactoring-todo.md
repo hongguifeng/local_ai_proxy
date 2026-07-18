@@ -341,7 +341,7 @@
 - [x] `MGR-009` P0 一个 pair 失败不影响其他 pair。
 - [x] `MGR-010` P0 apply failure 按 ADR 处理。
 - [x] `MGR-011` P0 graceful shutdown timeout。
-- [ ] `MGR-012` P0 关闭后 socket/timer/DB 无泄漏测试。
+- [x] `MGR-012` P0 关闭后 socket/timer/DB 无泄漏测试。
 
 ## 11. 阶段 8：管理 API 和日志维护
 

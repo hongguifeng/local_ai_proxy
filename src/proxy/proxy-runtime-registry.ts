@@ -28,6 +28,12 @@ export interface ProxyRuntimeRegistryOptions {
   readonly shutdownTimeoutMs?: number;
 }
 
+export interface ProxyRuntimeDiagnostics {
+  readonly activeRequests: number;
+  readonly resourcePairs: number;
+  readonly runningPairs: number;
+}
+
 export class ProxyRuntimeRegistry {
   readonly #entries = new Map<string, ProxyRuntimeEntry>();
   readonly #shutdownTimeoutMs: number;
@@ -41,6 +47,22 @@ export class ProxyRuntimeRegistry {
 
   status(pairId: string): ProxyRuntimeSnapshot {
     return this.#entry(pairId).state.snapshot;
+  }
+
+  diagnostics(): ProxyRuntimeDiagnostics {
+    let activeRequests = 0;
+    let resourcePairs = 0;
+    let runningPairs = 0;
+    for (const entry of this.#entries.values()) {
+      if (entry.resources !== undefined) {
+        resourcePairs += 1;
+        activeRequests += entry.resources.activeRequests.size;
+      }
+      if (entry.state.snapshot.running) {
+        runningPairs += 1;
+      }
+    }
+    return { activeRequests, resourcePairs, runningPairs };
   }
 
   publicPair(pair: ProxyPair): PublicProxyPair {
