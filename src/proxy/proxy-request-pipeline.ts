@@ -2,6 +2,11 @@ import type { IncomingMessage, ServerResponse } from "node:http";
 
 import type { RepositoryRecord } from "../persistence/index.js";
 import { ActiveRequestRegistry } from "./active-requests.js";
+import {
+  collectBody,
+  RequestBodyTooLargeError,
+  type BodyCollectorOptions,
+} from "./body-collector.js";
 import { bytesPayload } from "./payload.js";
 import type { ProxyRequestContext } from "./proxy-listener.js";
 import { transformRequestJsonFields } from "./request-transform.js";
@@ -29,6 +34,7 @@ export interface ProxyPipelineTarget {
 
 export interface ProxyRequestPipelineOptions {
   readonly activeRequests?: ActiveRequestRegistry;
+  readonly bodyCollector?: BodyCollectorOptions;
   readonly defaultTargetId?: string;
   readonly pairId?: string;
   readonly pairName?: string;
@@ -74,7 +80,20 @@ export class ProxyRequestPipeline {
         eventRecord(this.#initialRecord(request, context, target), "request_received", 0),
       );
     }
-    const requestBody = await readRequestBody(request);
+    let requestBody: Buffer;
+    try {
+      requestBody = await readRequestBody(request, this.#options.bodyCollector);
+    } catch (error) {
+      if (error instanceof RequestBodyTooLargeError) {
+        response.writeHead(413, {
+          "content-type": "text/plain; charset=utf-8",
+          connection: "close",
+        });
+        response.end("Request body too large.");
+        return;
+      }
+      throw error;
+    }
     const selection = this.#selectTarget(requestBody);
     const selectedTarget = selection.target;
     const rewrittenBody = rewriteRequestModel(requestBody, selection.upstreamModel);
@@ -166,12 +185,16 @@ export class ProxyRequestPipeline {
   }
 }
 
-export async function readRequestBody(request: IncomingMessage): Promise<Buffer> {
-  const chunks: Buffer[] = [];
-  for await (const chunk of request) {
-    chunks.push(Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk as Uint8Array));
+export async function readRequestBody(
+  request: IncomingMessage,
+  options: BodyCollectorOptions = {},
+): Promise<Buffer> {
+  const collected = await collectBody(request, options);
+  try {
+    return await collected.bytes();
+  } finally {
+    await collected.cleanup();
   }
-  return Buffer.concat(chunks);
 }
 
 function eventRecord(

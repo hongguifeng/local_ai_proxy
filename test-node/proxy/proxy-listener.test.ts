@@ -379,6 +379,40 @@ describe("ProxyListener", () => {
     await listener.close();
   });
 
+  it("returns 413 when the configured request body limit is exceeded", async () => {
+    const trafficLog: TrafficLogWriter = {
+      write: () => Promise.resolve(),
+      update: () => Promise.resolve(),
+    };
+    const pipeline = new ProxyRequestPipeline({
+      bodyCollector: { memoryThresholdBytes: 4, maxBytes: 8 },
+      targets: [
+        {
+          enabled: true,
+          id: "limited-target",
+          modelMappings: [],
+          name: "Limited target",
+          targetScheme: "http",
+          targetHost: "127.0.0.1",
+          targetPort: 4328,
+          targetBasePath: "",
+          trafficLog,
+        },
+      ],
+    });
+    const listener = new ProxyListener({
+      host: "127.0.0.1",
+      port: 0,
+      onRequest: (request, response, context) => pipeline.handle(request, response, context),
+    });
+    const address = await listener.start();
+
+    expect(
+      await requestText(address.port, "/too-large", { method: "POST", body: "123456789" }),
+    ).toEqual({ status: 413, body: "Request body too large." });
+    await listener.close();
+  });
+
   it("logs pending and final events around request processing", async () => {
     const events: string[] = [];
     const trafficLog: TrafficLogWriter = {

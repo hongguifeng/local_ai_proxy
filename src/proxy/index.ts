@@ -1,5 +1,13 @@
 export { ActiveRequestRegistry, type ActiveRequest } from "./active-requests.js";
 export {
+  DEFAULT_BODY_MEMORY_THRESHOLD_BYTES,
+  DEFAULT_MAX_REQUEST_BODY_BYTES,
+  RequestBodyTooLargeError,
+  collectBody,
+  type BodyCollectorOptions,
+  type CollectedBody,
+} from "./body-collector.js";
+export {
   applyTargetHeaderSettings,
   buildForwardHeaders,
   HOP_BY_HOP_HEADERS,
