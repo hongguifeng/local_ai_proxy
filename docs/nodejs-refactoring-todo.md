@@ -482,7 +482,7 @@
 - [x] `DOC-005` P0 增加数据备份/迁移/回滚章节。
 - [x] `DOC-006` P0 增加 Node/Electron 故障排查。
 - [x] `DOC-007` P1 更新截图（只有必要时）。
-- [ ] `DOC-008` P0 用 Node.js OpenAI SDK 示例替换 `examples/responses_client.py`，删除失效的 `--target-url` 说明。
+- [x] `DOC-008` P0 用 Node.js OpenAI SDK 示例替换 `examples/responses_client.py`，删除失效的 `--target-url` 说明。
 
 ### 14.3 删除 Python
 

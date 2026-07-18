@@ -113,6 +113,8 @@ For the default proxy pair, client requests should go to:
 http://127.0.0.1:1234
 ```
 
+See [the Node.js OpenAI SDK Responses example](examples/responses_client.mjs) for a minimal client.
+
 ## Web Console
 
 The UI is served at `http://127.0.0.1:8088` by default. Use `--host` and `--port` if you need a different admin address.

@@ -112,6 +112,8 @@ git push origin v0.1.0
 http://127.0.0.1:1234
 ```
 
+最小客户端示例见 [Node.js OpenAI SDK Responses 示例](examples/responses_client.mjs)。
+
 ## Web 控制台
 
 管理界面默认运行在 `http://127.0.0.1:8088`。如需修改管理界面的监听地址，可使用 `--host` 和 `--port`。
