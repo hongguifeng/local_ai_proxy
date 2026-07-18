@@ -278,6 +278,51 @@ describe("ProxyListener", () => {
     await listener.close();
   });
 
+  it("handles empty request bodies and suppresses HEAD response bytes", async () => {
+    const pendingRecords: Readonly<Record<string, unknown>>[] = [];
+    const trafficLog: TrafficLogWriter = {
+      write() {
+        return Promise.resolve();
+      },
+      update(record) {
+        pendingRecords.push(record);
+        return Promise.resolve();
+      },
+    };
+    const pipeline = new ProxyRequestPipeline({
+      targets: [
+        {
+          enabled: true,
+          id: "empty-target",
+          modelMappings: [],
+          name: "Empty body target",
+          targetScheme: "http",
+          targetHost: "127.0.0.1",
+          targetPort: 4326,
+          targetBasePath: "",
+          trafficLog,
+        },
+      ],
+    });
+    const listener = new ProxyListener({
+      host: "127.0.0.1",
+      port: 0,
+      onRequest: (request, response, context) => pipeline.handle(request, response, context),
+    });
+    const address = await listener.start();
+
+    const empty = await requestText(address.port, "/empty");
+    const head = await requestText(address.port, "/head", { method: "HEAD" });
+    expect(empty.status).toBe(501);
+    expect(head).toEqual({ status: 501, body: "" });
+    expect(pendingRecords).toHaveLength(2);
+    expect(pendingRecords[0]).toMatchObject({ request: { body: { size_bytes: 0, text: "" } } });
+    expect(pendingRecords[1]).toMatchObject({
+      request: { method: "HEAD", body: { size_bytes: 0, text: "" } },
+    });
+    await listener.close();
+  });
+
   it("logs pending and final events around request processing", async () => {
     const events: string[] = [];
     const trafficLog: TrafficLogWriter = {
