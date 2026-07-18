@@ -458,7 +458,7 @@
 - [x] `PKG-004` P0 artifact 启动 smoke test。
 - [x] `PKG-005` P0 生成 SHA-256。
 - [x] `PKG-006` P0 GitHub Actions 上传 artifact。
-- [ ] `PKG-007` P0 `v*` tag 发布 Release。
+- [x] `PKG-007` P0 `v*` tag 发布 Release。
 - [ ] `PKG-008` P1 发布轻量 CLI zip。
 - [ ] `PKG-009` P1 代码签名需求评估和文档。
 

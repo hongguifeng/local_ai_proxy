@@ -12,4 +12,15 @@ describe("release workflow", () => {
     expect(workflow).toContain("release/SHA256SUMS.txt");
     expect(workflow).toContain("actions/upload-artifact@v4");
   });
+
+  it("publishes v-tag builds to a GitHub Release", async () => {
+    const workflow = await readFile(
+      new URL("../../.github/workflows/release.yml", import.meta.url),
+      "utf8",
+    );
+    expect(workflow).toContain('- "v*"');
+    expect(workflow).toContain("startsWith(github.ref, 'refs/tags/v')");
+    expect(workflow).toContain("gh release create");
+    expect(workflow).toContain("gh release upload");
+  });
 });
