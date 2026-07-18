@@ -3,6 +3,7 @@ import type { AddressInfo } from "node:net";
 import { performance } from "node:perf_hooks";
 
 import type { ApplicationState } from "../app/index.js";
+import type { PublicProxyPair } from "../config/index.js";
 import { StructuredLogger } from "../shared/index.js";
 
 export type HealthStatus = "degraded" | "ok" | "starting" | "stopping";
@@ -16,7 +17,12 @@ export interface HealthSnapshot {
 export interface AdminServerOptions {
   readonly getHealth: () => HealthSnapshot;
   readonly logger?: AdminRequestLogger;
+  readonly pairService?: PairAdminService;
   readonly staticAssets?: AdminStaticAssets;
+}
+
+export interface PairAdminService {
+  listPairs(): readonly PublicProxyPair[];
 }
 
 export interface AdminRequestLogger {
@@ -61,6 +67,18 @@ export const ADMIN_ERROR_DTO_SCHEMA = {
         code: { type: "string" },
         message: { type: "string" },
       },
+    },
+  },
+} as const;
+
+export const PAIRS_RESPONSE_SCHEMA = {
+  type: "object",
+  additionalProperties: false,
+  required: ["pairs"],
+  properties: {
+    pairs: {
+      type: "array",
+      items: { type: "object", additionalProperties: true },
     },
   },
 } as const;
@@ -162,6 +180,11 @@ export function createAdminServer(options: AdminServerOptions): FastifyInstance 
       return reply.code(health.status === "degraded" ? 503 : 200).send(health);
     },
   );
+  if (options.pairService !== undefined) {
+    server.get("/api/pairs", { schema: { response: { 200: PAIRS_RESPONSE_SCHEMA } } }, () => ({
+      pairs: options.pairService?.listPairs() ?? [],
+    }));
+  }
   if (options.staticAssets !== undefined) {
     server.get("/", async (_request, reply) =>
       reply

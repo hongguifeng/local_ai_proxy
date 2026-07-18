@@ -5,6 +5,7 @@ export {
   applicationHealth,
   createAdminServer,
   HEALTH_SNAPSHOT_SCHEMA,
+  PAIRS_RESPONSE_SCHEMA,
   type AdminControlPlaneAddress,
   type AdminControlPlaneOptions,
   type AdminErrorDto,
@@ -13,4 +14,5 @@ export {
   type AdminStaticAssets,
   type HealthSnapshot,
   type HealthStatus,
+  type PairAdminService,
 } from "./admin-server.js";

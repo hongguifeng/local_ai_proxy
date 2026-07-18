@@ -355,7 +355,7 @@
 
 ### 11.2 Pair API
 
-- [ ] `API-010` P0 GET `/api/pairs`。
+- [x] `API-010` P0 GET `/api/pairs`。
 - [ ] `API-011` P0 PUT `/api/pairs`。
 - [ ] `API-012` P0 POST `/api/pairs/:id/enabled`。
 - [ ] `API-013` P0 400/404/port conflict 测试。
