@@ -206,6 +206,9 @@ beforeAll(async () => {
     args: ["--no-sandbox"],
   });
   page = await browser.newPage();
+  await page.addInitScript(() => {
+    localStorage.setItem("llmProxyLanguage", "en");
+  });
 }, 30_000);
 
 beforeEach(() => {
