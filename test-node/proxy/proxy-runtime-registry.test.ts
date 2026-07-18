@@ -23,6 +23,15 @@ describe("ProxyRuntimeRegistry", () => {
         "upstream /runtime-start",
       );
       expect(await registry.startPair(pair)).toEqual(started);
+      const stopped = await registry.stopPair(pair.id);
+      expect(stopped).toEqual({
+        state: "stopped",
+        running: false,
+        actualListenPort: null,
+        error: undefined,
+      });
+      await expect(requestText(started.actualListenPort ?? 0, "/after-stop")).rejects.toBeDefined();
+      expect(await registry.stopPair(pair.id)).toEqual(stopped);
     } finally {
       await registry.stopPair(pair.id);
       await close(upstream);
