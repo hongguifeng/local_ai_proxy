@@ -319,7 +319,7 @@
 ### 9.5 数据面测试
 
 - [x] `HTTP-040` P0 两上游模型路由集成测试。
-- [ ] `HTTP-041` P0 rewrite + strip + inject 集成测试。
+- [x] `HTTP-041` P0 rewrite + strip + inject 集成测试。
 - [ ] `HTTP-042` P0 SSE 慢速两段测试。
 - [ ] `HTTP-043` P0 chunked request/response 测试。
 - [ ] `HTTP-044` P0 duplicate Header/Set-Cookie 测试。

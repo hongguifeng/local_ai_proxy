@@ -344,6 +344,17 @@ describe("ProxyListener", () => {
 
   it("routes, rewrites, strips, and injects the upstream request body", async () => {
     const pendingRecords: Readonly<Record<string, unknown>>[] = [];
+    const upstreamBodies: string[] = [];
+    const upstream = http.createServer((request, response) => {
+      const chunks: Buffer[] = [];
+      request.on("data", (chunk: Buffer) => chunks.push(chunk));
+      request.on("end", () => {
+        upstreamBodies.push(Buffer.concat(chunks).toString("utf8"));
+        response.writeHead(200, { "content-type": "application/json" });
+        response.end('{"ok":true}');
+      });
+    });
+    const upstreamPort = await listenServer(upstream);
     const trafficLog: TrafficLogWriter = {
       write() {
         return Promise.resolve();
@@ -364,7 +375,7 @@ describe("ProxyListener", () => {
           injectRequestFields: { stream: true, top_p: 0.9 },
           targetScheme: "http",
           targetHost: "127.0.0.1",
-          targetPort: 4327,
+          targetPort: upstreamPort,
           targetBasePath: "",
           trafficLog,
         },
@@ -378,7 +389,12 @@ describe("ProxyListener", () => {
     const address = await listener.start();
     const original = JSON.stringify({ model: "model-alias", input: "hello", temperature: 1 });
 
-    await requestText(address.port, "/v1/responses", { method: "POST", body: original });
+    await expect(
+      requestText(address.port, "/v1/responses", { method: "POST", body: original }),
+    ).resolves.toEqual({ status: 200, body: '{"ok":true}' });
+    expect(upstreamBodies).toEqual([
+      JSON.stringify({ model: "gpt-upstream", input: "hello", stream: true, top_p: 0.9 }),
+    ]);
     expect(pendingRecords[0]).toMatchObject({
       target: { id: "transform-target" },
       request: {
@@ -396,6 +412,7 @@ describe("ProxyListener", () => {
       },
     });
     await listener.close();
+    await closeServer(upstream);
   });
 
   it("reads an incoming chunked request body", async () => {
