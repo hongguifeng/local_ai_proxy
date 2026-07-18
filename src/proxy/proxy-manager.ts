@@ -15,9 +15,11 @@ export interface ProxyConfigSaver {
 }
 
 export class ProxyConfigurationApplyError extends Error {
+  readonly code: string;
   readonly failedPairId: string | undefined;
   readonly rollbackFailures: readonly string[];
   readonly stage: ConfigurationApplyStage;
+  readonly statusCode: number;
 
   constructor(
     stage: ConfigurationApplyStage,
@@ -30,6 +32,12 @@ export class ProxyConfigurationApplyError extends Error {
     this.stage = stage;
     this.failedPairId = failedPairId;
     this.rollbackFailures = rollbackFailures;
+    const listenConflict =
+      typeof cause === "object" &&
+      cause !== null &&
+      (cause as NodeJS.ErrnoException).code === "EADDRINUSE";
+    this.code = listenConflict ? "listen_conflict" : "configuration_apply_failed";
+    this.statusCode = listenConflict ? 409 : 500;
   }
 }
 
@@ -174,10 +182,12 @@ export interface ProxyPairConfigDiff {
 }
 
 export class ProxyListenConflictError extends Error {
+  readonly code = "listen_conflict";
   readonly conflictingPairId: string;
   readonly host: string;
   readonly pairId: string;
   readonly port: number;
+  readonly statusCode = 409;
 
   constructor(pair: ProxyPair, conflictingPair: ProxyPair) {
     super(

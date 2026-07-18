@@ -2,6 +2,7 @@ import { afterEach, describe, expect, it } from "vitest";
 
 import { applicationHealth, createAdminServer } from "../../src/admin/index.js";
 import { createDefaultProxyPair } from "../../src/config/index.js";
+import { ProxyListenConflictError, ProxyPairNotFoundError } from "../../src/proxy/index.js";
 
 const servers: ReturnType<typeof createAdminServer>[] = [];
 
@@ -88,5 +89,68 @@ describe("GET /api/pairs", () => {
     expect(response.statusCode).toBe(200);
     expect(response.json()).toEqual({ pair });
     expect(changes).toEqual([{ pairId: pair.id, enabled: true }]);
+  });
+
+  it("returns 400 for invalid request DTOs", async () => {
+    const server = createAdminServer({
+      getHealth: () => applicationHealth("running"),
+      pairService: {
+        listPairs: () => [],
+        replacePairs: () => Promise.resolve([]),
+        setPairEnabled: () => Promise.reject(new Error("must not run")),
+      },
+    });
+    servers.push(server);
+
+    const replaceResponse = await server.inject({
+      method: "PUT",
+      url: "/api/pairs",
+      payload: { pairs: "invalid" },
+    });
+    expect(replaceResponse.statusCode).toBe(400);
+    expect(replaceResponse.json()).toMatchObject({ error: { code: "FST_ERR_VALIDATION" } });
+    const enableResponse = await server.inject({
+      method: "POST",
+      url: "/api/pairs/missing/enabled",
+      payload: {},
+    });
+    expect(enableResponse.statusCode).toBe(400);
+  });
+
+  it("returns 404 for an unknown pair and 409 for a listen conflict", async () => {
+    const first = { ...createDefaultProxyPair(""), id: "first", enabled: true };
+    const conflict = { ...createDefaultProxyPair(""), id: "conflict", enabled: true };
+    let conflictMode = false;
+    const server = createAdminServer({
+      getHealth: () => applicationHealth("running"),
+      pairService: {
+        listPairs: () => [],
+        replacePairs: () =>
+          conflictMode
+            ? Promise.reject(new ProxyListenConflictError(conflict, first))
+            : Promise.resolve([]),
+        setPairEnabled: (pairId) => Promise.reject(new ProxyPairNotFoundError(pairId)),
+      },
+    });
+    servers.push(server);
+
+    const missing = await server.inject({
+      method: "POST",
+      url: "/api/pairs/unknown/enabled",
+      payload: { enabled: true },
+    });
+    expect(missing.statusCode).toBe(404);
+    expect(missing.json()).toEqual({
+      error: { code: "pair_not_found", message: "Proxy pair not found: unknown" },
+    });
+
+    conflictMode = true;
+    const occupied = await server.inject({
+      method: "PUT",
+      url: "/api/pairs",
+      payload: { pairs: [first, conflict] },
+    });
+    expect(occupied.statusCode).toBe(409);
+    expect(occupied.json()).toMatchObject({ error: { code: "listen_conflict" } });
   });
 });

@@ -8,7 +8,9 @@ export interface ConfigFieldError {
 }
 
 export class ConfigValidationError extends Error {
+  readonly code = "invalid_config";
   readonly issues: readonly ConfigFieldError[];
+  readonly statusCode = 400;
 
   constructor(issues: readonly ConfigFieldError[]) {
     super(

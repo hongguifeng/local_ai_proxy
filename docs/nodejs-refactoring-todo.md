@@ -358,7 +358,7 @@
 - [x] `API-010` P0 GET `/api/pairs`。
 - [x] `API-011` P0 PUT `/api/pairs`。
 - [x] `API-012` P0 POST `/api/pairs/:id/enabled`。
-- [ ] `API-013` P0 400/404/port conflict 测试。
+- [x] `API-013` P0 400/404/port conflict 测试。
 
 ### 11.3 Log query API
 
