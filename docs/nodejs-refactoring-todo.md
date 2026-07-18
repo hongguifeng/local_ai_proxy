@@ -371,7 +371,7 @@
 
 ### 11.4 Export/Cleanup
 
-- [ ] `API-030` P0 task/record 目录名生成。
+- [x] `API-030` P0 task/record 目录名生成。
 - [ ] `API-031` P0 task index Markdown。
 - [ ] `API-032` P0 record summary Markdown。
 - [ ] `API-033` P0 request/response JSON entry。
