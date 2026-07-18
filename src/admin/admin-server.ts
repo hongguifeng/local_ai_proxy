@@ -206,9 +206,11 @@ function errorProperty<T extends "number" | "string">(
 export function applicationHealth(
   applicationState: ApplicationState,
   version = "development",
+  degraded = false,
 ): HealthSnapshot {
-  const status: HealthStatus =
-    applicationState === "running"
+  const status: HealthStatus = degraded
+    ? "degraded"
+    : applicationState === "running"
       ? "ok"
       : applicationState === "created" || applicationState === "starting"
         ? "starting"

@@ -32,11 +32,7 @@ describe("admin health route", () => {
   });
 
   it("returns 503 when a provider reports degraded health", async () => {
-    const degraded: HealthSnapshot = {
-      applicationState: "running",
-      status: "degraded",
-      version: "0.1.0-test",
-    };
+    const degraded: HealthSnapshot = applicationHealth("running", "0.1.0-test", true);
     const server = createAdminServer({ getHealth: () => degraded });
     servers.push(server);
 
