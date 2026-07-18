@@ -39,6 +39,7 @@ export interface LogGroupLogs {
 
 export interface LogRecordDetail {
   readonly id: string;
+  readonly pending: boolean;
   readonly request: unknown;
   readonly request_meta: Readonly<Record<string, unknown>>;
   readonly response: unknown;
@@ -150,6 +151,7 @@ function recordDetail(record: Readonly<RepositoryRecord>): LogRecordDetail {
   const proxyName = string(record["proxy_name"]);
   return {
     id: string(record["id"]),
+    pending: string(record["event"]) !== "request_finished",
     request: record["request_body"] ?? null,
     response: record["response_body"] ?? null,
     request_meta: compactMeta({

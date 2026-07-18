@@ -137,6 +137,7 @@ describe("LogQueryService", () => {
 
     expect(new LogQueryService([root]).getRecordDetail("detail-record")).toMatchObject({
       id: "detail-record",
+      pending: false,
       request: { input: "hello" },
       response: { output: "world" },
       request_meta: {
@@ -146,6 +147,49 @@ describe("LogQueryService", () => {
         message_count: 1,
       },
       response_meta: { status: 200, token_count: 9 },
+    });
+  });
+
+  it("returns fresh detail data while a pending record is completed in place", async () => {
+    const root = await mkdtemp(path.join(os.tmpdir(), "llm-proxy-log-detail-refresh-"));
+    temporaryDirectories.push(root);
+    const repository = new TrafficRepository(root);
+    repository.upsertTask(task("refresh-task", "gpt-5", "2026-07-18T12:00:00.000+08:00"));
+    repository.upsertRecord({
+      id: "refresh-record",
+      task_id: "refresh-task",
+      sequence: 1,
+      event: "request_pending_response",
+      method: "POST",
+      path: "/v1/responses",
+      request_body: { input: "hello" },
+    });
+
+    const service = new LogQueryService([root]);
+    expect(service.getRecordDetail("refresh-record")).toMatchObject({
+      id: "refresh-record",
+      pending: true,
+      response: null,
+      response_meta: {},
+    });
+
+    repository.upsertRecord({
+      id: "refresh-record",
+      task_id: "refresh-task",
+      sequence: 1,
+      event: "request_finished",
+      method: "POST",
+      path: "/v1/responses",
+      status: 200,
+      response_body: { output: "done" },
+    });
+    repository.close();
+
+    expect(service.getRecordDetail("refresh-record")).toMatchObject({
+      id: "refresh-record",
+      pending: false,
+      response: { output: "done" },
+      response_meta: { status: 200 },
     });
   });
 });

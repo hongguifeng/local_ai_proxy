@@ -92,6 +92,7 @@ describe("GET /api/logs", () => {
   it("returns record detail and a JSON 404 for missing records", async () => {
     const detail = {
       id: "known-record",
+      pending: false,
       request: { input: "hello" },
       response: { output: "world" },
       request_meta: { method: "POST" },
