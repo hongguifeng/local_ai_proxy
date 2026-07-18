@@ -63,4 +63,10 @@ export {
   type ProxyRequestContext,
   type ProxyRequestHandler,
 } from "./proxy-listener.js";
+export {
+  ProxyRequestPipeline,
+  type ProxyPipelineTarget,
+  type ProxyRequestPipelineOptions,
+  type TrafficLogWriter,
+} from "./proxy-request-pipeline.js";
 export { joinTargetPath, parseTargetUrl, type ParsedTargetUrl } from "./target.js";
