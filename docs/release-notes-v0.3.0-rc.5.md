@@ -1,8 +1,8 @@
-# LLM Proxy v0.3.0-rc.4
+# LLM Proxy v0.3.0-rc.5
 
 这是将应用从 Python 完整切换到 Node.js 24 + TypeScript + Electron 的候选版本。代理、管理 UI、历史记录、SQLite 数据、CLI 和 Windows Tray 功能均已迁移；运行和开发不再需要 Python。
 
-相较此前候选版本，本版本修复了 Windows CI 的路径、行尾、浏览器语言和跨时区测试问题；Electron 产物使用无空格文件名，远程附件可直接通过随附的 `SHA256SUMS.txt` 校验。随后 Windows tag CI 暴露了 UI 测试等待 `networkidle` 的偶发超时，因此本版本已由 `v0.3.0-rc.5` 替代，不作为有效候选版本。
+相较此前候选版本，本版本修复了 Windows CI 的路径、行尾、浏览器语言、跨时区和 UI 等待策略问题；Electron 产物使用无空格文件名，远程附件可直接通过随附的 `SHA256SUMS.txt` 校验。旧 RC.1 至 RC.4 标签保持不变，但不作为有效候选版本。
 
 ## 已批准的行为差异
 

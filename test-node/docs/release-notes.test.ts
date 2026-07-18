@@ -4,7 +4,7 @@ import { describe, expect, it } from "vitest";
 describe("RC release notes", () => {
   it("lists every approved behavior difference and operational warning", async () => {
     const notes = await readFile(
-      new URL("../../docs/release-notes-v0.3.0-rc.4.md", import.meta.url),
+      new URL("../../docs/release-notes-v0.3.0-rc.5.md", import.meta.url),
       "utf8",
     );
     for (const required of [
