@@ -4,7 +4,7 @@ import { performance } from "node:perf_hooks";
 
 import type { ApplicationState } from "../app/index.js";
 import type { ProxyPair, PublicProxyPair } from "../config/index.js";
-import type { LogGroupLogs, LogGroupPage } from "../maintenance/index.js";
+import type { LogGroupLogs, LogGroupPage, LogRecordDetail } from "../maintenance/index.js";
 import { StructuredLogger } from "../shared/index.js";
 
 export type HealthStatus = "degraded" | "ok" | "starting" | "stopping";
@@ -25,6 +25,7 @@ export interface AdminServerOptions {
 
 export interface LogAdminService {
   readonly getGroupLogs?: (groupId: string, query: string) => LogGroupLogs | undefined;
+  readonly getRecordDetail?: (recordId: string) => LogRecordDetail | undefined;
   listGroups(query: string, limit: number, offset: number): LogGroupPage;
 }
 
@@ -124,6 +125,11 @@ export const LOG_GROUP_PAGE_SCHEMA = {
 } as const;
 
 export const LOG_GROUP_LOGS_SCHEMA = {
+  type: "object",
+  additionalProperties: true,
+} as const;
+
+export const LOG_RECORD_DETAIL_SCHEMA = {
   type: "object",
   additionalProperties: true,
 } as const;
@@ -274,6 +280,25 @@ export function createAdminServer(options: AdminServerOptions): FastifyInstance 
             group ?? reply.code(404).send(adminError("log_group_not_found", "Log group not found."))
           );
         },
+      );
+    }
+    const getRecordDetail = options.logService.getRecordDetail;
+    if (getRecordDetail !== undefined) {
+      server.get<{ Params: { id: string } }>(
+        "/api/logs/:id",
+        {
+          schema: {
+            params: {
+              type: "object",
+              required: ["id"],
+              properties: { id: { type: "string", minLength: 1 } },
+            },
+            response: { 200: LOG_RECORD_DETAIL_SCHEMA },
+          },
+        },
+        (request, reply) =>
+          getRecordDetail(request.params.id) ??
+          reply.code(404).send(adminError("log_record_not_found", "Log record not found.")),
       );
     }
   }

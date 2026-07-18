@@ -365,7 +365,7 @@
 - [x] `API-020` P0 GET `/api/logs` query/limit/offset。
 - [x] `API-021` P0 多 log root 合并排序分页。
 - [x] `API-022` P0 GET task group logs。
-- [ ] `API-023` P0 GET record detail/meta。
+- [x] `API-023` P0 GET record detail/meta。
 - [ ] `API-024` P0 pending detail refresh 数据。
 - [ ] `API-025` P1 task 内 200 条限制是否保留的决策/实现。
 

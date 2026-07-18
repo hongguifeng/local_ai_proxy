@@ -88,4 +88,38 @@ describe("GET /api/logs", () => {
       error: { code: "log_group_not_found", message: "Log group not found." },
     });
   });
+
+  it("returns record detail and a JSON 404 for missing records", async () => {
+    const detail = {
+      id: "known-record",
+      request: { input: "hello" },
+      response: { output: "world" },
+      request_meta: { method: "POST" },
+      response_meta: { status: 200 },
+    };
+    const server = createAdminServer({
+      getHealth: () => applicationHealth("running"),
+      logService: {
+        listGroups: () => ({
+          groups: [],
+          total: 0,
+          limit: 100,
+          offset: 0,
+          next_offset: 0,
+          has_more: false,
+        }),
+        getRecordDetail: (recordId) => (recordId === detail.id ? detail : undefined),
+      },
+    });
+    servers.push(server);
+
+    const known = await server.inject({ method: "GET", url: "/api/logs/known-record" });
+    expect(known.statusCode).toBe(200);
+    expect(known.json()).toEqual(detail);
+    const missing = await server.inject({ method: "GET", url: "/api/logs/missing" });
+    expect(missing.statusCode).toBe(404);
+    expect(missing.json()).toEqual({
+      error: { code: "log_record_not_found", message: "Log record not found." },
+    });
+  });
 });

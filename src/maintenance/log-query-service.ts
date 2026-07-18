@@ -37,6 +37,14 @@ export interface LogGroupLogs {
   readonly logs: readonly LogListItem[];
 }
 
+export interface LogRecordDetail {
+  readonly id: string;
+  readonly request: unknown;
+  readonly request_meta: Readonly<Record<string, unknown>>;
+  readonly response: unknown;
+  readonly response_meta: Readonly<Record<string, unknown>>;
+}
+
 export class LogQueryService {
   readonly #logRoots: () => readonly string[];
 
@@ -90,6 +98,21 @@ export class LogQueryService {
     return undefined;
   }
 
+  getRecordDetail(recordId: string): LogRecordDetail | undefined {
+    for (const root of [...new Set(this.#logRoots().filter((value) => value !== ""))]) {
+      const repository = new TrafficRepository(root);
+      try {
+        const record = repository.getRecord(recordId);
+        if (record !== undefined) {
+          return recordDetail(record);
+        }
+      } finally {
+        repository.close();
+      }
+    }
+    return undefined;
+  }
+
   #listMergedGroups(
     roots: readonly string[],
     query: string,
@@ -121,6 +144,60 @@ export class LogQueryService {
       has_more: nextOffset < total,
     };
   }
+}
+
+function recordDetail(record: Readonly<RepositoryRecord>): LogRecordDetail {
+  const proxyName = string(record["proxy_name"]);
+  return {
+    id: string(record["id"]),
+    request: record["request_body"] ?? null,
+    response: record["response_body"] ?? null,
+    request_meta: compactMeta({
+      id: record["id"],
+      sequence: record["sequence"],
+      timestamp: displayTimestamp(record["timestamp"]) || record["timestamp"],
+      duration_ms: record["duration_ms"],
+      method: record["method"],
+      path: record["path"],
+      endpoint: record["endpoint"],
+      target: record["target_url"],
+      proxy: proxyName === "" ? record["proxy_id"] : proxyName,
+      client: clientAddress(record),
+      message_count: record["message_count"],
+      model_route: record["model_route"],
+      stripped_fields: record["stripped_fields"],
+      injected_fields: record["injected_fields"],
+      added_upstream_headers: record["added_upstream_headers"],
+      headers: record["request_headers"],
+    }),
+    response_meta: compactMeta({
+      status: record["status"],
+      duration_ms: record["duration_ms"],
+      token_count: record["token_count"],
+      error: record["error"],
+      headers: record["response_headers"],
+    }),
+  };
+}
+
+function clientAddress(record: Readonly<RepositoryRecord>): string {
+  const host = string(record["client_host"]);
+  const port = record["client_port"];
+  return host === "" ? "" : port === null || port === undefined ? host : `${host}:${string(port)}`;
+}
+
+function compactMeta(values: Readonly<Record<string, unknown>>): Readonly<Record<string, unknown>> {
+  return Object.fromEntries(Object.entries(values).filter(([, value]) => !emptyMetaValue(value)));
+}
+
+function emptyMetaValue(value: unknown): boolean {
+  return (
+    value === null ||
+    value === undefined ||
+    value === "" ||
+    (Array.isArray(value) && value.length === 0) ||
+    (typeof value === "object" && !Array.isArray(value) && Object.keys(value).length === 0)
+  );
 }
 
 function logListItem(record: Readonly<RepositoryRecord>): LogListItem {

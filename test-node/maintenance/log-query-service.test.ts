@@ -107,6 +107,47 @@ describe("LogQueryService", () => {
     });
     expect(service.getGroupLogs("missing")).toBeUndefined();
   });
+
+  it("returns request and response detail with compact metadata", async () => {
+    const root = await mkdtemp(path.join(os.tmpdir(), "llm-proxy-log-detail-"));
+    temporaryDirectories.push(root);
+    const repository = new TrafficRepository(root);
+    repository.upsertTask(task("detail-task", "gpt-5", "2026-07-18T12:00:00.000+08:00"));
+    repository.upsertRecord({
+      id: "detail-record",
+      task_id: "detail-task",
+      sequence: 2,
+      timestamp: "2026-07-18T12:00:01.000+08:00",
+      duration_ms: 15,
+      method: "POST",
+      path: "/v1/responses?trace=1",
+      endpoint: "/v1/responses",
+      status: 200,
+      token_count: 9,
+      message_count: 1,
+      client_host: "127.0.0.1",
+      client_port: 43111,
+      request_headers: { "Content-Type": "application/json" },
+      response_headers: { "Content-Type": "application/json" },
+      request_body: { input: "hello" },
+      response_body: { output: "world" },
+      stripped_fields: [],
+    });
+    repository.close();
+
+    expect(new LogQueryService([root]).getRecordDetail("detail-record")).toMatchObject({
+      id: "detail-record",
+      request: { input: "hello" },
+      response: { output: "world" },
+      request_meta: {
+        method: "POST",
+        endpoint: "/v1/responses",
+        client: "127.0.0.1:43111",
+        message_count: 1,
+      },
+      response_meta: { status: 200, token_count: 9 },
+    });
+  });
 });
 
 function task(id: string, model: string, timestamp: string) {
