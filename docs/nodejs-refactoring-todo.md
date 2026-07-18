@@ -411,7 +411,7 @@
 - [x] `UI-022` P0 group lazy expand。
 - [x] `UI-023` P0 load more。
 - [x] `UI-024` P0 selected task cleanup。
-- [ ] `UI-025` P0 ZIP download。
+- [x] `UI-025` P0 ZIP download。
 - [ ] `UI-026` P0 record detail 和 pending refresh。
 - [ ] `UI-027` P0 JSON tree expand/collapse。
 - [ ] `UI-028` P0 wrap/format/copy/meta。

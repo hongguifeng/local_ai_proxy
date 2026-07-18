@@ -7,6 +7,8 @@ import {
   type Page,
 } from "@playwright/test";
 import type { AddressInfo } from "node:net";
+import { readFile } from "node:fs/promises";
+import { Readable } from "node:stream";
 
 import {
   applicationHealth,
@@ -164,6 +166,7 @@ beforeAll(async () => {
         groupIds.forEach((groupId) => deletedLogGroups.add(groupId));
         return { deleted: groupIds, deleted_count: groupIds.length };
       },
+      exportLogs: () => Readable.from([Buffer.from("zip-fixture")]),
     },
     staticAssets: await loadAdminStaticAssets(),
   });
@@ -478,6 +481,22 @@ describe("admin UI history page", () => {
     await expectPage(page.locator('[data-group-id="task-one"]')).toHaveCount(0);
     await expectPage(page.locator('[data-group-id="task-needle"]')).toHaveCount(1);
     await expectPage(page.locator("#toast")).toContainText("Logs cleaned: 1");
+  });
+
+  it("downloads the log ZIP archive", async () => {
+    await page.goto(baseUrl, { waitUntil: "networkidle" });
+    await Promise.all([
+      page.waitForResponse((response) => response.url().includes("/api/logs?")),
+      page.locator('[data-tab="logs"]').click(),
+    ]);
+
+    const downloadPromise = page.waitForEvent("download");
+    await page.locator("#exportLogs").click();
+    const download = await downloadPromise;
+    expect(download.suggestedFilename()).toBe("llm-proxy-logs.zip");
+    const downloadPath = await download.path();
+    expect(await readFile(downloadPath)).toEqual(Buffer.from("zip-fixture"));
+    await expectPage(page.locator("#toast")).toContainText("Logs exported");
   });
 });
 
