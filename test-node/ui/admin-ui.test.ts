@@ -22,6 +22,7 @@ let baseUrl: string;
 const logQueries: string[] = [];
 const groupLogQueries: string[] = [];
 let useLargeLogFixture = false;
+const deletedLogGroups = new Set<string>();
 
 const pairs: PublicProxyPair[] = [];
 
@@ -105,8 +106,10 @@ beforeAll(async () => {
                 target: "fixture-target",
               },
             ];
-        const groups = sourceGroups.filter((group) =>
-          `${group.title} ${group.meta}`.toLowerCase().includes(query.toLowerCase()),
+        const groups = sourceGroups.filter(
+          (group) =>
+            !deletedLogGroups.has(group.id) &&
+            `${group.title} ${group.meta}`.toLowerCase().includes(query.toLowerCase()),
         );
         const pageGroups = groups.slice(offset, offset + limit);
         const nextOffset = offset + pageGroups.length;
@@ -157,6 +160,10 @@ beforeAll(async () => {
           ],
         };
       },
+      cleanupSelectedGroups: (groupIds) => {
+        groupIds.forEach((groupId) => deletedLogGroups.add(groupId));
+        return { deleted: groupIds, deleted_count: groupIds.length };
+      },
     },
     staticAssets: await loadAdminStaticAssets(),
   });
@@ -176,6 +183,7 @@ beforeEach(() => {
   logQueries.splice(0);
   groupLogQueries.splice(0);
   useLargeLogFixture = false;
+  deletedLogGroups.clear();
 });
 
 afterAll(async () => {
@@ -448,6 +456,28 @@ describe("admin UI history page", () => {
     await expectPage(page.locator(".log-group")).toHaveCount(101);
     await expectPage(page.locator("[data-load-more]")).toHaveCount(0);
     await expectPage(page.locator('[data-group-id="task-101"]')).toHaveCount(1);
+  });
+
+  it("cleans selected task groups and refreshes the list", async () => {
+    await page.goto(baseUrl, { waitUntil: "networkidle" });
+    await Promise.all([
+      page.waitForResponse((response) => response.url().includes("/api/logs?")),
+      page.locator('[data-tab="logs"]').click(),
+    ]);
+    await page.locator('[data-select-group="task-one"]').check();
+
+    await Promise.all([
+      page.waitForResponse(
+        (response) =>
+          response.url().endsWith("/api/logs/cleanup") && response.request().method() === "POST",
+      ),
+      page.waitForResponse((response) => response.url().includes("/api/logs?")),
+      page.locator("#cleanupLogs").click(),
+    ]);
+    expect(deletedLogGroups).toEqual(new Set(["task-one"]));
+    await expectPage(page.locator('[data-group-id="task-one"]')).toHaveCount(0);
+    await expectPage(page.locator('[data-group-id="task-needle"]')).toHaveCount(1);
+    await expectPage(page.locator("#toast")).toContainText("Logs cleaned: 1");
   });
 });
 
