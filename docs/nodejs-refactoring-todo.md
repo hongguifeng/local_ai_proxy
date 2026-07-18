@@ -400,7 +400,7 @@
 - [x] `UI-013` P0 default target 与 enabled 规则。
 - [x] `UI-014` P0 API Key 显隐/复制。
 - [x] `UI-015` P0 More settings。
-- [ ] `UI-016` P0 save 和 enable toggle。
+- [x] `UI-016` P0 save 和 enable toggle。
 - [ ] `UI-017` P0 语言切换不丢表单值。
 - [ ] `UI-018` P1 target 横向滚动位置。
 

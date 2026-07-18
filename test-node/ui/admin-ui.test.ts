@@ -1,4 +1,4 @@
-import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
 import { chromium, expect as expectPage, type Browser, type Page } from "@playwright/test";
 import type { AddressInfo } from "node:net";
 
@@ -7,15 +7,17 @@ import {
   createAdminServer,
   loadAdminStaticAssets,
 } from "../../src/admin/index.js";
-import type { PublicProxyPair } from "../../src/config/index.js";
+import type { ProxyPair, PublicProxyPair } from "../../src/config/index.js";
 
 let browser: Browser;
 let page: Page;
 let server: ReturnType<typeof createAdminServer>;
 let baseUrl: string;
 
-const pairs: PublicProxyPair[] = [
-  {
+const pairs: PublicProxyPair[] = [];
+
+function fixturePair(): PublicProxyPair {
+  return {
     id: "proxy-one",
     name: "Fixture Proxy",
     enabled: true,
@@ -41,13 +43,29 @@ const pairs: PublicProxyPair[] = [
         model_mappings: [],
       },
     ],
-  },
-];
+  };
+}
 
 beforeAll(async () => {
   server = createAdminServer({
     getHealth: () => applicationHealth("running"),
-    pairService: { listPairs: () => pairs },
+    pairService: {
+      listPairs: () => pairs,
+      replacePairs: (nextPairs) => {
+        const publicPairs = nextPairs.map(publicPair);
+        pairs.splice(0, pairs.length, ...publicPairs);
+        return Promise.resolve(pairs);
+      },
+      setPairEnabled: (pairId, enabled) => {
+        const pair = pairs.find(({ id }) => id === pairId);
+        if (pair === undefined) {
+          throw new Error(`Unknown pair: ${pairId}`);
+        }
+        const updated = { ...pair, enabled, running: enabled };
+        pairs.splice(pairs.indexOf(pair), 1, updated);
+        return Promise.resolve(updated);
+      },
+    },
     staticAssets: await loadAdminStaticAssets(),
   });
   await server.listen({ host: "127.0.0.1", port: 0 });
@@ -60,6 +78,10 @@ beforeAll(async () => {
   });
   page = await browser.newPage();
 }, 30_000);
+
+beforeEach(() => {
+  pairs.splice(0, pairs.length, fixturePair());
+});
 
 afterAll(async () => {
   await page.close();
@@ -182,4 +204,41 @@ describe("admin UI proxy page", () => {
     await target.locator("[data-toggle-target-options]").click();
     await expectPage(options).toBeHidden();
   });
+
+  it("saves form changes and toggles the proxy enabled state", async () => {
+    await page.goto(baseUrl, { waitUntil: "networkidle" });
+    const card = page.locator('.proxy-card[data-index="0"]');
+    await card.locator('[data-field="name"]').fill("Saved Proxy");
+    await Promise.all([
+      page.waitForResponse(
+        (response) =>
+          response.url().endsWith("/api/pairs") && response.request().method() === "PUT",
+      ),
+      page.locator("#saveProxies").click(),
+    ]);
+    await expectPage(page.locator("#toast")).toContainText("Config saved");
+    expect(pairs[0]?.name).toBe("Saved Proxy");
+
+    await page.reload({ waitUntil: "networkidle" });
+    await Promise.all([
+      page.waitForResponse(
+        (response) =>
+          response.url().endsWith("/api/pairs/proxy-one/enabled") &&
+          response.request().method() === "POST",
+      ),
+      page.locator('.proxy-card[data-index="0"] [data-toggle]').evaluate((element) => {
+        const click: unknown = Reflect.get(element, "click");
+        if (typeof click === "function") {
+          Reflect.apply(click, element, []);
+        }
+      }),
+    ]);
+    expect(pairs[0]?.enabled).toBe(false);
+    expect(pairs[0]?.running).toBe(false);
+    await expectPage(page.locator('.proxy-card[data-index="0"] [data-toggle]')).not.toBeChecked();
+  }, 20_000);
 });
+
+function publicPair(pair: ProxyPair): PublicProxyPair {
+  return { ...structuredClone(pair), actual_listen_port: null, running: pair.enabled };
+}
