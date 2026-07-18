@@ -386,7 +386,7 @@
 ### 12.1 静态 UI 迁移
 
 - [x] `UI-001` P0 复制 index.html。
-- [ ] `UI-002` P0 复制 app.css。
+- [x] `UI-002` P0 复制 app.css。
 - [ ] `UI-003` P0 复制 app.js。
 - [ ] `UI-004` P0 替换建议 strip fields 注入方式。
 - [ ] `UI-005` P0 保持中文/英文和 localStorage key。

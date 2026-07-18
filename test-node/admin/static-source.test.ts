@@ -11,4 +11,12 @@ describe("admin UI source migration", () => {
     ]);
     expect(migrated).toBe(await format(baseline, { parser: "html", printWidth: 100 }));
   });
+
+  it("keeps the migrated CSS identical to the visual baseline source", async () => {
+    const [migrated, baseline] = await Promise.all([
+      readFile(path.resolve("src/admin/static/app.css"), "utf8"),
+      readFile(path.resolve("llm_proxy/static/app.css"), "utf8"),
+    ]);
+    expect(migrated).toBe(await format(baseline, { parser: "css", printWidth: 100 }));
+  });
 });
