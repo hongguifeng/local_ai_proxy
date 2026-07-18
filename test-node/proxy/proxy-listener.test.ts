@@ -552,6 +552,63 @@ describe("ProxyListener", () => {
     await listener.close();
     await closeServer(upstream);
   });
+
+  it("filters client headers and applies target overrides and API key", async () => {
+    const receivedHeaders: http.IncomingHttpHeaders[] = [];
+    const upstream = http.createServer((request, response) => {
+      receivedHeaders.push(request.headers);
+      response.end("headers received");
+    });
+    const upstreamPort = await listenServer(upstream);
+    const trafficLog: TrafficLogWriter = {
+      write: () => Promise.resolve(),
+      update: () => Promise.resolve(),
+    };
+    const pipeline = new ProxyRequestPipeline({
+      targets: [
+        {
+          enabled: true,
+          id: "header-target",
+          modelMappings: [],
+          name: "Header target",
+          targetScheme: "http",
+          targetHost: "127.0.0.1",
+          targetPort: upstreamPort,
+          targetBasePath: "",
+          targetApiKey: "target-secret",
+          targetHeaders: [
+            ["X-Client", "target-value"],
+            ["X-Override", "configured"],
+          ],
+          trafficLog,
+        },
+      ],
+    });
+    const listener = new ProxyListener({
+      host: "127.0.0.1",
+      port: 0,
+      onRequest: (request, response, context) => pipeline.handle(request, response, context),
+    });
+    const address = await listener.start();
+
+    await requestText(address.port, "/headers", {
+      headers: {
+        Authorization: "Bearer client-secret",
+        "Proxy-Authorization": "client-proxy-secret",
+        "X-Client": "client-value",
+      },
+    });
+    expect(receivedHeaders[0]).toMatchObject({
+      authorization: "Bearer target-secret",
+      host: `127.0.0.1:${upstreamPort}`,
+      "x-client": "target-value",
+      "x-override": "configured",
+      "x-forwarded-for": "127.0.0.1",
+    });
+    expect(receivedHeaders[0]).not.toHaveProperty("proxy-authorization");
+    await listener.close();
+    await closeServer(upstream);
+  });
 });
 
 function requestText(
@@ -561,6 +618,7 @@ function requestText(
     readonly method?: string;
     readonly body?: string;
     readonly chunks?: readonly string[];
+    readonly headers?: Readonly<Record<string, string>>;
   } = {},
 ): Promise<{ status: number; body: string }> {
   return new Promise((resolve, reject) => {
@@ -570,10 +628,12 @@ function requestText(
         port,
         path,
         method: options.method ?? "GET",
-        headers:
-          options.body === undefined
-            ? undefined
-            : { "content-length": Buffer.byteLength(options.body) },
+        headers: {
+          ...options.headers,
+          ...(options.body === undefined
+            ? {}
+            : { "content-length": Buffer.byteLength(options.body) }),
+        },
       },
       (response) => {
         const chunks: Buffer[] = [];

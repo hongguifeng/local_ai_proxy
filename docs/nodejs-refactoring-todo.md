@@ -298,7 +298,7 @@
 - [x] `HTTP-020` P0 HTTP target。
 - [x] `HTTP-021` P0 HTTPS target。
 - [x] `HTTP-022` P0 base path/query。
-- [ ] `HTTP-023` P0 Header 过滤和覆盖。
+- [x] `HTTP-023` P0 Header 过滤和覆盖。
 - [ ] `HTTP-024` P0 timeout。
 - [ ] `HTTP-025` P0 AbortController 连接 client/upstream/shutdown。
 - [ ] `HTTP-026` P1 TLS 错误和 DNS 错误测试。
