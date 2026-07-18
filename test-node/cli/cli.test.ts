@@ -1,6 +1,8 @@
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 
-import { parseCliArgs } from "../../src/cli/index.js";
+import { openBrowserLater, parseCliArgs } from "../../src/cli/index.js";
+
+afterEach(() => vi.useRealTimers());
 
 describe("parseCliArgs", () => {
   it("uses the loopback host by default", () => {
@@ -63,5 +65,19 @@ describe("parseCliArgs", () => {
 
   it("rejects a missing host", () => {
     expect(() => parseCliArgs(["--host"])).toThrow("Option --host requires a value.");
+  });
+});
+
+describe("openBrowserLater", () => {
+  it("waits before opening the admin URL", () => {
+    vi.useFakeTimers();
+    const launch = vi.fn();
+    openBrowserLater("http://127.0.0.1:8088", 500, launch);
+
+    expect(launch).not.toHaveBeenCalled();
+    vi.advanceTimersByTime(499);
+    expect(launch).not.toHaveBeenCalled();
+    vi.advanceTimersByTime(1);
+    expect(launch).toHaveBeenCalledWith("http://127.0.0.1:8088");
   });
 });
