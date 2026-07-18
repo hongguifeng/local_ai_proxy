@@ -163,4 +163,23 @@ describe("admin UI proxy page", () => {
       }),
     ).toBe("secret-key");
   });
+
+  it("expands and collapses target more settings", async () => {
+    await page.goto(baseUrl, { waitUntil: "networkidle" });
+    const target = page.locator('.proxy-card[data-index="0"] .target-card').first();
+    const options = target.locator(".target-options");
+    await expectPage(options).toBeHidden();
+
+    await target.locator("[data-toggle-target-options]").click();
+    await expectPage(options).toBeVisible();
+    await expectPage(options.locator('[data-target-field="timeout"]')).toHaveValue("600");
+    await expectPage(options.locator('[data-target-field="log_root"]')).toHaveValue("logs");
+    await expectPage(options.locator('[data-target-field="strip_request_fields"]')).toHaveAttribute(
+      "placeholder",
+      /temperature/,
+    );
+
+    await target.locator("[data-toggle-target-options]").click();
+    await expectPage(options).toBeHidden();
+  });
 });
