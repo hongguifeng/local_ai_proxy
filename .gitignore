@@ -10,4 +10,5 @@ coverage/
 test-results/
 dist-node/
 dist-electron/
+release/
 *.tsbuildinfo

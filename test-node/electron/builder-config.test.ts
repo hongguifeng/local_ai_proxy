@@ -29,4 +29,11 @@ describe("electron-builder configuration", () => {
     const config = await readFile(new URL("../../electron-builder.yml", import.meta.url), "utf8");
     expect(config).toContain("forceCodeSigning: false");
   });
+
+  it("pins an Electron version compatible with the SQLite native addon", async () => {
+    const packageJson = JSON.parse(
+      await readFile(new URL("../../package.json", import.meta.url), "utf8"),
+    ) as { devDependencies?: Record<string, string> };
+    expect(packageJson.devDependencies?.["electron"]).toBe("40.9.3");
+  });
 });
