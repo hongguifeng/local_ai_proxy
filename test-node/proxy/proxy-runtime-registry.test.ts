@@ -37,6 +37,32 @@ describe("ProxyRuntimeRegistry", () => {
       await close(upstream);
     }
   });
+
+  it("restarts a pair with updated target configuration", async () => {
+    const firstUpstream = http.createServer((_request, response) => response.end("first"));
+    const secondUpstream = http.createServer((_request, response) => response.end("second"));
+    const [firstPort, secondPort] = await Promise.all([
+      listen(firstUpstream),
+      listen(secondUpstream),
+    ]);
+    const registry = new ProxyRuntimeRegistry();
+    const firstPair = pairFixture(firstPort);
+
+    try {
+      const firstRuntime = await registry.startPair(firstPair);
+      await expect(requestText(firstRuntime.actualListenPort ?? 0, "/restart")).resolves.toBe(
+        "first",
+      );
+      const restarted = await registry.restartPair(pairFixture(secondPort));
+      expect(restarted).toMatchObject({ state: "running", running: true });
+      await expect(requestText(restarted.actualListenPort ?? 0, "/restart")).resolves.toBe(
+        "second",
+      );
+    } finally {
+      await registry.stopPair(firstPair.id);
+      await Promise.all([close(firstUpstream), close(secondUpstream)]);
+    }
+  });
 });
 
 function pairFixture(upstreamPort: number): ProxyPair {

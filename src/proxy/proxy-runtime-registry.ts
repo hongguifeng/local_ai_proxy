@@ -92,6 +92,11 @@ export class ProxyRuntimeRegistry {
     }
   }
 
+  async restartPair(pair: ProxyPair): Promise<ProxyRuntimeSnapshot> {
+    await this.stopPair(pair.id);
+    return this.startPair(pair);
+  }
+
   #entry(pairId: string): ProxyRuntimeEntry {
     let entry = this.#entries.get(pairId);
     if (entry === undefined) {
