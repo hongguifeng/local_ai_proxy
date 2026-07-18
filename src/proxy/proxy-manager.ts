@@ -33,6 +33,16 @@ export class ProxyConfigurationApplyError extends Error {
   }
 }
 
+export class ProxyPairNotFoundError extends Error {
+  readonly code = "pair_not_found";
+  readonly statusCode = 404;
+
+  constructor(pairId: string) {
+    super(`Proxy pair not found: ${pairId}`);
+    this.name = "ProxyPairNotFoundError";
+  }
+}
+
 export class ProxyManager {
   readonly #repository: ProxyConfigSaver;
   readonly #registry: ProxyRuntimeRegistry;
@@ -56,6 +66,27 @@ export class ProxyManager {
 
   listPairs(): readonly PublicProxyPair[] {
     return this.#config.pairs.map((pair) => this.#registry.publicPair(pair));
+  }
+
+  replacePairs(pairs: readonly ProxyPair[]): Promise<readonly PublicProxyPair[]> {
+    return this.applyConfiguration({ pairs: [...pairs] });
+  }
+
+  async setPairEnabled(pairId: string, enabled: boolean): Promise<PublicProxyPair> {
+    const existing = this.#config.pairs.find((pair) => pair.id === pairId);
+    if (existing === undefined) {
+      throw new ProxyPairNotFoundError(pairId);
+    }
+    if (existing.enabled !== enabled) {
+      await this.replacePairs(
+        this.#config.pairs.map((pair) => (pair.id === pairId ? { ...pair, enabled } : pair)),
+      );
+    }
+    const publicPair = this.listPairs().find((pair) => pair.id === pairId);
+    if (publicPair === undefined) {
+      throw new ProxyPairNotFoundError(pairId);
+    }
+    return publicPair;
   }
 
   applyConfiguration(config: ProxyConfigFile): Promise<readonly PublicProxyPair[]> {

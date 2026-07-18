@@ -24,6 +24,7 @@ export interface AdminServerOptions {
 export interface PairAdminService {
   listPairs(): readonly PublicProxyPair[];
   readonly replacePairs?: (pairs: readonly ProxyPair[]) => Promise<readonly PublicProxyPair[]>;
+  readonly setPairEnabled?: (pairId: string, enabled: boolean) => Promise<PublicProxyPair>;
 }
 
 export interface AdminRequestLogger {
@@ -94,6 +95,20 @@ export const REPLACE_PAIRS_REQUEST_SCHEMA = {
       items: { type: "object", additionalProperties: true },
     },
   },
+} as const;
+
+export const SET_PAIR_ENABLED_REQUEST_SCHEMA = {
+  type: "object",
+  additionalProperties: false,
+  required: ["enabled"],
+  properties: { enabled: { type: "boolean" } },
+} as const;
+
+export const PAIR_RESPONSE_SCHEMA = {
+  type: "object",
+  additionalProperties: false,
+  required: ["pair"],
+  properties: { pair: { type: "object", additionalProperties: true } },
 } as const;
 
 export interface AdminControlPlaneOptions extends AdminServerOptions {
@@ -208,6 +223,27 @@ export function createAdminServer(options: AdminServerOptions): FastifyInstance 
           },
         },
         async (request) => ({ pairs: await replacePairs(request.body.pairs) }),
+      );
+    }
+    const setPairEnabled = options.pairService.setPairEnabled;
+    if (setPairEnabled !== undefined) {
+      server.post<{ Body: { enabled: boolean }; Params: { id: string } }>(
+        "/api/pairs/:id/enabled",
+        {
+          schema: {
+            params: {
+              type: "object",
+              additionalProperties: false,
+              required: ["id"],
+              properties: { id: { type: "string", minLength: 1 } },
+            },
+            body: SET_PAIR_ENABLED_REQUEST_SCHEMA,
+            response: { 200: PAIR_RESPONSE_SCHEMA },
+          },
+        },
+        async (request) => ({
+          pair: await setPairEnabled(request.params.id, request.body.enabled),
+        }),
       );
     }
   }

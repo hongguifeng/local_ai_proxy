@@ -99,6 +99,7 @@ export {
   ProxyConfigurationApplyError,
   ProxyListenConflictError,
   ProxyManager,
+  ProxyPairNotFoundError,
   type ConfigurationApplyStage,
   type ProxyPairConfigDiff,
   type ProxyConfigSaver,
