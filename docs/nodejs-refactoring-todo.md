@@ -419,7 +419,7 @@
 
 ### 12.4 视觉回归
 
-- [ ] `UI-030` P0 Proxy 中文截图 diff。
+- [x] `UI-030` P0 Proxy 中文截图 diff。
 - [ ] `UI-031` P0 Proxy 英文截图 diff。
 - [ ] `UI-032` P0 History 中文截图 diff。
 - [ ] `UI-033` P0 History 英文截图 diff。

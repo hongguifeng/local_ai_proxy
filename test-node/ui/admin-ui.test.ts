@@ -9,6 +9,8 @@ import {
 import type { AddressInfo } from "node:net";
 import { readFile } from "node:fs/promises";
 import { Readable } from "node:stream";
+import pixelmatch from "pixelmatch";
+import { PNG } from "pngjs";
 
 import {
   applicationHealth,
@@ -636,6 +638,18 @@ describe("admin UI history page", () => {
   });
 });
 
+describe("admin UI visual regression", () => {
+  it("matches the Chinese proxy page baseline", async () => {
+    pairs.splice(0, pairs.length, ...visualPairs());
+    await page.setViewportSize({ width: 1278, height: 1215 });
+    await page.goto(baseUrl, { waitUntil: "networkidle" });
+    await page.locator("#languageSelect").selectOption("zh");
+    await expectPage(page.locator("#saveProxies")).toHaveText("保存配置");
+
+    expect(await screenshotDifference("doc/ui_proxy_cn.png")).toBeLessThan(0.12);
+  });
+});
+
 function publicPair(pair: ProxyPair): PublicProxyPair {
   return { ...structuredClone(pair), actual_listen_port: null, running: pair.enabled };
 }
@@ -671,4 +685,115 @@ async function requiredBox(
     throw new Error("Expected a visible element bounding box.");
   }
   return box;
+}
+
+function visualPairs(): PublicProxyPair[] {
+  const target = (
+    id: string,
+    name: string,
+    targetUrl: string,
+    apiKey: string,
+    mapping: string,
+    enabled: boolean,
+  ) => ({
+    id,
+    name,
+    enabled,
+    target_url: targetUrl,
+    target_api_key: apiKey,
+    target_headers: [],
+    strip_request_fields: "",
+    inject_request_fields: "",
+    timeout: 600,
+    log_root: "logs",
+    redact_logs: false,
+    model_mappings: [
+      {
+        listen: mapping.split(" => ")[0] ?? mapping,
+        upstream: mapping.split(" => ")[1] ?? mapping,
+      },
+    ],
+  });
+  return [
+    {
+      id: "visual-proxy-one",
+      name: "New proxy",
+      enabled: true,
+      running: true,
+      actual_listen_port: 12346,
+      listen_host: "127.0.0.1",
+      listen_port: 12346,
+      access_log: false,
+      default_target_id: "visual-hyperapi",
+      targets: [
+        target(
+          "visual-hyperapi",
+          "hyperapi",
+          "https://hyperapi.cc/v1",
+          "sk-...",
+          "hyper-gpt-5.5 => gpt-5.5",
+          true,
+        ),
+        target(
+          "visual-lmstudio",
+          "lmstudio",
+          "http://127.0.0.1:12345",
+          "sk-...",
+          "qwen3.6-27b-mtp@q4_k_m",
+          true,
+        ),
+        target(
+          "visual-target",
+          "Target",
+          "https://api2.aigcbest.top/v1",
+          "sk-abcdefghijklmnopqrstuvwxyz-0123456789-abcdef",
+          "gpt-4o-mini",
+          true,
+        ),
+      ],
+    },
+    {
+      id: "visual-proxy-two",
+      name: "新代理",
+      enabled: false,
+      running: false,
+      actual_listen_port: null,
+      listen_host: "127.0.0.1",
+      listen_port: 1234,
+      access_log: false,
+      default_target_id: "visual-default",
+      targets: [
+        target(
+          "visual-default",
+          "Target",
+          "http://127.0.0.1:1235",
+          "sk-...",
+          "A-gpt-5.5 => gpt-5.5",
+          true,
+        ),
+      ],
+    },
+  ];
+}
+
+async function screenshotDifference(baselinePath: string): Promise<number> {
+  const [actualBuffer, baselineBuffer] = await Promise.all([
+    page.screenshot({ animations: "disabled" }),
+    readFile(baselinePath),
+  ]);
+  const actual = PNG.sync.read(actualBuffer);
+  const baseline = PNG.sync.read(baselineBuffer);
+  expect({ width: actual.width, height: actual.height }).toEqual({
+    width: baseline.width,
+    height: baseline.height,
+  });
+  const differentPixels = pixelmatch(
+    actual.data,
+    baseline.data,
+    undefined,
+    baseline.width,
+    baseline.height,
+    { threshold: 0.2 },
+  );
+  return differentPixels / (baseline.width * baseline.height);
 }
