@@ -1,6 +1,11 @@
 import { afterEach, describe, expect, it } from "vitest";
 
-import { applicationHealth, createAdminServer } from "../../src/admin/index.js";
+import {
+  applicationHealth,
+  createAdminServer,
+  loadAdminStaticAssets,
+} from "../../src/admin/index.js";
+import { SUGGESTED_STRIP_REQUEST_FIELDS } from "../../src/config/index.js";
 
 const servers: ReturnType<typeof createAdminServer>[] = [];
 
@@ -9,6 +14,14 @@ afterEach(async () => {
 });
 
 describe("admin static assets", () => {
+  it("loads the migrated bundle and injects suggested strip fields without Python", async () => {
+    const assets = await loadAdminStaticAssets();
+    expect(assets.indexHtml).toContain("LLM Proxy");
+    expect(assets.appCss).toContain(":root");
+    expect(assets.appJs).not.toContain("__SUGGESTED_STRIP_REQUEST_FIELDS__");
+    expect(assets.appJs).toContain(JSON.stringify(SUGGESTED_STRIP_REQUEST_FIELDS.join(",")));
+  });
+
   it.each([
     ["/", "<!doctype html><title>fixture</title>", "text/html; charset=utf-8", "no-store"],
     ["/app.css", "body { color: red; }", "text/css; charset=utf-8", "no-cache"],

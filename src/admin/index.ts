@@ -23,3 +23,4 @@ export {
   type LogAdminService,
   type PairAdminService,
 } from "./admin-server.js";
+export { loadAdminStaticAssets } from "./static-assets.js";
