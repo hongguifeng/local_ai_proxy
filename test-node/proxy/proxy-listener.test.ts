@@ -919,7 +919,7 @@ describe("ProxyListener", () => {
     await closeServer(upstream);
   });
 
-  it("forwards the first SSE event before the upstream stream completes", async () => {
+  it("streams a slow two-part SSE response without waiting for completion", async () => {
     const finalRecords: Readonly<Record<string, unknown>>[] = [];
     let releaseSecond: (() => void) | undefined;
     const secondGate = new Promise<void>((resolve) => {
@@ -965,16 +965,18 @@ describe("ProxyListener", () => {
       onRequest: (request, response, context) => pipeline.handle(request, response, context),
     });
     const address = await listener.start();
-    let finishClient: (() => void) | undefined;
-    const clientDone = new Promise<void>((resolve) => {
+    let finishClient: ((body: string) => void) | undefined;
+    const clientDone = new Promise<string>((resolve) => {
       finishClient = resolve;
     });
     const firstChunk = new Promise<string>((resolve, reject) => {
       const request = http.get(
         { host: "127.0.0.1", port: address.port, path: "/events" },
         (response) => {
+          const chunks: Buffer[] = [];
+          response.on("data", (chunk: Buffer) => chunks.push(chunk));
           response.once("data", (chunk: Buffer) => resolve(chunk.toString("utf8")));
-          response.once("end", () => finishClient?.());
+          response.once("end", () => finishClient?.(Buffer.concat(chunks).toString("utf8")));
         },
       );
       request.once("error", reject);
@@ -982,7 +984,7 @@ describe("ProxyListener", () => {
 
     await expect(firstChunk).resolves.toContain('"delta":"first"');
     releaseSecond?.();
-    await clientDone;
+    await expect(clientDone).resolves.toMatch(/"delta":"first"[\s\S]*"delta":"second"/u);
     expect(finalRecords[0]).toMatchObject({
       response: {
         body: {
