@@ -422,7 +422,7 @@
 - [x] `UI-030` P0 Proxy 中文截图 diff。
 - [x] `UI-031` P0 Proxy 英文截图 diff。
 - [x] `UI-032` P0 History 中文截图 diff。
-- [ ] `UI-033` P0 History 英文截图 diff。
+- [x] `UI-033` P0 History 英文截图 diff。
 - [ ] `UI-034` P1 760 px 窄屏截图/交互。
 
 ## 13. 阶段 10：CLI、托盘和打包

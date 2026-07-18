@@ -668,6 +668,16 @@ describe("admin UI visual regression", () => {
 
     expect(await screenshotDifference("doc/ui_logs_cn.png")).toBeLessThan(0.25);
   });
+
+  it("matches the English history page baseline", async () => {
+    await page.setViewportSize({ width: 1384, height: 1224 });
+    await openRecordDetail("record-two");
+    await page.locator("#languageSelect").selectOption("en");
+    await expectPage(page.locator('[data-i18n="request"]')).toHaveText("Request");
+    await moveRowSplitterTo(883);
+
+    expect(await screenshotDifference("doc/ui_logs_en.png")).toBeLessThan(0.25);
+  });
 });
 
 function publicPair(pair: ProxyPair): PublicProxyPair {
