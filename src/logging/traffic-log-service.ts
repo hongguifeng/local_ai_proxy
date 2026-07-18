@@ -33,11 +33,13 @@ export class TrafficLogService {
   }
 
   #save(record: Readonly<RepositoryRecord>): void {
-    if (this.#repository === undefined || this.#taskMatcher === undefined) {
+    const repository = this.#repository;
+    const taskMatcher = this.#taskMatcher;
+    if (repository === undefined || taskMatcher === undefined) {
       return;
     }
     const recordToWrite = this.#redactLogs ? redactRecord(record) : record;
-    const assignment = this.#taskMatcher.assign(recordToWrite);
+    const assignment = taskMatcher.assign(recordToWrite);
     if (assignment === undefined) {
       return;
     }
@@ -47,31 +49,34 @@ export class TrafficLogService {
     }
     const request = mapping(recordToWrite["request"]);
     const response = mapping(recordToWrite["response"]);
-    this.#repository.upsertTask(assignment.task);
-    this.#repository.upsertRecord({
-      id: stringValue(recordToWrite["id"]),
-      task_id: taskId,
-      sequence: assignment.sequence,
-      event: stringValue(recordToWrite["event"]) || "request_finished",
-      timestamp: stringValue(recordToWrite["timestamp"]),
-      started_at:
-        stringValue(recordToWrite["started_timestamp"]) || stringValue(recordToWrite["timestamp"]),
-      duration_ms: recordToWrite["duration_ms"],
-      method: stringValue(request["method"]),
-      path: stringValue(request["path"]),
-      status: response["status"],
-      error: recordToWrite["error"],
-      request_headers: mapping(request["headers"]),
-      response_headers: mapping(response["headers"]),
-      request_body: assignment.requestPayload,
-      response_body: assignment.responsePayload,
+    repository.transaction(() => {
+      repository.upsertTask(assignment.task);
+      repository.upsertRecord({
+        id: stringValue(recordToWrite["id"]),
+        task_id: taskId,
+        sequence: assignment.sequence,
+        event: stringValue(recordToWrite["event"]) || "request_finished",
+        timestamp: stringValue(recordToWrite["timestamp"]),
+        started_at:
+          stringValue(recordToWrite["started_timestamp"]) ||
+          stringValue(recordToWrite["timestamp"]),
+        duration_ms: recordToWrite["duration_ms"],
+        method: stringValue(request["method"]),
+        path: stringValue(request["path"]),
+        status: response["status"],
+        error: recordToWrite["error"],
+        request_headers: mapping(request["headers"]),
+        response_headers: mapping(response["headers"]),
+        request_body: assignment.requestPayload,
+        response_body: assignment.responsePayload,
+      });
+      for (const responseId of assignment.responseIds) {
+        repository.upsertResponseLink(responseId, taskId);
+      }
+      for (const contextKey of assignment.contextKeys) {
+        repository.upsertContextLink(contextKey, taskId);
+      }
     });
-    for (const responseId of assignment.responseIds) {
-      this.#repository.upsertResponseLink(responseId, taskId);
-    }
-    for (const contextKey of assignment.contextKeys) {
-      this.#repository.upsertContextLink(contextKey, taskId);
-    }
   }
 }
 

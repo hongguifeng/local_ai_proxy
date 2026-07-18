@@ -67,6 +67,35 @@ describe("TrafficRepository.upsertTask", () => {
   });
 });
 
+describe("TrafficRepository.transaction", () => {
+  it("rolls back task, record, and link writes as one unit", async () => {
+    const root = await mkdtemp(path.join(os.tmpdir(), "llm-proxy-repository-transaction-"));
+    temporaryDirectories.push(root);
+    const repository = new TrafficRepository(root);
+
+    expect(() =>
+      repository.transaction(() => {
+        repository.upsertTask({ id: "transaction-task", match_strategy_version: 4 });
+        repository.upsertRecord({
+          id: "transaction-record",
+          task_id: "transaction-task",
+          sequence: 1,
+          method: "POST",
+          path: "/v1/responses",
+        });
+        repository.upsertResponseLink("transaction-response", "transaction-task");
+        repository.upsertContextLink("conversation:transaction", "transaction-task");
+        throw new Error("rollback fixture");
+      }),
+    ).toThrow("rollback fixture");
+    expect(repository.getTask("transaction-task")).toBeUndefined();
+    expect(repository.getRecord("transaction-record")).toBeUndefined();
+    expect(repository.taskIdForResponse("transaction-response")).toBeUndefined();
+    expect(repository.taskIdForContext("conversation:transaction")).toBeUndefined();
+    repository.close();
+  });
+});
+
 describe("decodeTaskRow", () => {
   it("decodes boolean and JSON task columns", () => {
     expect(

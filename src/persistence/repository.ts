@@ -34,6 +34,10 @@ export class TrafficRepository {
     this.#database.close();
   }
 
+  transaction<T>(work: () => T): T {
+    return this.#database.transaction(work)();
+  }
+
   upsertTask(task: Readonly<RepositoryRecord>): RepositoryRecord {
     const now = this.#now();
     const values = {
