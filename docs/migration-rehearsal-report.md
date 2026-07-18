@@ -32,3 +32,10 @@ The benchmark is available as `npm run benchmark:migration -- <record-count>`. A
 was intentionally stopped after several minutes because fixture generation uses the normal durable
 per-record write path; operators should run larger counts against their target disk when planning a
 specific deployment window.
+
+## Relationship and content validation
+
+The comprehensive fixture contains 5 tasks, 6 records, 2 response links, 2 context links, and 6 search
+documents. Validation found zero orphan records, links, or search documents. Sampled content included
+`task-chat-fixture` with model `chat-fixture` and `record-chat-1` with HTTP status 200. The reusable
+command is `npm run validate:migration -- <log-root>` after `npm run build`.

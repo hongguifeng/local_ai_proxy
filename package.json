@@ -24,6 +24,7 @@
     "smoke:database": "node --enable-source-maps dist-node/scripts/database_smoke.js",
     "smoke:artifact": "node --enable-source-maps dist-node/scripts/artifact_smoke.js",
     "checksums": "node --enable-source-maps dist-node/scripts/generate_checksums.js",
+    "validate:migration": "node --enable-source-maps dist-node/scripts/validate_migration.js",
     "start": "node --enable-source-maps dist-node/src/main.js",
     "test": "vitest run",
     "test:coverage": "vitest run --coverage",
