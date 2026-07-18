@@ -14,7 +14,8 @@ export {
   type WalCheckpointMode,
   type WalCheckpointResult,
 } from "./database.js";
-export { SCHEMA_V1_MIGRATION, SCHEMA_VERSION } from "./schema-v1.js";
+export { SCHEMA_V1_MIGRATION, SCHEMA_V1_VERSION } from "./schema-v1.js";
+export { SCHEMA_V2_MIGRATION, SCHEMA_VERSION } from "./schema-v2.js";
 export {
   TrafficRepository,
   decodeRecordRow,

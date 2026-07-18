@@ -1,12 +1,13 @@
 import { TrafficRepository, type RepositoryRecord } from "../persistence/index.js";
 import {
+  bodyJsonValue,
   displayEndpoint,
   endpointKind,
   redactRecord,
   requestMessageCount,
   responseTokenCount,
 } from "../proxy/index.js";
-import { isRecord } from "../shared/index.js";
+import { isRecord, stableJsonStringify } from "../shared/index.js";
 import { TaskMatcher } from "./task-matcher.js";
 import { type SerialWriteQueue, writeQueueForLogRoot } from "./write-queue.js";
 
@@ -71,6 +72,14 @@ export class TrafficLogService {
     const proxy = mapping(recordToWrite["proxy"]);
     const endpoint = displayEndpoint(stringValue(request["path"]));
     const kind = endpointKind(endpoint);
+    const originalRequestBody = bodyValue(request["body"]);
+    const hasUpstreamBody = isRecord(request["upstream_body"]);
+    const requestBody = hasUpstreamBody ? bodyValue(request["upstream_body"]) : originalRequestBody;
+    const distinctOriginalBody =
+      hasUpstreamBody &&
+      stableJsonStringify(originalRequestBody) !== stableJsonStringify(requestBody)
+        ? originalRequestBody
+        : undefined;
     repository.transaction(() => {
       repository.upsertTask(assignment.task);
       repository.upsertRecord({
@@ -95,11 +104,12 @@ export class TrafficLogService {
         endpoint,
         status: response["status"],
         error: recordToWrite["error"],
-        message_count: requestMessageCount(kind, assignment.requestPayload),
+        message_count: requestMessageCount(kind, requestBody),
         token_count: responseTokenCount(assignment.responsePayload),
         request_headers: mapping(request["headers"]),
         response_headers: mapping(response["headers"]),
-        request_body: assignment.requestPayload,
+        request_body: requestBody,
+        original_request_body: distinctOriginalBody,
         response_body: assignment.responsePayload,
         model_route: request["model_route"],
         stripped_fields: listValue(request["stripped_fields"]),
@@ -136,4 +146,15 @@ function targetUrl(target: Readonly<Record<string, unknown>>): string {
     return "";
   }
   return `${scheme}://${host}:${port}${stringValue(target["path"])}`;
+}
+
+function bodyValue(value: unknown): unknown {
+  if (!isRecord(value)) {
+    return null;
+  }
+  const sizeBytes = value["size_bytes"];
+  const text = value["text"];
+  return typeof sizeBytes === "number" && typeof text === "string"
+    ? bodyJsonValue({ size_bytes: sizeBytes, text })
+    : null;
 }

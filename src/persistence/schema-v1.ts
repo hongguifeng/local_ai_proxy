@@ -1,9 +1,9 @@
 import type { DatabaseMigration } from "./database.js";
 
-export const SCHEMA_VERSION = 1;
+export const SCHEMA_V1_VERSION = 1;
 
 export const SCHEMA_V1_MIGRATION: DatabaseMigration = {
-  version: SCHEMA_VERSION,
+  version: SCHEMA_V1_VERSION,
   migrate(database) {
     database.exec(`
       CREATE TABLE tasks (

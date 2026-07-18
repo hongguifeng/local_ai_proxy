@@ -201,6 +201,7 @@ export class TrafficRepository {
       request_headers_json: jsonText(record["request_headers"], {}),
       response_headers_json: jsonText(record["response_headers"], {}),
       request_body_json: optionalJsonText(record["request_body"]),
+      original_request_body_json: optionalJsonText(record["original_request_body"]),
       response_body_json: optionalJsonText(record["response_body"]),
       model_route_json: optionalJsonText(record["model_route"]),
       stripped_fields_json: jsonText(record["stripped_fields"], []),
@@ -216,14 +217,16 @@ export class TrafficRepository {
         id, task_id, sequence, event, timestamp, started_at, duration_ms,
         proxy_id, proxy_name, client_host, client_port, target_id, target_name, target_url,
         method, path, endpoint, status, error, message_count, token_count,
-        request_headers_json, response_headers_json, request_body_json, response_body_json,
+        request_headers_json, response_headers_json, request_body_json, original_request_body_json,
+        response_body_json,
         model_route_json, stripped_fields_json, injected_fields_json, added_upstream_headers_json,
         created_at, updated_at
       ) VALUES (
         @id, @task_id, @sequence, @event, @timestamp, @started_at, @duration_ms,
         @proxy_id, @proxy_name, @client_host, @client_port, @target_id, @target_name, @target_url,
         @method, @path, @endpoint, @status, @error, @message_count, @token_count,
-        @request_headers_json, @response_headers_json, @request_body_json, @response_body_json,
+        @request_headers_json, @response_headers_json, @request_body_json,
+        @original_request_body_json, @response_body_json,
         @model_route_json, @stripped_fields_json, @injected_fields_json, @added_upstream_headers_json,
         @created_at, @updated_at
       ) ON CONFLICT(id) DO UPDATE SET
@@ -237,7 +240,9 @@ export class TrafficRepository {
         message_count=excluded.message_count, token_count=excluded.token_count,
         request_headers_json=excluded.request_headers_json,
         response_headers_json=excluded.response_headers_json,
-        request_body_json=excluded.request_body_json, response_body_json=excluded.response_body_json,
+        request_body_json=excluded.request_body_json,
+        original_request_body_json=excluded.original_request_body_json,
+        response_body_json=excluded.response_body_json,
         model_route_json=excluded.model_route_json, stripped_fields_json=excluded.stripped_fields_json,
         injected_fields_json=excluded.injected_fields_json,
         added_upstream_headers_json=excluded.added_upstream_headers_json,
@@ -296,7 +301,8 @@ export class TrafficRepository {
               id, task_id, sequence, event, timestamp, started_at, duration_ms,
               proxy_id, proxy_name, client_host, client_port, target_id, target_name, target_url,
               method, path, endpoint, status, error, message_count, token_count,
-              request_headers_json, response_headers_json, request_body_json, response_body_json,
+              request_headers_json, response_headers_json, request_body_json,
+              original_request_body_json, response_body_json,
               model_route_json, stripped_fields_json, injected_fields_json, added_upstream_headers_json,
               created_at, updated_at
             )) LIKE ? ESCAPE '\\'`,
@@ -442,6 +448,7 @@ export function recordSearchDocument(
     "endpoint",
     "request_headers_json",
     "request_body_json",
+    "original_request_body_json",
     "model_route_json",
     "stripped_fields_json",
     "injected_fields_json",
@@ -531,6 +538,11 @@ export function decodeRecordRow(row: Readonly<RepositoryRecord>): RepositoryReco
     decoded[field] = jsonValue(decoded[column], fallback);
     Reflect.deleteProperty(decoded, column);
   }
+  const originalRequestBody = jsonValue(decoded["original_request_body_json"], null);
+  if (originalRequestBody !== null) {
+    decoded["original_request_body"] = originalRequestBody;
+  }
+  Reflect.deleteProperty(decoded, "original_request_body_json");
   return decoded;
 }
 

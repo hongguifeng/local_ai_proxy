@@ -140,8 +140,8 @@ describe("runMigrations", () => {
 });
 
 describe("connectLogDatabase", () => {
-  it("creates the complete schema v1", async () => {
-    const root = await mkdtemp(path.join(os.tmpdir(), "llm-proxy-schema-v1-"));
+  it("creates the complete current schema", async () => {
+    const root = await mkdtemp(path.join(os.tmpdir(), "llm-proxy-schema-current-"));
     temporaryDirectories.push(root);
     const database = connectLogDatabase(root);
 
@@ -149,7 +149,7 @@ describe("connectLogDatabase", () => {
       .prepare("SELECT name, type FROM sqlite_master WHERE name NOT LIKE 'sqlite_%'")
       .all() as { name: string; type: string }[];
     const names = new Set(objects.map(({ name }) => name));
-    expect(readSchemaVersion(database)).toBe(1);
+    expect(readSchemaVersion(database)).toBe(2);
     expect([...names]).toEqual(
       expect.arrayContaining([
         "schema_meta",
@@ -162,6 +162,9 @@ describe("connectLogDatabase", () => {
         "idx_records_task_sequence",
       ]),
     );
+    expect(
+      (database.pragma("table_info(records)") as { name: string }[]).map(({ name }) => name),
+    ).toContain("original_request_body_json");
 
     database.close();
   });
@@ -205,7 +208,7 @@ describe("database backup", () => {
     expect(backup.prepare("SELECT value FROM backup_fixture").pluck().get()).toBe(
       "persisted through WAL",
     );
-    expect(readSchemaVersion(backup)).toBe(1);
+    expect(readSchemaVersion(backup)).toBe(2);
     backup.close();
   });
 });

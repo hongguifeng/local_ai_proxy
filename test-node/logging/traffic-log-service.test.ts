@@ -128,6 +128,46 @@ describe("TrafficLogService record mapping", () => {
   });
 });
 
+describe("original and upstream request bodies", () => {
+  it("stores a distinct original body while keeping request_body as the upstream version", async () => {
+    const root = await mkdtemp(path.join(os.tmpdir(), "llm-proxy-log-request-bodies-"));
+    temporaryDirectories.push(root);
+    const service = new TrafficLogService(root, { redactLogs: true });
+    const record = trafficRecord("body-request");
+    Object.assign(record.request, {
+      upstream_body: {
+        size_bytes: 0,
+        base64: "",
+        text: JSON.stringify({ model: "gpt-5-upstream", api_key: "secret-api-key", stream: true }),
+      },
+    });
+    await service.write(record);
+    service.close();
+
+    const repository = new TrafficRepository(root);
+    expect(repository.getRecord("body-request")).toMatchObject({
+      request_body: { model: "gpt-5-upstream", api_key: "[redacted]", stream: true },
+      original_request_body: { model: "gpt-5", api_key: "[redacted]" },
+    });
+    repository.close();
+  });
+
+  it("omits the original body when the upstream body is identical", async () => {
+    const root = await mkdtemp(path.join(os.tmpdir(), "llm-proxy-log-identical-body-"));
+    temporaryDirectories.push(root);
+    const service = new TrafficLogService(root);
+    const record = trafficRecord("identical-body-request");
+    Object.assign(record.request, { upstream_body: { ...record.request.body } });
+    await service.write(record);
+    service.close();
+
+    const repository = new TrafficRepository(root);
+    const saved = repository.getRecord("identical-body-request");
+    expect(saved).not.toHaveProperty("original_request_body");
+    repository.close();
+  });
+});
+
 describe("per-log-root write queue", () => {
   it("shares a serial executor for services writing the same root", async () => {
     const root = await mkdtemp(path.join(os.tmpdir(), "llm-proxy-log-queue-"));
