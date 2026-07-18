@@ -24,4 +24,9 @@ describe("electron-builder configuration", () => {
     expect(config).toContain("node_modules/better-sqlite3/**/*");
     expect(config).toContain("npmRebuild: true");
   });
+
+  it("allows documented unsigned development releases", async () => {
+    const config = await readFile(new URL("../../electron-builder.yml", import.meta.url), "utf8");
+    expect(config).toContain("forceCodeSigning: false");
+  });
 });

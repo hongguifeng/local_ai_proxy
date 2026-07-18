@@ -460,7 +460,7 @@
 - [x] `PKG-006` P0 GitHub Actions 上传 artifact。
 - [x] `PKG-007` P0 `v*` tag 发布 Release。
 - [x] `PKG-008` P1 发布轻量 CLI zip。
-- [ ] `PKG-009` P1 代码签名需求评估和文档。
+- [x] `PKG-009` P1 代码签名需求评估和文档。
 
 ## 14. 阶段 11：迁移、切换和清理
 

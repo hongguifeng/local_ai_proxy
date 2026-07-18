@@ -9,6 +9,7 @@ asar: true
 asarUnpack:
   - node_modules/better-sqlite3/**/*
 npmRebuild: true
+forceCodeSigning: false
 win:
   target:
     - nsis
