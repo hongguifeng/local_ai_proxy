@@ -197,7 +197,11 @@ beforeAll(async () => {
   const address = server.server.address() as AddressInfo;
   baseUrl = `http://127.0.0.1:${address.port}`;
   browser = await chromium.launch({
-    executablePath: process.env["CHROME_PATH"] ?? "/usr/bin/google-chrome",
+    executablePath:
+      process.env["CHROME_PATH"] ??
+      (process.platform === "win32"
+        ? "C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe"
+        : "/usr/bin/google-chrome"),
     headless: true,
     args: ["--no-sandbox"],
   });
