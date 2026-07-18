@@ -17,9 +17,15 @@ Electron 能稳定提供 Tray 和系统对话框，但产物明显大于 PyInsta
 
 ## 决策
 
-正式 Release 发布两个 Windows x64 产物。
+正式 Release 发布三个 Windows x64 产物。
 
-### 1. `llm-proxy-tray-windows-x64.exe`
+### 1. NSIS installer
+
+- 面向希望通过安装向导部署和卸载的桌面用户。
+- 使用 Electron + electron-builder 的 NSIS target。
+- 默认按用户安装，并允许选择安装目录。
+
+### 2. Portable EXE
 
 - 主要桌面产物。
 - 使用 Electron + electron-builder 的 portable target。
@@ -29,9 +35,7 @@ Electron 能稳定提供 Tray 和系统对话框，但产物明显大于 PyInsta
 - 菜单保留 Open Admin UI 和 Exit。
 - 支持现有 host/port/config/log/open-on-start 参数。
 
-首个 Node 正式版本不同时提供 NSIS 安装包，避免增加安装/卸载、自动更新和签名变量。若用户确有安装需求，再单独 ADR。
-
-### 2. `llm-proxy-cli-windows-x64.zip`
+### 3. CLI ZIP
 
 - 面向命令行和自动启动用户。
 - 包含固定 Node 24 runtime、编译后的应用、静态 UI、native addon 和启动脚本。
