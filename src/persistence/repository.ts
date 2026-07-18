@@ -372,17 +372,20 @@ export class TrafficRepository {
   }
 
   deleteTasks(taskIds: readonly string[]): number {
-    const selected = taskIds
-      .map((taskId) => String(taskId))
-      .filter((taskId) => taskId.trim() !== "");
+    const selected = taskIds.filter((taskId) => taskId.trim() !== "");
     if (selected.length === 0) {
       return 0;
     }
     const placeholders = selected.map(() => "?").join(",");
-    const result = this.#database
-      .prepare(`DELETE FROM tasks WHERE id IN (${placeholders})`)
-      .run(...selected);
-    return result.changes;
+    const remove = this.#database.transaction(() => {
+      this.#database
+        .prepare(`DELETE FROM record_search WHERE task_id IN (${placeholders})`)
+        .run(...selected);
+      return this.#database
+        .prepare(`DELETE FROM tasks WHERE id IN (${placeholders})`)
+        .run(...selected).changes;
+    });
+    return remove();
   }
 
   #syncRecordSearch(values: Readonly<RepositoryRecord>): void {

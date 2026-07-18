@@ -5,6 +5,7 @@ import path from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 
 import { formatLocalTimestamp } from "../../src/shared/time.js";
+import { connectLogDatabase } from "../../src/persistence/database.js";
 import {
   TrafficRepository,
   decodeTaskRow,
@@ -251,6 +252,17 @@ describe("TrafficRepository.deleteTasks", () => {
     expect(repository.taskIdForContext("context-delete")).toBeUndefined();
     expect(repository.deleteTasks([])).toBe(0);
     repository.close();
+
+    const inspection = connectLogDatabase(root);
+    expect(
+      inspection
+        .prepare("SELECT COUNT(*) FROM record_search WHERE task_id = ?")
+        .pluck()
+        .get("task-delete"),
+    ).toBe(0);
+    expect(inspection.prepare("SELECT COUNT(*) FROM response_links").pluck().get()).toBe(0);
+    expect(inspection.prepare("SELECT COUNT(*) FROM context_links").pluck().get()).toBe(0);
+    inspection.close();
   });
 });
 
