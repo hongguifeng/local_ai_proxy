@@ -20,7 +20,7 @@
 - [x] M0：行为基线和 ADR 完成
 - [x] M1：Node 工程和纯逻辑 parity 完成
 - [x] M2：SQLite、TaskMatcher、Logger parity 完成
-- [ ] M3：单代理和多代理数据面完成
+- [x] M3：单代理和多代理数据面完成
 - [ ] M4：管理 API 和现有 UI 完成
 - [ ] M5：CLI、Windows 托盘和发布流水线完成
 - [ ] M6：数据迁移演练、正式切换和 Python 清理完成
