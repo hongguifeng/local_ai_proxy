@@ -228,7 +228,7 @@ afterAll(async () => {
 
 describe("admin UI proxy page", () => {
   it("loads and renders configured proxy pairs", async () => {
-    await page.goto(baseUrl, { waitUntil: "networkidle" });
+    await loadAdminPage();
     const card = page.locator('.proxy-card[data-index="0"]');
     await expectPage(card).toHaveCount(1);
     await expectPage(card.locator('[data-field="name"]')).toHaveValue("Fixture Proxy");
@@ -242,7 +242,7 @@ describe("admin UI proxy page", () => {
   });
 
   it("adds and deletes proxy pairs", async () => {
-    await page.goto(baseUrl, { waitUntil: "networkidle" });
+    await loadAdminPage();
     await page.locator("#addProxy").click();
     await expectPage(page.locator(".proxy-card")).toHaveCount(2);
     await expectPage(page.locator(".proxy-card").last().locator('[data-field="name"]')).toHaveValue(
@@ -257,7 +257,7 @@ describe("admin UI proxy page", () => {
   });
 
   it("adds and deletes targets while keeping at least one", async () => {
-    await page.goto(baseUrl, { waitUntil: "networkidle" });
+    await loadAdminPage();
     const card = page.locator('.proxy-card[data-index="0"]');
     await card.locator("[data-add-target]").click();
     await expectPage(card.locator(".target-card")).toHaveCount(2);
@@ -271,7 +271,7 @@ describe("admin UI proxy page", () => {
   });
 
   it("keeps the selected default target enabled", async () => {
-    await page.goto(baseUrl, { waitUntil: "networkidle" });
+    await loadAdminPage();
     const card = page.locator('.proxy-card[data-index="0"]');
     await card.locator("[data-add-target]").click();
     await card.locator(".target-card").nth(1).locator("[data-default-target]").check();
@@ -288,7 +288,7 @@ describe("admin UI proxy page", () => {
   });
 
   it("toggles and copies the target API key", async () => {
-    await page.goto(baseUrl, { waitUntil: "networkidle" });
+    await loadAdminPage();
     const target = page.locator('.proxy-card[data-index="0"] .target-card').first();
     const input = target.locator('[data-target-field="target_api_key"]');
     await expectPage(input).toHaveAttribute("type", "password");
@@ -324,7 +324,7 @@ describe("admin UI proxy page", () => {
   });
 
   it("expands and collapses target more settings", async () => {
-    await page.goto(baseUrl, { waitUntil: "networkidle" });
+    await loadAdminPage();
     const target = page.locator('.proxy-card[data-index="0"] .target-card').first();
     const options = target.locator(".target-options");
     await expectPage(options).toBeHidden();
@@ -343,7 +343,7 @@ describe("admin UI proxy page", () => {
   });
 
   it("saves form changes and toggles the proxy enabled state", async () => {
-    await page.goto(baseUrl, { waitUntil: "networkidle" });
+    await loadAdminPage();
     const card = page.locator('.proxy-card[data-index="0"]');
     await card.locator('[data-field="name"]').fill("Saved Proxy");
     await Promise.all([
@@ -356,7 +356,7 @@ describe("admin UI proxy page", () => {
     await expectPage(page.locator("#toast")).toContainText("Config saved");
     expect(pairs[0]?.name).toBe("Saved Proxy");
 
-    await page.reload({ waitUntil: "networkidle" });
+    await loadAdminPage();
     await Promise.all([
       page.waitForResponse(
         (response) =>
@@ -376,7 +376,7 @@ describe("admin UI proxy page", () => {
   }, 20_000);
 
   it("preserves unsaved form values while switching languages", async () => {
-    await page.goto(baseUrl, { waitUntil: "networkidle" });
+    await loadAdminPage();
     const name = page.locator('.proxy-card[data-index="0"] [data-field="name"]');
     await name.fill("Unsaved Name");
 
@@ -394,7 +394,7 @@ describe("admin UI proxy page", () => {
   });
 
   it("preserves target horizontal scroll during pair rerenders", async () => {
-    await page.goto(baseUrl, { waitUntil: "networkidle" });
+    await loadAdminPage();
     const card = page.locator('.proxy-card[data-index="0"]');
     for (let index = 0; index < 4; index += 1) {
       await card.locator("[data-add-target]").click();
@@ -411,7 +411,7 @@ describe("admin UI proxy page", () => {
 
 describe("admin UI history page", () => {
   it("debounces history search input by 180 ms", async () => {
-    await page.goto(baseUrl, { waitUntil: "networkidle" });
+    await loadAdminPage();
     await Promise.all([
       page.waitForResponse((response) => response.url().includes("/api/logs?")),
       page.locator('[data-tab="logs"]').click(),
@@ -428,7 +428,7 @@ describe("admin UI history page", () => {
   });
 
   it("supports manual and automatic history refresh", async () => {
-    await page.goto(baseUrl, { waitUntil: "networkidle" });
+    await loadAdminPage();
     await Promise.all([
       page.waitForResponse((response) => response.url().includes("/api/logs?")),
       page.locator('[data-tab="logs"]').click(),
@@ -456,7 +456,7 @@ describe("admin UI history page", () => {
   });
 
   it("loads task records only when a group is expanded", async () => {
-    await page.goto(baseUrl, { waitUntil: "networkidle" });
+    await loadAdminPage();
     await Promise.all([
       page.waitForResponse((response) => response.url().includes("/api/logs?")),
       page.locator('[data-tab="logs"]').click(),
@@ -475,7 +475,7 @@ describe("admin UI history page", () => {
 
   it("loads and merges the next page of task groups", async () => {
     useLargeLogFixture = true;
-    await page.goto(baseUrl, { waitUntil: "networkidle" });
+    await loadAdminPage();
     await Promise.all([
       page.waitForResponse((response) => response.url().includes("offset=0")),
       page.locator('[data-tab="logs"]').click(),
@@ -493,7 +493,7 @@ describe("admin UI history page", () => {
   });
 
   it("cleans selected task groups and refreshes the list", async () => {
-    await page.goto(baseUrl, { waitUntil: "networkidle" });
+    await loadAdminPage();
     await Promise.all([
       page.waitForResponse((response) => response.url().includes("/api/logs?")),
       page.locator('[data-tab="logs"]').click(),
@@ -515,7 +515,7 @@ describe("admin UI history page", () => {
   });
 
   it("downloads the log ZIP archive", async () => {
-    await page.goto(baseUrl, { waitUntil: "networkidle" });
+    await loadAdminPage();
     await Promise.all([
       page.waitForResponse((response) => response.url().includes("/api/logs?")),
       page.locator('[data-tab="logs"]').click(),
@@ -531,7 +531,7 @@ describe("admin UI history page", () => {
   });
 
   it("loads record detail and refreshes a pending response to finished", async () => {
-    await page.goto(baseUrl, { waitUntil: "networkidle" });
+    await loadAdminPage();
     await Promise.all([
       page.waitForResponse((response) => response.url().includes("/api/logs?")),
       page.locator('[data-tab="logs"]').click(),
@@ -649,7 +649,7 @@ describe("admin UI visual regression", () => {
   it("matches the Chinese proxy page baseline", async () => {
     pairs.splice(0, pairs.length, ...visualPairs());
     await page.setViewportSize({ width: 1278, height: 1215 });
-    await page.goto(baseUrl, { waitUntil: "networkidle" });
+    await loadAdminPage();
     await page.locator("#languageSelect").selectOption("zh");
     await expectPage(page.locator("#saveProxies")).toHaveText("保存配置");
 
@@ -659,7 +659,7 @@ describe("admin UI visual regression", () => {
   it("matches the English proxy page baseline", async () => {
     pairs.splice(0, pairs.length, ...visualPairs());
     await page.setViewportSize({ width: 1278, height: 1208 });
-    await page.goto(baseUrl, { waitUntil: "networkidle" });
+    await loadAdminPage();
     await page.locator("#languageSelect").selectOption("en");
     await expectPage(page.locator("#saveProxies")).toHaveText("Save config");
 
@@ -689,7 +689,7 @@ describe("admin UI visual regression", () => {
   it("renders and operates at the 760 px responsive breakpoint", async () => {
     pairs.splice(0, pairs.length, ...visualPairs());
     await page.setViewportSize({ width: 760, height: 1000 });
-    await page.goto(baseUrl, { waitUntil: "networkidle" });
+    await loadAdminPage();
     await page.locator("#languageSelect").selectOption("zh");
     await expectPage(page.locator("header")).toHaveCSS("flex-direction", "column");
     await expectPage(page.locator(".proxy-head").first()).toHaveCSS(
@@ -726,7 +726,7 @@ async function scrollLeft(locator: Locator): Promise<number> {
 }
 
 async function openRecordDetail(recordId: string): Promise<void> {
-  await page.goto(baseUrl, { waitUntil: "networkidle" });
+  await loadAdminPage();
   await Promise.all([
     page.waitForResponse((response) => response.url().includes("/api/logs?")),
     page.locator('[data-tab="logs"]').click(),
@@ -738,6 +738,15 @@ async function openRecordDetail(recordId: string): Promise<void> {
   await Promise.all([
     page.waitForResponse((response) => response.url().endsWith(`/api/logs/${recordId}`)),
     page.locator(`[data-log-id="${recordId}"]`).click(),
+  ]);
+}
+
+async function loadAdminPage(): Promise<void> {
+  await Promise.all([
+    page.waitForResponse(
+      (response) => response.url().endsWith("/api/pairs") && response.request().method() === "GET",
+    ),
+    page.goto(baseUrl, { waitUntil: "domcontentloaded" }),
   ]);
 }
 
