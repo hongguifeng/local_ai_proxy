@@ -525,19 +525,19 @@
 
 ## 16. 最终验收清单
 
-- [ ] 用户可以用 Node CLI 启动管理 UI。
-- [ ] 用户可以用 Windows Tray 启动、打开 UI、退出。
-- [ ] 所有现有 Proxy 页面字段可编辑、保存并立即生效。
-- [ ] 多 pair、多 target、default/disabled target 正常。
-- [ ] OpenAI Responses、Chat Completions、Completions、Claude Messages 正常代理。
-- [ ] 模型路由、改写、strip、inject、Header、API Key 正常。
-- [ ] SSE 在上游完成前持续到达客户端。
-- [ ] SQLite 历史、task grouping、搜索、分页、详情正常。
-- [ ] stream summary、消息数、Token 数正常。
-- [ ] redaction 正常且不影响真实转发。
-- [ ] ZIP 导出和三种 cleanup 正常。
-- [ ] 现有配置和数据库可读取。
-- [ ] UI 中英文、布局、颜色、卡片、JSON 控件、splitter 与基线一致。
-- [ ] 自动刷新 pending 请求并更新为 finished。
-- [ ] 应用关闭后管理端和全部代理端口释放。
-- [ ] 仓库不再要求 Python。
+- [x] 用户可以用 Node CLI 启动管理 UI。
+- [x] 用户可以用 Windows Tray 启动、打开 UI、退出。
+- [x] 所有现有 Proxy 页面字段可编辑、保存并立即生效。
+- [x] 多 pair、多 target、default/disabled target 正常。
+- [x] OpenAI Responses、Chat Completions、Completions、Claude Messages 正常代理。
+- [x] 模型路由、改写、strip、inject、Header、API Key 正常。
+- [x] SSE 在上游完成前持续到达客户端。
+- [x] SQLite 历史、task grouping、搜索、分页、详情正常。
+- [x] stream summary、消息数、Token 数正常。
+- [x] redaction 正常且不影响真实转发。
+- [x] ZIP 导出和三种 cleanup 正常。
+- [x] 现有配置和数据库可读取。
+- [x] UI 中英文、布局、颜色、卡片、JSON 控件、splitter 与基线一致。
+- [x] 自动刷新 pending 请求并更新为 finished。
+- [x] 应用关闭后管理端和全部代理端口释放。
+- [x] 仓库不再要求 Python。
