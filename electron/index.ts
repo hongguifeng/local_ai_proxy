@@ -15,12 +15,10 @@ let openAdmin = (): void => undefined;
 
 configureElectronUserData(app);
 if (configureSingleInstance(app, () => openAdmin())) {
-  try {
-    await start();
-  } catch (error) {
+  void start().catch((error: unknown) => {
     showStartupError(error, dialog, process.env);
     app.quit();
-  }
+  });
 }
 
 async function start(): Promise<void> {
