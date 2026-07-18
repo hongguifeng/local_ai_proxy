@@ -1,4 +1,4 @@
-import { afterAll, beforeAll, describe, it } from "vitest";
+import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { chromium, expect as expectPage, type Browser, type Page } from "@playwright/test";
 import type { AddressInfo } from "node:net";
 
@@ -126,5 +126,41 @@ describe("admin UI proxy page", () => {
     await expectPage(targets.nth(0).locator("[data-target-enabled]")).toBeChecked();
     await targets.nth(0).locator("[data-target-enabled]").uncheck();
     await expectPage(targets.nth(0).locator("[data-target-enabled]")).not.toBeChecked();
+  });
+
+  it("toggles and copies the target API key", async () => {
+    await page.goto(baseUrl, { waitUntil: "networkidle" });
+    const target = page.locator('.proxy-card[data-index="0"] .target-card').first();
+    const input = target.locator('[data-target-field="target_api_key"]');
+    await expectPage(input).toHaveAttribute("type", "password");
+
+    await target.locator("[data-toggle-api-key]").click();
+    await expectPage(input).toHaveAttribute("type", "text");
+    await expectPage(target.locator("[data-toggle-api-key]")).toHaveAttribute(
+      "title",
+      "Hide API Key",
+    );
+    await target.locator("[data-toggle-api-key]").click();
+    await expectPage(input).toHaveAttribute("type", "password");
+
+    await page.evaluate(() => {
+      Object.defineProperty(navigator, "clipboard", {
+        configurable: true,
+        value: {
+          writeText: (text: string) => {
+            Reflect.set(globalThis, "__copiedApiKey", text);
+            return Promise.resolve();
+          },
+        },
+      });
+    });
+    await target.locator("[data-copy-api-key]").click();
+    await expectPage(page.locator("#toast")).toContainText("Copied API Key");
+    expect(
+      await page.evaluate(() => {
+        const value: unknown = Reflect.get(globalThis, "__copiedApiKey");
+        return typeof value === "string" ? value : "";
+      }),
+    ).toBe("secret-key");
   });
 });
