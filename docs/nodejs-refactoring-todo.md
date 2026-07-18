@@ -409,7 +409,7 @@
 - [x] `UI-020` P0 search 180 ms debounce。
 - [x] `UI-021` P0 refresh/auto refresh。
 - [x] `UI-022` P0 group lazy expand。
-- [ ] `UI-023` P0 load more。
+- [x] `UI-023` P0 load more。
 - [ ] `UI-024` P0 selected task cleanup。
 - [ ] `UI-025` P0 ZIP download。
 - [ ] `UI-026` P0 record detail 和 pending refresh。

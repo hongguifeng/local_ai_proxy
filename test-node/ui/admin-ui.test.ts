@@ -21,6 +21,7 @@ let server: ReturnType<typeof createAdminServer>;
 let baseUrl: string;
 const logQueries: string[] = [];
 const groupLogQueries: string[] = [];
+let useLargeLogFixture = false;
 
 const pairs: PublicProxyPair[] = [];
 
@@ -77,24 +78,34 @@ beforeAll(async () => {
     logService: {
       listGroups: (query, limit, offset) => {
         logQueries.push(query);
-        const groups = [
-          {
-            id: "task-one",
-            title: "2026-07-18 12:00:00 - 12:00:02",
-            meta: "gpt-5 | 2 requests | fixture-target",
-            model: "gpt-5",
-            request_count: 2,
-            target: "fixture-target",
-          },
-          {
-            id: "task-needle",
-            title: "Needle task",
-            meta: "claude | 1 requests | fixture-target",
-            model: "claude",
-            request_count: 1,
-            target: "fixture-target",
-          },
-        ].filter((group) =>
+        const sourceGroups = useLargeLogFixture
+          ? Array.from({ length: 101 }, (_, index) => ({
+              id: `task-${index + 1}`,
+              title: `Task ${index + 1}`,
+              meta: `gpt-5 | 1 requests | target-${index + 1}`,
+              model: "gpt-5",
+              request_count: 1,
+              target: `target-${index + 1}`,
+            }))
+          : [
+              {
+                id: "task-one",
+                title: "2026-07-18 12:00:00 - 12:00:02",
+                meta: "gpt-5 | 2 requests | fixture-target",
+                model: "gpt-5",
+                request_count: 2,
+                target: "fixture-target",
+              },
+              {
+                id: "task-needle",
+                title: "Needle task",
+                meta: "claude | 1 requests | fixture-target",
+                model: "claude",
+                request_count: 1,
+                target: "fixture-target",
+              },
+            ];
+        const groups = sourceGroups.filter((group) =>
           `${group.title} ${group.meta}`.toLowerCase().includes(query.toLowerCase()),
         );
         const pageGroups = groups.slice(offset, offset + limit);
@@ -164,6 +175,7 @@ beforeEach(() => {
   pairs.splice(0, pairs.length, fixturePair());
   logQueries.splice(0);
   groupLogQueries.splice(0);
+  useLargeLogFixture = false;
 });
 
 afterAll(async () => {
@@ -417,6 +429,25 @@ describe("admin UI history page", () => {
     expect(groupLogQueries).toEqual(["task-one:"]);
     await expectPage(page.locator('[data-log-id="record-two"]')).toContainText("12 tokens");
     await expectPage(page.locator('[data-log-id="record-one"]')).toContainText("1 messages");
+  });
+
+  it("loads and merges the next page of task groups", async () => {
+    useLargeLogFixture = true;
+    await page.goto(baseUrl, { waitUntil: "networkidle" });
+    await Promise.all([
+      page.waitForResponse((response) => response.url().includes("offset=0")),
+      page.locator('[data-tab="logs"]').click(),
+    ]);
+    await expectPage(page.locator(".log-group")).toHaveCount(100);
+    await expectPage(page.locator("[data-load-more]")).toContainText("100/101");
+
+    await Promise.all([
+      page.waitForResponse((response) => response.url().includes("offset=100")),
+      page.locator("[data-load-more]").click(),
+    ]);
+    await expectPage(page.locator(".log-group")).toHaveCount(101);
+    await expectPage(page.locator("[data-load-more]")).toHaveCount(0);
+    await expectPage(page.locator('[data-group-id="task-101"]')).toHaveCount(1);
   });
 });
 
