@@ -23,6 +23,11 @@ describe("parseCliArgs", () => {
     expect(parseCliArgs(["--config-file", "state/pairs.json"]).configFile).toBe("state/pairs.json");
   });
 
+  it("parses --log-root", () => {
+    expect(parseCliArgs([]).logRoot).toBe("logs");
+    expect(parseCliArgs(["--log-root", "state/history"]).logRoot).toBe("state/history");
+  });
+
   it("rejects a missing host", () => {
     expect(() => parseCliArgs(["--host"])).toThrow("Option --host requires a value.");
   });
