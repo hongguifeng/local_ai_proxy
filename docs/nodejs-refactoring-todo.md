@@ -373,7 +373,7 @@
 
 - [x] `API-030` P0 task/record 目录名生成。
 - [x] `API-031` P0 task index Markdown。
-- [ ] `API-032` P0 record summary Markdown。
+- [x] `API-032` P0 record summary Markdown。
 - [ ] `API-033` P0 request/response JSON entry。
 - [ ] `API-034` P0 GET export 流式 ZIP。
 - [ ] `API-035` P0 selected group cleanup。

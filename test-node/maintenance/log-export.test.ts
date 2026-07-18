@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 
 import {
   recordExportDirectory,
+  renderRecordSummaryMarkdown,
   renderTaskIndexMarkdown,
   taskExportDirectory,
 } from "../../src/maintenance/index.js";
@@ -74,5 +75,35 @@ describe("task export Markdown", () => {
       markdown.indexOf("002 `POST /v1/responses` -> 200"),
     );
     expect(markdown).toContain("[record-2](002__v1-responses__record-2/)");
+  });
+});
+
+describe("record export Markdown", () => {
+  it("renders interaction metadata, errors, and body entry links", () => {
+    const markdown = renderRecordSummaryMarkdown(
+      { id: "task-1", kind: "responses" },
+      {
+        id: "record-1",
+        sequence: 3,
+        timestamp: "2026-07-18T12:34:56+08:00",
+        event: "request_finished",
+        duration_ms: 42,
+        target_url: "http://fixture/v1/responses",
+        method: "POST",
+        path: "/v1/responses",
+        endpoint: "/v1/responses",
+        message_count: 2,
+        token_count: 9,
+        status: 502,
+        error: "upstream failed",
+      },
+    );
+
+    expect(markdown).toContain("# LLM Interaction record-1");
+    expect(markdown).toContain("- Time: 2026-07-18 12:34:56");
+    expect(markdown).toContain("- Error: upstream failed");
+    expect(markdown).toContain("- Task: responses / task-1 / request 3");
+    expect(markdown).toContain("See `request.json`.");
+    expect(markdown).toContain("See `response.json`.");
   });
 });

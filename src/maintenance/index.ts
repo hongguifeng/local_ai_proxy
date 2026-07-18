@@ -9,6 +9,7 @@ export {
 } from "./log-query-service.js";
 export {
   recordExportDirectory,
+  renderRecordSummaryMarkdown,
   renderTaskIndexMarkdown,
   taskExportDirectory,
 } from "./log-export.js";

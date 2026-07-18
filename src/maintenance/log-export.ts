@@ -54,6 +54,43 @@ export function renderTaskIndexMarkdown(
   return lines.join("\n");
 }
 
+export function renderRecordSummaryMarkdown(
+  task: Readonly<RepositoryRecord>,
+  record: Readonly<RepositoryRecord>,
+): string {
+  const lines = [
+    `# LLM Interaction ${text(record["id"])}`,
+    "",
+    "## Summary",
+    "",
+    `- Time: ${displayTimestamp(record["timestamp"])}`,
+    `- Event: ${text(record["event"])}`,
+    `- Duration: ${text(record["duration_ms"])} ms`,
+    `- Target: ${text(record["target_url"])}`,
+    `- Request: ${text(record["method"])} ${text(record["path"])}`,
+    `- Endpoint: ${text(record["endpoint"])}`,
+    `- Message count: ${text(record["message_count"])}`,
+    `- Token count: ${text(record["token_count"])}`,
+    `- Response: ${text(record["status"])}`,
+  ];
+  if (text(record["error"]) !== "") {
+    lines.push(`- Error: ${text(record["error"])}`);
+  }
+  lines.push(
+    `- Task: ${text(task["kind"])} / ${text(task["id"])} / request ${text(record["sequence"])}`,
+    "",
+    "## Request Body",
+    "",
+    "See `request.json`.",
+    "",
+    "## Response Body",
+    "",
+    "See `response.json`.",
+    "",
+  );
+  return lines.join("\n");
+}
+
 function compactTimestamp(value: unknown): string {
   if (typeof value !== "string" || value === "") {
     return "";
