@@ -2,6 +2,7 @@ import { app, Menu, nativeImage, shell, Tray } from "electron";
 
 import { createNodeApplication } from "../src/app/index.js";
 import { parseCliArgs } from "../src/cli/index.js";
+import { shutdownAndQuit } from "./exit.js";
 import { startHeadlessElectronMain } from "./headless-main.js";
 import { TRAY_ICON_DATA_URL } from "./tray-icon.js";
 import { installOpenAdminActions } from "./tray-menu.js";
@@ -20,4 +21,5 @@ installOpenAdminActions(
   () => {
     void shell.openExternal(adminUrl);
   },
+  () => shutdownAndQuit(runtime.application, app),
 );

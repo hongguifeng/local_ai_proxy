@@ -3,7 +3,9 @@ import { describe, expect, it, vi } from "vitest";
 import { installOpenAdminActions } from "../../electron/tray-menu.js";
 
 interface MenuModel {
-  readonly template: readonly { readonly click: () => void; readonly label: string }[];
+  readonly template: readonly (
+    { readonly click: () => void; readonly label: string } | { readonly type: "separator" }
+  )[];
 }
 
 describe("installOpenAdminActions", () => {
@@ -18,14 +20,20 @@ describe("installOpenAdminActions", () => {
       }),
     };
     const openAdmin = vi.fn();
+    const exit = vi.fn(() => Promise.resolve());
     const buildMenu = vi.fn((template: MenuModel["template"]): MenuModel => ({ template }));
 
-    installOpenAdminActions(tray, buildMenu, openAdmin);
-    buildMenu.mock.calls[0]?.[0][0]?.click();
+    installOpenAdminActions(tray, buildMenu, openAdmin, exit);
+    const template = buildMenu.mock.calls[0]?.[0];
+    const openItem = template?.[0];
+    const exitItem = template?.[2];
+    if (openItem !== undefined && "click" in openItem) openItem.click();
+    if (exitItem !== undefined && "click" in exitItem) exitItem.click();
     listeners.get("click")?.();
     listeners.get("double-click")?.();
 
     expect(openAdmin).toHaveBeenCalledTimes(3);
+    expect(exit).toHaveBeenCalledOnce();
     expect(setContextMenu).toHaveBeenCalledOnce();
   });
 });
