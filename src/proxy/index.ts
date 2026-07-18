@@ -89,7 +89,9 @@ export {
 } from "./proxy-runtime-state.js";
 export { ProxyRuntimeRegistry } from "./proxy-runtime-registry.js";
 export {
+  assertNoEnabledListenConflicts,
   diffProxyPairs,
+  ProxyListenConflictError,
   type ProxyPairConfigDiff,
   type UpdatedProxyPair,
 } from "./proxy-manager.js";

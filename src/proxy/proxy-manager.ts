@@ -13,6 +13,40 @@ export interface ProxyPairConfigDiff {
   readonly updated: readonly UpdatedProxyPair[];
 }
 
+export class ProxyListenConflictError extends Error {
+  readonly conflictingPairId: string;
+  readonly host: string;
+  readonly pairId: string;
+  readonly port: number;
+
+  constructor(pair: ProxyPair, conflictingPair: ProxyPair) {
+    super(
+      `Proxy pair ${pair.id} conflicts with ${conflictingPair.id} on ${pair.listen_host}:${pair.listen_port}.`,
+    );
+    this.name = "ProxyListenConflictError";
+    this.pairId = pair.id;
+    this.conflictingPairId = conflictingPair.id;
+    this.host = pair.listen_host;
+    this.port = pair.listen_port;
+  }
+}
+
+export function assertNoEnabledListenConflicts(pairs: readonly ProxyPair[]): void {
+  const enabled = pairs.filter((pair) => pair.enabled && pair.listen_port !== 0);
+  for (const [index, pair] of enabled.entries()) {
+    const conflict = enabled
+      .slice(0, index)
+      .find(
+        (candidate) =>
+          candidate.listen_port === pair.listen_port &&
+          hostsConflict(candidate.listen_host, pair.listen_host),
+      );
+    if (conflict !== undefined) {
+      throw new ProxyListenConflictError(pair, conflict);
+    }
+  }
+}
+
 export function diffProxyPairs(
   current: readonly ProxyPair[],
   next: readonly ProxyPair[],
@@ -38,4 +72,18 @@ export function diffProxyPairs(
     unchanged,
     updated,
   };
+}
+
+function hostsConflict(left: string, right: string): boolean {
+  const normalizedLeft = left.trim().toLowerCase();
+  const normalizedRight = right.trim().toLowerCase();
+  return (
+    normalizedLeft === normalizedRight ||
+    isWildcardHost(normalizedLeft) ||
+    isWildcardHost(normalizedRight)
+  );
+}
+
+function isWildcardHost(host: string): boolean {
+  return host === "0.0.0.0" || host === "::";
 }

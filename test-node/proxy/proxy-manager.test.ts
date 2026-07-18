@@ -1,7 +1,11 @@
 import { describe, expect, it } from "vitest";
 
 import { createDefaultProxyPair, type ProxyPair } from "../../src/config/index.js";
-import { diffProxyPairs } from "../../src/proxy/index.js";
+import {
+  assertNoEnabledListenConflicts,
+  diffProxyPairs,
+  ProxyListenConflictError,
+} from "../../src/proxy/index.js";
 
 describe("diffProxyPairs", () => {
   it("classifies add, update, remove, and unchanged pairs in stable order", () => {
@@ -35,7 +39,33 @@ describe("diffProxyPairs", () => {
   });
 });
 
+describe("assertNoEnabledListenConflicts", () => {
+  it("rejects equal and wildcard listen addresses on the same fixed port", () => {
+    expect(() =>
+      assertNoEnabledListenConflicts([pair("first", 4300), pair("second", 4300)]),
+    ).toThrow(ProxyListenConflictError);
+    expect(() =>
+      assertNoEnabledListenConflicts([
+        { ...pair("wildcard", 4301), listen_host: "0.0.0.0" },
+        { ...pair("loopback", 4301), listen_host: "127.0.0.1" },
+      ]),
+    ).toThrow("loopback conflicts with wildcard");
+  });
+
+  it("allows dynamic ports, disabled pairs, and distinct fixed addresses", () => {
+    expect(() =>
+      assertNoEnabledListenConflicts([
+        pair("dynamic-one", 0),
+        pair("dynamic-two", 0),
+        pair("enabled", 4302),
+        { ...pair("disabled", 4302), enabled: false },
+        { ...pair("ipv6", 4302), listen_host: "::1" },
+      ]),
+    ).not.toThrow();
+  });
+});
+
 function pair(id: string, port: number): ProxyPair {
   const value = createDefaultProxyPair("");
-  return { ...value, id, name: id, listen_port: port };
+  return { ...value, id, name: id, enabled: true, listen_port: port };
 }
