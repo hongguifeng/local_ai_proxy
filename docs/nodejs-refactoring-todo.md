@@ -429,7 +429,7 @@
 
 ### 13.1 CLI
 
-- [ ] `CLI-001` P0 实现 `--host`。
+- [x] `CLI-001` P0 实现 `--host`。
 - [ ] `CLI-002` P0 实现 `--port`。
 - [ ] `CLI-003` P0 实现 `--config-file`。
 - [ ] `CLI-004` P0 实现 `--log-root`。
