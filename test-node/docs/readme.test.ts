@@ -9,4 +9,12 @@ describe("README runtime instructions", () => {
     expect(quickStart).toContain("npm run package:electron");
     expect(quickStart).not.toContain("python -m llm_proxy");
   });
+
+  it("uses the Node CLI in the Chinese quick start", async () => {
+    const readme = await readFile(new URL("../../README.cn.md", import.meta.url), "utf8");
+    const quickStart = readme.slice(readme.indexOf("## 快速开始"), readme.indexOf("## Web 控制台"));
+    expect(quickStart).toContain("npm start");
+    expect(quickStart).toContain("npm run package:electron");
+    expect(quickStart).not.toContain("python -m llm_proxy");
+  });
 });

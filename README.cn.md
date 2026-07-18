@@ -59,53 +59,34 @@ flowchart LR
 启动 Web 控制台：
 
 ```powershell
-python -m llm_proxy
+npm ci
+npm run build
+npm start
 ```
 
-Windows 下也可以直接运行：
+需要 Node.js 24。浏览器默认自动打开 `http://127.0.0.1:8088`；无浏览器启动可使用
+`npm start -- --no-browser`。
+
+### Windows 托盘应用
+
+可以从 GitHub Release 下载 installer 或 portable 版本。在 Windows 本机构建两个版本：
 
 ```powershell
-.\run.bat
-```
-
-服务启动后会自动打开浏览器：
-
-```text
-http://127.0.0.1:8088
-```
-
-### Windows 托盘版 exe
-
-如果希望双击后只显示系统托盘图标、不显示命令行窗口，可以打包托盘启动器：
-
-```powershell
-python -m pip install -e ".[tray]" pyinstaller
-python -m PyInstaller `
-  --clean `
-  --onefile `
-  --windowed `
-  --name llm-proxy-tray `
-  --add-data "llm_proxy\static;llm_proxy\static" `
-  --collect-submodules pystray `
-  tray_launcher.py
-```
-
-生成的程序在：
-
-```powershell
-.\dist\llm-proxy-tray.exe
+npm ci
+npm run package:electron
 ```
 
 启动后会在系统托盘显示 LLM Proxy 图标。左键点击图标会打开管理界面；右键菜单提供 **Open Admin UI** 和 **Exit**。如果希望启动后立刻打开浏览器，可以运行：
 
 ```powershell
-.\dist\llm-proxy-tray.exe --open-on-start
+.\release\LLM Proxy-0.1.0-x64-portable.exe --open-on-start
 ```
 
 项目也包含 GitHub Actions 自动打包和发布流程：
 
-- 普通 push 和 pull request 会构建 `llm-proxy-tray.exe`，并作为 workflow artifact 保存。
-- 推送 `v*` tag 会自动创建或更新 GitHub Release，并上传 `llm-proxy-tray.exe` 和 `llm-proxy-tray.exe.sha256`。
+- 普通 push 和 pull request 会构建 Windows installer、portable 程序、CLI ZIP 和
+  `SHA256SUMS.txt`，并作为 workflow artifact 保存。
+- 推送 `v*` tag 会自动创建或更新 GitHub Release，并上传这些产物。
 
 发布一个版本：
 
@@ -207,7 +188,7 @@ fallback-model
 ### 查看本地模型服务请求
 
 1. 启动本地上游服务，例如运行在 `http://127.0.0.1:1235` 的 `llama.cpp` server。
-2. 运行 `python -m llm_proxy`。
+2. 执行 `npm run build` 后运行 `npm start`。
 3. 在 UI 中启用一个从 `127.0.0.1:1234` 到 `http://127.0.0.1:1235` 的代理地址对。
 4. 将客户端 base URL 设置为 `http://127.0.0.1:1234`。
 5. 打开 **历史日志** 查看捕获到的交互。
