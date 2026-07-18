@@ -19,6 +19,7 @@ let browser: Browser;
 let page: Page;
 let server: ReturnType<typeof createAdminServer>;
 let baseUrl: string;
+const logQueries: string[] = [];
 
 const pairs: PublicProxyPair[] = [];
 
@@ -72,6 +73,41 @@ beforeAll(async () => {
         return Promise.resolve(updated);
       },
     },
+    logService: {
+      listGroups: (query, limit, offset) => {
+        logQueries.push(query);
+        const groups = [
+          {
+            id: "task-one",
+            title: "2026-07-18 12:00:00 - 12:00:02",
+            meta: "gpt-5 | 2 requests | fixture-target",
+            model: "gpt-5",
+            request_count: 2,
+            target: "fixture-target",
+          },
+          {
+            id: "task-needle",
+            title: "Needle task",
+            meta: "claude | 1 requests | fixture-target",
+            model: "claude",
+            request_count: 1,
+            target: "fixture-target",
+          },
+        ].filter((group) =>
+          `${group.title} ${group.meta}`.toLowerCase().includes(query.toLowerCase()),
+        );
+        const pageGroups = groups.slice(offset, offset + limit);
+        const nextOffset = offset + pageGroups.length;
+        return {
+          groups: pageGroups,
+          total: groups.length,
+          limit,
+          offset,
+          next_offset: nextOffset,
+          has_more: nextOffset < groups.length,
+        };
+      },
+    },
     staticAssets: await loadAdminStaticAssets(),
   });
   await server.listen({ host: "127.0.0.1", port: 0 });
@@ -87,6 +123,7 @@ beforeAll(async () => {
 
 beforeEach(() => {
   pairs.splice(0, pairs.length, fixturePair());
+  logQueries.splice(0);
 });
 
 afterAll(async () => {
@@ -275,6 +312,25 @@ describe("admin UI proxy page", () => {
 
     await card.locator(".target-card").first().locator("[data-toggle-target-options]").click();
     expect(await scrollLeft(card.locator(".targets-row"))).toBe(before);
+  });
+});
+
+describe("admin UI history page", () => {
+  it("debounces history search input by 180 ms", async () => {
+    await page.goto(baseUrl, { waitUntil: "networkidle" });
+    await Promise.all([
+      page.waitForResponse((response) => response.url().includes("/api/logs?")),
+      page.locator('[data-tab="logs"]').click(),
+    ]);
+    logQueries.splice(0);
+
+    const response = page.waitForResponse((candidate) => candidate.url().includes("q=needle"));
+    const startedAt = Date.now();
+    await page.locator("#logSearch").fill("needle");
+    await response;
+    expect(Date.now() - startedAt).toBeGreaterThanOrEqual(150);
+    expect(logQueries).toEqual(["needle"]);
+    await expectPage(page.locator(".log-group-title")).toHaveText("Needle task");
   });
 });
 
