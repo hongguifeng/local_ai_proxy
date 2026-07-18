@@ -229,6 +229,38 @@ describe("ConfigRepository.save", () => {
     expect(JSON.parse(result.stdout)).toEqual(normalizedConfig);
   });
 
+  it("rehearses backup, save, and rollback with the comprehensive config fixture", async () => {
+    const directory = await mkdtemp(path.join(os.tmpdir(), "llm-proxy-config-rehearsal-"));
+    temporaryDirectories.push(directory);
+    const fixturePath = path.join(
+      projectRoot,
+      "fixtures",
+      "parity",
+      "config",
+      "proxies-comprehensive.json",
+    );
+    const configPath = path.join(directory, "proxies.json");
+    await copyFile(fixturePath, configPath);
+    const repository = new ConfigRepository(configPath, "rehearsal-logs", {
+      now: () => new Date("2026-07-18T06:00:00.000Z"),
+    });
+    const original = await repository.load();
+    const changed = {
+      pairs: original.pairs.map((pair, index) =>
+        index === 0 ? { ...pair, name: `${pair.name} rehearsal` } : pair,
+      ),
+    };
+
+    await repository.save(changed);
+    expect(await repository.load()).toEqual(changed);
+    const backupPath = path.join(
+      directory,
+      "proxies.json.before-node-2026-07-18T06-00-00.000Z.bak",
+    );
+    await copyFile(backupPath, configPath);
+    expect(await new ConfigRepository(configPath, "rehearsal-logs").load()).toEqual(original);
+  });
+
   it.runIf(process.platform === "win32")(
     "replaces an existing config file on Windows",
     async () => {
