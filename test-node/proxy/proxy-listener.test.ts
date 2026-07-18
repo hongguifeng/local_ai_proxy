@@ -68,7 +68,9 @@ describe("ProxyListener", () => {
       pairName: "Single target proxy",
       targets: [
         {
+          enabled: true,
           id: "target-1",
+          modelMappings: [],
           name: "Single target",
           targetScheme: "http",
           targetHost: "127.0.0.1",
@@ -104,20 +106,100 @@ describe("ProxyListener", () => {
     });
     await listener.close();
   });
+
+  it("selects the multi-target logger only after reading the model body", async () => {
+    const firstRecords: Readonly<Record<string, unknown>>[] = [];
+    const secondRecords: Readonly<Record<string, unknown>>[] = [];
+    const logger = (records: Readonly<Record<string, unknown>>[]): TrafficLogWriter => ({
+      write(record) {
+        records.push(record);
+        return Promise.resolve();
+      },
+      update() {
+        return Promise.resolve();
+      },
+    });
+    const pipeline = new ProxyRequestPipeline({
+      defaultTargetId: "default",
+      targets: [
+        {
+          enabled: true,
+          id: "default",
+          modelMappings: [],
+          name: "Default target",
+          targetScheme: "http",
+          targetHost: "127.0.0.1",
+          targetPort: 4321,
+          targetBasePath: "",
+          trafficLog: logger(firstRecords),
+        },
+        {
+          enabled: true,
+          id: "routed",
+          modelMappings: [{ listen: "model-alias", upstream: "gpt-upstream" }],
+          name: "Routed target",
+          targetScheme: "http",
+          targetHost: "127.0.0.1",
+          targetPort: 4322,
+          targetBasePath: "/routed",
+          trafficLog: logger(secondRecords),
+        },
+      ],
+    });
+    const listener = new ProxyListener({
+      host: "127.0.0.1",
+      port: 0,
+      onRequest: (request, response, context) => pipeline.handle(request, response, context),
+    });
+    const address = await listener.start();
+    const body = JSON.stringify({ model: "model-alias", input: "hello" });
+
+    expect(
+      (await requestText(address.port, "/v1/responses", { method: "POST", body })).status,
+    ).toBe(501);
+    expect(firstRecords).toEqual([]);
+    expect(secondRecords).toHaveLength(1);
+    expect(secondRecords[0]).toMatchObject({
+      event: "request_received",
+      target: { id: "routed", port: 4322, path: "/routed/v1/responses" },
+      request: {
+        body_pending: false,
+        body: { size_bytes: Buffer.byteLength(body), text: body },
+      },
+    });
+    await listener.close();
+  });
 });
 
-function requestText(port: number, path: string): Promise<{ status: number; body: string }> {
+function requestText(
+  port: number,
+  path: string,
+  options: { readonly method?: string; readonly body?: string } = {},
+): Promise<{ status: number; body: string }> {
   return new Promise((resolve, reject) => {
-    const request = http.get({ host: "127.0.0.1", port, path }, (response) => {
-      const chunks: Buffer[] = [];
-      response.on("data", (chunk: Buffer) => chunks.push(chunk));
-      response.on("end", () => {
-        resolve({
-          status: response.statusCode ?? 0,
-          body: Buffer.concat(chunks).toString("utf8"),
+    const request = http.request(
+      {
+        host: "127.0.0.1",
+        port,
+        path,
+        method: options.method ?? "GET",
+        headers:
+          options.body === undefined
+            ? undefined
+            : { "content-length": Buffer.byteLength(options.body) },
+      },
+      (response) => {
+        const chunks: Buffer[] = [];
+        response.on("data", (chunk: Buffer) => chunks.push(chunk));
+        response.on("end", () => {
+          resolve({
+            status: response.statusCode ?? 0,
+            body: Buffer.concat(chunks).toString("utf8"),
+          });
         });
-      });
-    });
+      },
+    );
     request.on("error", reject);
+    request.end(options.body);
   });
 }

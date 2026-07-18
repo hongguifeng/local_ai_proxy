@@ -3,6 +3,7 @@ import type { IncomingMessage, ServerResponse } from "node:http";
 import type { RepositoryRecord } from "../persistence/index.js";
 import { bytesPayload } from "./payload.js";
 import type { ProxyRequestContext } from "./proxy-listener.js";
+import { selectTargetByModel } from "./routing.js";
 import { joinTargetPath } from "./target.js";
 
 export interface TrafficLogWriter {
@@ -11,7 +12,9 @@ export interface TrafficLogWriter {
 }
 
 export interface ProxyPipelineTarget {
+  readonly enabled: boolean;
   readonly id: string;
+  readonly modelMappings: readonly { readonly listen: string; readonly upstream: string }[];
   readonly name: string;
   readonly targetScheme: "http" | "https";
   readonly targetHost: string;
@@ -21,6 +24,7 @@ export interface ProxyPipelineTarget {
 }
 
 export interface ProxyRequestPipelineOptions {
+  readonly defaultTargetId?: string;
   readonly pairId?: string;
   readonly pairName?: string;
   readonly targets: readonly ProxyPipelineTarget[];
@@ -50,8 +54,37 @@ export class ProxyRequestPipeline {
         eventRecord(this.#initialRecord(request, context, target), "request_received", 0),
       );
     }
+    const requestBody = await readRequestBody(request);
+    const selectedTarget = this.#selectTarget(requestBody);
+    if (this.#options.targets.length > 1) {
+      const record = this.#initialRecord(request, context, selectedTarget);
+      const requestRecord = record["request"];
+      if (
+        typeof requestRecord === "object" &&
+        requestRecord !== null &&
+        !Array.isArray(requestRecord)
+      ) {
+        record["request"] = {
+          ...requestRecord,
+          body: bytesPayload(requestBody),
+          body_pending: false,
+        };
+      }
+      await selectedTarget.trafficLog.write(eventRecord(record, "request_received", 0));
+    }
     response.writeHead(501, { "content-type": "text/plain; charset=utf-8", connection: "close" });
     response.end("Proxy forwarding is not implemented yet.");
+  }
+
+  #selectTarget(requestBody: Uint8Array): ProxyPipelineTarget {
+    const candidates = this.#options.targets.map((target) => ({
+      id: target.id,
+      enabled: target.enabled,
+      model_mappings: target.modelMappings,
+      target,
+    }));
+    return selectTargetByModel(candidates, this.#options.defaultTargetId ?? "", requestBody).target
+      .target;
   }
 
   #initialRecord(
@@ -88,6 +121,14 @@ export class ProxyRequestPipeline {
       },
     };
   }
+}
+
+export async function readRequestBody(request: IncomingMessage): Promise<Buffer> {
+  const chunks: Buffer[] = [];
+  for await (const chunk of request) {
+    chunks.push(Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk as Uint8Array));
+  }
+  return Buffer.concat(chunks);
 }
 
 function eventRecord(

@@ -65,6 +65,7 @@ export {
 } from "./proxy-listener.js";
 export {
   ProxyRequestPipeline,
+  readRequestBody,
   type ProxyPipelineTarget,
   type ProxyRequestPipelineOptions,
   type TrafficLogWriter,
