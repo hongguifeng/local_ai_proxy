@@ -1,5 +1,5 @@
 import { spawn } from "node:child_process";
-import { readdir } from "node:fs/promises";
+import { mkdir, readdir } from "node:fs/promises";
 import { createServer } from "node:net";
 import path from "node:path";
 import { pathToFileURL } from "node:url";
@@ -19,10 +19,19 @@ export async function smokeWindowsArtifact(
   }
   const executable = await findPortableArtifact(releaseDirectory);
   const port = await availablePort();
+  const smokeDirectory = path.join(releaseDirectory, "smoke");
+  await mkdir(smokeDirectory, { recursive: true });
   const child = spawn(
     executable,
     ["--port", String(port), "--config-file", "smoke/proxies.json", "--log-root", "smoke/logs"],
-    { cwd: releaseDirectory, stdio: "ignore" },
+    {
+      cwd: releaseDirectory,
+      env: {
+        ...process.env,
+        LLM_PROXY_USER_DATA_DIR: path.join(smokeDirectory, `user-data-${port}`),
+      },
+      stdio: "ignore",
+    },
   );
   try {
     await waitForHealth(`http://127.0.0.1:${port}/api/health`);

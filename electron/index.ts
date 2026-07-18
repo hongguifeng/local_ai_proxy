@@ -8,10 +8,12 @@ import { installOpenAdminActions } from "./tray-menu.js";
 import { parseTrayOptions } from "./tray-options.js";
 import { showStartupError } from "./startup-error.js";
 import { configureSingleInstance } from "./single-instance.js";
+import { configureElectronUserData } from "./user-data.js";
 
 let tray: Tray | undefined;
 let openAdmin = (): void => undefined;
 
+configureElectronUserData(app);
 if (configureSingleInstance(app, () => openAdmin())) {
   try {
     await start();
