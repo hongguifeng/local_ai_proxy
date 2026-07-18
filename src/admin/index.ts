@@ -6,6 +6,7 @@ export {
   createAdminServer,
   HEALTH_SNAPSHOT_SCHEMA,
   PAIRS_RESPONSE_SCHEMA,
+  REPLACE_PAIRS_REQUEST_SCHEMA,
   type AdminControlPlaneAddress,
   type AdminControlPlaneOptions,
   type AdminErrorDto,

@@ -3,7 +3,7 @@ import type { AddressInfo } from "node:net";
 import { performance } from "node:perf_hooks";
 
 import type { ApplicationState } from "../app/index.js";
-import type { PublicProxyPair } from "../config/index.js";
+import type { ProxyPair, PublicProxyPair } from "../config/index.js";
 import { StructuredLogger } from "../shared/index.js";
 
 export type HealthStatus = "degraded" | "ok" | "starting" | "stopping";
@@ -23,6 +23,7 @@ export interface AdminServerOptions {
 
 export interface PairAdminService {
   listPairs(): readonly PublicProxyPair[];
+  readonly replacePairs?: (pairs: readonly ProxyPair[]) => Promise<readonly PublicProxyPair[]>;
 }
 
 export interface AdminRequestLogger {
@@ -72,6 +73,18 @@ export const ADMIN_ERROR_DTO_SCHEMA = {
 } as const;
 
 export const PAIRS_RESPONSE_SCHEMA = {
+  type: "object",
+  additionalProperties: false,
+  required: ["pairs"],
+  properties: {
+    pairs: {
+      type: "array",
+      items: { type: "object", additionalProperties: true },
+    },
+  },
+} as const;
+
+export const REPLACE_PAIRS_REQUEST_SCHEMA = {
   type: "object",
   additionalProperties: false,
   required: ["pairs"],
@@ -184,6 +197,19 @@ export function createAdminServer(options: AdminServerOptions): FastifyInstance 
     server.get("/api/pairs", { schema: { response: { 200: PAIRS_RESPONSE_SCHEMA } } }, () => ({
       pairs: options.pairService?.listPairs() ?? [],
     }));
+    const replacePairs = options.pairService.replacePairs;
+    if (replacePairs !== undefined) {
+      server.put<{ Body: { pairs: ProxyPair[] } }>(
+        "/api/pairs",
+        {
+          schema: {
+            body: REPLACE_PAIRS_REQUEST_SCHEMA,
+            response: { 200: PAIRS_RESPONSE_SCHEMA },
+          },
+        },
+        async (request) => ({ pairs: await replacePairs(request.body.pairs) }),
+      );
+    }
   }
   if (options.staticAssets !== undefined) {
     server.get("/", async (_request, reply) =>

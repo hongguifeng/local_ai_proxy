@@ -33,4 +33,30 @@ describe("GET /api/pairs", () => {
     servers.push(server);
     expect((await server.inject({ method: "GET", url: "/api/pairs" })).statusCode).toBe(404);
   });
+
+  it("replaces the complete pair list and returns committed runtime state", async () => {
+    const submitted = { ...createDefaultProxyPair(""), id: "submitted", name: "Submitted" };
+    const committed = { ...submitted, running: false, actual_listen_port: null };
+    const replacements: unknown[] = [];
+    const server = createAdminServer({
+      getHealth: () => applicationHealth("running"),
+      pairService: {
+        listPairs: () => [],
+        replacePairs(pairs) {
+          replacements.push(pairs);
+          return Promise.resolve([committed]);
+        },
+      },
+    });
+    servers.push(server);
+
+    const response = await server.inject({
+      method: "PUT",
+      url: "/api/pairs",
+      payload: { pairs: [submitted] },
+    });
+    expect(response.statusCode).toBe(200);
+    expect(response.json()).toEqual({ pairs: [committed] });
+    expect(replacements).toEqual([[submitted]]);
+  });
 });
