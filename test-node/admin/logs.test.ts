@@ -55,6 +55,9 @@ describe("GET /api/logs", () => {
           return groupId === "known"
             ? {
                 id: groupId,
+                total: 1,
+                limit: 200,
+                has_more: false,
                 logs: [
                   {
                     id: "record",

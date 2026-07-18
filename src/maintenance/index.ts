@@ -1,5 +1,6 @@
 export {
   LogQueryService,
+  TASK_RECORD_LIMIT,
   type LogGroupLogs,
   type LogGroupPage,
   type LogGroupSummary,

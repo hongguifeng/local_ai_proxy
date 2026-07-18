@@ -33,8 +33,11 @@ export interface LogListItem {
 }
 
 export interface LogGroupLogs {
+  readonly has_more: boolean;
   readonly id: string;
+  readonly limit: number;
   readonly logs: readonly LogListItem[];
+  readonly total: number;
 }
 
 export interface LogRecordDetail {
@@ -90,8 +93,14 @@ export class LogQueryService {
         if (repository.getTask(groupId) === undefined) {
           continue;
         }
-        const page = repository.listTaskRecords(groupId, query, 200, 0);
-        return { id: groupId, logs: page.items.map(logListItem) };
+        const page = repository.listTaskRecords(groupId, query, TASK_RECORD_LIMIT, 0);
+        return {
+          id: groupId,
+          logs: page.items.map(logListItem),
+          total: page.total,
+          limit: page.limit,
+          has_more: page.hasMore,
+        };
       } finally {
         repository.close();
       }
@@ -146,6 +155,8 @@ export class LogQueryService {
     };
   }
 }
+
+export const TASK_RECORD_LIMIT = 200;
 
 function recordDetail(record: Readonly<RepositoryRecord>): LogRecordDetail {
   const proxyName = string(record["proxy_name"]);
