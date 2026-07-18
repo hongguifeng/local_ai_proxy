@@ -286,7 +286,7 @@
 
 ### 9.2 请求读取与变换
 
-- [ ] `HTTP-010` P0 Content-Length body。
+- [x] `HTTP-010` P0 Content-Length body。
 - [ ] `HTTP-011` P0 incoming chunked body。
 - [ ] `HTTP-012` P0 空 body 和 HEAD。
 - [ ] `HTTP-013` P0 model route/rewrite/strip/inject 全链路。
