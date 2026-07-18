@@ -396,7 +396,7 @@
 
 - [x] `UI-010` P0 load/render pair。
 - [x] `UI-011` P0 add/delete pair。
-- [ ] `UI-012` P0 add/delete target，至少保留一个。
+- [x] `UI-012` P0 add/delete target，至少保留一个。
 - [ ] `UI-013` P0 default target 与 enabled 规则。
 - [ ] `UI-014` P0 API Key 显隐/复制。
 - [ ] `UI-015` P0 More settings。

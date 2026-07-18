@@ -96,4 +96,18 @@ describe("admin UI proxy page", () => {
       "Fixture Proxy",
     );
   });
+
+  it("adds and deletes targets while keeping at least one", async () => {
+    await page.goto(baseUrl, { waitUntil: "networkidle" });
+    const card = page.locator('.proxy-card[data-index="0"]');
+    await card.locator("[data-add-target]").click();
+    await expectPage(card.locator(".target-card")).toHaveCount(2);
+
+    await card.locator(".target-card").last().locator("[data-remove-target]").click();
+    await expectPage(card.locator(".target-card")).toHaveCount(1);
+
+    await card.locator(".target-card").first().locator("[data-remove-target]").click();
+    await expectPage(card.locator(".target-card")).toHaveCount(1);
+    await expectPage(card.locator('[data-target-field="name"]')).toHaveValue("Fixture Target");
+  });
 });
