@@ -81,4 +81,19 @@ describe("admin UI proxy page", () => {
       "https://example.test/v1",
     );
   });
+
+  it("adds and deletes proxy pairs", async () => {
+    await page.goto(baseUrl, { waitUntil: "networkidle" });
+    await page.locator("#addProxy").click();
+    await expectPage(page.locator(".proxy-card")).toHaveCount(2);
+    await expectPage(page.locator(".proxy-card").last().locator('[data-field="name"]')).toHaveValue(
+      "New proxy",
+    );
+
+    await page.locator(".proxy-card").last().locator("[data-remove]").click();
+    await expectPage(page.locator(".proxy-card")).toHaveCount(1);
+    await expectPage(page.locator('.proxy-card[data-index="0"] [data-field="name"]')).toHaveValue(
+      "Fixture Proxy",
+    );
+  });
 });
