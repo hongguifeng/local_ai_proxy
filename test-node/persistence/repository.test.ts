@@ -4,6 +4,7 @@ import path from "node:path";
 
 import { afterEach, describe, expect, it } from "vitest";
 
+import { formatLocalTimestamp } from "../../src/shared/time.js";
 import {
   TrafficRepository,
   decodeTaskRow,
@@ -194,6 +195,36 @@ describe("literal LIKE search characters", () => {
     expect(repository.listTasks("%").items.map(({ id }) => id)).toEqual(["percent"]);
     expect(repository.listTasks("_").items.map(({ id }) => id)).toEqual(["underscore"]);
     expect(repository.listTasks("\\").items.map(({ id }) => id)).toEqual(["backslash"]);
+    repository.close();
+  });
+});
+
+describe("timestamp search", () => {
+  it("indexes ISO timestamps using their local display time", async () => {
+    const root = await mkdtemp(path.join(os.tmpdir(), "llm-proxy-time-search-"));
+    temporaryDirectories.push(root);
+    const repository = new TrafficRepository(root);
+    const timestamp = "2026-07-18T01:02:03.000+00:00";
+    repository.upsertTask({
+      id: "task-time",
+      started_at: timestamp,
+      last_seen_at: timestamp,
+      match_strategy_version: 4,
+    });
+    repository.upsertRecord({
+      id: "record-time",
+      task_id: "task-time",
+      timestamp,
+      method: "POST",
+      path: "/v1/responses",
+    });
+    const localTimestamp = formatLocalTimestamp(timestamp);
+
+    expect(searchText(timestamp)).toContain(localTimestamp);
+    expect(repository.listTasks(localTimestamp).items.map(({ id }) => id)).toEqual(["task-time"]);
+    expect(
+      repository.listTaskRecords("task-time", localTimestamp).items.map(({ id }) => id),
+    ).toEqual(["record-time"]);
     repository.close();
   });
 });

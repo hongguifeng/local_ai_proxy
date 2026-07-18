@@ -232,7 +232,7 @@
 - [x] `DB-032` P0 record search text 生成。
 - [x] `DB-033` P0 多 term AND 搜索。
 - [x] `DB-034` P0 `%`, `_`, `\\` 字面转义。
-- [ ] `DB-035` P0 ISO 和本地时间搜索。
+- [x] `DB-035` P0 ISO 和本地时间搜索。
 - [ ] `DB-036` P0 task delete cascade。
 - [ ] `DB-037` P0 清理 search/link 记录。
 

@@ -1,6 +1,6 @@
 import type Database from "better-sqlite3";
 
-import { localNowIso } from "../shared/index.js";
+import { formatLocalTimestamp, localNowIso } from "../shared/index.js";
 import { connectLogDatabase } from "./database.js";
 
 export type RepositoryRecord = Record<string, unknown>;
@@ -25,6 +25,9 @@ export class TrafficRepository {
   constructor(logRoot: string, options: TrafficRepositoryOptions = {}) {
     this.#database = connectLogDatabase(logRoot);
     this.#now = options.now ?? localNowIso;
+    this.#database.function("_search_text", { varargs: true }, (...values: unknown[]) =>
+      searchText(...values),
+    );
   }
 
   close(): void {
@@ -121,11 +124,11 @@ export class TrafficRepository {
     const terms = searchTerms(query);
     const clauses = terms.map(
       () => `(
-          lower(
-              COALESCE(id, '') || ' ' || COALESCE(kind, '') || ' ' || COALESCE(endpoint, '') || ' ' ||
-              COALESCE(anchor, '') || ' ' || COALESCE(model, '') || ' ' || COALESCE(target, '') || ' ' ||
-              COALESCE(fingerprints_json, '') || ' ' || COALESCE(boundary_fingerprints_json, '')
-          ) LIKE ? ESCAPE '\\'
+          lower(_search_text(
+            id, kind, endpoint, anchor, model, target, started_at, last_seen_at, last_response_at,
+            request_count, pending_request_only, match_confidence, match_strategy_version,
+            fingerprints_json, boundary_fingerprints_json, last_user_messages_json, created_at, updated_at
+          )) LIKE ? ESCAPE '\\'
           OR EXISTS (
             SELECT 1 FROM record_search
             WHERE record_search.task_id = tasks.id
@@ -285,12 +288,14 @@ export class TrafficRepository {
     const boundedOffset = Math.max(0, integerValue(offset, 0));
     const terms = searchTerms(query);
     const clauses = terms.map(
-      () => `lower(
-              COALESCE(id, '') || ' ' || COALESCE(event, '') || ' ' || COALESCE(method, '') || ' ' ||
-              COALESCE(path, '') || ' ' || COALESCE(endpoint, '') || ' ' || COALESCE(error, '') || ' ' ||
-              COALESCE(request_headers_json, '') || ' ' || COALESCE(response_headers_json, '') || ' ' ||
-              COALESCE(request_body_json, '') || ' ' || COALESCE(response_body_json, '')
-            ) LIKE ? ESCAPE '\\'`,
+      () => `lower(_search_text(
+              id, task_id, sequence, event, timestamp, started_at, duration_ms,
+              proxy_id, proxy_name, client_host, client_port, target_id, target_name, target_url,
+              method, path, endpoint, status, error, message_count, token_count,
+              request_headers_json, response_headers_json, request_body_json, response_body_json,
+              model_route_json, stripped_fields_json, injected_fields_json, added_upstream_headers_json,
+              created_at, updated_at
+            )) LIKE ? ESCAPE '\\'`,
     );
     const querySql = clauses.length === 0 ? "" : `AND ${clauses.join(" AND ")}`;
     const parameters = [taskId, ...terms.map((term) => likePattern(term))];
@@ -441,10 +446,30 @@ export function recordSearchDocument(
 }
 
 export function searchText(...values: readonly unknown[]): string {
-  return values
-    .map((value) => stringValue(value))
-    .filter((value) => value !== "")
-    .join(" ");
+  const parts: string[] = [];
+  for (const value of values) {
+    const text = stringValue(value);
+    if (text === "") {
+      continue;
+    }
+    parts.push(text);
+    const localTimestamp = timestampSearchText(text);
+    if (localTimestamp !== "" && localTimestamp !== text) {
+      parts.push(localTimestamp);
+    }
+  }
+  return parts.join(" ");
+}
+
+function timestampSearchText(value: string): string {
+  if (!value.includes("T") && value.length < 10) {
+    return "";
+  }
+  try {
+    return formatLocalTimestamp(value);
+  } catch {
+    return "";
+  }
 }
 
 function searchTerms(query: string): string[] {
