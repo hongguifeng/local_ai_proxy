@@ -441,7 +441,7 @@
 
 ### 13.2 Electron Tray
 
-- [ ] `TRAY-001` P0 创建无可见窗口的 Electron main。
+- [x] `TRAY-001` P0 创建无可见窗口的 Electron main。
 - [ ] `TRAY-002` P0 创建 Tray 图标。
 - [ ] `TRAY-003` P0 Open Admin UI 菜单和默认动作。
 - [ ] `TRAY-004` P0 Exit 菜单等待 shutdown。

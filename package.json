@@ -32,6 +32,8 @@
     "@types/pngjs": "^6.0.5",
     "@types/yauzl": "^3.4.0",
     "@vitest/coverage-v8": "^4.1.10",
+    "electron": "^43.1.1",
+    "electron-builder": "^26.15.3",
     "eslint": "^10.7.0",
     "eslint-config-prettier": "^10.1.8",
     "pixelmatch": "^7.2.0",
