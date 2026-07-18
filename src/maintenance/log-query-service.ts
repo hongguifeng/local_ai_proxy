@@ -29,7 +29,14 @@ export class LogQueryService {
   listGroups(query = "", limit = 100, offset = 0): LogGroupPage {
     const boundedLimit = Math.max(1, Math.min(integer(limit, 100), 500));
     const boundedOffset = Math.max(0, integer(offset, 0));
-    const root = this.#logRoots()[0];
+    const roots = [...new Set(this.#logRoots().filter((root) => root !== ""))];
+    if (roots.length === 0) {
+      return emptyPage(boundedLimit, boundedOffset);
+    }
+    if (roots.length > 1) {
+      return this.#listMergedGroups(roots, query, boundedLimit, boundedOffset);
+    }
+    const root = roots[0];
     if (root === undefined) {
       return emptyPage(boundedLimit, boundedOffset);
     }
@@ -48,6 +55,44 @@ export class LogQueryService {
       repository.close();
     }
   }
+
+  #listMergedGroups(
+    roots: readonly string[],
+    query: string,
+    limit: number,
+    offset: number,
+  ): LogGroupPage {
+    const tasks: RepositoryRecord[] = [];
+    let total = 0;
+    const fetchLimit = offset + limit;
+    for (const root of roots) {
+      const repository = new TrafficRepository(root);
+      try {
+        const page = repository.listTasks(query, fetchLimit, 0);
+        total += page.total;
+        tasks.push(...page.items);
+      } finally {
+        repository.close();
+      }
+    }
+    tasks.sort((left, right) => taskSortTime(right) - taskSortTime(left));
+    const groups = tasks.slice(offset, offset + limit).map(taskGroupSummary);
+    const nextOffset = offset + groups.length;
+    return {
+      groups,
+      total,
+      limit,
+      offset,
+      next_offset: nextOffset,
+      has_more: nextOffset < total,
+    };
+  }
+}
+
+function taskSortTime(task: Readonly<RepositoryRecord>): number {
+  const value = task["last_response_at"] ?? task["last_seen_at"] ?? task["started_at"];
+  const timestamp = typeof value === "string" ? Date.parse(value) : Number.NaN;
+  return Number.isNaN(timestamp) ? 0 : timestamp;
 }
 
 function taskGroupSummary(task: Readonly<RepositoryRecord>): LogGroupSummary {

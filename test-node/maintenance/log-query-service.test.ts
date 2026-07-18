@@ -46,6 +46,28 @@ describe("LogQueryService", () => {
       has_more: false,
     });
   });
+
+  it("merges, globally sorts, and paginates tasks from multiple log roots", async () => {
+    const firstRoot = await mkdtemp(path.join(os.tmpdir(), "llm-proxy-log-query-a-"));
+    const secondRoot = await mkdtemp(path.join(os.tmpdir(), "llm-proxy-log-query-b-"));
+    temporaryDirectories.push(firstRoot, secondRoot);
+    const first = new TrafficRepository(firstRoot);
+    first.upsertTask(task("task-a-old", "shared", "2026-07-18T09:00:00.000+08:00"));
+    first.upsertTask(task("task-a-new", "shared", "2026-07-18T12:00:00.000+08:00"));
+    first.close();
+    const second = new TrafficRepository(secondRoot);
+    second.upsertTask(task("task-b-middle", "shared", "2026-07-18T11:00:00.000+08:00"));
+    second.upsertTask(task("task-b-other", "other", "2026-07-18T13:00:00.000+08:00"));
+    second.close();
+
+    const service = new LogQueryService([firstRoot, firstRoot, secondRoot]);
+    const firstPage = service.listGroups("shared", 2, 0);
+    expect(firstPage).toMatchObject({ total: 3, next_offset: 2, has_more: true });
+    expect(firstPage.groups.map(({ id }) => id)).toEqual(["task-a-new", "task-b-middle"]);
+    const secondPage = service.listGroups("shared", 2, 2);
+    expect(secondPage).toMatchObject({ total: 3, offset: 2, next_offset: 3, has_more: false });
+    expect(secondPage.groups.map(({ id }) => id)).toEqual(["task-a-old"]);
+  });
 });
 
 function task(id: string, model: string, timestamp: string) {

@@ -363,7 +363,7 @@
 ### 11.3 Log query API
 
 - [x] `API-020` P0 GET `/api/logs` query/limit/offset。
-- [ ] `API-021` P0 多 log root 合并排序分页。
+- [x] `API-021` P0 多 log root 合并排序分页。
 - [ ] `API-022` P0 GET task group logs。
 - [ ] `API-023` P0 GET record detail/meta。
 - [ ] `API-024` P0 pending detail refresh 数据。
