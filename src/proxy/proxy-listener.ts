@@ -100,4 +100,8 @@ export class ProxyListener {
       });
     });
   }
+
+  closeAllConnections(): void {
+    this.#server.closeAllConnections();
+  }
 }

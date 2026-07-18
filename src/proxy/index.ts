@@ -87,7 +87,11 @@ export {
   type ProxyRuntimeSnapshot,
   type ProxyRuntimeState,
 } from "./proxy-runtime-state.js";
-export { ProxyRuntimeRegistry, type StartEnabledResult } from "./proxy-runtime-registry.js";
+export {
+  ProxyRuntimeRegistry,
+  type ProxyRuntimeRegistryOptions,
+  type StartEnabledResult,
+} from "./proxy-runtime-registry.js";
 export {
   assertNoEnabledListenConflicts,
   diffProxyPairs,

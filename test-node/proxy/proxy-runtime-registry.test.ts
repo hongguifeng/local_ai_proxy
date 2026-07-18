@@ -1,4 +1,5 @@
 import http from "node:http";
+import { performance } from "node:perf_hooks";
 
 import { describe, expect, it } from "vitest";
 
@@ -122,6 +123,69 @@ describe("ProxyRuntimeRegistry", () => {
     } finally {
       await registry.stopAll();
       await Promise.all([close(upstream), close(blocker)]);
+    }
+  });
+
+  it("waits for active requests before the graceful shutdown timeout", async () => {
+    let markStarted: (() => void) | undefined;
+    const started = new Promise<void>((resolve) => {
+      markStarted = resolve;
+    });
+    let release: (() => void) | undefined;
+    const gate = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    const upstream = http.createServer((_request, response) => {
+      markStarted?.();
+      void gate.then(() => response.end("graceful"));
+    });
+    const upstreamPort = await listen(upstream);
+    const registry = new ProxyRuntimeRegistry({ shutdownTimeoutMs: 500 });
+    const pair = pairFixture(upstreamPort, "graceful");
+    const runtime = await registry.startPair(pair);
+    const client = requestText(runtime.actualListenPort ?? 0, "/graceful");
+
+    try {
+      await started;
+      const stopping = registry.stopPair(pair.id);
+      release?.();
+      await expect(client).resolves.toBe("graceful");
+      await expect(stopping).resolves.toMatchObject({ state: "stopped" });
+    } finally {
+      await registry.stopAll();
+      await close(upstream);
+    }
+  });
+
+  it("forces hung requests closed after the shutdown timeout", async () => {
+    let markStarted: (() => void) | undefined;
+    const started = new Promise<void>((resolve) => {
+      markStarted = resolve;
+    });
+    let markClosed: (() => void) | undefined;
+    const closed = new Promise<void>((resolve) => {
+      markClosed = resolve;
+    });
+    const upstream = http.createServer((_request, response) => {
+      markStarted?.();
+      response.once("close", () => markClosed?.());
+    });
+    const upstreamPort = await listen(upstream);
+    const registry = new ProxyRuntimeRegistry({ shutdownTimeoutMs: 20 });
+    const pair = pairFixture(upstreamPort, "timeout");
+    const runtime = await registry.startPair(pair);
+    const client = requestText(runtime.actualListenPort ?? 0, "/timeout").catch(() => "aborted");
+
+    try {
+      await started;
+      const stopStarted = performance.now();
+      await expect(registry.stopPair(pair.id)).resolves.toMatchObject({ state: "stopped" });
+      expect(performance.now() - stopStarted).toBeLessThan(500);
+      await closed;
+      expect(await client).toBe("aborted");
+    } finally {
+      await registry.stopAll();
+      await close(upstream);
     }
   });
 });

@@ -24,8 +24,20 @@ export interface StartEnabledResult {
   readonly started: ReadonlyMap<string, ProxyRuntimeSnapshot>;
 }
 
+export interface ProxyRuntimeRegistryOptions {
+  readonly shutdownTimeoutMs?: number;
+}
+
 export class ProxyRuntimeRegistry {
   readonly #entries = new Map<string, ProxyRuntimeEntry>();
+  readonly #shutdownTimeoutMs: number;
+
+  constructor(options: ProxyRuntimeRegistryOptions = {}) {
+    this.#shutdownTimeoutMs = options.shutdownTimeoutMs ?? 2_000;
+    if (!Number.isFinite(this.#shutdownTimeoutMs) || this.#shutdownTimeoutMs < 0) {
+      throw new RangeError("Proxy shutdown timeout must be a non-negative number.");
+    }
+  }
 
   status(pairId: string): ProxyRuntimeSnapshot {
     return this.#entry(pairId).state.snapshot;
@@ -108,8 +120,13 @@ export class ProxyRuntimeRegistry {
     const resources = entry.resources;
     try {
       if (resources !== undefined) {
-        resources.activeRequests.abortAll(new Error("Proxy pair stopped"));
-        await resources.listener.close();
+        const closePromise = resources.listener.close();
+        const closedGracefully = await settlesWithin(closePromise, this.#shutdownTimeoutMs);
+        if (!closedGracefully) {
+          resources.activeRequests.abortAll(new Error("Proxy pair shutdown timed out"));
+          resources.listener.closeAllConnections();
+          await closePromise;
+        }
         await Promise.all(resources.logServices.map((service) => service.close()));
       }
       entry.resources = undefined;
@@ -138,6 +155,19 @@ export class ProxyRuntimeRegistry {
     }
     return entry;
   }
+}
+
+async function settlesWithin(promise: Promise<void>, timeoutMs: number): Promise<boolean> {
+  let timer: NodeJS.Timeout | undefined;
+  const timedOut = new Promise<false>((resolve) => {
+    timer = setTimeout(() => resolve(false), timeoutMs);
+    timer.unref();
+  });
+  const result = await Promise.race([promise.then(() => true), timedOut]);
+  if (timer !== undefined) {
+    clearTimeout(timer);
+  }
+  return result;
 }
 
 function runtimeTarget(target: TargetConfig, trafficLog: TrafficLogService): ProxyPipelineTarget {
