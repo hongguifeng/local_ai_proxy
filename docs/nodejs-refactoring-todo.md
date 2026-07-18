@@ -322,7 +322,7 @@
 - [x] `HTTP-041` P0 rewrite + strip + inject 集成测试。
 - [x] `HTTP-042` P0 SSE 慢速两段测试。
 - [x] `HTTP-043` P0 chunked request/response 测试。
-- [ ] `HTTP-044` P0 duplicate Header/Set-Cookie 测试。
+- [x] `HTTP-044` P0 duplicate Header/Set-Cookie 测试。
 - [ ] `HTTP-045` P0 client abort/upstream abort 测试。
 - [ ] `HTTP-046` P0 10+ 并发请求测试。
 - [ ] `HTTP-047` P1 binary body/response 测试。

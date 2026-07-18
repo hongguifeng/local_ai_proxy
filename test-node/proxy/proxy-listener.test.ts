@@ -949,6 +949,70 @@ describe("ProxyListener", () => {
     await closeServer(upstream);
   });
 
+  it("preserves duplicate request headers and separate Set-Cookie responses", async () => {
+    const upstreamDuplicateHeaders: string[][] = [];
+    const upstream = http.createServer((request, response) => {
+      const values: string[] = [];
+      for (let index = 0; index < request.rawHeaders.length; index += 2) {
+        if (request.rawHeaders[index]?.toLowerCase() === "x-duplicate") {
+          const value = request.rawHeaders[index + 1];
+          if (value !== undefined) {
+            values.push(value);
+          }
+        }
+      }
+      upstreamDuplicateHeaders.push(values);
+      response.writeHead(200, [
+        "Content-Type",
+        "text/plain",
+        "Set-Cookie",
+        "first=1; Path=/",
+        "Set-Cookie",
+        "second=2; Path=/",
+        "X-Duplicate",
+        "one",
+        "X-Duplicate",
+        "two",
+      ]);
+      response.end("duplicates");
+    });
+    const upstreamPort = await listenServer(upstream);
+    const trafficLog: TrafficLogWriter = {
+      write: () => Promise.resolve(),
+      update: () => Promise.resolve(),
+    };
+    const pipeline = new ProxyRequestPipeline({
+      targets: [
+        {
+          enabled: true,
+          id: "duplicate-header-target",
+          modelMappings: [],
+          name: "Duplicate header target",
+          targetScheme: "http",
+          targetHost: "127.0.0.1",
+          targetPort: upstreamPort,
+          targetBasePath: "",
+          trafficLog,
+        },
+      ],
+    });
+    const listener = new ProxyListener({
+      host: "127.0.0.1",
+      port: 0,
+      onRequest: (request, response, context) => pipeline.handle(request, response, context),
+    });
+    const address = await listener.start();
+
+    const downstream = await requestWithHeaders(address.port, "/duplicates", {
+      "x-duplicate": ["first", "second"],
+    });
+    expect(upstreamDuplicateHeaders).toEqual([["first", "second"]]);
+    expect(downstream.headers["set-cookie"]).toEqual(["first=1; Path=/", "second=2; Path=/"]);
+    expect(rawHeaderValues(downstream.rawHeaders, "x-duplicate")).toEqual(["one", "two"]);
+    await listener.close();
+    await closeServer(upstream);
+  });
+
   it("streams a slow two-part SSE response without waiting for completion", async () => {
     const finalRecords: Readonly<Record<string, unknown>>[] = [];
     let releaseSecond: (() => void) | undefined;
@@ -1320,6 +1384,38 @@ function requestHeaders(port: number, requestPath: string): Promise<http.Incomin
     });
     request.once("error", reject);
   });
+}
+
+function requestWithHeaders(
+  port: number,
+  requestPath: string,
+  headers: http.OutgoingHttpHeaders,
+): Promise<{ headers: http.IncomingHttpHeaders; rawHeaders: string[] }> {
+  return new Promise((resolve, reject) => {
+    const request = http.get(
+      { host: "127.0.0.1", port, path: requestPath, headers },
+      (response) => {
+        response.resume();
+        response.once("end", () =>
+          resolve({ headers: response.headers, rawHeaders: response.rawHeaders }),
+        );
+      },
+    );
+    request.once("error", reject);
+  });
+}
+
+function rawHeaderValues(rawHeaders: readonly string[], headerName: string): string[] {
+  const values: string[] = [];
+  for (let index = 0; index < rawHeaders.length; index += 2) {
+    if (rawHeaders[index]?.toLowerCase() === headerName.toLowerCase()) {
+      const value = rawHeaders[index + 1];
+      if (value !== undefined) {
+        values.push(value);
+      }
+    }
+  }
+  return values;
 }
 
 function requestUntilClose(
