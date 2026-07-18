@@ -201,6 +201,7 @@ describe("database backup", () => {
     database.exec("CREATE TABLE backup_fixture(value TEXT NOT NULL)");
     database.prepare("INSERT INTO backup_fixture(value) VALUES (?)").run("persisted through WAL");
 
+    expect(existsSync(path.join(root, "live", `${TRAFFIC_DB_NAME}-wal`))).toBe(true);
     expect(checkpointDatabase(database, "PASSIVE").busy).toBe(0);
     const destination = path.join(root, "nested", "backup", TRAFFIC_DB_NAME);
     await backupDatabase(database, destination);

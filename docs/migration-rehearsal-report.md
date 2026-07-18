@@ -13,3 +13,9 @@ A schema-v1 database is created in an isolated directory and copied as the rollb
 it through `TrafficRepository` applies the current migration, after which a task is written and queried.
 The original v1 snapshot is then restored; reopening migrates it cleanly again and confirms the test
 write is absent.
+
+## Active WAL database
+
+The backup test keeps the source database connection open, verifies that a WAL file exists after a
+write, performs a passive checkpoint, and uses SQLite's backup API to create a separate database. The
+backup is opened read-only and contains both the WAL-backed row and the current schema version.
