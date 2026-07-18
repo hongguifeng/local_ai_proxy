@@ -38,4 +38,54 @@ describe("GET /api/logs", () => {
     expect(response.json()).toEqual(page);
     expect(calls).toEqual([{ query: "gpt-5", limit: 1, offset: 1 }]);
   });
+
+  it("returns task group logs and a JSON 404 for missing groups", async () => {
+    const server = createAdminServer({
+      getHealth: () => applicationHealth("running"),
+      logService: {
+        listGroups: () => ({
+          groups: [],
+          total: 0,
+          limit: 100,
+          offset: 0,
+          next_offset: 0,
+          has_more: false,
+        }),
+        getGroupLogs(groupId, query) {
+          return groupId === "known"
+            ? {
+                id: groupId,
+                logs: [
+                  {
+                    id: "record",
+                    timestamp: "",
+                    sequence: "1",
+                    method: "POST",
+                    path: "/",
+                    endpoint: query,
+                    message_count: null,
+                    status: 200,
+                    token_count: null,
+                    target: "",
+                  },
+                ],
+              }
+            : undefined;
+        },
+      },
+    });
+    servers.push(server);
+
+    const known = await server.inject({
+      method: "GET",
+      url: "/api/log-groups/known/logs?q=needle",
+    });
+    expect(known.statusCode).toBe(200);
+    expect(known.json()).toMatchObject({ id: "known", logs: [{ endpoint: "needle" }] });
+    const missing = await server.inject({ method: "GET", url: "/api/log-groups/missing/logs" });
+    expect(missing.statusCode).toBe(404);
+    expect(missing.json()).toEqual({
+      error: { code: "log_group_not_found", message: "Log group not found." },
+    });
+  });
 });

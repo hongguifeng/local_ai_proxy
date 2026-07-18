@@ -68,6 +68,45 @@ describe("LogQueryService", () => {
     expect(secondPage).toMatchObject({ total: 3, offset: 2, next_offset: 3, has_more: false });
     expect(secondPage.groups.map(({ id }) => id)).toEqual(["task-a-old"]);
   });
+
+  it("finds a task across roots and returns its searchable log items", async () => {
+    const firstRoot = await mkdtemp(path.join(os.tmpdir(), "llm-proxy-log-group-a-"));
+    const secondRoot = await mkdtemp(path.join(os.tmpdir(), "llm-proxy-log-group-b-"));
+    temporaryDirectories.push(firstRoot, secondRoot);
+    const repository = new TrafficRepository(secondRoot);
+    repository.upsertTask(task("group-task", "gpt-5", "2026-07-18T12:00:00.000+08:00"));
+    repository.upsertRecord({
+      id: "record-1",
+      task_id: "group-task",
+      sequence: 1,
+      event: "request_finished",
+      timestamp: "2026-07-18T12:00:01.000+08:00",
+      method: "POST",
+      path: "/v1/responses",
+      endpoint: "/v1/responses",
+      status: 202,
+      message_count: 1,
+      token_count: 7,
+      target_url: "http://fixture/v1/responses",
+      request_body: { input: "searchable" },
+    });
+    repository.close();
+
+    const service = new LogQueryService([firstRoot, secondRoot]);
+    expect(service.getGroupLogs("group-task", "202")).toEqual({
+      id: "group-task",
+      logs: [
+        expect.objectContaining({
+          id: "record-1",
+          sequence: "1",
+          endpoint: "/v1/responses",
+          status: 202,
+          token_count: 7,
+        }),
+      ],
+    });
+    expect(service.getGroupLogs("missing")).toBeUndefined();
+  });
 });
 
 function task(id: string, model: string, timestamp: string) {

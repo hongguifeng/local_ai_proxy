@@ -19,6 +19,24 @@ export interface LogGroupPage {
   readonly total: number;
 }
 
+export interface LogListItem {
+  readonly endpoint: string;
+  readonly id: string;
+  readonly message_count: number | null;
+  readonly method: string;
+  readonly path: string;
+  readonly sequence: string;
+  readonly status: number | null;
+  readonly target: string;
+  readonly timestamp: string;
+  readonly token_count: number | null;
+}
+
+export interface LogGroupLogs {
+  readonly id: string;
+  readonly logs: readonly LogListItem[];
+}
+
 export class LogQueryService {
   readonly #logRoots: () => readonly string[];
 
@@ -56,6 +74,22 @@ export class LogQueryService {
     }
   }
 
+  getGroupLogs(groupId: string, query = ""): LogGroupLogs | undefined {
+    for (const root of [...new Set(this.#logRoots().filter((value) => value !== ""))]) {
+      const repository = new TrafficRepository(root);
+      try {
+        if (repository.getTask(groupId) === undefined) {
+          continue;
+        }
+        const page = repository.listTaskRecords(groupId, query, 200, 0);
+        return { id: groupId, logs: page.items.map(logListItem) };
+      } finally {
+        repository.close();
+      }
+    }
+    return undefined;
+  }
+
   #listMergedGroups(
     roots: readonly string[],
     query: string,
@@ -87,6 +121,21 @@ export class LogQueryService {
       has_more: nextOffset < total,
     };
   }
+}
+
+function logListItem(record: Readonly<RepositoryRecord>): LogListItem {
+  return {
+    id: string(record["id"]),
+    timestamp: displayTimestamp(record["timestamp"]) || string(record["timestamp"]),
+    sequence: string(record["sequence"]),
+    method: string(record["method"]),
+    path: string(record["path"]),
+    endpoint: string(record["endpoint"]),
+    message_count: optionalInteger(record["message_count"]),
+    status: optionalInteger(record["status"]),
+    token_count: optionalInteger(record["token_count"]),
+    target: string(record["target_url"]),
+  };
 }
 
 function taskSortTime(task: Readonly<RepositoryRecord>): number {
@@ -152,6 +201,10 @@ function optionalString(value: unknown): string | null {
 function integer(value: unknown, fallback: number): number {
   const converted = typeof value === "number" ? value : Number(value);
   return Number.isInteger(converted) ? converted : fallback;
+}
+
+function optionalInteger(value: unknown): number | null {
+  return value === null || value === undefined ? null : integer(value, 0);
 }
 
 function emptyPage(limit: number, offset: number): LogGroupPage {

@@ -4,7 +4,7 @@ import { performance } from "node:perf_hooks";
 
 import type { ApplicationState } from "../app/index.js";
 import type { ProxyPair, PublicProxyPair } from "../config/index.js";
-import type { LogGroupPage } from "../maintenance/index.js";
+import type { LogGroupLogs, LogGroupPage } from "../maintenance/index.js";
 import { StructuredLogger } from "../shared/index.js";
 
 export type HealthStatus = "degraded" | "ok" | "starting" | "stopping";
@@ -24,6 +24,7 @@ export interface AdminServerOptions {
 }
 
 export interface LogAdminService {
+  readonly getGroupLogs?: (groupId: string, query: string) => LogGroupLogs | undefined;
   listGroups(query: string, limit: number, offset: number): LogGroupPage;
 }
 
@@ -118,6 +119,11 @@ export const PAIR_RESPONSE_SCHEMA = {
 } as const;
 
 export const LOG_GROUP_PAGE_SCHEMA = {
+  type: "object",
+  additionalProperties: true,
+} as const;
+
+export const LOG_GROUP_LOGS_SCHEMA = {
   type: "object",
   additionalProperties: true,
 } as const;
@@ -243,6 +249,33 @@ export function createAdminServer(options: AdminServerOptions): FastifyInstance 
           request.query.offset ?? 0,
         ),
     );
+    const getGroupLogs = options.logService.getGroupLogs;
+    if (getGroupLogs !== undefined) {
+      server.get<{ Params: { id: string }; Querystring: { q?: string } }>(
+        "/api/log-groups/:id/logs",
+        {
+          schema: {
+            params: {
+              type: "object",
+              required: ["id"],
+              properties: { id: { type: "string", minLength: 1 } },
+            },
+            querystring: {
+              type: "object",
+              additionalProperties: false,
+              properties: { q: { type: "string", default: "" } },
+            },
+            response: { 200: LOG_GROUP_LOGS_SCHEMA },
+          },
+        },
+        (request, reply) => {
+          const group = getGroupLogs(request.params.id, request.query.q ?? "");
+          return (
+            group ?? reply.code(404).send(adminError("log_group_not_found", "Log group not found."))
+          );
+        },
+      );
+    }
   }
   if (options.pairService !== undefined) {
     server.get("/api/pairs", { schema: { response: { 200: PAIRS_RESPONSE_SCHEMA } } }, () => ({

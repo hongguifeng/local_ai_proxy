@@ -1,1 +1,7 @@
-export { LogQueryService, type LogGroupPage, type LogGroupSummary } from "./log-query-service.js";
+export {
+  LogQueryService,
+  type LogGroupLogs,
+  type LogGroupPage,
+  type LogGroupSummary,
+  type LogListItem,
+} from "./log-query-service.js";
