@@ -22,6 +22,31 @@ describe("ProxyListener", () => {
     });
     await listener.close();
   });
+
+  it("assigns each request an ID and start timestamps", async () => {
+    let nextId = 0;
+    const listener = new ProxyListener({
+      host: "127.0.0.1",
+      port: 0,
+      createId: () => `request-${++nextId}`,
+      now: () => "2026-07-18T12:00:00.000+08:00",
+      monotonicNow: () => 123.5,
+      onRequest(_request, response, context) {
+        response.end(JSON.stringify(context));
+      },
+    });
+    const address = await listener.start();
+
+    expect(JSON.parse((await requestText(address.port, "/context")).body)).toEqual({
+      id: "request-1",
+      startedAt: "2026-07-18T12:00:00.000+08:00",
+      startedMonotonicMs: 123.5,
+    });
+    expect(JSON.parse((await requestText(address.port, "/context")).body)).toMatchObject({
+      id: "request-2",
+    });
+    await listener.close();
+  });
 });
 
 function requestText(port: number, path: string): Promise<{ status: number; body: string }> {

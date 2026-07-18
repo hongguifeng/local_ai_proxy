@@ -278,7 +278,7 @@
 ### 9.1 Listener 和请求生命周期
 
 - [x] `HTTP-001` P0 创建原生 HTTP listener。
-- [ ] `HTTP-002` P0 生成 request ID 和时间。
+- [x] `HTTP-002` P0 生成 request ID 和时间。
 - [ ] `HTTP-003` P0 单目标早期 received logging。
 - [ ] `HTTP-004` P0 多目标读取 body 后 selected logger。
 - [ ] `HTTP-005` P0 pending/final logging。

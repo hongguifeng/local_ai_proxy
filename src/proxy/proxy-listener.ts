@@ -1,14 +1,27 @@
 import http, { type IncomingMessage, type ServerResponse } from "node:http";
+import { performance } from "node:perf_hooks";
+
+import { createRequestId, localNowIso } from "../shared/index.js";
+
+export interface ProxyRequestContext {
+  readonly id: string;
+  readonly startedAt: string;
+  readonly startedMonotonicMs: number;
+}
 
 export type ProxyRequestHandler = (
   request: IncomingMessage,
   response: ServerResponse,
+  context: ProxyRequestContext,
 ) => void | Promise<void>;
 
 export interface ProxyListenerOptions {
   readonly host: string;
   readonly port: number;
   readonly onRequest: ProxyRequestHandler;
+  readonly createId?: () => string;
+  readonly now?: () => string;
+  readonly monotonicNow?: () => number;
 }
 
 export interface ProxyListenerAddress {
@@ -24,13 +37,23 @@ export class ProxyListener {
   constructor(options: ProxyListenerOptions) {
     this.#host = options.host;
     this.#port = options.port;
+    const createId = options.createId ?? createRequestId;
+    const now = options.now ?? localNowIso;
+    const monotonicNow = options.monotonicNow ?? (() => performance.now());
     this.#server = http.createServer((request, response) => {
-      void Promise.resolve(options.onRequest(request, response)).catch((error: unknown) => {
-        if (!response.headersSent) {
-          response.writeHead(500, { "content-type": "text/plain; charset=utf-8" });
-        }
-        response.end(error instanceof Error ? error.message : "Internal proxy error");
-      });
+      const context: ProxyRequestContext = {
+        id: createId(),
+        startedAt: now(),
+        startedMonotonicMs: monotonicNow(),
+      };
+      void Promise.resolve(options.onRequest(request, response, context)).catch(
+        (error: unknown) => {
+          if (!response.headersSent) {
+            response.writeHead(500, { "content-type": "text/plain; charset=utf-8" });
+          }
+          response.end(error instanceof Error ? error.message : "Internal proxy error");
+        },
+      );
     });
   }
 

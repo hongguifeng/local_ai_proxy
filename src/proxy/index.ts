@@ -60,6 +60,7 @@ export {
   ProxyListener,
   type ProxyListenerAddress,
   type ProxyListenerOptions,
+  type ProxyRequestContext,
   type ProxyRequestHandler,
 } from "./proxy-listener.js";
 export { joinTargetPath, parseTargetUrl, type ParsedTargetUrl } from "./target.js";
