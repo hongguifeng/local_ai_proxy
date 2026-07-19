@@ -4,7 +4,7 @@ import { createNodeApplication } from "../src/app/index.js";
 import { shutdownAndQuit } from "./exit.js";
 import { startHeadlessElectronMain } from "./headless-main.js";
 import { installSmokeExitSignal } from "./smoke-exit.js";
-import { TRAY_ICON_DATA_URL } from "./tray-icon.js";
+import { resolveTrayIconPath } from "./tray-icon.js";
 import { installOpenAdminActions } from "./tray-menu.js";
 import { parseTrayOptions } from "./tray-options.js";
 import { showStartupError } from "./startup-error.js";
@@ -14,7 +14,7 @@ import { configureElectronUserData } from "./user-data.js";
 let tray: Tray | undefined;
 let openAdmin = (): void => undefined;
 
-configureElectronUserData(app);
+const dataDirectory = configureElectronUserData(app);
 if (configureSingleInstance(app, () => openAdmin())) {
   void start().catch((error: unknown) => {
     showStartupError(error, dialog, process.env);
@@ -24,7 +24,11 @@ if (configureSingleInstance(app, () => openAdmin())) {
 
 async function start(): Promise<void> {
   await startHeadlessElectronMain(app);
-  const trayOptions = parseTrayOptions(process.argv.slice(app.isPackaged ? 1 : 2));
+  const trayOptions = await parseTrayOptions(
+    process.argv.slice(app.isPackaged ? 1 : 2),
+    process.env,
+    dataDirectory,
+  );
   const options = trayOptions.cli;
   const runtime = createNodeApplication({ ...options, version: app.getVersion() });
   installSmokeExitSignal(process.env["LLM_PROXY_SMOKE_EXIT_FILE"], () =>
@@ -36,7 +40,13 @@ async function start(): Promise<void> {
   openAdmin = () => {
     void shell.openExternal(adminUrl);
   };
-  tray = new Tray(nativeImage.createFromDataURL(TRAY_ICON_DATA_URL));
+  const trayIcon = nativeImage.createFromPath(
+    resolveTrayIconPath(app.isPackaged, process.resourcesPath),
+  );
+  if (trayIcon.isEmpty()) {
+    throw new Error("The packaged tray icon could not be loaded.");
+  }
+  tray = new Tray(trayIcon);
   tray.setToolTip("LLM Proxy");
   installOpenAdminActions(
     tray,

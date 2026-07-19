@@ -27,6 +27,13 @@ describe("electron-builder configuration", () => {
     expect(config).toContain("npmRebuild: true");
   });
 
+  it("packages native Windows application and tray icons", async () => {
+    const config = await readFile(new URL("../../electron-builder.yml", import.meta.url), "utf8");
+    expect(config).toContain("icon: resources/app-icon.ico");
+    expect(config).toContain("from: resources/tray-icon.png");
+    expect(config).toContain("to: tray-icon.png");
+  });
+
   it("allows documented unsigned development releases", async () => {
     const config = await readFile(new URL("../../electron-builder.yml", import.meta.url), "utf8");
     expect(config).toContain("forceCodeSigning: false");

@@ -16,7 +16,7 @@ One UI can manage multiple local proxy listeners. Each listener can either behav
 
 ```mermaid
 flowchart LR
-  UI["Web Console<br/>http://127.0.0.1:8088"] --> P1["Proxy A<br/>listen 127.0.0.1:1234"]
+  UI["Web Console<br/>http://127.0.0.1:18080"] --> P1["Proxy A<br/>listen 127.0.0.1:1234"]
   UI --> P2["Proxy B<br/>listen 127.0.0.1:2234"]
   P1 --> A1["Provider A<br/>https://provider-a.example/v1"]
   P2 --> B1["Local model server<br/>http://127.0.0.1:1235"]
@@ -64,7 +64,7 @@ npm run build
 npm start
 ```
 
-Node.js 24 is required. The browser opens automatically at `http://127.0.0.1:8088`; use
+Node.js 24 is required. The browser opens automatically at `http://127.0.0.1:18080`; use
 `npm start -- --no-browser` for a headless launch.
 
 ### Windows Tray application
@@ -82,6 +82,10 @@ After launch, LLM Proxy appears as a system tray icon. Left-click the icon to op
 ```powershell
 .\release\LLM Proxy-0.1.0-x64-portable.exe --open-on-start
 ```
+
+The portable build stores `llm-proxy.json`, proxy configuration, and logs beside the original EXE,
+not in Electron's temporary extraction directory. The installed build uses Electron's persistent
+per-user data directory. Set `LLM_PROXY_DATA_DIR` to choose another persistent location.
 
 The project also includes GitHub Actions automation for packaging and releases:
 
@@ -117,7 +121,17 @@ See [the Node.js OpenAI SDK Responses example](examples/responses_client.mjs) fo
 
 ## Web Console
 
-The UI is served at `http://127.0.0.1:8088` by default. Use `--host` and `--port` if you need a different admin address.
+The UI is served at `http://127.0.0.1:18080` by default. Its address is configured in
+`llm-proxy.json` and can still be overridden with `--host` and `--port`:
+
+```json
+{
+  "admin": {
+    "host": "127.0.0.1",
+    "port": 18080
+  }
+}
+```
 
 ### Proxy Management
 
@@ -282,7 +296,8 @@ LLM Proxy is designed for local development and traffic inspection. Keep the adm
 Common launcher options and environment variables:
 
 - `--host` / `LLM_PROXY_UI_HOST`, default `127.0.0.1`
-- `--port` / `LLM_PROXY_UI_PORT`, default `8088`
+- `--port` / `LLM_PROXY_UI_PORT`, default `18080`
+- `--application-config` / `LLM_PROXY_APPLICATION_CONFIG_FILE`, default `llm-proxy.json`
 - `--config-file` / `LLM_PROXY_CONFIG_FILE`, default `logs/proxies.json`
 - `--log-root` / `LLM_PROXY_LOG_ROOT`, default `logs`
 - `--no-browser` / `LLM_PROXY_NO_BROWSER=1`

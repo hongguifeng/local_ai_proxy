@@ -525,7 +525,8 @@ python -m llm_proxy
 | 参数 | 环境变量 | 默认值 |
 | --- | --- | --- |
 | `--host` | `LLM_PROXY_UI_HOST` | `127.0.0.1` |
-| `--port` | `LLM_PROXY_UI_PORT` | `8088` |
+| `--port` | `LLM_PROXY_UI_PORT` | `18080` |
+| `--application-config` | `LLM_PROXY_APPLICATION_CONFIG_FILE` | `llm-proxy.json` |
 | `--config-file` | `LLM_PROXY_CONFIG_FILE` | `logs/proxies.json` |
 | `--log-root` | `LLM_PROXY_LOG_ROOT` | `logs` |
 | `--no-browser` | `LLM_PROXY_NO_BROWSER=1` | false |
@@ -541,8 +542,8 @@ CLI 默认延迟 0.5 秒打开管理页面；Ctrl+C 后停止管理端和全部�
 - 参数与 CLI 基本相同，另有 `--open-on-start` / `LLM_PROXY_OPEN_ON_START=1`。
 - 菜单：Open Admin UI、Exit。
 - 左键默认菜单项打开管理页面。
-- 当前图标由代码动态绘制。
-- PyInstaller 打包为 Windows 单文件无控制台 exe。
+- 使用随 Electron 应用打包的 Windows ICO 和 PNG 托盘图标。
+- portable 版本使用原始 EXE 所在目录保存配置和日志，installer 版本使用用户数据目录。
 
 ### 13.4 Python 包调用面
 

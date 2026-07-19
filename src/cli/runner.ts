@@ -30,6 +30,7 @@ export async function runCli(
   const output = dependencies.output ?? process.stdout;
   const cwd = dependencies.cwd ?? process.cwd();
   output.write(`LLM proxy UI listening on ${uiUrl}\n`);
+  output.write(`Application config: ${options.applicationConfigFile}\n`);
   output.write(`Proxy config: ${path.resolve(cwd, options.configFile)}\n`);
   output.write(`Logs directory: ${path.resolve(cwd, options.logRoot)}\n`);
   (dependencies.registerSignals ?? installShutdownSignals)(runtime.application);

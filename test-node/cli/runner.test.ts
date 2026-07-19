@@ -5,6 +5,7 @@ import { Application } from "../../src/app/index.js";
 import { formatStartupError, runCli, type CliOptions } from "../../src/cli/index.js";
 
 const options: CliOptions = {
+  applicationConfigFile: "llm-proxy.json",
   configFile: "state/proxies.json",
   host: "127.0.0.1",
   logRoot: "state/logs",
@@ -29,6 +30,7 @@ describe("runCli", () => {
       }),
     });
 
+    expect(output.write.mock.calls.flat().join("")).toContain("Application config: llm-proxy.json");
     expect(output.write.mock.calls.flat().join("")).toContain(
       `Proxy config: ${path.resolve("/workspace", "state/proxies.json")}`,
     );

@@ -16,7 +16,7 @@ LLM Proxy 是一个以 Web 控制台为核心的本地 LLM 代理管理工具。
 
 ```mermaid
 flowchart LR
-  UI["Web 控制台<br/>http://127.0.0.1:8088"] --> P1["代理配置 A<br/>监听 127.0.0.1:1234"]
+  UI["Web 控制台<br/>http://127.0.0.1:18080"] --> P1["代理配置 A<br/>监听 127.0.0.1:1234"]
   UI --> P2["代理配置 B<br/>监听 127.0.0.1:2234"]
   P1 --> A1["上游 A<br/>https://provider-a.example/v1"]
   P2 --> B1["本地模型服务<br/>http://127.0.0.1:1235"]
@@ -64,7 +64,7 @@ npm run build
 npm start
 ```
 
-需要 Node.js 24。浏览器默认自动打开 `http://127.0.0.1:8088`；无浏览器启动可使用
+需要 Node.js 24。浏览器默认自动打开 `http://127.0.0.1:18080`；无浏览器启动可使用
 `npm start -- --no-browser`。
 
 ### Windows 托盘应用
@@ -81,6 +81,10 @@ npm run package:electron
 ```powershell
 .\release\LLM Proxy-0.1.0-x64-portable.exe --open-on-start
 ```
+
+portable 版本会把 `llm-proxy.json`、代理配置和日志保存在原始 EXE 所在目录，不再写入
+Electron 的临时解压目录。installer 版本使用 Electron 的用户持久化目录；也可以通过
+`LLM_PROXY_DATA_DIR` 指定其他持久化位置。
 
 项目也包含 GitHub Actions 自动打包和发布流程：
 
@@ -116,7 +120,17 @@ http://127.0.0.1:1234
 
 ## Web 控制台
 
-管理界面默认运行在 `http://127.0.0.1:8088`。如需修改管理界面的监听地址，可使用 `--host` 和 `--port`。
+管理界面默认运行在 `http://127.0.0.1:18080`，监听地址保存在 `llm-proxy.json` 中；
+也可以用 `--host` 和 `--port` 临时覆盖：
+
+```json
+{
+  "admin": {
+    "host": "127.0.0.1",
+    "port": 18080
+  }
+}
+```
 
 ### 监听转发
 
@@ -281,7 +295,8 @@ LLM Proxy 面向本地开发和流量检查。除非你已经加了自己的网�
 常用启动参数和环境变量：
 
 - `--host` / `LLM_PROXY_UI_HOST`，默认 `127.0.0.1`
-- `--port` / `LLM_PROXY_UI_PORT`，默认 `8088`
+- `--port` / `LLM_PROXY_UI_PORT`，默认 `18080`
+- `--application-config` / `LLM_PROXY_APPLICATION_CONFIG_FILE`，默认 `llm-proxy.json`
 - `--config-file` / `LLM_PROXY_CONFIG_FILE`，默认 `logs/proxies.json`
 - `--log-root` / `LLM_PROXY_LOG_ROOT`，默认 `logs`
 - `--no-browser` / `LLM_PROXY_NO_BROWSER=1`

@@ -32,7 +32,7 @@ export async function smokeWindowsArtifact(
         ...process.env,
         LLM_PROXY_SMOKE_EXIT_FILE: exitFile,
         LLM_PROXY_STARTUP_ERROR_FILE: startupErrorFile,
-        LLM_PROXY_USER_DATA_DIR: path.join(smokeDirectory, `user-data-${port}`),
+        LLM_PROXY_DATA_DIR: path.join(smokeDirectory, `user-data-${port}`),
       },
       stdio: "ignore",
     },

@@ -1,6 +1,9 @@
+import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import os from "node:os";
+import path from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
-import { openBrowserLater, parseCliArgs } from "../../src/cli/index.js";
+import { openBrowserLater, loadCliOptions, parseCliArgs } from "../../src/cli/index.js";
 
 afterEach(() => vi.useRealTimers());
 
@@ -14,7 +17,7 @@ describe("parseCliArgs", () => {
   });
 
   it("parses and validates --port", () => {
-    expect(parseCliArgs([]).port).toBe(8088);
+    expect(parseCliArgs([]).port).toBe(18080);
     expect(parseCliArgs(["--port", "9090"]).port).toBe(9090);
     expect(() => parseCliArgs(["--port", "abc"])).toThrow("integer TCP port");
     expect(() => parseCliArgs(["--port", "65536"])).toThrow("between 1 and 65535");
@@ -45,12 +48,45 @@ describe("parseCliArgs", () => {
         LLM_PROXY_NO_BROWSER: "1",
       }),
     ).toEqual({
+      applicationConfigFile: "llm-proxy.json",
       host: "::1",
       port: 8181,
       configFile: "env/config.json",
       logRoot: "env/logs",
       noBrowser: true,
     });
+  });
+
+  it("loads the admin address from the application config file", async () => {
+    const directory = await mkdtemp(path.join(os.tmpdir(), "llm-proxy-cli-config-"));
+    try {
+      await writeFile(
+        path.join(directory, "custom.json"),
+        JSON.stringify({ admin: { host: "127.0.0.2", port: 19090 } }),
+        "utf8",
+      );
+      await expect(
+        loadCliOptions(["--application-config", "custom.json"], {}, directory),
+      ).resolves.toMatchObject({
+        applicationConfigFile: path.join(directory, "custom.json"),
+        host: "127.0.0.2",
+        port: 19090,
+      });
+    } finally {
+      await rm(directory, { force: true, recursive: true });
+    }
+  });
+
+  it("creates a default application config in the selected data directory", async () => {
+    const directory = await mkdtemp(path.join(os.tmpdir(), "llm-proxy-cli-default-"));
+    try {
+      await expect(loadCliOptions([], {}, directory)).resolves.toMatchObject({ port: 18080 });
+      await expect(
+        readFile(path.join(directory, "llm-proxy.json"), "utf8").then(JSON.parse),
+      ).resolves.toEqual({ admin: { host: "127.0.0.1", port: 18080 } });
+    } finally {
+      await rm(directory, { force: true, recursive: true });
+    }
   });
 
   it("lets command-line options override environment variables", () => {

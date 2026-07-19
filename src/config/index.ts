@@ -50,3 +50,11 @@ export {
   type ConfigLoadErrorKind,
   type ConfigRepositoryOptions,
 } from "./config-repository.js";
+export {
+  DEFAULT_ADMIN_HOST,
+  DEFAULT_ADMIN_PORT,
+  DEFAULT_APPLICATION_CONFIG_PATH,
+  createDefaultApplicationConfig,
+  loadApplicationConfig,
+  type ApplicationConfig,
+} from "./application-config.js";
