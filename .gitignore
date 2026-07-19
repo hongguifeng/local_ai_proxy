@@ -12,3 +12,6 @@ dist-node/
 dist-electron/
 release/
 *.tsbuildinfo
+fixtures/parity/database/**/*.db-shm
+fixtures/parity/database/**/*.db-wal
+llm-proxy.json
