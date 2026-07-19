@@ -279,11 +279,18 @@ describe("admin UI proxy page", { timeout: UI_TEST_TIMEOUT_MS }, () => {
     await loadAdminPage();
     const card = page.locator('.proxy-card[data-index="0"]');
     await card.locator("[data-add-target]").click();
-    await card.locator(".target-card").nth(1).locator("[data-default-target]").check();
+    let targets = card.locator(".target-card");
+    await targets.nth(1).locator("[data-default-target]").check();
+
+    // Changing the default target updates both target controls immediately.
+    targets = card.locator(".target-card");
+    await expectPage(targets.nth(1).locator("[data-default-target]")).toBeChecked();
+    await expectPage(targets.nth(1).locator("[data-target-enabled]")).toHaveCount(0);
+    await expectPage(targets.nth(0).locator("[data-target-enabled]")).toBeChecked();
 
     // Adding another target collects the form and rerenders from the current default selection.
     await card.locator("[data-add-target]").click();
-    const targets = card.locator(".target-card");
+    targets = card.locator(".target-card");
     await expectPage(targets).toHaveCount(3);
     await expectPage(targets.nth(1).locator("[data-default-target]")).toBeChecked();
     await expectPage(targets.nth(1).locator("[data-target-enabled]")).toHaveCount(0);

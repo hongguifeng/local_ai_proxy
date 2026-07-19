@@ -857,6 +857,14 @@ $("proxyGrid").addEventListener("click", (event) => {
   }
 });
 $("proxyGrid").addEventListener("change", async (event) => {
+  if (event.target.matches("[data-default-target]")) {
+    const card = event.target.closest(".proxy-card");
+    const targetRow = card?.querySelector(".targets-row");
+    const targetScrollLeft = targetRow ? targetRow.scrollLeft : 0;
+    collectPairs();
+    if (card) rerenderPairAtScroll(card, targetScrollLeft);
+    return;
+  }
   if (!event.target.matches("[data-toggle]")) return;
   collectPairs();
   await savePairs();
