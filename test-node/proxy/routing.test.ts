@@ -1,11 +1,29 @@
 import { describe, expect, it } from "vitest";
 
 import {
+  modelPatternMatches,
   requestModelFromBody,
   rewriteRequestModel,
   selectTargetByModel,
   type RoutingTarget,
 } from "../../src/proxy/routing.js";
+
+describe("modelPatternMatches", () => {
+  it.each([
+    ["gpt-5.5", "gpt-5.5", true],
+    ["gpt-5.5", "hyper-gpt-5.5", false],
+    ["*gpt-5.5*", "hyper-gpt-5.5", true],
+    ["*gpt-5.5*", "hyper-gpt-5.5-test", true],
+    ["gpt-*-mini", "gpt-5.5-mini", true],
+    ["gpt-*-mini", "prefix-gpt-5.5-mini", false],
+    ["*", "any-model", true],
+    ["GPT-*", "gpt-5.5", false],
+    ["model.*", "model.test", true],
+    ["model.*", "model-test", false],
+  ])("matches %j against %j as %s", (pattern, model, expected) => {
+    expect(modelPatternMatches(pattern, model)).toBe(expected);
+  });
+});
 
 describe("requestModelFromBody", () => {
   it("extracts only a top-level string model", () => {
@@ -99,6 +117,34 @@ describe("selectTargetByModel", () => {
 
     expect(selection.target).toBe(fallback);
     expect(selection.upstreamModel).toBe("fallback-upstream");
+  });
+
+  it("routes wildcard mappings and rewrites them to the configured upstream model", () => {
+    const wildcard = target("wildcard", true, [{ listen: "*gpt-5.5*", upstream: "gpt-5.5" }]);
+    const fallback = target("fallback", true, []);
+
+    for (const model of ["hyper-gpt-5.5", "hyper-gpt-5.5-test"]) {
+      const selection = selectTargetByModel(
+        [wildcard, fallback],
+        "fallback",
+        Buffer.from(JSON.stringify({ model })),
+      );
+
+      expect(selection.target).toBe(wildcard);
+      expect(selection.upstreamModel).toBe("gpt-5.5");
+    }
+  });
+
+  it("preserves the requested model when a wildcard mapping keeps the same name", () => {
+    const wildcard = target("wildcard", true, [{ listen: "prefix-*", upstream: "prefix-*" }]);
+
+    const selection = selectTargetByModel(
+      [wildcard],
+      "wildcard",
+      Buffer.from('{"model":"prefix-model"}'),
+    );
+
+    expect(selection.upstreamModel).toBe("prefix-model");
   });
 });
 

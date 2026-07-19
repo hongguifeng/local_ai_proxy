@@ -49,17 +49,57 @@ export function selectTargetByModel<TTarget extends RoutingTarget>(
         continue;
       }
       for (const mapping of target.model_mappings) {
-        if (mapping.listen === requestModel) {
+        if (modelPatternMatches(mapping.listen, requestModel)) {
+          const upstreamModel =
+            mapping.listen.includes("*") && mapping.upstream === mapping.listen
+              ? requestModel
+              : mapping.upstream;
           return {
             target,
             requestModel,
-            upstreamModel: mapping.upstream === "" ? undefined : mapping.upstream,
+            upstreamModel: upstreamModel === "" ? undefined : upstreamModel,
           };
         }
       }
     }
   }
   return { target: defaultTarget, requestModel, upstreamModel: undefined };
+}
+
+export function modelPatternMatches(pattern: string, model: string): boolean {
+  if (!pattern.includes("*")) {
+    return pattern === model;
+  }
+
+  let patternIndex = 0;
+  let modelIndex = 0;
+  let lastStarIndex = -1;
+  let modelIndexAfterStar = -1;
+
+  while (modelIndex < model.length) {
+    if (patternIndex < pattern.length && pattern[patternIndex] === model[modelIndex]) {
+      patternIndex += 1;
+      modelIndex += 1;
+      continue;
+    }
+    if (pattern[patternIndex] === "*") {
+      lastStarIndex = patternIndex;
+      patternIndex += 1;
+      modelIndexAfterStar = modelIndex;
+      continue;
+    }
+    if (lastStarIndex === -1) {
+      return false;
+    }
+    patternIndex = lastStarIndex + 1;
+    modelIndexAfterStar += 1;
+    modelIndex = modelIndexAfterStar;
+  }
+
+  while (pattern[patternIndex] === "*") {
+    patternIndex += 1;
+  }
+  return patternIndex === pattern.length;
 }
 
 export function rewriteRequestModel(

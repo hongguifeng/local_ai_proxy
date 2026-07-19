@@ -147,7 +147,7 @@ Each upstream target includes:
 - Enabled state. The default target is always available as fallback; non-default targets can be disabled.
 - Upstream target URL.
 - API Key. If set, it adds or replaces `Authorization: Bearer ...` on forwarded requests.
-- Model mappings, one per line. Use `local-model => upstream-model`; omit `=> upstream-model` to keep the same model name.
+- Model mappings, one per line. Use `local-model => upstream-model`; the listened model supports `*` as a wildcard matching any number of characters. Omit `=> upstream-model` to preserve the requested model name.
 - Timeout.
 - Log directory, default `logs`.
 - Upstream headers, one `Name: value` entry per line.
@@ -168,12 +168,12 @@ If no enabled non-default target matches, the request goes to the configured def
 Example target mappings:
 
 ```text
-A-gpt-5.5 => gpt-5.5
+*gpt-5.5* => gpt-5.5
 qwen-local => qwen3
 fallback-model
 ```
 
-In the last line, `fallback-model` is forwarded with the same model name.
+The first line matches model names such as `hyper-gpt-5.5` and `hyper-gpt-5.5-test`. Matching is case-sensitive, and the first matching mapping wins in configuration order. In the last line, `fallback-model` is forwarded with the same model name.
 
 ### Supported Request Shapes
 

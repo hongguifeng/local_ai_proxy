@@ -48,7 +48,7 @@ const translations = {
     targetName: "名称",
     defaultTarget: "默认",
     targetEnabled: "启用",
-    modelMappings: "模型映射，每行一个 监听模型 => 转发模型；省略 => 时保持同名",
+    modelMappings: "模型映射，每行一个 监听模型 => 转发模型；监听模型支持 * 通配符",
     moreTargetOptions: "更多配置",
     lessTargetOptions: "收起配置",
     delete: "删除",
@@ -118,7 +118,7 @@ const translations = {
     defaultTarget: "Default",
     targetEnabled: "Enabled",
     modelMappings:
-      "Model mapping, one per line: listened model => upstream model; omit => to keep the same name",
+      "Model mapping, one per line: listened model => upstream model; * is supported as a wildcard",
     moreTargetOptions: "More settings",
     lessTargetOptions: "Collapse settings",
     delete: "Delete",
@@ -299,7 +299,7 @@ function renderTarget(target, pair, pairIndex, targetIndex) {
           <button type="button" data-copy-api-key title="${escapeHtml(t("copyApiKey"))}">📋</button>
         </div>
       </label>
-      <label><span>${escapeHtml(t("modelMappings"))}</span><textarea data-target-field="model_mappings" placeholder="A-gpt-5.5 => gpt-5.5">${escapeHtml(mappingsText(target.model_mappings))}</textarea></label>
+      <label><span>${escapeHtml(t("modelMappings"))}</span><textarea data-target-field="model_mappings" placeholder="*gpt-5.5* => gpt-5.5">${escapeHtml(mappingsText(target.model_mappings))}</textarea></label>
       <div class="target-controls">
         ${isDefault ? `<span class="target-enabled">${escapeHtml(t("defaultTarget"))}</span>` : `<label class="target-enabled"><input type="checkbox" data-target-enabled ${target.enabled !== false ? "checked" : ""}> <span>${escapeHtml(t("targetEnabled"))}</span></label>`}
         <button data-toggle-target-options>${escapeHtml(t(expanded ? "lessTargetOptions" : "moreTargetOptions"))}</button>
