@@ -141,6 +141,7 @@ export class TrafficLogService {
       for (const contextKey of assignment.contextKeys) {
         repository.upsertContextLink(contextKey, taskId);
       }
+      repository.deleteTasks(assignment.supersededTaskIds);
     });
   }
 }

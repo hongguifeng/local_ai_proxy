@@ -22,8 +22,8 @@ afterEach(async () => {
 });
 
 describe("TaskAssignment", () => {
-  it("keeps task matching on strategy version 4", () => {
-    expect(TASK_MATCH_STRATEGY_VERSION).toBe(4);
+  it("keeps task matching on strategy version 5", () => {
+    expect(TASK_MATCH_STRATEGY_VERSION).toBe(5);
   });
 
   it("carries the complete result needed to persist a matched request", () => {
@@ -35,6 +35,7 @@ describe("TaskAssignment", () => {
       responsePayload: { id: "resp-1" },
       responseIds: ["resp-1"],
       contextKeys: ["conversation:conv-1"],
+      supersededTaskIds: [],
     } satisfies TaskAssignment;
 
     expect(assignment).toMatchObject({
@@ -42,6 +43,7 @@ describe("TaskAssignment", () => {
       sequence: 2,
       responseIds: ["resp-1"],
       contextKeys: ["conversation:conv-1"],
+      supersededTaskIds: [],
     });
   });
 
@@ -102,6 +104,84 @@ describe("TaskAssignment", () => {
     const repeated = matcher.assign(trafficRecord("request-1", false, { model: "gpt-5" }));
     expect(repeated).toMatchObject({ task: { id: "task-pending" }, sequence: 1 });
     expect(repeated?.task["request_count"]).toBe(1);
+    repository.close();
+  });
+
+  it("replaces a pending task with the matched conversation task when the body arrives", async () => {
+    const root = await mkdtemp(path.join(os.tmpdir(), "llm-proxy-task-pending-match-"));
+    temporaryDirectories.push(root);
+    const repository = new TrafficRepository(root);
+    let taskNumber = 0;
+    const matcher = new TaskMatcher(repository, {
+      createId: () => `pending-match-task-${++taskNumber}`,
+      now: () => "2026-07-18T10:00:00.000+08:00",
+    });
+    const firstPayload = {
+      model: "gpt-5",
+      messages: [
+        { role: "user", content: "hello" },
+        { role: "assistant", content: "first answer" },
+        { role: "user", content: "second" },
+      ],
+    };
+    const firstPending = matcher.assign(
+      trafficRecord("pending-match-request-1", true, {}, "/v1/chat/completions"),
+    );
+    if (firstPending === undefined) {
+      throw new Error("Initial pending request was not assigned.");
+    }
+    persistAssignment(repository, firstPending, "pending-match-request-1");
+    const firstFinished = matcher.assign(
+      trafficRecord("pending-match-request-1", false, firstPayload, "/v1/chat/completions"),
+    );
+    if (firstFinished === undefined) {
+      throw new Error("Initial finished request was not assigned.");
+    }
+    persistAssignment(repository, firstFinished, "pending-match-request-1");
+
+    const followupPending = matcher.assign(
+      trafficRecord("pending-match-request-2", true, {}, "/v1/chat/completions"),
+    );
+    if (followupPending === undefined) {
+      throw new Error("Follow-up pending request was not assigned.");
+    }
+    expect(followupPending.task["id"]).toBe("pending-match-task-2");
+    persistAssignment(repository, followupPending, "pending-match-request-2");
+
+    const followupFinished = matcher.assign(
+      trafficRecord(
+        "pending-match-request-2",
+        false,
+        {
+          model: "gpt-5",
+          messages: [
+            ...firstPayload.messages,
+            { role: "assistant", content: "second answer" },
+            { role: "user", content: "third" },
+          ],
+        },
+        "/v1/chat/completions",
+      ),
+    );
+    expect(followupFinished).toMatchObject({
+      task: {
+        id: "pending-match-task-1",
+        request_count: 2,
+        match_confidence: 0.95,
+      },
+      sequence: 2,
+      supersededTaskIds: ["pending-match-task-2"],
+    });
+    if (followupFinished === undefined) {
+      throw new Error("Follow-up finished request was not assigned.");
+    }
+    persistAssignment(repository, followupFinished, "pending-match-request-2");
+
+    expect(repository.getTask("pending-match-task-2")).toBeUndefined();
+    expect(repository.getRecord("pending-match-request-2")).toMatchObject({
+      task_id: "pending-match-task-1",
+      sequence: 2,
+    });
     repository.close();
   });
 
@@ -448,7 +528,7 @@ describe("TaskAssignment", () => {
       throw new Error("Task update baseline request was not assigned.");
     }
     expect(first.task).toMatchObject({
-      match_strategy_version: 4,
+      match_strategy_version: 5,
       request_count: 1,
       last_seen_at: "2026-07-18T10:01:00.000+08:00",
       last_response_at: "2026-07-18T10:01:00.000+08:00",
@@ -505,20 +585,23 @@ function persistAssignment(
   if (typeof taskId !== "string") {
     throw new Error("Task assignment is missing a string task ID.");
   }
-  repository.upsertTask(assignment.task);
-  repository.upsertRecord({
-    id: requestId,
-    task_id: taskId,
-    sequence: assignment.sequence,
-    method: "POST",
-    path: "/v1/responses",
-    request_body: assignment.requestPayload,
-    response_body: assignment.responsePayload,
+  repository.transaction(() => {
+    repository.upsertTask(assignment.task);
+    repository.upsertRecord({
+      id: requestId,
+      task_id: taskId,
+      sequence: assignment.sequence,
+      method: "POST",
+      path: "/v1/responses",
+      request_body: assignment.requestPayload,
+      response_body: assignment.responsePayload,
+    });
+    for (const responseId of assignment.responseIds) {
+      repository.upsertResponseLink(responseId, taskId);
+    }
+    for (const contextKey of assignment.contextKeys) {
+      repository.upsertContextLink(contextKey, taskId);
+    }
+    repository.deleteTasks(assignment.supersededTaskIds);
   });
-  for (const responseId of assignment.responseIds) {
-    repository.upsertResponseLink(responseId, taskId);
-  }
-  for (const contextKey of assignment.contextKeys) {
-    repository.upsertContextLink(contextKey, taskId);
-  }
 }

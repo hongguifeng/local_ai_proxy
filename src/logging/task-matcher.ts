@@ -25,6 +25,7 @@ export interface TaskAssignment {
   readonly responsePayload: unknown;
   readonly responseIds: readonly string[];
   readonly contextKeys: readonly string[];
+  readonly supersededTaskIds: readonly string[];
 }
 
 export interface TaskMatcherOptions {
@@ -32,7 +33,7 @@ export interface TaskMatcherOptions {
   readonly now?: () => string;
 }
 
-export const TASK_MATCH_STRATEGY_VERSION = 4;
+export const TASK_MATCH_STRATEGY_VERSION = 5;
 
 const MODEL_TASK_KINDS = new Set<EndpointKind>(["responses", "chat", "messages", "completions"]);
 const TASK_MATCH_WINDOW_MS = 24 * 60 * 60 * 1_000;
@@ -68,6 +69,7 @@ export class TaskMatcher {
         responsePayload: null,
         responseIds: [],
         contextKeys: [],
+        supersededTaskIds: [],
       };
     }
 
@@ -75,13 +77,19 @@ export class TaskMatcher {
     const response = record["response"];
     const responsePayload = isRecord(response) ? bodyPayload(response["body"]) : null;
     const contextKeys = isRecord(requestPayload) ? this.#contextKeys(requestPayload, record) : [];
+    const requestTask = this.#existingTask(requestId);
+    const continuationTask =
+      requestTask === undefined || requestTask["pending_request_only"] === true
+        ? this.#continuationTask(record, kind, requestPayload, contextKeys)
+        : undefined;
     const existing =
-      this.#existingTask(requestId) ??
-      this.#taskForPreviousResponse(record, kind, requestPayload) ??
-      this.#taskForContextKeys(contextKeys, record, kind, requestPayload) ??
-      (MODEL_TASK_KINDS.has(kind)
-        ? this.#bestHeuristicTask(record, kind, requestPayload)
-        : undefined);
+      requestTask?.["pending_request_only"] === true
+        ? (continuationTask ?? requestTask)
+        : (requestTask ?? continuationTask);
+    const supersededTaskIds =
+      requestTask?.["pending_request_only"] === true && continuationTask !== undefined
+        ? [stringValue(requestTask["id"])]
+        : [];
     const matchedTask =
       existing === undefined
         ? this.#newTask(record, kind)
@@ -104,7 +112,21 @@ export class TaskMatcher {
       responsePayload,
       responseIds: responseIdsFromBody(responsePayload),
       contextKeys,
+      supersededTaskIds,
     };
+  }
+
+  #continuationTask(
+    record: Readonly<RepositoryRecord>,
+    kind: EndpointKind,
+    payload: unknown,
+    contextKeys: readonly string[],
+  ): RepositoryRecord | undefined {
+    return (
+      this.#taskForPreviousResponse(record, kind, payload) ??
+      this.#taskForContextKeys(contextKeys, record, kind, payload) ??
+      (MODEL_TASK_KINDS.has(kind) ? this.#bestHeuristicTask(record, kind, payload) : undefined)
+    );
   }
 
   #existingTask(requestId: string): RepositoryRecord | undefined {
@@ -347,7 +369,8 @@ export class TaskMatcher {
       fingerprints: requestFingerprints(kind, payload),
       boundary_fingerprints: requestBoundaryFingerprints(kind, payload),
       last_user_messages: requestUserMessages(kind, payload),
-      request_count: this.#repository.recordCount(taskId) + (existingRecord === undefined ? 1 : 0),
+      request_count:
+        this.#repository.recordCount(taskId) + (existingRecord?.["task_id"] === taskId ? 0 : 1),
       updated_at: this.#now(),
     };
   }
