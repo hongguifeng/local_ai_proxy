@@ -178,6 +178,8 @@ describe("GET /api/logs", () => {
                 id: groupId,
                 total: 1,
                 limit: 200,
+                offset: 0,
+                next_offset: 1,
                 has_more: false,
                 logs: [
                   {

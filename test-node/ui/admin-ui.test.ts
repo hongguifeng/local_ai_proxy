@@ -26,6 +26,7 @@ let baseUrl: string;
 const logQueries: string[] = [];
 const groupLogQueries: string[] = [];
 let useLargeLogFixture = false;
+let useLargeGroupLogFixture = false;
 const deletedLogGroups = new Set<string>();
 const detailReads = new Map<string, number>();
 const UI_TEST_TIMEOUT_MS = 30_000;
@@ -128,15 +129,45 @@ beforeAll(async () => {
           has_more: nextOffset < groups.length,
         };
       },
-      getGroupLogs: (groupId, query) => {
+      getGroupLogs: (groupId, query, limit, offset) => {
         groupLogQueries.push(`${groupId}:${query}`);
         if (groupId !== "task-one") {
           return undefined;
+        }
+        if (useLargeGroupLogFixture) {
+          const logs = Array.from({ length: 301 }, (_, index) => {
+            const sequence = 301 - index;
+            return {
+              id: `record-${sequence}`,
+              timestamp: `2026-07-18 12:${String(sequence % 60).padStart(2, "0")}:00`,
+              sequence: String(sequence),
+              method: "POST",
+              path: "/v1/responses",
+              endpoint: "/v1/responses",
+              message_count: 1,
+              status: 200,
+              token_count: sequence,
+              target: "fixture-target",
+            };
+          });
+          const pageLogs = logs.slice(offset, offset + limit);
+          const nextOffset = offset + pageLogs.length;
+          return {
+            id: groupId,
+            total: logs.length,
+            limit,
+            offset,
+            next_offset: nextOffset,
+            has_more: nextOffset < logs.length,
+            logs: pageLogs,
+          };
         }
         return {
           id: groupId,
           total: 2,
           limit: 200,
+          offset: 0,
+          next_offset: 2,
           has_more: false,
           logs: [
             {
@@ -213,6 +244,7 @@ beforeEach(async () => {
   logQueries.splice(0);
   groupLogQueries.splice(0);
   useLargeLogFixture = false;
+  useLargeGroupLogFixture = false;
   deletedLogGroups.clear();
   detailReads.clear();
 
@@ -483,6 +515,37 @@ describe("admin UI history page", { timeout: UI_TEST_TIMEOUT_MS }, () => {
     expect(groupLogQueries).toEqual(["task-one:"]);
     await expectPage(page.locator('[data-log-id="record-two"]')).toContainText("12 tokens");
     await expectPage(page.locator('[data-log-id="record-one"]')).toContainText("1 messages");
+  });
+
+  it("loads 100 more records within an expanded task", async () => {
+    useLargeGroupLogFixture = true;
+    await loadAdminPage();
+    await Promise.all([
+      page.waitForResponse((response) => response.url().includes("/api/logs?")),
+      page.locator('[data-tab="logs"]').click(),
+    ]);
+    await Promise.all([
+      page.waitForResponse((response) =>
+        response.url().includes("/api/log-groups/task-one/logs?q=&limit=200&offset=0"),
+      ),
+      page.locator('[data-group-id="task-one"]').click(),
+    ]);
+    await expectPage(page.locator('[data-log-id^="record-"]')).toHaveCount(200);
+    await expectPage(page.locator('[data-load-more-records="task-one"]')).toContainText("200/301");
+
+    await Promise.all([
+      page.waitForResponse((response) => response.url().includes("limit=100&offset=200")),
+      page.locator('[data-load-more-records="task-one"]').click(),
+    ]);
+    await expectPage(page.locator('[data-log-id^="record-"]')).toHaveCount(300);
+    await expectPage(page.locator('[data-load-more-records="task-one"]')).toContainText("300/301");
+
+    await Promise.all([
+      page.waitForResponse((response) => response.url().includes("limit=100&offset=300")),
+      page.locator('[data-load-more-records="task-one"]').click(),
+    ]);
+    await expectPage(page.locator('[data-log-id^="record-"]')).toHaveCount(301);
+    await expectPage(page.locator('[data-load-more-records="task-one"]')).toHaveCount(0);
   });
 
   it("loads and merges the next page of task groups", async () => {

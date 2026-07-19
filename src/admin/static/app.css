@@ -472,6 +472,10 @@ label span {
 .log-group .log-item {
   padding-left: 24px;
 }
+.log-group-load-more {
+  width: calc(100% - 48px);
+  margin-left: 24px;
+}
 .log-item.active {
   background: var(--accent-soft);
 }

@@ -156,6 +156,7 @@ const state = {
   tree: { request: true, response: true },
   collapsedGroups: {},
   loadingLogGroups: {},
+  loadingMoreLogGroups: {},
   logsLoading: false,
   selectedLogLoading: false,
   selectedLogRefreshLoading: false,
@@ -481,6 +482,9 @@ function mergeLogGroupSummaries(currentGroups, nextGroups) {
       ...group,
       logs: summaryChanged ? [] : existing.logs,
       logsLoaded: summaryChanged ? false : existing.logsLoaded,
+      logsHasMore: summaryChanged ? false : existing.logsHasMore,
+      logsTotal: summaryChanged ? 0 : existing.logsTotal,
+      logsOffset: summaryChanged ? 0 : existing.logsOffset,
     };
   });
 }
@@ -551,12 +555,44 @@ async function loadLogGroup(groupId) {
   renderLogs();
   try {
     const q = encodeURIComponent($("logSearch").value.trim());
-    const data = await api(`/api/log-groups/${encodeURIComponent(groupId)}/logs?q=${q}`);
+    const data = await api(
+      `/api/log-groups/${encodeURIComponent(groupId)}/logs?q=${q}&limit=200&offset=0`,
+    );
     group.logs = data.logs || [];
     group.logsLoaded = true;
+    group.logsHasMore = Boolean(data.has_more);
+    group.logsTotal = Number(data.total || group.logs.length);
+    group.logsOffset = Number(data.next_offset ?? group.logs.length);
     state.logs = state.logGroups.flatMap((item) => item.logs || []);
   } finally {
     delete state.loadingLogGroups[groupId];
+    renderLogs();
+  }
+}
+async function loadMoreLogGroup(groupId) {
+  const group = state.logGroups.find((item) => item.id === groupId);
+  if (!group || !group.logsLoaded || !group.logsHasMore || state.loadingMoreLogGroups[groupId]) {
+    return;
+  }
+  state.loadingMoreLogGroups[groupId] = true;
+  renderLogs();
+  try {
+    const q = encodeURIComponent($("logSearch").value.trim());
+    const offset = Number(group.logsOffset ?? (group.logs || []).length);
+    const data = await api(
+      `/api/log-groups/${encodeURIComponent(groupId)}/logs?q=${q}&limit=100&offset=${offset}`,
+    );
+    const existingIds = new Set((group.logs || []).map((item) => item.id));
+    group.logs = [
+      ...(group.logs || []),
+      ...(data.logs || []).filter((item) => !existingIds.has(item.id)),
+    ];
+    group.logsHasMore = Boolean(data.has_more);
+    group.logsTotal = Number(data.total || group.logs.length);
+    group.logsOffset = Number(data.next_offset ?? offset + (data.logs || []).length);
+    state.logs = state.logGroups.flatMap((item) => item.logs || []);
+  } finally {
+    delete state.loadingMoreLogGroups[groupId];
     renderLogs();
   }
 }
@@ -585,7 +621,10 @@ function renderLogs() {
           <span class="log-meta">${escapeHtml(item.timestamp || "")} | ${escapeHtml(formatStatus(item.status))}</span>
         </button>`,
                 )
-                .join("")
+                .join("") +
+              (group.logsHasMore
+                ? `<button class="load-more log-group-load-more" data-load-more-records="${escapeHtml(group.id || "")}" ${state.loadingMoreLogGroups[group.id] ? "disabled" : ""}>${escapeHtml(state.loadingMoreLogGroups[group.id] ? t("loading") : t("loadMore"))} (${group.logs.length}/${group.logsTotal})</button>`
+                : "")
       }
     </section>`,
       )
@@ -898,6 +937,11 @@ $("logItems").addEventListener("click", (event) => {
   }
   const item = event.target.closest("[data-log-id]");
   if (item) selectLog(item.dataset.logId).catch((e) => toast(e.message));
+  const recordMore = event.target.closest("[data-load-more-records]");
+  if (recordMore) {
+    loadMoreLogGroup(recordMore.dataset.loadMoreRecords).catch((e) => toast(e.message));
+    return;
+  }
   if (event.target.matches("[data-load-more]"))
     loadLogs({ append: true }).catch((e) => toast(e.message));
 });

@@ -34,7 +34,12 @@ export interface LogAdminService {
   readonly cleanupOlderThan?: (olderThanDays: number) => LogCleanupResult;
   readonly cleanupSelectedGroups?: (groupIds: readonly string[]) => LogCleanupResult;
   readonly exportLogs?: () => Readable;
-  readonly getGroupLogs?: (groupId: string, query: string) => LogGroupLogs | undefined;
+  readonly getGroupLogs?: (
+    groupId: string,
+    query: string,
+    limit: number,
+    offset: number,
+  ) => LogGroupLogs | undefined;
   readonly getRecordDetail?: (recordId: string) => LogRecordDetail | undefined;
   listGroups(query: string, limit: number, offset: number): LogGroupPage;
 }
@@ -324,7 +329,10 @@ export function createAdminServer(options: AdminServerOptions): FastifyInstance 
     );
     const getGroupLogs = logService.getGroupLogs?.bind(logService);
     if (getGroupLogs !== undefined) {
-      server.get<{ Params: { id: string }; Querystring: { q?: string } }>(
+      server.get<{
+        Params: { id: string };
+        Querystring: { limit?: number; offset?: number; q?: string };
+      }>(
         "/api/log-groups/:id/logs",
         {
           schema: {
@@ -336,13 +344,22 @@ export function createAdminServer(options: AdminServerOptions): FastifyInstance 
             querystring: {
               type: "object",
               additionalProperties: false,
-              properties: { q: { type: "string", default: "" } },
+              properties: {
+                q: { type: "string", default: "" },
+                limit: { type: "integer", minimum: 1, maximum: 500, default: 200 },
+                offset: { type: "integer", minimum: 0, default: 0 },
+              },
             },
             response: { 200: LOG_GROUP_LOGS_SCHEMA },
           },
         },
         (request, reply) => {
-          const group = getGroupLogs(request.params.id, request.query.q ?? "");
+          const group = getGroupLogs(
+            request.params.id,
+            request.query.q ?? "",
+            request.query.limit ?? 200,
+            request.query.offset ?? 0,
+          );
           return (
             group ?? reply.code(404).send(adminError("log_group_not_found", "Log group not found."))
           );

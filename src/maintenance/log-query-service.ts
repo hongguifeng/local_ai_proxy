@@ -45,6 +45,8 @@ export interface LogGroupLogs {
   readonly id: string;
   readonly limit: number;
   readonly logs: readonly LogListItem[];
+  readonly next_offset: number;
+  readonly offset: number;
   readonly total: number;
 }
 
@@ -94,19 +96,28 @@ export class LogQueryService {
     }
   }
 
-  getGroupLogs(groupId: string, query = ""): LogGroupLogs | undefined {
+  getGroupLogs(
+    groupId: string,
+    query = "",
+    limit = TASK_RECORD_LIMIT,
+    offset = 0,
+  ): LogGroupLogs | undefined {
+    const boundedLimit = Math.max(1, Math.min(integer(limit, TASK_RECORD_LIMIT), 500));
+    const boundedOffset = Math.max(0, integer(offset, 0));
     for (const root of [...new Set(this.#logRoots().filter((value) => value !== ""))]) {
       const repository = new TrafficRepository(root);
       try {
         if (repository.getTask(groupId) === undefined) {
           continue;
         }
-        const page = repository.listTaskRecords(groupId, query, TASK_RECORD_LIMIT, 0);
+        const page = repository.listTaskRecords(groupId, query, boundedLimit, boundedOffset);
         return {
           id: groupId,
           logs: page.items.map(logListItem),
           total: page.total,
           limit: page.limit,
+          offset: page.offset,
+          next_offset: page.nextOffset,
           has_more: page.hasMore,
         };
       } finally {

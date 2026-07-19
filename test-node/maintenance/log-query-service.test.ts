@@ -121,6 +121,8 @@ describe("LogQueryService", () => {
       id: "group-task",
       total: 1,
       limit: 200,
+      offset: 0,
+      next_offset: 1,
       has_more: false,
       logs: [
         expect.objectContaining({
@@ -135,7 +137,7 @@ describe("LogQueryService", () => {
     expect(service.getGroupLogs("missing")).toBeUndefined();
   });
 
-  it("keeps the task record response bounded and reports truncation", async () => {
+  it("paginates task records after the initial 200 items", async () => {
     const root = await mkdtemp(path.join(os.tmpdir(), "llm-proxy-task-record-limit-"));
     temporaryDirectories.push(root);
     const repository = new TrafficRepository(root);
@@ -152,10 +154,26 @@ describe("LogQueryService", () => {
     repository.close();
 
     const group = new LogQueryService([root]).getGroupLogs("large-task");
-    expect(group).toMatchObject({ total: 201, limit: 200, has_more: true });
+    expect(group).toMatchObject({
+      total: 201,
+      limit: 200,
+      offset: 0,
+      next_offset: 200,
+      has_more: true,
+    });
     expect(group?.logs).toHaveLength(200);
     expect(group?.logs[0]?.sequence).toBe("201");
     expect(group?.logs.at(-1)?.sequence).toBe("2");
+
+    const nextPage = new LogQueryService([root]).getGroupLogs("large-task", "", 100, 200);
+    expect(nextPage).toMatchObject({
+      total: 201,
+      limit: 100,
+      offset: 200,
+      next_offset: 201,
+      has_more: false,
+    });
+    expect(nextPage?.logs.map(({ sequence }) => sequence)).toEqual(["1"]);
   });
 
   it("returns request and response detail with compact metadata", async () => {
