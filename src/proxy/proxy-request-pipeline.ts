@@ -1,5 +1,6 @@
 import type { IncomingMessage, ServerResponse } from "node:http";
 import { once } from "node:events";
+import { performance } from "node:perf_hooks";
 
 import type { RepositoryRecord } from "../persistence/index.js";
 import { ActiveRequestRegistry } from "./active-requests.js";
@@ -186,11 +187,11 @@ export class ProxyRequestPipeline {
         });
         response.end(request.method === "HEAD" ? undefined : badGatewayBody);
       }
-      baseRecord["error"] = error instanceof Error ? error.name : "UpstreamError";
+      baseRecord["error"] = formatUpstreamError(error);
     }
     const responseBody: ResponseLogPayload = await responseCapture.finalize();
     await selectedTarget.trafficLog.write(
-      eventRecord(baseRecord, "request_finished", 0, {
+      eventRecord(baseRecord, "request_finished", elapsedMilliseconds(context), {
         status: responseStatus,
         headers: responseHeaders,
         body: responseBody,
@@ -255,6 +256,36 @@ export class ProxyRequestPipeline {
       },
     };
   }
+}
+
+function elapsedMilliseconds(context: ProxyRequestContext): number {
+  return Math.max(0, performance.now() - context.startedMonotonicMs);
+}
+
+function formatUpstreamError(error: unknown): string {
+  if (!(error instanceof Error)) {
+    return `UpstreamError: ${String(error)}`;
+  }
+  const code = errorCode(error);
+  const cause = error.cause;
+  return [
+    `${error.name}: ${error.message}`,
+    ...(code === undefined ? [] : [`code=${code}`]),
+    ...(cause === undefined ? [] : [`cause=${formatErrorCause(cause)}`]),
+  ].join("; ");
+}
+
+function errorCode(error: Error): string | undefined {
+  const code = (error as Error & { readonly code?: unknown }).code;
+  return typeof code === "string" || typeof code === "number" ? String(code) : undefined;
+}
+
+function formatErrorCause(cause: unknown): string {
+  if (cause instanceof Error) {
+    const code = errorCode(cause);
+    return `${cause.name}: ${cause.message}${code === undefined ? "" : ` (${code})`}`;
+  }
+  return String(cause);
 }
 
 export async function readRequestBody(

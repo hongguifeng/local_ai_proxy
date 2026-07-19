@@ -120,9 +120,9 @@ describe("ProxyListener", () => {
     await upstreamClosed;
     await expect(finalRecord).resolves.toMatchObject({
       event: "request_finished",
-      error: "AbortError",
       response: { status: 502 },
     });
+    expect(String((await finalRecord)["error"])).toContain("AbortError:");
     expect(activeRequests.size).toBe(0);
     await listener.close();
     await closeServer(upstream);
@@ -636,14 +636,14 @@ describe("ProxyListener", () => {
   });
 
   it("logs pending and final events around request processing", async () => {
-    const events: string[] = [];
+    const records: Readonly<Record<string, unknown>>[] = [];
     const trafficLog: TrafficLogWriter = {
       write(record) {
-        events.push(String(record["event"]));
+        records.push(record);
         return Promise.resolve();
       },
       update(record) {
-        events.push(String(record["event"]));
+        records.push(record);
         return Promise.resolve();
       },
     };
@@ -667,12 +667,19 @@ describe("ProxyListener", () => {
     const listener = new ProxyListener({
       host: "127.0.0.1",
       port: 0,
+      monotonicNow: () => 0,
       onRequest: (request, response, context) => pipeline.handle(request, response, context),
     });
     const address = await listener.start();
 
     expect((await requestText(address.port, "/lifecycle")).status).toBe(502);
-    expect(events).toEqual(["request_received", "request_pending_response", "request_finished"]);
+    expect(records.map((record) => record["event"])).toEqual([
+      "request_received",
+      "request_pending_response",
+      "request_finished",
+    ]);
+    expect(records.at(-1)?.["duration_ms"]).toEqual(expect.any(Number));
+    expect(Number(records.at(-1)?.["duration_ms"])).toBeGreaterThan(0);
     expect(activeRequests.size).toBe(0);
     await listener.close();
   });
@@ -1485,9 +1492,9 @@ describe("ProxyListener", () => {
     expect(downstream.closedEarly).toBe(true);
     expect(finalRecords[0]).toMatchObject({
       event: "request_finished",
-      error: "Error",
       response: { status: 200 },
     });
+    expect(String(finalRecords[0]?.["error"])).toContain("Error:");
     await listener.close();
     await closeServer(upstream);
   });
