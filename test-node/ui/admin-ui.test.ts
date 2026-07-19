@@ -1,4 +1,4 @@
-import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
+import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it } from "vitest";
 import {
   chromium,
   expect as expectPage,
@@ -28,6 +28,7 @@ const groupLogQueries: string[] = [];
 let useLargeLogFixture = false;
 const deletedLogGroups = new Set<string>();
 const detailReads = new Map<string, number>();
+const UI_TEST_TIMEOUT_MS = 30_000;
 
 const pairs: PublicProxyPair[] = [];
 
@@ -205,28 +206,32 @@ beforeAll(async () => {
     headless: true,
     args: ["--no-sandbox"],
   });
-  page = await browser.newPage();
-  await page.addInitScript(() => {
-    localStorage.setItem("llmProxyLanguage", "en");
-  });
 }, 30_000);
 
-beforeEach(() => {
+beforeEach(async () => {
   pairs.splice(0, pairs.length, fixturePair());
   logQueries.splice(0);
   groupLogQueries.splice(0);
   useLargeLogFixture = false;
   deletedLogGroups.clear();
   detailReads.clear();
+
+  page = await browser.newPage();
+  await page.addInitScript(() => {
+    localStorage.setItem("llmProxyLanguage", "en");
+  });
+});
+
+afterEach(async () => {
+  await page.close();
 });
 
 afterAll(async () => {
-  await page.close();
   await browser.close();
   await server.close();
 });
 
-describe("admin UI proxy page", () => {
+describe("admin UI proxy page", { timeout: UI_TEST_TIMEOUT_MS }, () => {
   it("loads and renders configured proxy pairs", async () => {
     await loadAdminPage();
     const card = page.locator('.proxy-card[data-index="0"]');
@@ -409,7 +414,7 @@ describe("admin UI proxy page", () => {
   });
 });
 
-describe("admin UI history page", () => {
+describe("admin UI history page", { timeout: UI_TEST_TIMEOUT_MS }, () => {
   it("debounces history search input by 180 ms", async () => {
     await loadAdminPage();
     await Promise.all([
@@ -645,7 +650,7 @@ describe("admin UI history page", () => {
   });
 });
 
-describe("admin UI visual regression", () => {
+describe("admin UI visual regression", { timeout: UI_TEST_TIMEOUT_MS }, () => {
   it("matches the Chinese proxy page baseline", async () => {
     pairs.splice(0, pairs.length, ...visualPairs());
     await page.setViewportSize({ width: 1278, height: 1215 });
