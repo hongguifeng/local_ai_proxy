@@ -242,9 +242,10 @@ export function createAdminServer(options: AdminServerOptions): FastifyInstance 
     },
   );
   if (options.logService !== undefined) {
-    const cleanupSelectedGroups = options.logService.cleanupSelectedGroups;
-    const cleanupOlderThan = options.logService.cleanupOlderThan;
-    const cleanupKeepLatest = options.logService.cleanupKeepLatest;
+    const logService = options.logService;
+    const cleanupSelectedGroups = logService.cleanupSelectedGroups?.bind(logService);
+    const cleanupOlderThan = logService.cleanupOlderThan?.bind(logService);
+    const cleanupKeepLatest = logService.cleanupKeepLatest?.bind(logService);
     if (
       cleanupSelectedGroups !== undefined ||
       cleanupOlderThan !== undefined ||
@@ -289,7 +290,7 @@ export function createAdminServer(options: AdminServerOptions): FastifyInstance 
         },
       );
     }
-    const exportLogs = options.logService.exportLogs;
+    const exportLogs = logService.exportLogs?.bind(logService);
     if (exportLogs !== undefined) {
       server.get("/api/logs/export", (_request, reply) =>
         reply
@@ -315,13 +316,13 @@ export function createAdminServer(options: AdminServerOptions): FastifyInstance 
         },
       },
       (request) =>
-        options.logService?.listGroups(
+        logService.listGroups(
           request.query.q ?? "",
           request.query.limit ?? 100,
           request.query.offset ?? 0,
         ),
     );
-    const getGroupLogs = options.logService.getGroupLogs;
+    const getGroupLogs = logService.getGroupLogs?.bind(logService);
     if (getGroupLogs !== undefined) {
       server.get<{ Params: { id: string }; Querystring: { q?: string } }>(
         "/api/log-groups/:id/logs",
@@ -348,7 +349,7 @@ export function createAdminServer(options: AdminServerOptions): FastifyInstance 
         },
       );
     }
-    const getRecordDetail = options.logService.getRecordDetail;
+    const getRecordDetail = logService.getRecordDetail?.bind(logService);
     if (getRecordDetail !== undefined) {
       server.get<{ Params: { id: string } }>(
         "/api/logs/:id",
@@ -369,10 +370,11 @@ export function createAdminServer(options: AdminServerOptions): FastifyInstance 
     }
   }
   if (options.pairService !== undefined) {
+    const pairService = options.pairService;
     server.get("/api/pairs", { schema: { response: { 200: PAIRS_RESPONSE_SCHEMA } } }, () => ({
-      pairs: options.pairService?.listPairs() ?? [],
+      pairs: pairService.listPairs(),
     }));
-    const replacePairs = options.pairService.replacePairs;
+    const replacePairs = pairService.replacePairs?.bind(pairService);
     if (replacePairs !== undefined) {
       server.put<{ Body: { pairs: ProxyPair[] } }>(
         "/api/pairs",
@@ -385,7 +387,7 @@ export function createAdminServer(options: AdminServerOptions): FastifyInstance 
         async (request) => ({ pairs: await replacePairs(request.body.pairs) }),
       );
     }
-    const setPairEnabled = options.pairService.setPairEnabled;
+    const setPairEnabled = pairService.setPairEnabled?.bind(pairService);
     if (setPairEnabled !== undefined) {
       server.post<{ Body: { enabled: boolean }; Params: { id: string } }>(
         "/api/pairs/:id/enabled",

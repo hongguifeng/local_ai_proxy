@@ -11,23 +11,24 @@ afterEach(async () => {
 
 describe("GET /api/logs", () => {
   it("cleans selected log groups", async () => {
-    const calls: unknown[] = [];
+    const logService = {
+      calls: [] as unknown[],
+      listGroups: () => ({
+        groups: [],
+        total: 0,
+        limit: 100,
+        offset: 0,
+        next_offset: 0,
+        has_more: false,
+      }),
+      cleanupSelectedGroups(groupIds: readonly string[]) {
+        this.calls.push(groupIds);
+        return { deleted: groupIds, deleted_count: groupIds.length };
+      },
+    };
     const server = createAdminServer({
       getHealth: () => applicationHealth("running"),
-      logService: {
-        listGroups: () => ({
-          groups: [],
-          total: 0,
-          limit: 100,
-          offset: 0,
-          next_offset: 0,
-          has_more: false,
-        }),
-        cleanupSelectedGroups(groupIds) {
-          calls.push(groupIds);
-          return { deleted: groupIds, deleted_count: groupIds.length };
-        },
-      },
+      logService,
     });
     servers.push(server);
 
@@ -38,7 +39,7 @@ describe("GET /api/logs", () => {
     });
     expect(response.statusCode).toBe(200);
     expect(response.json()).toEqual({ deleted: ["task-1"], deleted_count: 1 });
-    expect(calls).toEqual([["task-1"]]);
+    expect(logService.calls).toEqual([["task-1"]]);
   });
 
   it("cleans log groups older than a requested number of days", async () => {

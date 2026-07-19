@@ -38,16 +38,17 @@ describe("GET /api/pairs", () => {
   it("replaces the complete pair list and returns committed runtime state", async () => {
     const submitted = { ...createDefaultProxyPair(""), id: "submitted", name: "Submitted" };
     const committed = { ...submitted, running: false, actual_listen_port: null };
-    const replacements: unknown[] = [];
+    const pairService = {
+      replacements: [] as unknown[],
+      listPairs: () => [],
+      replacePairs(pairs: readonly (typeof submitted)[]) {
+        this.replacements.push(pairs);
+        return Promise.resolve([committed]);
+      },
+    };
     const server = createAdminServer({
       getHealth: () => applicationHealth("running"),
-      pairService: {
-        listPairs: () => [],
-        replacePairs(pairs) {
-          replacements.push(pairs);
-          return Promise.resolve([committed]);
-        },
-      },
+      pairService,
     });
     servers.push(server);
 
@@ -58,7 +59,7 @@ describe("GET /api/pairs", () => {
     });
     expect(response.statusCode).toBe(200);
     expect(response.json()).toEqual({ pairs: [committed] });
-    expect(replacements).toEqual([[submitted]]);
+    expect(pairService.replacements).toEqual([[submitted]]);
   });
 
   it("enables or disables one pair by ID", async () => {
