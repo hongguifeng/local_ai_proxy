@@ -153,7 +153,20 @@ export class TrafficRepository {
     const rows = this.#database
       .prepare(
         `
-        SELECT * FROM tasks
+        SELECT tasks.*,
+          COALESCE(
+            NULLIF(tasks.target, ''),
+            (
+              SELECT records.target_url
+              FROM records
+              WHERE records.task_id = tasks.id
+                AND records.target_url IS NOT NULL
+                AND records.target_url != ''
+              ORDER BY records.sequence DESC
+              LIMIT 1
+            )
+          ) AS target
+        FROM tasks
         ${whereSql}
         ORDER BY COALESCE(last_response_at, last_seen_at, started_at) DESC
         LIMIT ? OFFSET ?

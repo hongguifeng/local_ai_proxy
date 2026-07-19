@@ -87,6 +87,7 @@ export class TrafficLogService {
     const request = mapping(recordToWrite["request"]);
     const response = mapping(recordToWrite["response"]);
     const target = mapping(recordToWrite["target"]);
+    const resolvedTargetUrl = targetUrl(target);
     const client = mapping(recordToWrite["client"]);
     const proxy = mapping(recordToWrite["proxy"]);
     const endpoint = displayEndpoint(stringValue(request["path"]));
@@ -100,7 +101,10 @@ export class TrafficLogService {
         ? originalRequestBody
         : undefined;
     repository.transaction(() => {
-      repository.upsertTask(assignment.task);
+      repository.upsertTask({
+        ...assignment.task,
+        ...(resolvedTargetUrl === "" ? {} : { target: resolvedTargetUrl }),
+      });
       repository.upsertRecord({
         id: stringValue(recordToWrite["id"]),
         task_id: taskId,
@@ -117,7 +121,7 @@ export class TrafficLogService {
         client_port: client["port"],
         target_id: target["id"],
         target_name: target["name"],
-        target_url: targetUrl(target),
+        target_url: resolvedTargetUrl,
         method: stringValue(request["method"]),
         path: stringValue(request["path"]),
         endpoint,

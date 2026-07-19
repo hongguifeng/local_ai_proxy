@@ -144,6 +144,11 @@ describe("TrafficLogService record mapping", () => {
     await service.close();
 
     const repository = new TrafficRepository(root);
+    expect(
+      repository.getTask(repository.getRecord("mapped-request")?.["task_id"] as string),
+    ).toMatchObject({
+      target: "https://api.example.com:443/base",
+    });
     expect(repository.getRecord("mapped-request")).toMatchObject({
       proxy_id: "proxy-1",
       proxy_name: "Primary proxy",

@@ -47,6 +47,30 @@ describe("LogQueryService", () => {
     });
   });
 
+  it("falls back to the latest record target for task summaries", async () => {
+    const root = await mkdtemp(path.join(os.tmpdir(), "llm-proxy-log-query-target-"));
+    temporaryDirectories.push(root);
+    const repository = new TrafficRepository(root);
+    repository.upsertTask({
+      ...task("task-without-target", "gpt-5", "2026-07-18T12:00:00.000+08:00"),
+      target: null,
+    });
+    repository.upsertRecord({
+      id: "record-with-target",
+      task_id: "task-without-target",
+      sequence: 1,
+      method: "POST",
+      path: "/v1/responses",
+      target_url: "https://api.example.com:443/v1/responses",
+    });
+    repository.close();
+
+    expect(new LogQueryService([root]).listGroups().groups[0]).toMatchObject({
+      target: "https://api.example.com:443/v1/responses",
+      meta: "gpt-5 | 2 requests | https://api.example.com:443/v1/responses",
+    });
+  });
+
   it("merges, globally sorts, and paginates tasks from multiple log roots", async () => {
     const firstRoot = await mkdtemp(path.join(os.tmpdir(), "llm-proxy-log-query-a-"));
     const secondRoot = await mkdtemp(path.join(os.tmpdir(), "llm-proxy-log-query-b-"));
