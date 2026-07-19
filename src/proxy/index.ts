@@ -100,10 +100,12 @@ export {
   ProxyListenConflictError,
   ProxyManager,
   ProxyPairNotFoundError,
+  resolveRuntimeLogRoot,
   type ConfigurationApplyStage,
   type ProxyPairConfigDiff,
   type ProxyConfigSaver,
   type ProxyManagerState,
+  type ProxyManagerOptions,
   type UpdatedProxyPair,
 } from "./proxy-manager.js";
 export {

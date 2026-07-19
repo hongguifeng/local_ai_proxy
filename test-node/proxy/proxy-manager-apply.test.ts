@@ -23,7 +23,7 @@ describe("ProxyManager configuration apply", () => {
       {
         save: () => Promise.reject(new Error("save fixture failed")),
       },
-      registry,
+      { registry },
     );
 
     try {

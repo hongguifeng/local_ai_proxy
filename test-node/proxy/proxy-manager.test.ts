@@ -1,10 +1,13 @@
 import { describe, expect, it } from "vitest";
 
+import path from "node:path";
+
 import { createDefaultProxyPair, type ProxyPair } from "../../src/config/index.js";
 import {
   assertNoEnabledListenConflicts,
   diffProxyPairs,
   ProxyListenConflictError,
+  resolveRuntimeLogRoot,
 } from "../../src/proxy/index.js";
 
 describe("diffProxyPairs", () => {
@@ -62,6 +65,15 @@ describe("assertNoEnabledListenConflicts", () => {
         { ...pair("ipv6", 4302), listen_host: "::1" },
       ]),
     ).not.toThrow();
+  });
+});
+
+describe("resolveRuntimeLogRoot", () => {
+  it("anchors relative log paths to the persistent application data directory", () => {
+    expect(resolveRuntimeLogRoot("logs", "/portable/LLM Proxy")).toBe(
+      path.resolve("/portable/LLM Proxy", "logs"),
+    );
+    expect(resolveRuntimeLogRoot("", "/portable/LLM Proxy")).toBeUndefined();
   });
 });
 

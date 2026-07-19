@@ -1,3 +1,5 @@
+import path from "node:path";
+
 import {
   validateProxyConfigFile,
   type ProxyConfigFile,
@@ -13,6 +15,11 @@ export type ConfigurationApplyStage = "save" | "start" | "stop";
 
 export interface ProxyConfigSaver {
   save(config: ProxyConfigFile): Promise<void>;
+}
+
+export interface ProxyManagerOptions {
+  readonly logRootBaseDirectory?: string;
+  readonly registry?: ProxyRuntimeRegistry;
 }
 
 export class ProxyConfigurationApplyError extends Error {
@@ -53,6 +60,7 @@ export class ProxyPairNotFoundError extends Error {
 }
 
 export class ProxyManager {
+  readonly #logRootBaseDirectory: string;
   readonly #repository: ProxyConfigSaver;
   readonly #registry: ProxyRuntimeRegistry;
   #applyQueue: Promise<void> = Promise.resolve();
@@ -62,11 +70,12 @@ export class ProxyManager {
   constructor(
     config: ProxyConfigFile,
     repository: ProxyConfigSaver,
-    registry = new ProxyRuntimeRegistry(),
+    options: ProxyManagerOptions = {},
   ) {
     this.#config = validateProxyConfigFile(config);
     this.#repository = repository;
-    this.#registry = registry;
+    this.#registry = options.registry ?? new ProxyRuntimeRegistry();
+    this.#logRootBaseDirectory = path.resolve(options.logRootBaseDirectory ?? process.cwd());
   }
 
   get state(): ProxyManagerState {
@@ -81,14 +90,16 @@ export class ProxyManager {
     return [
       ...new Set(
         this.#config.pairs.flatMap((pair) =>
-          pair.targets.map((target) => target.log_root).filter((root) => root !== ""),
+          pair.targets
+            .map((target) => resolveRuntimeLogRoot(target.log_root, this.#logRootBaseDirectory))
+            .filter((root): root is string => root !== undefined),
         ),
       ),
     ];
   }
 
   startEnabled(): Promise<StartEnabledResult> {
-    return this.#registry.startEnabled(this.#config.pairs);
+    return this.#registry.startEnabled(this.#config.pairs.map((pair) => this.#runtimePair(pair)));
   }
 
   async stopAll(): Promise<void> {
@@ -149,7 +160,7 @@ export class ProxyManager {
       for (const pair of newAffected) {
         if (pair.enabled) {
           failedPairId = pair.id;
-          await this.#registry.startPair(pair);
+          await this.#registry.startPair(this.#runtimePair(pair));
           startedNew.push(pair);
         }
       }
@@ -180,13 +191,32 @@ export class ProxyManager {
     }
     for (const pair of stoppedOld) {
       try {
-        await this.#registry.startPair(pair);
+        await this.#registry.startPair(this.#runtimePair(pair));
       } catch {
         failures.push(pair.id);
       }
     }
     return failures;
   }
+
+  #runtimePair(pair: ProxyPair): ProxyPair {
+    return {
+      ...pair,
+      targets: pair.targets.map((target) => ({
+        ...target,
+        log_root: resolveRuntimeLogRoot(target.log_root, this.#logRootBaseDirectory) ?? "",
+      })),
+    };
+  }
+}
+
+export function resolveRuntimeLogRoot(
+  configuredPath: string,
+  baseDirectory: string,
+): string | undefined {
+  const trimmed = configuredPath.trim();
+  if (trimmed === "") return undefined;
+  return path.resolve(baseDirectory, trimmed);
 }
 
 export interface UpdatedProxyPair {

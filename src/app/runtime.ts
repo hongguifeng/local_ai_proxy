@@ -1,3 +1,5 @@
+import path from "node:path";
+
 import {
   AdminControlPlane,
   applicationHealth,
@@ -10,6 +12,7 @@ import { ProxyManager } from "../proxy/index.js";
 import { Application } from "./application.js";
 
 export interface NodeApplicationOptions {
+  readonly applicationConfigFile: string;
   readonly configFile: string;
   readonly host: string;
   readonly logRoot: string;
@@ -30,7 +33,9 @@ export function createNodeApplication(options: NodeApplicationOptions): NodeAppl
   const application = new Application({
     start: async () => {
       const config = await repository.load();
-      manager = new ProxyManager(config, repository);
+      manager = new ProxyManager(config, repository, {
+        logRootBaseDirectory: path.dirname(options.applicationConfigFile),
+      });
       const currentManager = manager;
       const startResult = await currentManager.startEnabled();
       if (startResult.failed.size > 0) {

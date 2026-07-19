@@ -1,4 +1,4 @@
-import { mkdtemp, rm, writeFile } from "node:fs/promises";
+import { access, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { createServer } from "node:net";
@@ -41,7 +41,7 @@ describe("createNodeApplication", () => {
                 strip_request_fields: "",
                 inject_request_fields: "",
                 timeout: 1,
-                log_root: path.join(root, "logs"),
+                log_root: "logs",
                 redact_logs: false,
                 model_mappings: [],
               },
@@ -51,6 +51,7 @@ describe("createNodeApplication", () => {
       }),
     );
     const runtime = createNodeApplication({
+      applicationConfigFile: path.join(root, "llm-proxy.json"),
       configFile,
       logRoot: path.join(root, "logs"),
       host: "127.0.0.1",
@@ -58,6 +59,7 @@ describe("createNodeApplication", () => {
     });
 
     await runtime.application.start();
+    await expect(access(path.join(root, "logs", "traffic.db"))).resolves.toBeUndefined();
     const adminPort = runtime.address()?.port;
     expect(adminPort).toBeTypeOf("number");
     const response = await fetch(`http://127.0.0.1:${adminPort}/api/pairs`);
@@ -81,6 +83,7 @@ describe("createNodeApplication", () => {
     const root = await mkdtemp(path.join(tmpdir(), "llm-proxy-app-"));
     temporaryRoots.push(root);
     const runtime = createNodeApplication({
+      applicationConfigFile: path.join(root, "llm-proxy.json"),
       configFile: path.join(root, "missing.json"),
       logRoot: path.join(root, "logs"),
       host: "127.0.0.1",
