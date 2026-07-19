@@ -5,3 +5,13 @@ __pycache__/
 build/
 dist/
 *.spec
+node_modules/
+coverage/
+test-results/
+dist-node/
+dist-electron/
+release/
+*.tsbuildinfo
+fixtures/parity/database/**/*.db-shm
+fixtures/parity/database/**/*.db-wal
+llm-proxy.json

@@ -1,0 +1,63 @@
+{
+  "name": "llm-proxy",
+  "version": "0.3.7",
+  "private": true,
+  "description": "Local HTTP proxy and web console for inspecting OpenAI-compatible LLM traffic.",
+  "main": "dist-node/electron/index.js",
+  "type": "module",
+  "engines": {
+    "node": ">=24 <25"
+  },
+  "license": "UNLICENSED",
+  "scripts": {
+    "build": "tsc -p tsconfig.json && node dist-node/scripts/copy_static_assets.js",
+    "benchmark:proxy": "npm run build && node --enable-source-maps dist-node/scripts/proxy_benchmark.js",
+    "benchmark:migration": "npm run build && node --enable-source-maps dist-node/scripts/migration_benchmark.js",
+    "rehearse:real-data": "npm run build && node --enable-source-maps dist-node/scripts/rehearse_real_data.js",
+    "check": "npm run format:check && npm run lint && npm run typecheck && npm run test && npm run build",
+    "dev": "tsx watch src/main.ts",
+    "format": "prettier --write .",
+    "format:check": "prettier --check .",
+    "lint": "eslint \"src/**/*.ts\" \"electron/**/*.ts\" \"test-node/**/*.ts\" \"scripts/**/*.ts\" --no-error-on-unmatched-pattern --max-warnings=0",
+    "package:electron": "npm run build && electron-builder --publish never",
+    "package:electron:dir": "npm run build && electron-builder --dir",
+    "package:cli": "npm run build && node --enable-source-maps dist-node/scripts/create_cli_archive.js",
+    "smoke:database": "node --enable-source-maps dist-node/scripts/database_smoke.js",
+    "smoke:artifact": "node --enable-source-maps dist-node/scripts/artifact_smoke.js",
+    "checksums": "node --enable-source-maps dist-node/scripts/generate_checksums.js",
+    "validate:migration": "node --enable-source-maps dist-node/scripts/validate_migration.js",
+    "start": "node --enable-source-maps dist-node/src/main.js",
+    "test": "vitest run",
+    "test:coverage": "vitest run --coverage",
+    "test:watch": "vitest",
+    "typecheck": "tsc -p tsconfig.json --noEmit"
+  },
+  "devDependencies": {
+    "@eslint/js": "^10.0.1",
+    "@playwright/test": "^1.61.1",
+    "@types/archiver": "^8.0.0",
+    "@types/better-sqlite3": "^7.6.13",
+    "@types/node": "^26.1.1",
+    "@types/pngjs": "^6.0.5",
+    "@types/yauzl": "^3.4.0",
+    "@vitest/coverage-v8": "^4.1.10",
+    "electron": "40.9.3",
+    "electron-builder": "^26.15.3",
+    "eslint": "^10.7.0",
+    "eslint-config-prettier": "^10.1.8",
+    "pixelmatch": "^7.2.0",
+    "pngjs": "^7.0.0",
+    "prettier": "^3.9.5",
+    "tsx": "^4.23.1",
+    "typescript": "^6.0.3",
+    "typescript-eslint": "^8.64.0",
+    "vitest": "^4.1.10",
+    "yauzl": "^3.4.0"
+  },
+  "dependencies": {
+    "archiver": "^8.0.0",
+    "better-sqlite3": "^12.11.1",
+    "fastify": "^5.10.0",
+    "zod": "^4.4.3"
+  }
+}

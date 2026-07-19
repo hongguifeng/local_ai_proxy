@@ -1,0 +1,12 @@
+coverage/
+test-results/
+dist-electron/
+dist-node/
+docs/
+node_modules/
+fixtures/
+llm_proxy/static/
+doc/
+README.md
+README.cn.md
+*.db

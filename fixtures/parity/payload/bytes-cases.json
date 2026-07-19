@@ -1,0 +1,20 @@
+[
+  {
+    "name": "unicode text",
+    "bytes": [228, 189, 160, 229, 165, 189, 240, 159, 153, 130],
+    "expected": {
+      "size_bytes": 10,
+      "base64": "5L2g5aW98J+Zgg==",
+      "text": "你好🙂"
+    }
+  },
+  {
+    "name": "invalid UTF-8",
+    "bytes": [102, 111, 128, 97, 255],
+    "expected": {
+      "size_bytes": 5,
+      "base64": "Zm+AYf8=",
+      "text": "fo�a�"
+    }
+  }
+]

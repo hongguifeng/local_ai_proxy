@@ -16,7 +16,7 @@ LLM Proxy 是一个以 Web 控制台为核心的本地 LLM 代理管理工具。
 
 ```mermaid
 flowchart LR
-  UI["Web 控制台<br/>http://127.0.0.1:8088"] --> P1["代理配置 A<br/>监听 127.0.0.1:1234"]
+  UI["Web 控制台<br/>http://127.0.0.1:18080"] --> P1["代理配置 A<br/>监听 127.0.0.1:1234"]
   UI --> P2["代理配置 B<br/>监听 127.0.0.1:2234"]
   P1 --> A1["上游 A<br/>https://provider-a.example/v1"]
   P2 --> B1["本地模型服务<br/>http://127.0.0.1:1235"]
@@ -59,53 +59,38 @@ flowchart LR
 启动 Web 控制台：
 
 ```powershell
-python -m llm_proxy
+npm ci
+npm run build
+npm start
 ```
 
-Windows 下也可以直接运行：
+需要 Node.js 24。浏览器默认自动打开 `http://127.0.0.1:18080`；无浏览器启动可使用
+`npm start -- --no-browser`。
+
+### Windows 托盘应用
+
+可以从 GitHub Release 下载 installer 或 portable 版本。在 Windows 本机构建两个版本：
 
 ```powershell
-.\run.bat
-```
-
-服务启动后会自动打开浏览器：
-
-```text
-http://127.0.0.1:8088
-```
-
-### Windows 托盘版 exe
-
-如果希望双击后只显示系统托盘图标、不显示命令行窗口，可以打包托盘启动器：
-
-```powershell
-python -m pip install -e ".[tray]" pyinstaller
-python -m PyInstaller `
-  --clean `
-  --onefile `
-  --windowed `
-  --name llm-proxy-tray `
-  --add-data "llm_proxy\static;llm_proxy\static" `
-  --collect-submodules pystray `
-  tray_launcher.py
-```
-
-生成的程序在：
-
-```powershell
-.\dist\llm-proxy-tray.exe
+npm ci
+npm run package:electron
 ```
 
 启动后会在系统托盘显示 LLM Proxy 图标。左键点击图标会打开管理界面；右键菜单提供 **Open Admin UI** 和 **Exit**。如果希望启动后立刻打开浏览器，可以运行：
 
 ```powershell
-.\dist\llm-proxy-tray.exe --open-on-start
+.\release\LLM Proxy-0.1.0-x64-portable.exe --open-on-start
 ```
+
+portable 版本会把 `llm-proxy.json`、代理配置和日志保存在原始 EXE 所在目录，不再写入
+Electron 的临时解压目录。installer 版本使用 Electron 的用户持久化目录；也可以通过
+`LLM_PROXY_DATA_DIR` 指定其他持久化位置。
 
 项目也包含 GitHub Actions 自动打包和发布流程：
 
-- 普通 push 和 pull request 会构建 `llm-proxy-tray.exe`，并作为 workflow artifact 保存。
-- 推送 `v*` tag 会自动创建或更新 GitHub Release，并上传 `llm-proxy-tray.exe` 和 `llm-proxy-tray.exe.sha256`。
+- 普通 push 和 pull request 会构建 Windows installer、portable 程序、CLI ZIP 和
+  `SHA256SUMS.txt`，并作为 workflow artifact 保存。
+- 推送 `v*` tag 会自动创建或更新 GitHub Release，并上传这些产物。
 
 发布一个版本：
 
@@ -131,9 +116,21 @@ git push origin v0.1.0
 http://127.0.0.1:1234
 ```
 
+最小客户端示例见 [Node.js OpenAI SDK Responses 示例](examples/responses_client.mjs)。
+
 ## Web 控制台
 
-管理界面默认运行在 `http://127.0.0.1:8088`。如需修改管理界面的监听地址，可使用 `--host` 和 `--port`。
+管理界面默认运行在 `http://127.0.0.1:18080`，监听地址保存在 `llm-proxy.json` 中；
+也可以用 `--host` 和 `--port` 临时覆盖：
+
+```json
+{
+  "admin": {
+    "host": "127.0.0.1",
+    "port": 18080
+  }
+}
+```
 
 ### 监听转发
 
@@ -149,7 +146,7 @@ http://127.0.0.1:1234
 - 启用状态。默认转发地址始终可用；非默认地址可以关闭。
 - 上游目标 URL。
 - API Key；如果设置，会添加或替换转发请求中的 `Authorization: Bearer ...`。
-- 模型映射，每行一个。格式为 `监听模型 => 转发模型`；如果省略 `=> 转发模型`，则保持同名转发。
+- 模型映射，每行一个。格式为 `监听模型 => 转发模型`；监听模型支持 `*` 通配符（匹配任意长度字符串）。如果省略 `=> 转发模型`，则保持请求中的原模型名转发。
 - 超时时间。
 - 日志目录，默认 `logs`。
 - 上游 headers，每行一个 `Name: value`。
@@ -170,12 +167,12 @@ http://127.0.0.1:1234
 模型映射示例：
 
 ```text
-A-gpt-5.5 => gpt-5.5
+*gpt-5.5* => gpt-5.5
 qwen-local => qwen3
 fallback-model
 ```
 
-最后一行表示监听并转发同名模型 `fallback-model`。
+第一行可匹配 `hyper-gpt-5.5`、`hyper-gpt-5.5-test` 等模型名。匹配区分大小写，并按配置顺序使用第一个命中的映射。最后一行表示监听并转发同名模型 `fallback-model`。
 
 ### 支持的请求形态
 
@@ -207,7 +204,7 @@ fallback-model
 ### 查看本地模型服务请求
 
 1. 启动本地上游服务，例如运行在 `http://127.0.0.1:1235` 的 `llama.cpp` server。
-2. 运行 `python -m llm_proxy`。
+2. 执行 `npm run build` 后运行 `npm start`。
 3. 在 UI 中启用一个从 `127.0.0.1:1234` 到 `http://127.0.0.1:1235` 的代理地址对。
 4. 将客户端 base URL 设置为 `http://127.0.0.1:1234`。
 5. 打开 **历史日志** 查看捕获到的交互。
@@ -270,6 +267,19 @@ SSE 响应会按上游到达的行逐行转发给客户端。非 SSE 响应仍�
 
 历史日志页面可以将任务日志导出为 `llm-proxy-logs.zip`。ZIP 会从 SQLite 按需生成，包含便于阅读的 Markdown 以及 `request.json`、`response.json` 文件。在日志列表中选择一个或多个任务组后，可以从数据库中清理这些任务及其对应的请求记录。
 
+## 数据备份、迁移和回滚
+
+首次启动 Node/Electron 版本前，先停止所有旧写入进程，并备份 `proxies.json` 和完整日志根目录。
+如果存在 `traffic.db-wal` 和 `traffic.db-shm`，必须与 `traffic.db` 一起保存。建议预留至少当前数据库
+大小 2.4 倍的可用空间。
+
+- [迁移演练结果](docs/migration-rehearsal-report.md)
+- [用户备份和回滚步骤](docs/migration-rollback.md)
+- [Node 和 Electron 故障排查](docs/troubleshooting.md)
+
+迁移后，从已构建的 checkout 执行 `npm run validate:migration -- <log-root>`，并将 JSON 数量和抽样
+结果与发布记录一起保存。
+
 ## 安全说明
 
 LLM Proxy 面向本地开发和流量检查。除非你已经加了自己的网络访问控制，否则管理界面应保持绑定在 `127.0.0.1`。
@@ -285,7 +295,8 @@ LLM Proxy 面向本地开发和流量检查。除非你已经加了自己的网�
 常用启动参数和环境变量：
 
 - `--host` / `LLM_PROXY_UI_HOST`，默认 `127.0.0.1`
-- `--port` / `LLM_PROXY_UI_PORT`，默认 `8088`
+- `--port` / `LLM_PROXY_UI_PORT`，默认 `18080`
+- `--application-config` / `LLM_PROXY_APPLICATION_CONFIG_FILE`，默认 `llm-proxy.json`
 - `--config-file` / `LLM_PROXY_CONFIG_FILE`，默认 `logs/proxies.json`
 - `--log-root` / `LLM_PROXY_LOG_ROOT`，默认 `logs`
 - `--no-browser` / `LLM_PROXY_NO_BROWSER=1`
@@ -295,65 +306,57 @@ LLM Proxy 面向本地开发和流量检查。除非你已经加了自己的网�
 ## 工程结构
 
 ```text
-llm_proxy/
-  __main__.py       # python -m llm_proxy 入口
-  admin_server.py   # 管理端 HTTP API 和 UI 服务生命周期
-  cli.py            # Web 控制台启动器
-  tray.py           # Windows / 桌面系统托盘启动器
-  ui.py             # 内置 Web 控制台 HTML/CSS/JS
-  file_io.py        # 小文件原子写入
-  log_db.py         # SQLite schema 和连接初始化
-  log_repository.py # SQLite 日志读写、链接和清理基础
-  log_maintenance.py # 基于 SQLite 的日志 ZIP 导出和清理策略
-  log_store.py      # 历史日志读取和搜索
-  manager.py        # 多代理管理和配置持久化
-  models.py         # 共享的配置和日志记录类型结构
-  server.py         # HTTP 代理服务和 handler
-  logger.py         # SQLite 流量日志写入
-  records.py        # 请求/响应分析和任务指纹
-  streams.py        # SSE 流式响应摘要
-  task_matcher.py   # 基于 SQLite 的任务归类规则
-  sanitize.py       # request 字段移除/注入
-  target.py         # 上游 URL 解析和路径拼接
-  payloads.py       # body 编码、解析和渲染辅助
-  redaction.py      # 可选保存日志脱敏
-  static/
-    index.html      # 管理界面前端
-tests/
-  test_admin_ui.py
-  test_file_io.py
-  test_log_db.py
-  test_log_repository.py
-  test_redaction.py
-  test_sanitize_manager.py
-  test_server.py
-  test_sqlite_logger.py
-  test_streams.py
-  test_target.py
-  test_task_matcher.py
+src/
+  main.ts           # Node CLI 入口
+  app/              # 应用组装和关闭生命周期
+  cli/              # 参数、浏览器启动、信号和输出
+  admin/            # Fastify 管理 API 和静态 Web 控制台
+  config/           # schema、规范化、默认值和原子文件 repository
+  proxy/            # 监听、路由、上游转发和 SSE
+  logging/          # 任务归并和持久化流量写入
+  persistence/      # SQLite schema、迁移、备份和 repositories
+  maintenance/      # 历史查询、ZIP 导出和清理
+electron/           # 无窗口托盘应用入口和控制器
+test-node/          # Vitest 单元、集成、浏览器 E2E 和视觉测试
+scripts/            # 构建、smoke、迁移、checksum 和 benchmark 工具
+fixtures/parity/    # 确定性的配置和数据库 fixtures
 .github/workflows/
-  ci.yml
-  release.yml        # Windows exe 打包和 GitHub Release 发布
+  ci.yml             # Linux 和 Windows Node 检查
+  release.yml        # Electron 产物和 v-tag GitHub Release
 doc/
   ui_proxy_cn.png
   ui_logs_cn.png
-run.bat             # Windows UI 启动脚本
-tray_launcher.py    # PyInstaller 托盘版入口
-pyproject.toml
+electron-builder.yml
+package.json
+package-lock.json
 ```
 
 ## 测试
 
 ```powershell
-python -m unittest discover -s tests
+npm ci
+npm run check
 ```
 
 开发检查：
 
 ```powershell
-python -m pip install -e ".[dev]"
-python -m ruff check .
-python -m mypy
-python -m compileall -q llm_proxy tests
-python -m unittest discover -s tests
+npm run format:check
+npm run lint
+npm run typecheck
+npm test
+npm run build
 ```
+
+开发和打包命令：
+
+```powershell
+npm run dev                 # 监听文件并重启 Node CLI
+npm run package:electron    # Windows installer 和 portable 程序
+npm run package:cli         # 编译后的 CLI ZIP
+npm run smoke:artifact      # Windows 打包产物启动检查
+npm run checksums           # release/SHA256SUMS.txt
+```
+
+轻量 CLI ZIP 不包含 Node.js 和 `node_modules`。在已安装 Node.js 24 的机器上解压后，先执行一次
+`npm ci --omit=dev`，之后使用 `npm start`。

@@ -1,0 +1,109 @@
+{
+  "pairs": [
+    {
+      "id": "proxy-main",
+      "name": "Primary multi-target proxy",
+      "enabled": false,
+      "listen_host": "127.0.0.1",
+      "listen_port": 1234,
+      "access_log": true,
+      "default_target_id": "target-default",
+      "targets": [
+        {
+          "id": "target-routed",
+          "name": "Routed provider",
+          "enabled": true,
+          "target_url": "https://provider.example/api/v1",
+          "target_api_key": "sk-fixture-routed-not-a-secret",
+          "target_headers": [
+            "X-Fixture-Header: routed",
+            "X-Shared: routed-wins"
+          ],
+          "strip_request_fields": "temperature,top_p,seed",
+          "inject_request_fields": "{\"metadata\":{\"source\":\"parity-fixture\"},\"stream\":true}",
+          "timeout": 45.5,
+          "log_root": "fixtures/runtime-logs/routed",
+          "redact_logs": true,
+          "model_mappings": [
+            {
+              "listen": "fixture-gpt",
+              "upstream": "gpt-upstream"
+            },
+            {
+              "listen": "fixture-same-name",
+              "upstream": "fixture-same-name"
+            }
+          ]
+        },
+        {
+          "id": "target-disabled",
+          "name": "Disabled local provider",
+          "enabled": false,
+          "target_url": "http://127.0.0.1:1235/v1",
+          "target_api_key": "",
+          "target_headers": [],
+          "strip_request_fields": "",
+          "inject_request_fields": "",
+          "timeout": 600,
+          "log_root": "fixtures/runtime-logs/disabled",
+          "redact_logs": false,
+          "model_mappings": [
+            {
+              "listen": "fixture-disabled",
+              "upstream": "disabled-upstream"
+            }
+          ]
+        },
+        {
+          "id": "target-default",
+          "name": "Default Claude gateway",
+          "enabled": true,
+          "target_url": "https://claude.example/v1",
+          "target_api_key": "Bearer fixture-claude-not-a-secret",
+          "target_headers": [
+            "anthropic-version: 2023-06-01"
+          ],
+          "strip_request_fields": "",
+          "inject_request_fields": "{\"metadata\":{\"environment\":\"test\"}}",
+          "timeout": 120,
+          "log_root": "fixtures/runtime-logs/default",
+          "redact_logs": false,
+          "model_mappings": []
+        }
+      ]
+    },
+    {
+      "id": "proxy-no-log",
+      "name": "Logging disabled proxy",
+      "enabled": false,
+      "listen_host": "0.0.0.0",
+      "listen_port": 2234,
+      "access_log": false,
+      "default_target_id": "target-no-log",
+      "targets": [
+        {
+          "id": "target-no-log",
+          "name": "No log target",
+          "enabled": true,
+          "target_url": "http://localhost:1236",
+          "target_api_key": "",
+          "target_headers": [
+            "X-Multi-Value: first",
+            "X-Multi-Value: second"
+          ],
+          "strip_request_fields": "frequency_penalty",
+          "inject_request_fields": "{}",
+          "timeout": 10,
+          "log_root": "",
+          "redact_logs": false,
+          "model_mappings": [
+            {
+              "listen": "fixture-local",
+              "upstream": "fixture-local"
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}

@@ -5,30 +5,64 @@ on:
   pull_request:
 
 jobs:
-  test:
+  windows-packaged-database-smoke:
+    name: Windows packaged database smoke
     runs-on: windows-latest
-    strategy:
-      matrix:
-        python-version: ["3.10", "3.12"]
 
     steps:
       - uses: actions/checkout@v4
 
-      - uses: actions/setup-python@v5
+      - uses: actions/setup-node@v4
         with:
-          python-version: ${{ matrix.python-version }}
+          cache: npm
+          cache-dependency-path: package-lock.json
+          node-version-file: .node-version
 
-      - name: Install package and dev tools
-        run: python -m pip install -e ".[dev]"
+      - name: Install and compile application
+        run: |
+          npm ci
+          npm run build
 
-      - name: Ruff
-        run: python -m ruff check .
+      - name: Reduce install to packaged production dependencies
+        run: npm prune --omit=dev
 
-      - name: Mypy
-        run: python -m mypy
+      - name: Verify packaged SQLite native module and FTS5
+        run: npm run smoke:database
 
-      - name: Compile
-        run: python -m compileall -q llm_proxy tests tray_launcher.py
+  node-test:
+    name: Node 24 (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      matrix:
+        os: [ubuntu-latest, windows-latest]
 
-      - name: Unit tests
-        run: python -m pytest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          cache: npm
+          cache-dependency-path: package-lock.json
+          node-version-file: .node-version
+
+      - name: Show Node version
+        run: node --version
+
+      - name: Install Node dependencies
+        run: npm ci
+
+      - name: Typecheck, lint, test, and build
+        run: npm run check
+
+      - name: Generate Node coverage report
+        run: npm run test:coverage
+
+      - name: Upload Node test reports
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: node-test-reports-${{ matrix.os }}
+          path: |
+            coverage/
+            test-results/vitest-junit.xml
+          if-no-files-found: error

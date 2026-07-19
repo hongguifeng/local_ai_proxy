@@ -16,7 +16,7 @@ One UI can manage multiple local proxy listeners. Each listener can either behav
 
 ```mermaid
 flowchart LR
-  UI["Web Console<br/>http://127.0.0.1:8088"] --> P1["Proxy A<br/>listen 127.0.0.1:1234"]
+  UI["Web Console<br/>http://127.0.0.1:18080"] --> P1["Proxy A<br/>listen 127.0.0.1:1234"]
   UI --> P2["Proxy B<br/>listen 127.0.0.1:2234"]
   P1 --> A1["Provider A<br/>https://provider-a.example/v1"]
   P2 --> B1["Local model server<br/>http://127.0.0.1:1235"]
@@ -59,53 +59,39 @@ Each upstream target keeps its own timeout, log directory, upstream headers, and
 Start the web console:
 
 ```powershell
-python -m llm_proxy
+npm ci
+npm run build
+npm start
 ```
 
-Or on Windows, run:
+Node.js 24 is required. The browser opens automatically at `http://127.0.0.1:18080`; use
+`npm start -- --no-browser` for a headless launch.
+
+### Windows Tray application
+
+Download either the installer or portable executable from a GitHub Release. To build both locally on
+Windows:
 
 ```powershell
-.\run.bat
-```
-
-The browser opens automatically at:
-
-```text
-http://127.0.0.1:8088
-```
-
-### Windows Tray exe
-
-To build a double-clickable tray app with no console window:
-
-```powershell
-python -m pip install -e ".[tray]" pyinstaller
-python -m PyInstaller `
-  --clean `
-  --onefile `
-  --windowed `
-  --name llm-proxy-tray `
-  --add-data "llm_proxy\static;llm_proxy\static" `
-  --collect-submodules pystray `
-  tray_launcher.py
-```
-
-The executable is created at:
-
-```powershell
-.\dist\llm-proxy-tray.exe
+npm ci
+npm run package:electron
 ```
 
 After launch, LLM Proxy appears as a system tray icon. Left-click the icon to open the admin UI, or right-click for **Open Admin UI** and **Exit**. To open the browser immediately on startup, run:
 
 ```powershell
-.\dist\llm-proxy-tray.exe --open-on-start
+.\release\LLM Proxy-0.1.0-x64-portable.exe --open-on-start
 ```
+
+The portable build stores `llm-proxy.json`, proxy configuration, and logs beside the original EXE,
+not in Electron's temporary extraction directory. The installed build uses Electron's persistent
+per-user data directory. Set `LLM_PROXY_DATA_DIR` to choose another persistent location.
 
 The project also includes GitHub Actions automation for packaging and releases:
 
-- Regular pushes and pull requests build `llm-proxy-tray.exe` and keep it as a workflow artifact.
-- Pushing a `v*` tag creates or updates a GitHub Release with `llm-proxy-tray.exe` and `llm-proxy-tray.exe.sha256`.
+- Regular pushes and pull requests build the Windows installer, portable executable, CLI ZIP, and
+  `SHA256SUMS.txt` as workflow artifacts.
+- Pushing a `v*` tag creates or updates a GitHub Release with those artifacts.
 
 Publish a release:
 
@@ -131,9 +117,21 @@ For the default proxy pair, client requests should go to:
 http://127.0.0.1:1234
 ```
 
+See [the Node.js OpenAI SDK Responses example](examples/responses_client.mjs) for a minimal client.
+
 ## Web Console
 
-The UI is served at `http://127.0.0.1:8088` by default. Use `--host` and `--port` if you need a different admin address.
+The UI is served at `http://127.0.0.1:18080` by default. Its address is configured in
+`llm-proxy.json` and can still be overridden with `--host` and `--port`:
+
+```json
+{
+  "admin": {
+    "host": "127.0.0.1",
+    "port": 18080
+  }
+}
+```
 
 ### Proxy Management
 
@@ -149,7 +147,7 @@ Each upstream target includes:
 - Enabled state. The default target is always available as fallback; non-default targets can be disabled.
 - Upstream target URL.
 - API Key. If set, it adds or replaces `Authorization: Bearer ...` on forwarded requests.
-- Model mappings, one per line. Use `local-model => upstream-model`; omit `=> upstream-model` to keep the same model name.
+- Model mappings, one per line. Use `local-model => upstream-model`; the listened model supports `*` as a wildcard matching any number of characters. Omit `=> upstream-model` to preserve the requested model name.
 - Timeout.
 - Log directory, default `logs`.
 - Upstream headers, one `Name: value` entry per line.
@@ -170,12 +168,12 @@ If no enabled non-default target matches, the request goes to the configured def
 Example target mappings:
 
 ```text
-A-gpt-5.5 => gpt-5.5
+*gpt-5.5* => gpt-5.5
 qwen-local => qwen3
 fallback-model
 ```
 
-In the last line, `fallback-model` is forwarded with the same model name.
+The first line matches model names such as `hyper-gpt-5.5` and `hyper-gpt-5.5-test`. Matching is case-sensitive, and the first matching mapping wins in configuration order. In the last line, `fallback-model` is forwarded with the same model name.
 
 ### Supported Request Shapes
 
@@ -207,7 +205,7 @@ Traffic history is stored in `traffic.db` under each configured log root. The da
 ### Inspect A Local Model Server
 
 1. Start your local upstream server, for example `llama.cpp`, on `http://127.0.0.1:1235`.
-2. Start LLM Proxy with `python -m llm_proxy`.
+2. Start LLM Proxy with `npm start` after `npm run build`.
 3. In the UI, enable a proxy pair from `127.0.0.1:1234` to `http://127.0.0.1:1235`.
 4. Configure your client base URL as `http://127.0.0.1:1234`.
 5. Open **History** to inspect the captured interaction.
@@ -270,6 +268,19 @@ SSE responses are forwarded to the client line by line as they arrive from the u
 
 The History tab can export task logs as `llm-proxy-logs.zip`. The ZIP is generated from SQLite on demand and contains human-readable Markdown plus `request.json` and `response.json` files. Select one or more task groups in the log list, then use cleanup to delete those tasks and their request records from the database.
 
+## Backup, Migration, and Rollback
+
+Before the first Node/Electron launch, stop all existing writers and back up `proxies.json` plus the
+entire log root. Keep `traffic.db`, `traffic.db-wal`, and `traffic.db-shm` together when present. Plan
+for free space of at least 2.4 times the current database size.
+
+- [Migration rehearsal results](docs/migration-rehearsal-report.md)
+- [Operator backup and rollback procedure](docs/migration-rollback.md)
+- [Node and Electron troubleshooting](docs/troubleshooting.md)
+
+After migration, run `npm run validate:migration -- <log-root>` from a built checkout and retain the
+JSON count/sample report with the release record.
+
 ## Security Notes
 
 LLM Proxy is designed for local development and traffic inspection. Keep the admin UI bound to `127.0.0.1` unless you have added your own network controls.
@@ -285,7 +296,8 @@ LLM Proxy is designed for local development and traffic inspection. Keep the adm
 Common launcher options and environment variables:
 
 - `--host` / `LLM_PROXY_UI_HOST`, default `127.0.0.1`
-- `--port` / `LLM_PROXY_UI_PORT`, default `8088`
+- `--port` / `LLM_PROXY_UI_PORT`, default `18080`
+- `--application-config` / `LLM_PROXY_APPLICATION_CONFIG_FILE`, default `llm-proxy.json`
 - `--config-file` / `LLM_PROXY_CONFIG_FILE`, default `logs/proxies.json`
 - `--log-root` / `LLM_PROXY_LOG_ROOT`, default `logs`
 - `--no-browser` / `LLM_PROXY_NO_BROWSER=1`
@@ -295,65 +307,57 @@ Proxy listen addresses, upstream targets, API keys, headers, model mappings, tim
 ## Project Structure
 
 ```text
-llm_proxy/
-  __main__.py       # python -m llm_proxy entry point
-  admin_server.py   # admin HTTP API and UI server lifecycle
-  cli.py            # web console launcher
-  tray.py           # Windows / desktop system tray launcher
-  ui.py             # built-in web console HTML/CSS/JS
-  file_io.py        # atomic small-file writes
-  log_db.py         # SQLite schema and connection setup
-  log_repository.py # SQLite log reads, writes, links, and cleanup primitives
-  log_maintenance.py # SQLite-backed log ZIP export and cleanup policies
-  log_store.py      # history log loading and search
-  manager.py        # multi-proxy management and config persistence
-  models.py         # shared typed configuration and record shapes
-  server.py         # HTTP proxy server and handler
-  logger.py         # SQLite traffic log writer
-  records.py        # request/response analysis and task fingerprints
-  streams.py        # SSE stream summaries
-  task_matcher.py   # SQLite-backed task grouping rules
-  sanitize.py       # request field stripping/injection
-  target.py         # upstream URL parsing and path joining
-  payloads.py       # body encoding, parsing, and rendering helpers
-  redaction.py      # optional stored-log redaction
-  static/
-    index.html      # admin UI frontend
-tests/
-  test_admin_ui.py
-  test_file_io.py
-  test_log_db.py
-  test_log_repository.py
-  test_redaction.py
-  test_sanitize_manager.py
-  test_server.py
-  test_sqlite_logger.py
-  test_streams.py
-  test_target.py
-  test_task_matcher.py
+src/
+  main.ts           # Node CLI entry point
+  app/              # application assembly and shutdown lifecycle
+  cli/              # options, browser launch, signals, and output
+  admin/            # Fastify admin API and static web console
+  config/           # schema, normalization, defaults, and atomic repository
+  proxy/            # listeners, routing, upstream forwarding, and SSE
+  logging/          # task matching and durable traffic writes
+  persistence/      # SQLite schema, migrations, backup, and repositories
+  maintenance/      # history query, ZIP export, and cleanup
+electron/           # headless tray application entry and controllers
+test-node/          # Vitest unit, integration, browser E2E, and visual tests
+scripts/            # build, smoke, migration, checksum, and benchmark tools
+fixtures/parity/    # deterministic config and database fixtures
 .github/workflows/
-  ci.yml
-  release.yml        # Windows exe packaging and GitHub Release publishing
+  ci.yml             # Node checks on Linux and Windows
+  release.yml        # Electron artifacts and v-tag GitHub Releases
 doc/
   ui_proxy_en.png
   ui_logs_en.png
-run.bat             # Windows UI launcher
-tray_launcher.py    # PyInstaller tray entry point
-pyproject.toml
+electron-builder.yml
+package.json
+package-lock.json
 ```
 
 ## Tests
 
 ```powershell
-python -m unittest discover -s tests
+npm ci
+npm run check
 ```
 
 Development checks:
 
 ```powershell
-python -m pip install -e ".[dev]"
-python -m ruff check .
-python -m mypy
-python -m compileall -q llm_proxy tests
-python -m unittest discover -s tests
+npm run format:check
+npm run lint
+npm run typecheck
+npm test
+npm run build
 ```
+
+Development and packaging commands:
+
+```powershell
+npm run dev                 # watch and restart the Node CLI
+npm run package:electron    # Windows installer and portable app
+npm run package:cli         # compiled CLI ZIP
+npm run smoke:artifact      # Windows packaged startup smoke test
+npm run checksums           # release/SHA256SUMS.txt
+```
+
+The lightweight CLI ZIP does not bundle Node.js or `node_modules`. After extracting it on a machine
+with Node.js 24, run `npm ci --omit=dev` once and then use `npm start`.

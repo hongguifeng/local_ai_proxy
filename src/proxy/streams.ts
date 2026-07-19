@@ -1,0 +1,667 @@
+import { isRecord } from "../shared/index.js";
+
+export const MAX_SUMMARY_TEXT_CHARS = 2_000;
+export const MAX_SUMMARY_LIST_ITEMS = 20;
+export const MAX_SUMMARY_DEPTH = 5;
+
+export interface ParsedSseEvents {
+  readonly events: readonly unknown[];
+  readonly doneSeen: boolean;
+}
+
+export interface StreamSummary {
+  readonly stream_summary: Record<string, unknown>;
+}
+
+export class StreamAccumulator {
+  readonly #contentParts: string[] = [];
+  readonly #reasoningParts: string[] = [];
+  readonly #responseToolCalls = new Map<string, Record<string, unknown>>();
+  readonly #responseWebSearchCalls = new Map<string, Record<string, unknown>>();
+  readonly #toolCalls: unknown[] = [];
+  readonly #claudeToolCalls = new Map<number, Record<string, unknown>>();
+  readonly #otherPayloads: unknown[] = [];
+  readonly #finishReasons: string[] = [];
+  #doneSeen: boolean;
+  #eventCount: number;
+  #responsePayload: Record<string, unknown> | undefined;
+  #usage: unknown;
+
+  constructor(eventCount: number, doneSeen: boolean) {
+    this.#eventCount = eventCount;
+    this.#doneSeen = doneSeen;
+  }
+
+  addEvent(event: unknown): void {
+    if (!isRecord(event)) {
+      this.#otherPayloads.push(event);
+      return;
+    }
+    const eventType = event["type"];
+    if (typeof eventType === "string" && eventType.startsWith("response.")) {
+      this.#addResponseEvent(eventType, event);
+      return;
+    }
+    if (
+      typeof eventType === "string" &&
+      [
+        "message_start",
+        "content_block_start",
+        "content_block_delta",
+        "content_block_stop",
+        "message_delta",
+        "message_stop",
+        "ping",
+        "error",
+      ].includes(eventType)
+    ) {
+      this.#addClaudeEvent(eventType, event);
+      return;
+    }
+    this.#addChatEvent(event);
+  }
+
+  addParsedEvent(event: unknown): void {
+    this.#eventCount += 1;
+    this.addEvent(event);
+  }
+
+  markDone(): void {
+    this.#doneSeen = true;
+  }
+
+  summary(): StreamSummary {
+    const streamSummary: Record<string, unknown> = {
+      event_count: this.#eventCount,
+      done_seen: this.#doneSeen,
+    };
+    if (this.#reasoningParts.length > 0) {
+      streamSummary["reasoning"] = this.#reasoningParts.join("");
+    }
+    if (this.#contentParts.length > 0) {
+      streamSummary["content"] = this.#contentParts.join("");
+    }
+    if (this.#responseToolCalls.size > 0) {
+      streamSummary["response_tool_calls"] = [...this.#responseToolCalls.entries()]
+        .sort(([left], [right]) => left.localeCompare(right))
+        .map(([, toolCall]) => compactArguments(toolCall));
+    }
+    if (this.#responseWebSearchCalls.size > 0) {
+      streamSummary["web_search_calls"] = [...this.#responseWebSearchCalls.entries()]
+        .sort(([left], [right]) => left.localeCompare(right))
+        .map(([, call]) => call);
+    }
+    if (this.#toolCalls.length > 0) {
+      streamSummary["tool_calls"] = compactToolCalls(this.#toolCalls);
+    }
+    if (this.#claudeToolCalls.size > 0) {
+      streamSummary["claude_tool_calls"] = [...this.#claudeToolCalls.entries()]
+        .sort(([left], [right]) => left - right)
+        .map(([, toolCall]) => compactClaudeToolCall(toolCall));
+    }
+    if (this.#finishReasons.length > 0) {
+      streamSummary["finish_reasons"] = [...this.#finishReasons];
+    }
+    if (this.#usage) {
+      streamSummary["usage"] = this.#usage;
+    }
+    if (this.#responsePayload !== undefined && Object.keys(this.#responsePayload).length > 0) {
+      streamSummary["response"] = this.#responsePayload;
+    }
+    if (this.#otherPayloads.length > 0) {
+      streamSummary["other_payloads"] = [...this.#otherPayloads];
+    }
+    return { stream_summary: streamSummary };
+  }
+
+  #addResponseEvent(eventType: string, event: Readonly<Record<string, unknown>>): void {
+    if (eventType === "response.output_text.delta") {
+      appendString(this.#contentParts, event["delta"]);
+    } else if (eventType === "response.output_text.done" && this.#contentParts.length === 0) {
+      appendString(this.#contentParts, event["text"]);
+    } else if (
+      eventType === "response.reasoning_text.delta" ||
+      eventType === "response.reasoning_summary_text.delta"
+    ) {
+      appendString(this.#reasoningParts, event["delta"]);
+    } else if (
+      (eventType === "response.reasoning_text.done" ||
+        eventType === "response.reasoning_summary_text.done") &&
+      this.#reasoningParts.length === 0
+    ) {
+      appendString(this.#reasoningParts, event["text"]);
+    } else if (eventType === "response.function_call_arguments.delta") {
+      const toolCall = this.#responseToolCall(event, true);
+      const delta = event["delta"];
+      if (typeof delta === "string") {
+        toolCall["arguments"] = `${stringValue(toolCall["arguments"])}${delta}`;
+      }
+    } else if (eventType === "response.function_call_arguments.done") {
+      const toolCall = this.#responseToolCall(event, false);
+      if (typeof event["arguments"] === "string") {
+        toolCall["arguments"] = event["arguments"];
+      }
+    } else if (eventType === "response.created") {
+      const response = event["response"];
+      if (isRecord(response) && this.#responsePayload === undefined) {
+        this.#responsePayload = compactResponsePayload(response);
+        this.#addResponseWebSearchItems(eventType, response);
+      }
+    } else if (eventType === "response.completed" || eventType === "response.incomplete") {
+      const response = event["response"];
+      if (isRecord(response)) {
+        this.#responsePayload = {
+          ...(this.#responsePayload ?? {}),
+          ...compactResponsePayload(response),
+        };
+        if (response["usage"]) {
+          this.#usage = response["usage"];
+        }
+        if (response["status"]) {
+          this.#finishReasons.push(stringValue(response["status"]));
+        }
+        this.#addResponseWebSearchItems(eventType, response);
+      }
+    } else if (this.#isResponseWebSearchEvent(eventType, event)) {
+      this.#addResponseWebSearchCall(eventType, event);
+    }
+  }
+
+  #addResponseWebSearchItems(eventType: string, response: Readonly<Record<string, unknown>>): void {
+    const output = response["output"];
+    if (!Array.isArray(output)) {
+      return;
+    }
+    for (const [outputIndex, item] of (output as unknown[]).entries()) {
+      if (isRecord(item) && item["type"] === "web_search_call") {
+        this.#addResponseWebSearchCall(eventType, { output_index: outputIndex, item });
+      }
+    }
+  }
+
+  #isResponseWebSearchEvent(eventType: string, event: Readonly<Record<string, unknown>>): boolean {
+    if (eventType.startsWith("response.web_search_call.")) {
+      return true;
+    }
+    const item = event["item"];
+    return isRecord(item) && item["type"] === "web_search_call";
+  }
+
+  #addResponseWebSearchCall(eventType: string, event: Readonly<Record<string, unknown>>): void {
+    const item = isRecord(event["item"]) ? event["item"] : undefined;
+    const itemId = item?.["id"];
+    const fallbackKey = firstPresent([event["item_id"], event["call_id"], event["output_index"]]);
+    const key = stringValue(
+      firstTruthy([itemId]) ?? fallbackKey ?? this.#responseWebSearchCalls.size,
+    );
+    let call = this.#responseWebSearchCalls.get(key);
+    if (call === undefined) {
+      call = { type: "web_search_call" };
+      this.#responseWebSearchCalls.set(key, call);
+    }
+    if (itemId) {
+      call["id"] = compactSummaryValue(itemId);
+      if (call["item_id"] === undefined) {
+        call["item_id"] = compactSummaryValue(itemId);
+      }
+    }
+    if (item !== undefined) {
+      if (isRecord(item["action"])) {
+        call["action"] = compactSummaryValue(item["action"]);
+      }
+      if (item["error"]) {
+        call["error"] = compactSummaryValue(item["error"]);
+      }
+    }
+    for (const fieldName of ["item_id", "call_id", "output_index"] as const) {
+      if (event[fieldName] !== null && event[fieldName] !== undefined) {
+        call[fieldName] = compactSummaryValue(event[fieldName]);
+      }
+    }
+    if (isRecord(event["action"])) {
+      call["action"] = compactSummaryValue(event["action"]);
+    }
+    if (event["error"]) {
+      call["error"] = compactSummaryValue(event["error"]);
+    }
+    const status = responseWebSearchStatus(eventType, event, item);
+    if (status !== undefined) {
+      call["status"] = status;
+    }
+  }
+
+  #responseToolCall(
+    event: Readonly<Record<string, unknown>>,
+    initializeArguments: boolean,
+  ): Record<string, unknown> {
+    const key = stringValue(
+      firstTruthy([event["item_id"], event["call_id"], event["output_index"]]) ?? "0",
+    );
+    let toolCall = this.#responseToolCalls.get(key);
+    if (toolCall === undefined) {
+      toolCall = initializeArguments ? { arguments: "" } : {};
+      this.#responseToolCalls.set(key, toolCall);
+    }
+    for (const idKey of ["item_id", "call_id", "output_index"] as const) {
+      if (event[idKey] !== null && event[idKey] !== undefined) {
+        toolCall[idKey] = event[idKey];
+      }
+    }
+    return toolCall;
+  }
+
+  #addChatEvent(event: Readonly<Record<string, unknown>>): void {
+    if (event["usage"]) {
+      this.#usage = event["usage"];
+    }
+    const choices = event["choices"];
+    if (!Array.isArray(choices)) {
+      this.#otherPayloads.push(event);
+      return;
+    }
+    for (const choice of choices as unknown[]) {
+      if (!isRecord(choice)) {
+        continue;
+      }
+      if (choice["finish_reason"]) {
+        this.#finishReasons.push(stringValue(choice["finish_reason"]));
+      }
+      for (const payload of [choice["delta"], choice["message"], choice]) {
+        if (!isRecord(payload)) {
+          continue;
+        }
+        for (const key of ["reasoning_content", "reasoning", "reasoning_text"] as const) {
+          appendString(this.#reasoningParts, payload[key]);
+        }
+        appendString(this.#contentParts, payload["content"]);
+        appendString(this.#contentParts, payload["text"]);
+        if (payload["tool_calls"]) {
+          this.#toolCalls.push(payload["tool_calls"]);
+        }
+      }
+    }
+  }
+
+  #addClaudeEvent(eventType: string, event: Readonly<Record<string, unknown>>): void {
+    if (eventType === "message_start") {
+      const message = event["message"];
+      if (isRecord(message)) {
+        this.#responsePayload = compactClaudeMessage(message);
+        if (message["usage"]) {
+          this.#usage = message["usage"];
+        }
+      }
+    } else if (eventType === "content_block_start") {
+      const rawIndex = event["index"];
+      const index = typeof rawIndex === "number" && Number.isInteger(rawIndex) ? rawIndex : 0;
+      const block = event["content_block"];
+      if (!isRecord(block)) {
+        return;
+      }
+      if (block["type"] === "text") {
+        appendString(this.#contentParts, block["text"]);
+      } else if (block["type"] === "thinking") {
+        appendString(this.#reasoningParts, block["thinking"]);
+      } else if (block["type"] === "tool_use") {
+        const toolCall = this.#claudeToolCall(index);
+        for (const key of ["id", "name", "type"] as const) {
+          if (block[key] !== null && block[key] !== undefined) {
+            toolCall[key] = block[key];
+          }
+        }
+        if (block["input"] !== null && block["input"] !== undefined) {
+          toolCall["input"] = block["input"];
+        }
+      }
+    } else if (eventType === "content_block_delta") {
+      const rawIndex = event["index"];
+      const index = typeof rawIndex === "number" && Number.isInteger(rawIndex) ? rawIndex : 0;
+      const delta = event["delta"];
+      if (!isRecord(delta)) {
+        return;
+      }
+      if (delta["type"] === "text_delta") {
+        appendString(this.#contentParts, delta["text"]);
+      } else if (delta["type"] === "thinking_delta") {
+        appendString(this.#reasoningParts, delta["thinking"]);
+      } else if (
+        delta["type"] === "input_json_delta" &&
+        typeof delta["partial_json"] === "string"
+      ) {
+        const toolCall = this.#claudeToolCall(index);
+        toolCall["input_json"] = stringValue(toolCall["input_json"]) + delta["partial_json"];
+      }
+    } else if (eventType === "message_delta") {
+      const delta = event["delta"];
+      if (isRecord(delta) && delta["stop_reason"]) {
+        this.#finishReasons.push(stringValue(delta["stop_reason"]));
+      }
+      const usage = event["usage"];
+      if (usage) {
+        this.#usage =
+          isRecord(this.#usage) && isRecord(usage) ? { ...this.#usage, ...usage } : usage;
+      }
+    } else if (eventType === "error") {
+      this.#otherPayloads.push(event);
+    }
+  }
+
+  #claudeToolCall(index: number): Record<string, unknown> {
+    let toolCall = this.#claudeToolCalls.get(index);
+    if (toolCall === undefined) {
+      toolCall = { index, type: "tool_use" };
+      this.#claudeToolCalls.set(index, toolCall);
+    }
+    return toolCall;
+  }
+}
+
+export class IncrementalSseAccumulator {
+  readonly #accumulator = new StreamAccumulator(0, false);
+  readonly #decoder = new TextDecoder("utf-8");
+  #buffer = "";
+  #finalized = false;
+  #hasEvents = false;
+  #invalid = false;
+
+  addChunk(chunk: Uint8Array | string): void {
+    if (this.#finalized) {
+      throw new Error("Cannot add an SSE chunk after finalize().");
+    }
+    const text = typeof chunk === "string" ? chunk : this.#decoder.decode(chunk, { stream: true });
+    this.#buffer += text;
+    this.#processCompleteLines();
+  }
+
+  finalize(): StreamSummary | undefined {
+    if (this.#finalized) {
+      throw new Error("SSE accumulator has already been finalized.");
+    }
+    this.#finalized = true;
+    this.#buffer += this.#decoder.decode();
+    if (this.#buffer !== "") {
+      this.#processLine(this.#buffer);
+      this.#buffer = "";
+    }
+    return this.#invalid || !this.#hasEvents ? undefined : this.#accumulator.summary();
+  }
+
+  #processCompleteLines(): void {
+    let newlineIndex = this.#buffer.indexOf("\n");
+    while (newlineIndex >= 0) {
+      this.#processLine(this.#buffer.slice(0, newlineIndex));
+      this.#buffer = this.#buffer.slice(newlineIndex + 1);
+      newlineIndex = this.#buffer.indexOf("\n");
+    }
+  }
+
+  #processLine(rawLine: string): void {
+    if (this.#invalid) {
+      return;
+    }
+    const line = rawLine.trim();
+    if (!line.startsWith("data:")) {
+      return;
+    }
+    const data = line.slice(5).trim();
+    if (data === "") {
+      return;
+    }
+    if (data === "[DONE]") {
+      this.#accumulator.markDone();
+      return;
+    }
+    try {
+      this.#accumulator.addParsedEvent(JSON.parse(data) as unknown);
+      this.#hasEvents = true;
+    } catch {
+      this.#invalid = true;
+    }
+  }
+}
+
+export function parseSseEvents(text: string): ParsedSseEvents | undefined {
+  const events: unknown[] = [];
+  let doneSeen = false;
+  for (const rawLine of text.split(/\r?\n/u)) {
+    const line = rawLine.trim();
+    if (!line.startsWith("data:")) {
+      continue;
+    }
+    const data = line.slice(5).trim();
+    if (data === "") {
+      continue;
+    }
+    if (data === "[DONE]") {
+      doneSeen = true;
+      continue;
+    }
+    try {
+      events.push(JSON.parse(data) as unknown);
+    } catch {
+      return undefined;
+    }
+  }
+  return events.length === 0 ? undefined : { events, doneSeen };
+}
+
+export function compactSseValue(text: string): StreamSummary | undefined {
+  const accumulator = new IncrementalSseAccumulator();
+  accumulator.addChunk(text);
+  return accumulator.finalize();
+}
+
+export function compactSseJson(text: string): string | undefined {
+  const compacted = compactSseValue(text);
+  return compacted === undefined ? undefined : JSON.stringify(compacted, null, 2);
+}
+
+export function compactSummaryValue(value: unknown, depth = 0): unknown {
+  if (typeof value === "string") {
+    const characters = Array.from(value);
+    if (characters.length <= MAX_SUMMARY_TEXT_CHARS) {
+      return value;
+    }
+    const omitted = characters.length - MAX_SUMMARY_TEXT_CHARS;
+    return `${characters.slice(0, MAX_SUMMARY_TEXT_CHARS).join("")}... [truncated ${omitted} chars]`;
+  }
+  if (isRecord(value)) {
+    if (depth >= MAX_SUMMARY_DEPTH) {
+      return {
+        _truncated: "max_depth",
+        keys: Object.keys(value).sort(compareUnicodeCodePoints),
+      };
+    }
+    return Object.fromEntries(
+      Object.entries(value).map(([key, item]) => [key, compactSummaryValue(item, depth + 1)]),
+    );
+  }
+  if (Array.isArray(value)) {
+    const items = value
+      .slice(0, MAX_SUMMARY_LIST_ITEMS)
+      .map((item) => compactSummaryValue(item, depth + 1));
+    if (value.length > MAX_SUMMARY_LIST_ITEMS) {
+      items.push({ _truncated_items: value.length - MAX_SUMMARY_LIST_ITEMS });
+    }
+    return items;
+  }
+  return value;
+}
+
+function appendString(parts: string[], value: unknown): void {
+  if (typeof value === "string" && value !== "") {
+    parts.push(value);
+  }
+}
+
+function compactArguments(toolCall: Readonly<Record<string, unknown>>): Record<string, unknown> {
+  const compacted = { ...toolCall };
+  if (typeof compacted["arguments"] === "string") {
+    try {
+      compacted["arguments_json"] = JSON.parse(compacted["arguments"]) as unknown;
+    } catch {
+      // Keep the original argument string when it is incomplete or not JSON.
+    }
+  }
+  return compacted;
+}
+
+function compactToolCalls(toolCalls: readonly unknown[]): unknown[] {
+  const merged = new Map<number, Record<string, unknown>>();
+  const passthrough: unknown[] = [];
+  const merge = (toolCall: unknown): void => {
+    if (!isRecord(toolCall)) {
+      passthrough.push(toolCall);
+      return;
+    }
+    const rawIndex = toolCall["index"];
+    const index = typeof rawIndex === "number" && Number.isInteger(rawIndex) ? rawIndex : 0;
+    let current = merged.get(index);
+    if (current === undefined) {
+      current = { index };
+      merged.set(index, current);
+    }
+    for (const key of ["id", "type"] as const) {
+      if (toolCall[key]) {
+        current[key] = toolCall[key];
+      }
+    }
+    const functionDelta = toolCall["function"];
+    if (isRecord(functionDelta)) {
+      const currentFunction = isRecord(current["function"]) ? current["function"] : {};
+      current["function"] = currentFunction;
+      if (functionDelta["name"]) {
+        currentFunction["name"] = functionDelta["name"];
+      }
+      if (typeof functionDelta["arguments"] === "string") {
+        currentFunction["arguments"] =
+          stringValue(currentFunction["arguments"]) + functionDelta["arguments"];
+      }
+    }
+  };
+
+  for (const item of toolCalls) {
+    if (Array.isArray(item)) {
+      for (const toolCall of item as unknown[]) {
+        merge(toolCall);
+      }
+    } else {
+      merge(item);
+    }
+  }
+  return [
+    ...[...merged.entries()]
+      .sort(([left], [right]) => left - right)
+      .map(([, toolCall]) => {
+        const compacted = structuredClone(toolCall);
+        const fn = compacted["function"];
+        if (isRecord(fn) && typeof fn["arguments"] === "string") {
+          try {
+            fn["arguments_json"] = JSON.parse(fn["arguments"]) as unknown;
+          } catch {
+            // Preserve incomplete argument text.
+          }
+        }
+        return compacted;
+      }),
+    ...passthrough,
+  ];
+}
+
+function compactClaudeToolCall(
+  toolCall: Readonly<Record<string, unknown>>,
+): Record<string, unknown> {
+  const compacted: Record<string, unknown> = structuredClone({ ...toolCall });
+  const inputJson = compacted["input_json"];
+  Reflect.deleteProperty(compacted, "input_json");
+  if (typeof inputJson === "string" && inputJson !== "") {
+    try {
+      compacted["input"] = JSON.parse(inputJson) as unknown;
+    } catch {
+      compacted["input_json"] = inputJson;
+    }
+  }
+  return compacted;
+}
+
+function compactClaudeMessage(message: Readonly<Record<string, unknown>>): Record<string, unknown> {
+  const compacted: Record<string, unknown> = {};
+  for (const key of ["id", "type", "role", "model", "stop_reason", "stop_sequence"] as const) {
+    if (Object.hasOwn(message, key)) {
+      compacted[key] = message[key];
+    }
+  }
+  if (message["usage"]) {
+    compacted["usage"] = message["usage"];
+  }
+  return compacted;
+}
+
+function compactResponsePayload(
+  response: Readonly<Record<string, unknown>>,
+): Record<string, unknown> {
+  const compacted: Record<string, unknown> = {};
+  for (const key of [
+    "id",
+    "object",
+    "created_at",
+    "status",
+    "model",
+    "parallel_tool_calls",
+    "previous_response_id",
+  ] as const) {
+    if (Object.hasOwn(response, key)) {
+      compacted[key] = response[key];
+    }
+  }
+  for (const key of ["error", "incomplete_details"] as const) {
+    if (response[key]) {
+      compacted[key] = response[key];
+    }
+  }
+  return compacted;
+}
+
+function stringValue(value: unknown): string {
+  return typeof value === "string" || typeof value === "number" || typeof value === "boolean"
+    ? String(value)
+    : "";
+}
+
+function firstTruthy(values: readonly unknown[]): unknown {
+  return values.find((value) => Boolean(value));
+}
+
+function firstPresent(values: readonly unknown[]): unknown {
+  return values.find((value) => value !== null && value !== undefined && value !== "");
+}
+
+function responseWebSearchStatus(
+  eventType: string,
+  event: Readonly<Record<string, unknown>>,
+  item: Readonly<Record<string, unknown>> | undefined,
+): string | undefined {
+  if (typeof event["status"] === "string" && event["status"] !== "") {
+    return event["status"];
+  }
+  if (typeof item?.["status"] === "string" && item["status"] !== "") {
+    return item["status"];
+  }
+  return eventType.startsWith("response.web_search_call.")
+    ? eventType.slice(eventType.lastIndexOf(".") + 1)
+    : undefined;
+}
+
+function compareUnicodeCodePoints(left: string, right: string): number {
+  const leftCodePoints = Array.from(left);
+  const rightCodePoints = Array.from(right);
+  const length = Math.min(leftCodePoints.length, rightCodePoints.length);
+  for (let index = 0; index < length; index += 1) {
+    const difference =
+      (leftCodePoints[index]?.codePointAt(0) ?? 0) - (rightCodePoints[index]?.codePointAt(0) ?? 0);
+    if (difference !== 0) {
+      return difference;
+    }
+  }
+  return leftCodePoints.length - rightCodePoints.length;
+}
