@@ -22,8 +22,8 @@ afterEach(async () => {
 });
 
 describe("TaskAssignment", () => {
-  it("keeps task matching on strategy version 5", () => {
-    expect(TASK_MATCH_STRATEGY_VERSION).toBe(5);
+  it("keeps task matching on strategy version 6", () => {
+    expect(TASK_MATCH_STRATEGY_VERSION).toBe(6);
   });
 
   it("carries the complete result needed to persist a matched request", () => {
@@ -215,7 +215,7 @@ describe("TaskAssignment", () => {
     repository.close();
   });
 
-  it("generates and matches conversation, thread, session, and prompt-cache context keys", async () => {
+  it("generates and matches conversation, thread, session, Claude session, and prompt-cache context keys", async () => {
     const root = await mkdtemp(path.join(os.tmpdir(), "llm-proxy-task-context-link-"));
     temporaryDirectories.push(root);
     const repository = new TrafficRepository(root);
@@ -233,6 +233,20 @@ describe("TaskAssignment", () => {
       }),
       prompt_cache_key: "record-cache",
       client_metadata: { thread_id: "thread-1", session_id: "session-1" },
+      request: {
+        ...trafficRecord("unused", false, {}).request,
+        path: "/v1/responses",
+        body: {
+          size_bytes: 0,
+          text: JSON.stringify({
+            model: "gpt-5",
+            conversation: { id: "conversation-1" },
+            prompt_cache_key: "payload-cache",
+            input: "start",
+          }),
+        },
+        headers: { "X-Claude-Code-Session-Id": ["claude-session-1"] },
+      },
     };
     const first = matcher.assign(firstRecord);
     if (first === undefined) {
@@ -244,17 +258,95 @@ describe("TaskAssignment", () => {
       "prompt_cache:record-cache",
       "client_thread:thread-1",
       "client_session:session-1",
+      "claude_session:claude-session-1",
     ]);
     persistAssignment(repository, first, "context-request-1");
 
-    const followup = matcher.assign(
-      trafficRecord("context-request-2", false, {
-        model: "gpt-5",
-        conversation_id: "conversation-1",
-        input: "continue",
-      }),
-    );
+    const followupRecord = trafficRecord("context-request-2", false, {
+      model: "gpt-5",
+      input: "continue",
+    });
+    const followup = matcher.assign({
+      ...followupRecord,
+      request: {
+        ...followupRecord.request,
+        headers: { "x-claude-code-session-id": "claude-session-1" },
+      },
+    });
     expect(followup).toMatchObject({ task: { id: "context-task-1" }, sequence: 2 });
+    repository.close();
+  });
+
+  it("matches Claude continuations when ephemeral cache controls disappear", async () => {
+    const root = await mkdtemp(path.join(os.tmpdir(), "llm-proxy-task-claude-cache-"));
+    temporaryDirectories.push(root);
+    const repository = new TrafficRepository(root);
+    let taskNumber = 0;
+    const matcher = new TaskMatcher(repository, {
+      createId: () => `claude-cache-task-${++taskNumber}`,
+      now: () => "2026-07-18T10:00:00.000+08:00",
+    });
+    const cachedResult = {
+      role: "user",
+      content: [
+        {
+          type: "tool_result",
+          tool_use_id: "tool-1",
+          content: "result",
+          cache_control: { type: "ephemeral" },
+        },
+      ],
+    };
+    const first = matcher.assign(
+      trafficRecord(
+        "claude-cache-request-1",
+        false,
+        {
+          model: "claude-local",
+          system: [{ type: "text", text: "system", cache_control: { type: "ephemeral" } }],
+          messages: [
+            {
+              role: "user",
+              content: [{ type: "text", text: "start", cache_control: { type: "ephemeral" } }],
+            },
+            { role: "assistant", content: "working" },
+            cachedResult,
+          ],
+        },
+        "/v1/messages?beta=true",
+      ),
+    );
+    if (first === undefined) {
+      throw new Error("Claude cache-control baseline request was not assigned.");
+    }
+    persistAssignment(repository, first, "claude-cache-request-1");
+
+    const followup = matcher.assign(
+      trafficRecord(
+        "claude-cache-request-2",
+        false,
+        {
+          model: "claude-local",
+          system: [{ type: "text", text: "system" }],
+          messages: [
+            { role: "user", content: [{ type: "text", text: "start" }] },
+            { role: "assistant", content: "working" },
+            {
+              role: "user",
+              content: [{ type: "tool_result", tool_use_id: "tool-1", content: "result" }],
+            },
+            { role: "assistant", content: "done" },
+            { role: "user", content: "continue" },
+          ],
+        },
+        "/v1/messages?beta=true",
+      ),
+    );
+
+    expect(followup).toMatchObject({
+      task: { id: "claude-cache-task-1", request_count: 2, match_confidence: 0.95 },
+      sequence: 2,
+    });
     repository.close();
   });
 
@@ -528,7 +620,7 @@ describe("TaskAssignment", () => {
       throw new Error("Task update baseline request was not assigned.");
     }
     expect(first.task).toMatchObject({
-      match_strategy_version: 5,
+      match_strategy_version: 6,
       request_count: 1,
       last_seen_at: "2026-07-18T10:01:00.000+08:00",
       last_response_at: "2026-07-18T10:01:00.000+08:00",

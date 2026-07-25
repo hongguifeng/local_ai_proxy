@@ -33,7 +33,7 @@ export interface TaskMatcherOptions {
   readonly now?: () => string;
 }
 
-export const TASK_MATCH_STRATEGY_VERSION = 5;
+export const TASK_MATCH_STRATEGY_VERSION = 6;
 
 const MODEL_TASK_KINDS = new Set<EndpointKind>(["responses", "chat", "messages", "completions"]);
 const TASK_MATCH_WINDOW_MS = 24 * 60 * 60 * 1_000;
@@ -272,6 +272,10 @@ export class TaskMatcher {
     addKey("prompt_cache", record["prompt_cache_key"]);
     addKey("client_thread", nestedValue(record, "client_metadata", "thread_id"));
     addKey("client_session", nestedValue(record, "client_metadata", "session_id"));
+    addKey(
+      "claude_session",
+      headerValue(nestedValue(record, "request", "headers"), "x-claude-code-session-id"),
+    );
     return keys;
   }
 
@@ -435,6 +439,17 @@ function firstString(...values: readonly unknown[]): string | undefined {
     }
   }
   return undefined;
+}
+
+function headerValue(headers: unknown, requestedName: string): unknown {
+  if (!isRecord(headers)) {
+    return undefined;
+  }
+  const entry = Object.entries(headers).find(
+    ([name]) => name.toLowerCase() === requestedName.toLowerCase(),
+  );
+  const value = entry?.[1];
+  return Array.isArray(value) ? value[0] : value;
 }
 
 function timestampMilliseconds(value: unknown): number | undefined {

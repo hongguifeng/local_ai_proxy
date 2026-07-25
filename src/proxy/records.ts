@@ -11,6 +11,8 @@ export function stableHash(value: unknown, length = 12): string {
     .slice(0, length);
 }
 
+const CLAUDE_TRANSIENT_TASK_FIELDS = new Set(["cache_control"]);
+
 export function endpointKind(path: string): EndpointKind {
   const lowered = path.toLowerCase().split("?", 1)[0]?.replace(/\/+$/, "") ?? "";
   if (lowered === "/responses" || lowered.endsWith("/responses")) {
@@ -170,7 +172,7 @@ export function requestFingerprints(kind: EndpointKind, payload: unknown): Recor
       fingerprints["first_user"] = stableHash(firstUser);
     }
     if (isPythonTruthy(payload["tools"])) {
-      fingerprints["tools"] = stableHash(payload["tools"]);
+      fingerprints["tools"] = stableHash(claudeTaskValue(payload["tools"]));
     }
   } else if (kind === "completions" && isPythonTruthy(payload["prompt"])) {
     fingerprints["prompt"] = stableHash(payload["prompt"]);
@@ -308,13 +310,13 @@ function responsesFirstUserMessage(payload: Readonly<Record<string, unknown>>): 
 
 function claudeSystemMessages(payload: Readonly<Record<string, unknown>>): unknown[] {
   const system = payload["system"];
-  return isPythonTruthy(system) ? [{ role: "system", content: messageText(system) }] : [];
+  return isPythonTruthy(system) ? [{ role: "system", content: claudeTaskValue(system) }] : [];
 }
 
 function claudeMessageSummary(message: Readonly<Record<string, unknown>>): Record<string, unknown> {
   const summary: Record<string, unknown> = {
     role: message["role"] ?? null,
-    content: messageText(message["content"]),
+    content: claudeTaskValue(message["content"]),
   };
   for (const key of ["name", "tool_use_id"] as const) {
     if (message[key] !== null && message[key] !== undefined) {
@@ -345,10 +347,25 @@ function claudeFirstUserMessage(payload: Readonly<Record<string, unknown>>): unk
   }
   for (const message of messages as unknown[]) {
     if (isRecord(message) && message["role"] === "user" && !isTaskContextMessage(message)) {
-      return messageText(message["content"]);
+      return claudeTaskValue(message["content"]);
     }
   }
   return undefined;
+}
+
+function claudeTaskValue(value: unknown): unknown {
+  if (Array.isArray(value)) {
+    return value.map((item) => claudeTaskValue(item));
+  }
+  if (isRecord(value)) {
+    return Object.fromEntries(
+      Object.keys(value)
+        .filter((key) => !CLAUDE_TRANSIENT_TASK_FIELDS.has(key))
+        .sort()
+        .map((key) => [key, claudeTaskValue(value[key])]),
+    );
+  }
+  return value === undefined ? null : value;
 }
 
 function messageText(value: unknown): unknown {
