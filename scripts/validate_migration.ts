@@ -12,12 +12,15 @@ export interface MigrationValidation {
 export function validateMigrationDatabase(logRoot: string): MigrationValidation {
   const database = new Database(path.join(logRoot, "traffic.db"), { readonly: true });
   try {
+    const compactSchema = tableExists(database, "record_search_map");
+    const searchTable = compactSchema ? "record_search_map" : "record_search";
     const counts = Object.fromEntries(
-      ["tasks", "records", "response_links", "context_links", "record_search"].map((table) => [
+      ["tasks", "records", "response_links", "context_links"].map((table) => [
         table,
         count(database, `SELECT COUNT(*) AS count FROM ${table}`),
       ]),
     );
+    counts["record_search"] = count(database, `SELECT COUNT(*) AS count FROM ${searchTable}`);
     const orphanCounts = {
       records: count(
         database,
@@ -33,7 +36,9 @@ export function validateMigrationDatabase(logRoot: string): MigrationValidation 
       ),
       record_search: count(
         database,
-        "SELECT COUNT(*) AS count FROM record_search s LEFT JOIN records r ON r.id = s.record_id WHERE r.id IS NULL",
+        compactSchema
+          ? "SELECT COUNT(*) AS count FROM record_search_map s LEFT JOIN records r ON r.id = s.record_id WHERE r.id IS NULL"
+          : "SELECT COUNT(*) AS count FROM record_search s LEFT JOIN records r ON r.id = s.record_id WHERE r.id IS NULL",
       ),
     };
     const sampleTask = database
@@ -46,6 +51,13 @@ export function validateMigrationDatabase(logRoot: string): MigrationValidation 
   } finally {
     database.close();
   }
+}
+
+function tableExists(database: Database.Database, name: string): boolean {
+  return (
+    database.prepare("SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = ?").get(name) !==
+    undefined
+  );
 }
 
 function count(database: Database.Database, sql: string): number {

@@ -281,6 +281,18 @@ for free space of at least 2.4 times the current database size.
 After migration, run `npm run validate:migration -- <log-root>` from a built checkout and retain the
 JSON count/sample report with the release record.
 
+Schema v3 stores request and response bodies as deduplicated 64 KiB chunks compressed with fast
+raw DEFLATE. To compact an existing database without modifying the source log root, run:
+
+```text
+npm run compact:traffic -- <source-log-root> <empty-destination-log-root>
+```
+
+The command creates an online SQLite backup, migrates only the copy, verifies a SHA-256 digest of
+every body plus task/record counts, runs integrity and foreign-key checks, and vacuums the result.
+Stop the proxy before replacing the active database, and keep the original database until the
+compacted copy has been opened and inspected successfully.
+
 ## Security Notes
 
 LLM Proxy is designed for local development and traffic inspection. Keep the admin UI bound to `127.0.0.1` unless you have added your own network controls.

@@ -15,7 +15,16 @@ export {
   type WalCheckpointResult,
 } from "./database.js";
 export { SCHEMA_V1_MIGRATION, SCHEMA_V1_VERSION } from "./schema-v1.js";
-export { SCHEMA_V2_MIGRATION, SCHEMA_VERSION } from "./schema-v2.js";
+export { SCHEMA_V2_MIGRATION, SCHEMA_V2_VERSION } from "./schema-v2.js";
+export { SCHEMA_V3_MIGRATION, SCHEMA_V3_VERSION, SCHEMA_VERSION } from "./schema-v3.js";
+export {
+  BODY_CHUNK_BYTES,
+  BODY_CHUNK_CODEC,
+  RECORD_BODY_KINDS,
+  loadRecordBody,
+  replaceRecordBody,
+  type RecordBodyKind,
+} from "./body-storage.js";
 export {
   TrafficRepository,
   decodeRecordRow,

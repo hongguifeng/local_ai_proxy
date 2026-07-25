@@ -151,7 +151,7 @@ describe("connectLogDatabase", () => {
       .prepare("SELECT name, type FROM sqlite_master WHERE name NOT LIKE 'sqlite_%'")
       .all() as { name: string; type: string }[];
     const names = new Set(objects.map(({ name }) => name));
-    expect(readSchemaVersion(database)).toBe(2);
+    expect(readSchemaVersion(database)).toBe(3);
     expect([...names]).toEqual(
       expect.arrayContaining([
         "schema_meta",
@@ -159,7 +159,10 @@ describe("connectLogDatabase", () => {
         "records",
         "response_links",
         "context_links",
-        "record_search",
+        "body_chunks",
+        "record_body_chunks",
+        "record_search_map",
+        "record_search_fts",
         "idx_tasks_sort",
         "idx_records_task_sequence",
       ]),
@@ -177,14 +180,32 @@ describe("connectLogDatabase", () => {
     const database = connectLogDatabase(root);
 
     expect(() => verifyFts5(database)).not.toThrow();
+    database.exec(`
+      INSERT INTO tasks(
+        id, kind, started_at, last_seen_at, match_strategy_version, created_at, updated_at
+      ) VALUES ('task-1', 'request', '2026-07-18', '2026-07-18', 4, '2026-07-18', '2026-07-18');
+      INSERT INTO records(
+        id, task_id, sequence, event, timestamp, started_at, method, path, endpoint,
+        created_at, updated_at
+      ) VALUES (
+        'record-1', 'task-1', 1, 'request_finished', '2026-07-18', '2026-07-18',
+        'POST', '/v1/responses', '/v1/responses', '2026-07-18', '2026-07-18'
+      );
+      INSERT INTO record_search_map(search_rowid, record_id, task_id)
+      VALUES (1, 'record-1', 'task-1');
+    `);
     database
       .prepare(
-        "INSERT INTO record_search(record_id, task_id, task_text, request_text, response_text, error_text) VALUES (?, ?, ?, ?, ?, ?)",
+        "INSERT INTO record_search_fts(rowid, task_text, request_text, response_text, error_text) VALUES (?, ?, ?, ?, ?)",
       )
-      .run("record-1", "task-1", "fixture task", "hello searchable world", "", "");
+      .run(1, "fixture task", "hello searchable world", "", "");
     expect(
       database
-        .prepare("SELECT record_id FROM record_search WHERE record_search MATCH ?")
+        .prepare(
+          `SELECT record_id FROM record_search_map
+           JOIN record_search_fts ON record_search_fts.rowid = record_search_map.search_rowid
+           WHERE record_search_fts MATCH ?`,
+        )
         .pluck()
         .all("searchable"),
     ).toEqual(["record-1"]);
@@ -211,7 +232,7 @@ describe("database backup", () => {
     expect(backup.prepare("SELECT value FROM backup_fixture").pluck().get()).toBe(
       "persisted through WAL",
     );
-    expect(readSchemaVersion(backup)).toBe(2);
+    expect(readSchemaVersion(backup)).toBe(3);
     backup.close();
   });
 

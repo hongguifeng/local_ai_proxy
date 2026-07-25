@@ -1,6 +1,6 @@
 # ADR-008：首个 Node 版本保留 LIKE 搜索语义
 
-- 状态：已接受
+- 状态：已被 [ADR-009](./009-chunked-body-storage.md) 取代
 - 日期：2026-07-18
 - 决策范围：History 搜索、SQLite query 和 FTS5
 

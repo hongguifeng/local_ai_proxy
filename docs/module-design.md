@@ -496,9 +496,14 @@ erDiagram
 
 将 `prefix:value` 上下文 key 唯一映射到 task。
 
-#### `record_search`
+#### `body_chunks` / `record_body_chunks`
 
-FTS5 虚表，存储 record/task/request/response/error 的反规范化搜索文本。
+请求、原始请求和响应正文按 64 KiB 切块，以 SHA-256 寻址、raw DEFLATE 压缩并跨记录去重；引用表
+保留块顺序，删除记录时通过引用计数回收不再使用的块。
+
+#### `record_search_fts` / `record_search_map`
+
+contentless FTS5 虚表只保存倒排索引，映射表保存 record/task 关系，不再复制完整搜索正文。
 
 ## 6. 当前并发与资源管理
 

@@ -1,6 +1,7 @@
 import type Database from "better-sqlite3";
 
 import { formatLocalTimestamp, localNowIso } from "../shared/index.js";
+import { loadRecordBody, replaceRecordBody } from "./body-storage.js";
 import { connectLogDatabase } from "./database.js";
 
 export type RepositoryRecord = Record<string, unknown>;
@@ -133,18 +134,17 @@ export class TrafficRepository {
             request_count, pending_request_only, match_confidence, match_strategy_version,
             fingerprints_json, boundary_fingerprints_json, last_user_messages_json, created_at, updated_at
           )) LIKE ? ESCAPE '\\'
-          OR tasks.id IN (
-            SELECT record_search.task_id FROM record_search
-            WHERE lower(
-                COALESCE(record_search.record_id, '') || ' ' || COALESCE(record_search.task_id, '') || ' ' ||
-                COALESCE(record_search.task_text, '') || ' ' || COALESCE(record_search.request_text, '') || ' ' ||
-                COALESCE(record_search.response_text, '') || ' ' || COALESCE(record_search.error_text, '')
-              ) LIKE ? ESCAPE '\\'
+          OR EXISTS (
+            SELECT 1
+            FROM record_search_map
+            JOIN record_search_fts ON record_search_fts.rowid = record_search_map.search_rowid
+            WHERE record_search_map.task_id = tasks.id
+              AND record_search_fts MATCH ?
           )
         )`,
     );
     const whereSql = clauses.length === 0 ? "" : `WHERE ${clauses.join(" AND ")}`;
-    const parameters = terms.flatMap((term) => [likePattern(term), likePattern(term)]);
+    const parameters = terms.flatMap((term) => [likePattern(term), ftsQuery(term)]);
     const total = this.#database
       .prepare(`SELECT COUNT(*) AS count FROM tasks ${whereSql}`)
       .pluck()
@@ -222,9 +222,10 @@ export class TrafficRepository {
       created_at: stringValue(record["created_at"]) || now,
       updated_at: stringValue(record["updated_at"]) || now,
     };
-    this.#database
-      .prepare(
-        `
+    const save = this.#database.transaction(() => {
+      this.#database
+        .prepare(
+          `
       INSERT INTO records(
         id, task_id, sequence, event, timestamp, started_at, duration_ms,
         proxy_id, proxy_name, client_host, client_port, target_id, target_name, target_url,
@@ -237,8 +238,8 @@ export class TrafficRepository {
         @id, @task_id, @sequence, @event, @timestamp, @started_at, @duration_ms,
         @proxy_id, @proxy_name, @client_host, @client_port, @target_id, @target_name, @target_url,
         @method, @path, @endpoint, @status, @error, @message_count, @token_count,
-        @request_headers_json, @response_headers_json, @request_body_json,
-        @original_request_body_json, @response_body_json,
+        @request_headers_json, @response_headers_json, NULL,
+        NULL, NULL,
         @model_route_json, @stripped_fields_json, @injected_fields_json, @added_upstream_headers_json,
         @created_at, @updated_at
       ) ON CONFLICT(id) DO UPDATE SET
@@ -252,17 +253,27 @@ export class TrafficRepository {
         message_count=excluded.message_count, token_count=excluded.token_count,
         request_headers_json=excluded.request_headers_json,
         response_headers_json=excluded.response_headers_json,
-        request_body_json=excluded.request_body_json,
-        original_request_body_json=excluded.original_request_body_json,
-        response_body_json=excluded.response_body_json,
+        request_body_json=NULL,
+        original_request_body_json=NULL,
+        response_body_json=NULL,
         model_route_json=excluded.model_route_json, stripped_fields_json=excluded.stripped_fields_json,
         injected_fields_json=excluded.injected_fields_json,
         added_upstream_headers_json=excluded.added_upstream_headers_json,
         updated_at=excluded.updated_at
     `,
-      )
-      .run(values);
-    this.#syncRecordSearch(values);
+        )
+        .run(values);
+      replaceRecordBody(this.#database, values.id, "request", values.request_body_json);
+      replaceRecordBody(
+        this.#database,
+        values.id,
+        "original_request",
+        values.original_request_body_json,
+      );
+      replaceRecordBody(this.#database, values.id, "response", values.response_body_json);
+      this.#syncRecordSearch(values);
+    });
+    save();
     const loaded = this.getRecord(values.id);
     if (loaded === undefined) {
       throw new Error(`Record ${values.id} was not saved.`);
@@ -272,7 +283,7 @@ export class TrafficRepository {
 
   getRecord(recordId: string): RepositoryRecord | undefined {
     const row = this.#database.prepare("SELECT * FROM records WHERE id = ?").get(recordId);
-    return row === undefined ? undefined : decodeRecordRow(row as RepositoryRecord);
+    return row === undefined ? undefined : this.#decodeRecordRow(row as RepositoryRecord);
   }
 
   taskIdForRecord(recordId: string): string | undefined {
@@ -309,18 +320,16 @@ export class TrafficRepository {
     const boundedOffset = Math.max(0, integerValue(offset, 0));
     const terms = searchTerms(query);
     const clauses = terms.map(
-      () => `lower(_search_text(
-              id, task_id, sequence, event, timestamp, started_at, duration_ms,
-              proxy_id, proxy_name, client_host, client_port, target_id, target_name, target_url,
-              method, path, endpoint, status, error, message_count, token_count,
-              request_headers_json, response_headers_json, request_body_json,
-              original_request_body_json, response_body_json,
-              model_route_json, stripped_fields_json, injected_fields_json, added_upstream_headers_json,
-              created_at, updated_at
-            )) LIKE ? ESCAPE '\\'`,
+      () => `EXISTS (
+        SELECT 1
+        FROM record_search_map
+        JOIN record_search_fts ON record_search_fts.rowid = record_search_map.search_rowid
+        WHERE record_search_map.record_id = records.id
+          AND record_search_fts MATCH ?
+      )`,
     );
     const querySql = clauses.length === 0 ? "" : `AND ${clauses.join(" AND ")}`;
-    const parameters = [taskId, ...terms.map((term) => likePattern(term))];
+    const parameters = [taskId, ...terms.map((term) => ftsQuery(term))];
     const total = this.#database
       .prepare(`SELECT COUNT(*) FROM records WHERE task_id = ? ${querySql}`)
       .pluck()
@@ -335,7 +344,7 @@ export class TrafficRepository {
       `,
       )
       .all(...parameters, boundedLimit, boundedOffset) as RepositoryRecord[];
-    const items = rows.map((row) => decodeRecordRow(row));
+    const items = rows.map((row) => this.#decodeRecordRow(row));
     const nextOffset = boundedOffset + items.length;
     return {
       items,
@@ -400,9 +409,12 @@ export class TrafficRepository {
     }
     const placeholders = selected.map(() => "?").join(",");
     const remove = this.#database.transaction(() => {
-      this.#database
-        .prepare(`DELETE FROM record_search WHERE task_id IN (${placeholders})`)
-        .run(...selected);
+      const rowids = this.#database
+        .prepare(`SELECT search_rowid FROM record_search_map WHERE task_id IN (${placeholders})`)
+        .pluck()
+        .all(...selected) as number[];
+      const deleteSearch = this.#database.prepare("DELETE FROM record_search_fts WHERE rowid = ?");
+      for (const rowid of rowids) deleteSearch.run(rowid);
       return this.#database
         .prepare(`DELETE FROM tasks WHERE id IN (${placeholders})`)
         .run(...selected).changes;
@@ -415,15 +427,40 @@ export class TrafficRepository {
       .prepare("SELECT * FROM tasks WHERE id = ?")
       .get(values["task_id"]) as RepositoryRecord | undefined;
     const document = recordSearchDocument(values, task);
-    this.#database.prepare("DELETE FROM record_search WHERE record_id = ?").run(document.recordId);
+    let searchRowid = this.#database
+      .prepare("SELECT search_rowid FROM record_search_map WHERE record_id = ?")
+      .pluck()
+      .get(document.recordId) as number | undefined;
+    if (searchRowid === undefined) {
+      searchRowid = Number(
+        this.#database
+          .prepare("INSERT INTO record_search_map(record_id, task_id) VALUES (?, ?)")
+          .run(document.recordId, document.taskId).lastInsertRowid,
+      );
+    } else {
+      this.#database.prepare("DELETE FROM record_search_fts WHERE rowid = ?").run(searchRowid);
+      this.#database
+        .prepare("UPDATE record_search_map SET task_id = ? WHERE search_rowid = ?")
+        .run(document.taskId, searchRowid);
+    }
     this.#database
       .prepare(
         `
-        INSERT INTO record_search(record_id, task_id, task_text, request_text, response_text, error_text)
-        VALUES (@recordId, @taskId, @taskText, @requestText, @responseText, @errorText)
+        INSERT INTO record_search_fts(rowid, task_text, request_text, response_text, error_text)
+        VALUES (@searchRowid, @taskText, @requestText, @responseText, @errorText)
       `,
       )
-      .run(document);
+      .run({ ...document, searchRowid });
+  }
+
+  #decodeRecordRow(row: Readonly<RepositoryRecord>): RepositoryRecord {
+    const recordId = stringValue(row["id"]);
+    return decodeRecordRow({
+      ...row,
+      request_body_json: loadRecordBody(this.#database, recordId, "request"),
+      original_request_body_json: loadRecordBody(this.#database, recordId, "original_request"),
+      response_body_json: loadRecordBody(this.#database, recordId, "response"),
+    });
   }
 }
 
@@ -521,6 +558,10 @@ function searchTerms(query: string): string[] {
 
 function likePattern(term: string): string {
   return `%${term.replaceAll("\\", "\\\\").replaceAll("%", "\\%").replaceAll("_", "\\_")}%`;
+}
+
+function ftsQuery(term: string): string {
+  return `"${term.replaceAll('"', '""')}"*`;
 }
 
 export function decodeTaskRow(row: Readonly<RepositoryRecord>): RepositoryRecord {

@@ -6,6 +6,7 @@ import path from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 
 import { formatLocalTimestamp } from "../../src/shared/time.js";
+import { BODY_CHUNK_BYTES } from "../../src/persistence/body-storage.js";
 import { connectLogDatabase } from "../../src/persistence/database.js";
 import {
   TrafficRepository,
@@ -289,6 +290,24 @@ describe("legacy database compatibility", () => {
       "task-responses-fixture",
     );
     repository.close();
+
+    const migrated = connectLogDatabase(root);
+    expect(
+      migrated
+        .prepare(
+          `SELECT COUNT(*) FROM records
+           WHERE request_body_json IS NOT NULL
+              OR original_request_body_json IS NOT NULL
+              OR response_body_json IS NOT NULL`,
+        )
+        .pluck()
+        .get(),
+    ).toBe(0);
+    expect(
+      migrated.prepare("SELECT COUNT(*) FROM record_body_chunks").pluck().get(),
+    ).toBeGreaterThan(0);
+    expect(migrated.prepare("SELECT COUNT(*) FROM record_search_map").pluck().get()).toBe(6);
+    migrated.close();
   });
 
   it("writes rows and links to an existing database fixture", async () => {
@@ -457,6 +476,7 @@ describe("TrafficRepository.deleteTasks", () => {
       task_id: "task-delete",
       method: "POST",
       path: "/v1/responses",
+      request_body: { input: "stored in a compressed chunk" },
     });
     repository.upsertResponseLink("resp-delete", "task-delete");
     repository.upsertContextLink("context-delete", "task-delete");
@@ -472,13 +492,71 @@ describe("TrafficRepository.deleteTasks", () => {
     const inspection = connectLogDatabase(root);
     expect(
       inspection
-        .prepare("SELECT COUNT(*) FROM record_search WHERE task_id = ?")
+        .prepare("SELECT COUNT(*) FROM record_search_map WHERE task_id = ?")
         .pluck()
         .get("task-delete"),
     ).toBe(0);
     expect(inspection.prepare("SELECT COUNT(*) FROM response_links").pluck().get()).toBe(0);
     expect(inspection.prepare("SELECT COUNT(*) FROM context_links").pluck().get()).toBe(0);
+    expect(inspection.prepare("SELECT COUNT(*) FROM record_body_chunks").pluck().get()).toBe(0);
+    expect(inspection.prepare("SELECT COUNT(*) FROM body_chunks").pluck().get()).toBe(0);
     inspection.close();
+  });
+});
+
+describe("chunked record body storage", () => {
+  it("deduplicates, compresses, restores, and garbage-collects exact bodies", async () => {
+    const root = await mkdtemp(path.join(os.tmpdir(), "llm-proxy-body-chunks-"));
+    temporaryDirectories.push(root);
+    const repository = new TrafficRepository(root);
+    repository.upsertTask({ id: "task-chunks", match_strategy_version: 4 });
+    const repeated = "repeated conversation context ".repeat(BODY_CHUNK_BYTES / 8);
+    const requestBody = { model: "fixture-model", input: repeated };
+    for (const [id, sequence] of [
+      ["record-chunk-1", 1],
+      ["record-chunk-2", 2],
+    ] as const) {
+      repository.upsertRecord({
+        id,
+        task_id: "task-chunks",
+        sequence,
+        method: "POST",
+        path: "/v1/responses",
+        request_body: requestBody,
+      });
+    }
+    repository.close();
+
+    const inspection = connectLogDatabase(root);
+    expect(
+      inspection
+        .prepare(
+          "SELECT request_body_json IS NULL AND response_body_json IS NULL FROM records LIMIT 1",
+        )
+        .pluck()
+        .get(),
+    ).toBe(1);
+    const references = inspection
+      .prepare("SELECT COUNT(*) FROM record_body_chunks")
+      .pluck()
+      .get() as number;
+    const chunks = inspection.prepare("SELECT COUNT(*) FROM body_chunks").pluck().get() as number;
+    const sizes = inspection
+      .prepare("SELECT SUM(raw_size) AS raw, SUM(LENGTH(data)) AS compressed FROM body_chunks")
+      .get() as { raw: number; compressed: number };
+    expect(chunks).toBeLessThan(references);
+    expect(sizes.compressed).toBeLessThan(sizes.raw);
+    inspection.close();
+
+    const reopened = new TrafficRepository(root);
+    expect(reopened.getRecord("record-chunk-1")?.["request_body"]).toEqual(requestBody);
+    expect(reopened.getRecord("record-chunk-2")?.["request_body"]).toEqual(requestBody);
+    expect(reopened.deleteTasks(["task-chunks"])).toBe(1);
+    reopened.close();
+
+    const cleaned = connectLogDatabase(root);
+    expect(cleaned.prepare("SELECT COUNT(*) FROM body_chunks").pluck().get()).toBe(0);
+    cleaned.close();
   });
 });
 

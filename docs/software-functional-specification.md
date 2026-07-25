@@ -576,7 +576,7 @@ Node.js 重构不可能保持 Python import 兼容，但应在新的 npm package
 - 配置中的 API Key 明文存储。
 - SQLite schema version 只写版本号，没有迁移框架。
 - 多日志根的分页在应用层合并，日志根很多时效率下降。
-- `record_search` 虽为 FTS5 表，当前查询主要使用 `LIKE`，没有使用 FTS `MATCH`。
+- schema v3 使用 contentless FTS5 `MATCH` 搜索；请求和响应正文存储为 64 KiB 去重压缩块。
 - History task 内请求固定最多读取 200 条，UI 没有 task 内继续分页入口。
 - UI 的导出按钮导出全部任务，而非仅勾选任务。
 - 原始请求体与最终上游请求体没有同时持久化。
