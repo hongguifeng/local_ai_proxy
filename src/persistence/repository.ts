@@ -133,10 +133,9 @@ export class TrafficRepository {
             request_count, pending_request_only, match_confidence, match_strategy_version,
             fingerprints_json, boundary_fingerprints_json, last_user_messages_json, created_at, updated_at
           )) LIKE ? ESCAPE '\\'
-          OR EXISTS (
-            SELECT 1 FROM record_search
-            WHERE record_search.task_id = tasks.id
-              AND lower(
+          OR tasks.id IN (
+            SELECT record_search.task_id FROM record_search
+            WHERE lower(
                 COALESCE(record_search.record_id, '') || ' ' || COALESCE(record_search.task_id, '') || ' ' ||
                 COALESCE(record_search.task_text, '') || ' ' || COALESCE(record_search.request_text, '') || ' ' ||
                 COALESCE(record_search.response_text, '') || ' ' || COALESCE(record_search.error_text, '')

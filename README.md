@@ -191,7 +191,7 @@ For Claude Messages requests, the logger extracts the top-level `system` field a
 The **History** tab lets you review captured traffic without opening log files manually. It supports:
 
 - Automatic refresh.
-- Search by method, path, status, target URL, task id, and record id.
+- Enter keywords and click Search to search by method, path, status, target URL, task id, and record id.
 - Paged loading for large log directories.
 - Task grouping for related Agent workflows.
 - Side-by-side request and response detail panes.

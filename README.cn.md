@@ -190,7 +190,7 @@ fallback-model
 **历史日志** 页面用于查看已经捕获的流量，不需要手动打开日志文件。它支持：
 
 - 自动刷新。
-- 按 method、path、status、target URL、task id、record id 搜索。
+- 输入关键词后点击搜索按钮，按 method、path、status、target URL、task id、record id 搜索。
 - 大日志目录分页加载。
 - 对相关 Agent 工作流进行任务分组。
 - 左右分栏查看 request 和 response 详情。

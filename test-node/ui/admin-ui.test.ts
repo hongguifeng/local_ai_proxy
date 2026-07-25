@@ -454,7 +454,7 @@ describe("admin UI proxy page", { timeout: UI_TEST_TIMEOUT_MS }, () => {
 });
 
 describe("admin UI history page", { timeout: UI_TEST_TIMEOUT_MS }, () => {
-  it("debounces history search input by 180 ms", async () => {
+  it("searches only after the search button is clicked", async () => {
     await loadAdminPage();
     await Promise.all([
       page.waitForResponse((response) => response.url().includes("/api/logs?")),
@@ -462,13 +462,29 @@ describe("admin UI history page", { timeout: UI_TEST_TIMEOUT_MS }, () => {
     ]);
     logQueries.splice(0);
 
-    const response = page.waitForResponse((candidate) => candidate.url().includes("q=needle"));
-    const startedAt = Date.now();
     await page.locator("#logSearch").fill("needle");
+    await page.waitForTimeout(250);
+    expect(logQueries).toEqual([]);
+
+    await Promise.all([
+      page.waitForResponse((candidate) => candidate.url().includes("/api/logs?q=")),
+      page.locator("#refreshLogs").click(),
+    ]);
+    expect(logQueries).toEqual([""]);
+
+    logQueries.splice(0);
+    const response = page.waitForResponse((candidate) => candidate.url().includes("q=needle"));
+    await page.locator("#searchLogs").click();
     await response;
-    expect(Date.now() - startedAt).toBeGreaterThanOrEqual(150);
     expect(logQueries).toEqual(["needle"]);
+    await expectPage(page.locator("#autoRefreshLogs")).toBeDisabled();
     await expectPage(page.locator(".log-group-title")).toHaveText("Needle task");
+
+    const clearResponse = page.waitForResponse((candidate) => candidate.url().includes("q="));
+    await page.locator("#logSearch").fill("");
+    await page.locator("#searchLogs").click();
+    await clearResponse;
+    await expectPage(page.locator("#autoRefreshLogs")).toBeEnabled();
   });
 
   it("supports manual and automatic history refresh", async () => {

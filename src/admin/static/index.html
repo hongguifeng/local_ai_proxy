@@ -35,11 +35,14 @@
         <section id="logs" class="view logs-view">
           <aside class="log-list">
             <div class="log-list-head">
-              <input
-                id="logSearch"
-                data-i18n-placeholder="filterPlaceholder"
-                placeholder="搜索时间 / 请求 / 响应 / id"
-              />
+              <div class="log-search">
+                <input
+                  id="logSearch"
+                  data-i18n-placeholder="filterPlaceholder"
+                  placeholder="搜索时间 / 请求 / 响应 / id"
+                />
+                <button id="searchLogs" class="primary" data-i18n="search">搜索</button>
+              </div>
               <div class="log-actions">
                 <button id="refreshLogs" data-i18n="refresh">刷新</button>
                 <button id="exportLogs" data-i18n="exportLogs">导出</button>

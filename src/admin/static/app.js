@@ -9,6 +9,7 @@ const translations = {
     add: "添加",
     saveConfig: "保存配置",
     filterPlaceholder: "搜索时间 / 请求 / 响应 / id",
+    search: "搜索",
     refresh: "刷新",
     exportLogs: "导出",
     cleanupLogs: "清理",
@@ -77,6 +78,7 @@ const translations = {
     add: "Add",
     saveConfig: "Save config",
     filterPlaceholder: "Search time / request / response / id",
+    search: "Search",
     refresh: "Refresh",
     exportLogs: "Export",
     cleanupLogs: "Clean",
@@ -165,7 +167,7 @@ const state = {
   logOffset: 0,
   logsHasMore: false,
   logsTotal: 0,
-  searchTimer: null,
+  logQuery: "",
   refreshTimer: null,
 };
 const $ = (id) => document.getElementById(id);
@@ -454,7 +456,7 @@ async function cleanupLogs() {
 }
 function scheduleLogRefresh(delay = 3000) {
   clearTimeout(state.refreshTimer);
-  if (!$("autoRefreshLogs").checked) return;
+  if (!$("autoRefreshLogs").checked || state.logQuery !== "") return;
   state.refreshTimer = setTimeout(() => {
     if (document.hidden || !$("logs").classList.contains("active")) {
       scheduleLogRefresh(delay);
@@ -491,7 +493,7 @@ function mergeLogGroupSummaries(currentGroups, nextGroups) {
 async function loadLogs(options = {}) {
   if (state.logsLoading) return;
   state.logsLoading = true;
-  const q = encodeURIComponent($("logSearch").value.trim());
+  const q = encodeURIComponent(state.logQuery);
   try {
     const offset = options.append ? state.logOffset : 0;
     const limit =
@@ -554,7 +556,7 @@ async function loadLogGroup(groupId) {
   state.loadingLogGroups[groupId] = true;
   renderLogs();
   try {
-    const q = encodeURIComponent($("logSearch").value.trim());
+    const q = encodeURIComponent(state.logQuery);
     const data = await api(
       `/api/log-groups/${encodeURIComponent(groupId)}/logs?q=${q}&limit=200&offset=0`,
     );
@@ -577,7 +579,7 @@ async function loadMoreLogGroup(groupId) {
   state.loadingMoreLogGroups[groupId] = true;
   renderLogs();
   try {
-    const q = encodeURIComponent($("logSearch").value.trim());
+    const q = encodeURIComponent(state.logQuery);
     const offset = Number(group.logsOffset ?? (group.logs || []).length);
     const data = await api(
       `/api/log-groups/${encodeURIComponent(groupId)}/logs?q=${q}&limit=100&offset=${offset}`,
@@ -916,13 +918,20 @@ $("proxyGrid").addEventListener("change", async (event) => {
   renderPairs();
 });
 $("refreshLogs").addEventListener("click", () => loadLogs().catch((e) => toast(e.message)));
+$("searchLogs").addEventListener("click", () => {
+  state.logQuery = $("logSearch").value.trim();
+  $("autoRefreshLogs").disabled = state.logQuery !== "";
+  state.logGroups = [];
+  state.logs = [];
+  state.logOffset = 0;
+  state.logsHasMore = false;
+  state.logsTotal = 0;
+  state.selectedLogGroups = {};
+  loadLogs().catch((e) => toast(e.message));
+});
 $("exportLogs").addEventListener("click", () => exportLogs().catch((e) => toast(e.message)));
 $("cleanupLogs").addEventListener("click", () => cleanupLogs().catch((e) => toast(e.message)));
 $("autoRefreshLogs").addEventListener("change", () => scheduleLogRefresh(250));
-$("logSearch").addEventListener("input", () => {
-  clearTimeout(state.searchTimer);
-  state.searchTimer = setTimeout(() => loadLogs().catch((e) => toast(e.message)), 180);
-});
 $("logItems").addEventListener("click", (event) => {
   if (event.target.matches("[data-select-group]")) {
     state.selectedLogGroups[event.target.dataset.selectGroup] = event.target.checked;

@@ -404,6 +404,11 @@ label span {
   display: grid;
   gap: 8px;
 }
+.log-search {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 8px;
+}
 .log-actions {
   display: flex;
   align-items: center;
