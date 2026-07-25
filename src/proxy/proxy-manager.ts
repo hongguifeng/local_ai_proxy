@@ -131,6 +131,8 @@ export class ProxyManager {
   applyConfiguration(config: ProxyConfigFile): Promise<readonly PublicProxyPair[]> {
     const validated = validateProxyConfigFile(config);
     assertNoEnabledListenConflicts(validated.pairs);
+    // 多个管理 API 请求可能同时修改配置。Promise 尾链充当轻量互斥锁，
+    // 保证每次 diff、启停和保存都基于上一轮已经完成的状态。
     const operation = this.#applyQueue.then(() => this.#applyValidated(validated));
     this.#applyQueue = operation.then(
       () => undefined,
@@ -149,6 +151,8 @@ export class ProxyManager {
     let stage: ConfigurationApplyStage = "stop";
     let failedPairId: string | undefined;
     try {
+      // 配置应用是一个补偿式事务：先停止受影响的旧实例，再启动新实例，最后落盘。
+      // 任一步失败都会在 catch 中尽力恢复旧运行态。
       for (const pair of oldAffected) {
         if (this.#registry.status(pair.id).running) {
           failedPairId = pair.id;
@@ -182,6 +186,7 @@ export class ProxyManager {
     stoppedOld: readonly ProxyPair[],
   ): Promise<string[]> {
     const failures: string[] = [];
+    // 按启动的逆序停止新实例，和常见的资源栈释放顺序一致。
     for (const pair of [...startedNew].reverse()) {
       try {
         await this.#registry.stopPair(pair.id);

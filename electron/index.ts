@@ -14,6 +14,8 @@ import { configureElectronUserData } from "./user-data.js";
 let tray: Tray | undefined;
 let openAdmin = (): void => undefined;
 
+// Electron 只是另一种宿主：它复用与 CLI 相同的 NodeApplication，额外负责单实例、
+// 用户数据目录、系统托盘和打开浏览器，核心代理逻辑不依赖 Electron。
 const dataDirectory = configureElectronUserData(app);
 if (configureSingleInstance(app, () => openAdmin())) {
   void start().catch((error: unknown) => {

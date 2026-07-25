@@ -44,6 +44,7 @@ export function selectTargetByModel<TTarget extends RoutingTarget>(
   const defaultTarget = targets.find(({ id }) => id === defaultTargetId) ?? firstTarget;
   const requestModel = requestModelFromBody(requestBody);
   if (requestModel !== undefined && requestModel !== "") {
+    // 配置顺序就是路由优先级；第一个匹配项获胜，未命中时回退到默认目标。
     for (const target of targets) {
       if (target !== defaultTarget && !target.enabled) {
         continue;
@@ -76,6 +77,8 @@ export function modelPatternMatches(pattern: string, model: string): boolean {
   let lastStarIndex = -1;
   let modelIndexAfterStar = -1;
 
+  // 这是一个不创建正则表达式的通配符匹配器。遇到不匹配字符时，回退到最近的 *，
+  // 让它多吞掉一个字符后继续尝试，因此 * 可以代表任意长度字符串。
   while (modelIndex < model.length) {
     if (patternIndex < pattern.length && pattern[patternIndex] === model[modelIndex]) {
       patternIndex += 1;

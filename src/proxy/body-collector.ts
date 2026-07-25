@@ -45,6 +45,8 @@ export async function collectBody(
   let spoolPath: string | undefined;
   let spoolFile: Awaited<ReturnType<typeof open>> | undefined;
   try {
+    // IncomingMessage 是 AsyncIterable，可用 for await...of 按块消费请求体，
+    // 无需一次性等待全部数据到达。
     for await (const value of source) {
       const chunk = typeof value === "string" ? Buffer.from(value) : Buffer.from(value);
       sizeBytes += chunk.byteLength;
@@ -52,6 +54,8 @@ export async function collectBody(
         throw new RequestBodyTooLargeError(sizeBytes, maxBytes);
       }
       if (spoolFile === undefined && sizeBytes > memoryThreshold) {
+        // 小请求留在内存中速度更快；超过阈值后把已收集和后续分块转存临时文件，
+        // 避免多个大请求同时到来时占满堆内存。
         const spoolDirectory = options.spoolDirectory ?? path.join(os.tmpdir(), "llm-proxy-spool");
         await mkdir(spoolDirectory, { mode: 0o700, recursive: true });
         spoolPath = path.join(spoolDirectory, `request-${randomUUID()}.tmp`);
@@ -85,6 +89,7 @@ export async function collectBody(
       cleanup: async () => rm(completedPath, { force: true }),
     };
   } catch (error) {
+    // 异常路径也要关闭句柄并删掉临时文件，这类清理通常应与资源创建写在同一函数中。
     await spoolFile?.close();
     if (spoolPath !== undefined) {
       await rm(spoolPath, { force: true });

@@ -120,6 +120,7 @@ export class ConfigRepository {
   }
 
   async save(value: ProxyConfigFile): Promise<void> {
+    // 保存前再次规范化和校验，保证仓库不会把无效对象写进磁盘。
     const config = normalizeProxyConfigFile(value, this.#defaultLogRoot);
     const text = `${JSON.stringify(config, null, 2)}\n`;
     await this.#backupExistingConfigOnce();
@@ -166,6 +167,8 @@ export class ConfigRepository {
     await this.#fileSystem.mkdir(directory, { recursive: true });
     let handle: FileHandle | undefined;
     try {
+      // 原子保存的基本模式：同目录临时文件 -> 写入 -> fsync -> close -> rename。
+      // 崩溃最多留下临时文件，不会让正式配置只写了一半；同目录也保证 rename 可原子替换。
       handle = await this.#fileSystem.open(tempPath, "wx", 0o600);
       await handle.writeFile(text, "utf8");
       await handle.sync();

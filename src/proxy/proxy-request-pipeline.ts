@@ -77,6 +77,8 @@ export class ProxyRequestPipeline {
     response: ServerResponse,
     context: ProxyRequestContext,
   ): Promise<void> {
+    // 每个请求都有自己的 AbortController。客户端中断或服务强制关闭时，
+    // 同一个 signal 会一路传给上游 HTTP 请求，避免无用工作继续占用连接。
     const signal = this.#activeRequests.begin(context);
     const activeRequest = this.#activeRequests.get(context.id);
     const abortForClient = (): void => {
@@ -129,6 +131,8 @@ export class ProxyRequestPipeline {
     }
     const selection = this.#selectTarget(requestBody);
     const selectedTarget = selection.target;
+    // 转发前的处理顺序是：选择目标 -> 改写 model -> 删除/注入 JSON 字段。
+    // 日志同时保留原始 body 和发生变化后的 upstream_body，便于排查问题。
     const rewrittenBody = rewriteRequestModel(requestBody, selection.upstreamModel);
     const transformed = transformRequestJsonFields(
       rewrittenBody,
@@ -170,6 +174,7 @@ export class ProxyRequestPipeline {
         upstream.statusMessage ?? undefined,
         forwardedResponseHeaders(upstream),
       );
+      // 响应体不做整体缓存，而是边从上游读取、边写给客户端、边生成有限大小的日志摘要。
       await forwardResponseBody(upstream, response, request.method === "HEAD", responseCapture);
     } catch (error) {
       responseStatus = response.headersSent ? response.statusCode : 502;
@@ -426,6 +431,8 @@ async function forwardResponseBody(
     const chunk = Buffer.isBuffer(chunkValue) ? chunkValue : Buffer.from(chunkValue as Uint8Array);
     capture.addChunk(chunk);
     if (!headRequest && !response.write(chunk)) {
+      // write() 返回 false 表示下游缓冲区已满。等待 drain 是 Node.js 流的背压机制，
+      // 可避免上游很快、客户端很慢时在内存里无限堆积数据。
       await once(response, "drain");
     }
   }

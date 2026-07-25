@@ -53,6 +53,8 @@ export function verifyFts5(database: Database.Database): void {
 }
 
 export function configureDatabase(database: Database.Database): void {
+  // better-sqlite3 是同步 API。单条 SQL 会短暂阻塞事件循环，但代码更直接；
+  // WAL 允许读取与写入更好地并存，busy_timeout 则处理短暂的多连接写竞争。
   database.pragma("journal_mode = WAL");
   database.pragma("foreign_keys = ON");
   database.pragma("busy_timeout = 5000");
@@ -84,6 +86,7 @@ export function runMigrations(
   const pending = [...migrations]
     .sort((left, right) => left.version - right.version)
     .filter(({ version }) => version > currentVersion);
+  // 所有迁移和版本号更新放在同一个事务中：任一步失败都会整体回滚。
   const migrate = database.transaction(() => {
     database.exec(`
       CREATE TABLE IF NOT EXISTS schema_meta (

@@ -41,11 +41,13 @@ export class ProxyListener {
     const now = options.now ?? localNowIso;
     const monotonicNow = options.monotonicNow ?? (() => performance.now());
     this.#server = http.createServer((request, response) => {
+      // 墙上时钟用于日志展示，单调时钟用于计算耗时；系统时间被校准时，后者不会倒退。
       const context: ProxyRequestContext = {
         id: createId(),
         startedAt: now(),
         startedMonotonicMs: monotonicNow(),
       };
+      // createServer 的回调不会等待 Promise，必须显式接住异步异常，否则会产生未处理拒绝。
       void Promise.resolve(options.onRequest(request, response, context)).catch(
         (error: unknown) => {
           if (!response.headersSent) {

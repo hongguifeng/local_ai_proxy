@@ -25,6 +25,10 @@ export interface CliOptions {
 
 export { DEFAULT_ADMIN_PORT };
 
+/**
+ * 把三种配置来源合并成最终 CLI 选项。
+ * 优先级是：命令行参数 > 环境变量 > llm-proxy.json > 代码默认值。
+ */
 export function parseCliArgs(
   argv: readonly string[],
   env: Readonly<NodeJS.ProcessEnv> = process.env,
@@ -79,6 +83,7 @@ export async function loadCliOptions(
   env: Readonly<NodeJS.ProcessEnv> = process.env,
   baseDirectory = process.cwd(),
 ): Promise<CliOptions> {
+  // 尽早转成绝对路径，后续模块就不会因 process.cwd() 改变而读写到意外位置。
   const applicationConfigFile = path.resolve(
     baseDirectory,
     applicationConfigPathFromArgs(argv, env),

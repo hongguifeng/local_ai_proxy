@@ -50,6 +50,7 @@ export class TrafficLogService {
     }
     this.#closed = true;
     this.#closePromise = (async () => {
+      // 必须先等队列排空再关闭数据库，否则仍在排队的任务会访问已关闭连接。
       await this.#writeQueue?.drain();
       this.#repository?.close();
     })();
@@ -100,6 +101,8 @@ export class TrafficLogService {
       stableJsonStringify(originalRequestBody) !== stableJsonStringify(requestBody)
         ? originalRequestBody
         : undefined;
+    // 一条完成日志会同时更新任务、请求记录和关联索引；事务保证这些表要么全部成功，
+    // 要么全部回滚，管理界面不会读到只写了一半的任务。
     repository.transaction(() => {
       repository.upsertTask({
         ...assignment.task,

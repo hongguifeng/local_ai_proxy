@@ -71,6 +71,8 @@ export function normalizeProxyConfigFile(
   value: unknown,
   defaultLogRoot = DEFAULT_LOG_ROOT,
 ): ProxyConfigFile {
+  // 外部输入先以 unknown 接收：先做宽松规范化（补默认值、兼容可转换值），
+  // 最后再统一严格校验。这样后面的业务代码拿到的一定是完整配置。
   if (!isRecord(value) || !Array.isArray(value["pairs"])) {
     return validateProxyConfigFile(value);
   }

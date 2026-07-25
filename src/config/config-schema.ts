@@ -18,6 +18,8 @@ const injectRequestFieldsSchema = z.string().refine(isJsonObjectText, {
   message: "inject request fields must be an empty string or JSON object",
 });
 
+// TypeScript 类型只在编译期生效；配置文件来自磁盘，运行时仍需用 Zod 检查。
+// 将 schema 作为唯一事实来源，再通过 z.infer 得到类型，可减少二者不一致。
 export const modelMappingSchema = z.object({
   listen: z.string().trim().min(1, "listen model is required"),
   upstream: z.string().trim().min(1, "upstream model is required"),
@@ -58,6 +60,7 @@ export const proxyConfigFileSchema = z
     pairs: z.array(proxyPairSchema),
   })
   .superRefine(({ pairs }, context) => {
+    // 单字段规则由 z.object 处理；跨对象约束（例如 ID 唯一）适合放在 superRefine。
     const pairIds = new Set<string>();
     for (const [pairIndex, pair] of pairs.entries()) {
       if (pairIds.has(pair.id)) {

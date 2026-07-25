@@ -142,9 +142,11 @@ export class ProxyRuntimeRegistry {
     const resources = entry.resources;
     try {
       if (resources !== undefined) {
+        // server.close() 先停止接收新连接，并等待现有连接自然结束。
         const closePromise = resources.listener.close();
         const closedGracefully = await settlesWithin(closePromise, this.#shutdownTimeoutMs);
         if (!closedGracefully) {
+          // 超过宽限期后，用 AbortController 通知上游请求退出，再强制关闭残留连接。
           resources.activeRequests.abortAll(new Error("Proxy pair shutdown timed out"));
           resources.listener.closeAllConnections();
           await closePromise;

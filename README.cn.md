@@ -56,6 +56,9 @@ flowchart LR
 
 ## 快速开始
 
+如果你希望通过本项目学习 Node.js/TypeScript，可以从
+[《用 LLM Proxy 学习 Node.js 与 TypeScript》](docs/nodejs-learning-guide.zh-CN.md) 开始。教程包含代码阅读路线、调试方法、测试方法和循序渐进的练习题。
+
 启动 Web 控制台：
 
 ```powershell

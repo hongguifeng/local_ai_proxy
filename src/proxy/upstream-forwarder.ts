@@ -30,6 +30,8 @@ export class UpstreamTimeoutError extends Error {
 export function openUpstreamResponse(
   options: OpenUpstreamResponseOptions,
 ): Promise<IncomingMessage> {
+  // Node 原生 HTTP 客户端是事件/回调风格；这里包装成 Promise，
+  // 调用方即可用 await 把“拿到响应头”和后续流式读取串成清晰的控制流。
   return new Promise((resolve, reject) => {
     const transport = options.target.targetScheme === "https" ? https : http;
     const headers = options.headers.filter(([name]) => name.toLowerCase() !== "connection");
@@ -48,6 +50,7 @@ export function openUpstreamResponse(
       resolve,
     );
     if (options.target.timeoutMs !== undefined) {
+      // setTimeout 只通知超时，必须 destroy 请求才能真正终止 socket 并触发 error。
       request.setTimeout(options.target.timeoutMs, () => {
         request.destroy(new UpstreamTimeoutError(options.target.timeoutMs ?? 0));
       });

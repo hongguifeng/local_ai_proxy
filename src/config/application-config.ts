@@ -14,6 +14,7 @@ const applicationConfigSchema = z.object({
   }),
 });
 
+// z.infer 让 TypeScript 类型直接来自运行时校验规则，避免维护两份容易漂移的定义。
 export type ApplicationConfig = z.infer<typeof applicationConfigSchema>;
 
 export function createDefaultApplicationConfig(): ApplicationConfig {
@@ -34,6 +35,8 @@ export async function loadApplicationConfig(configPath: string): Promise<Applica
     const config = createDefaultApplicationConfig();
     await mkdir(path.dirname(configPath), { recursive: true });
     try {
+      // wx 表示“仅在文件不存在时创建”。如果两个进程同时首次启动，只有一个会成功，
+      // 另一个会在 EEXIST 分支中读取胜出的文件，不会覆盖用户配置。
       await writeFile(configPath, `${JSON.stringify(config, null, 2)}\n`, {
         encoding: "utf8",
         flag: "wx",
