@@ -82,7 +82,7 @@ export class LogQueryService {
     }
     const repository = new TrafficRepository(root);
     try {
-      const page = repository.listTasks(query, boundedLimit, boundedOffset);
+      const page = repository.listTaskSummaries(query, boundedLimit, boundedOffset);
       return {
         groups: page.items.map(taskGroupSummary),
         total: page.total,
@@ -107,10 +107,15 @@ export class LogQueryService {
     for (const root of [...new Set(this.#logRoots().filter((value) => value !== ""))]) {
       const repository = new TrafficRepository(root);
       try {
-        if (repository.getTask(groupId) === undefined) {
+        if (!repository.hasTask(groupId)) {
           continue;
         }
-        const page = repository.listTaskRecords(groupId, query, boundedLimit, boundedOffset);
+        const page = repository.listTaskRecordSummaries(
+          groupId,
+          query,
+          boundedLimit,
+          boundedOffset,
+        );
         return {
           id: groupId,
           logs: page.items.map(logListItem),
@@ -170,7 +175,7 @@ export class LogQueryService {
     for (const root of roots) {
       const repository = new TrafficRepository(root);
       try {
-        const page = repository.listTasks(query, fetchLimit, 0);
+        const page = repository.listTaskSummaries(query, fetchLimit, 0);
         total += page.total;
         tasks.push(...page.items);
       } finally {

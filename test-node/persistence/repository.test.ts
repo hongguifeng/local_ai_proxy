@@ -210,6 +210,57 @@ describe("TrafficRepository.listTasks", () => {
   });
 });
 
+describe("TrafficRepository history summaries", () => {
+  it("returns list metadata without hydrating task internals or record bodies", async () => {
+    const root = await mkdtemp(path.join(os.tmpdir(), "llm-proxy-history-summary-"));
+    temporaryDirectories.push(root);
+    const repository = new TrafficRepository(root);
+    repository.upsertTask({
+      id: "summary-task",
+      model: "summary-model",
+      request_count: 1,
+      fingerprints: { large: "task-internal" },
+      last_user_messages: ["task-internal"],
+    });
+    repository.upsertRecord({
+      id: "summary-record",
+      task_id: "summary-task",
+      sequence: 1,
+      timestamp: "2026-07-18T01:00:00.000+00:00",
+      method: "POST",
+      path: "/v1/responses",
+      request_body: { large: "request-body" },
+      response_body: { large: "response-body" },
+    });
+
+    expect(repository.hasTask("summary-task")).toBe(true);
+    expect(repository.hasTask("missing-task")).toBe(false);
+    const taskSummary = repository.listTaskSummaries().items[0];
+    expect(taskSummary).toMatchObject({
+      id: "summary-task",
+      model: "summary-model",
+      request_count: 1,
+      last_response_at: null,
+      target: null,
+    });
+    expect(typeof taskSummary?.["started_at"]).toBe("string");
+    expect(typeof taskSummary?.["last_seen_at"]).toBe("string");
+    expect(repository.listTaskRecordSummaries("summary-task").items[0]).toEqual({
+      id: "summary-record",
+      sequence: 1,
+      timestamp: "2026-07-18T01:00:00.000+00:00",
+      method: "POST",
+      path: "/v1/responses",
+      endpoint: "/v1/responses",
+      status: null,
+      message_count: null,
+      token_count: null,
+      target_url: null,
+    });
+    repository.close();
+  });
+});
+
 describe("literal LIKE search characters", () => {
   it("treats percent, underscore, and backslash as ordinary text", async () => {
     const root = await mkdtemp(path.join(os.tmpdir(), "llm-proxy-like-search-"));

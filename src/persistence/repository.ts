@@ -107,6 +107,10 @@ export class TrafficRepository {
     return row === undefined ? undefined : decodeTaskRow(row as RepositoryRecord);
   }
 
+  hasTask(taskId: string): boolean {
+    return this.#database.prepare("SELECT 1 FROM tasks WHERE id = ?").get(taskId) !== undefined;
+  }
+
   recentTasks(limit = 200): RepositoryRecord[] {
     const boundedLimit = Math.max(1, Math.min(integerValue(limit, 200), 1_000));
     const rows = this.#database
@@ -173,6 +177,66 @@ export class TrafficRepository {
       )
       .all(...parameters, boundedLimit, boundedOffset) as RepositoryRecord[];
     const items = rows.map((row) => decodeTaskRow(row));
+    const nextOffset = boundedOffset + items.length;
+    return {
+      items,
+      total,
+      limit: boundedLimit,
+      offset: boundedOffset,
+      nextOffset,
+      hasMore: nextOffset < total,
+    };
+  }
+
+  listTaskSummaries(query = "", limit = 100, offset = 0): RepositoryPage<RepositoryRecord> {
+    const boundedLimit = Math.max(1, Math.min(integerValue(limit, 100), 500));
+    const boundedOffset = Math.max(0, integerValue(offset, 0));
+    const terms = searchTerms(query);
+    const clauses = terms.map(
+      () => `(
+          lower(_search_text(
+            id, kind, endpoint, anchor, model, target, started_at, last_seen_at, last_response_at,
+            request_count, pending_request_only, match_confidence, match_strategy_version,
+            fingerprints_json, boundary_fingerprints_json, last_user_messages_json, created_at, updated_at
+          )) LIKE ? ESCAPE '\\'
+          OR EXISTS (
+            SELECT 1
+            FROM record_search_map
+            JOIN record_search_fts ON record_search_fts.rowid = record_search_map.search_rowid
+            WHERE record_search_map.task_id = tasks.id
+              AND record_search_fts MATCH ?
+          )
+        )`,
+    );
+    const whereSql = clauses.length === 0 ? "" : `WHERE ${clauses.join(" AND ")}`;
+    const parameters = terms.flatMap((term) => [likePattern(term), ftsQuery(term)]);
+    const total = this.#database
+      .prepare(`SELECT COUNT(*) AS count FROM tasks ${whereSql}`)
+      .pluck()
+      .get(...parameters) as number;
+    const items = this.#database
+      .prepare(
+        `
+        SELECT id, model, started_at, last_seen_at, last_response_at, request_count,
+          COALESCE(
+            NULLIF(tasks.target, ''),
+            (
+              SELECT records.target_url
+              FROM records
+              WHERE records.task_id = tasks.id
+                AND records.target_url IS NOT NULL
+                AND records.target_url != ''
+              ORDER BY records.sequence DESC
+              LIMIT 1
+            )
+          ) AS target
+        FROM tasks
+        ${whereSql}
+        ORDER BY COALESCE(last_response_at, last_seen_at, started_at) DESC
+        LIMIT ? OFFSET ?
+      `,
+      )
+      .all(...parameters, boundedLimit, boundedOffset) as RepositoryRecord[];
     const nextOffset = boundedOffset + items.length;
     return {
       items,
@@ -345,6 +409,53 @@ export class TrafficRepository {
       )
       .all(...parameters, boundedLimit, boundedOffset) as RepositoryRecord[];
     const items = rows.map((row) => this.#decodeRecordRow(row));
+    const nextOffset = boundedOffset + items.length;
+    return {
+      items,
+      total,
+      limit: boundedLimit,
+      offset: boundedOffset,
+      nextOffset,
+      hasMore: nextOffset < total,
+    };
+  }
+
+  listTaskRecordSummaries(
+    taskId: string,
+    query = "",
+    limit = 200,
+    offset = 0,
+  ): RepositoryPage<RepositoryRecord> {
+    const boundedLimit = Math.max(1, Math.min(integerValue(limit, 200), 500));
+    const boundedOffset = Math.max(0, integerValue(offset, 0));
+    const terms = searchTerms(query);
+    const clauses = terms.map(
+      () => `EXISTS (
+        SELECT 1
+        FROM record_search_map
+        JOIN record_search_fts ON record_search_fts.rowid = record_search_map.search_rowid
+        WHERE record_search_map.record_id = records.id
+          AND record_search_fts MATCH ?
+      )`,
+    );
+    const querySql = clauses.length === 0 ? "" : `AND ${clauses.join(" AND ")}`;
+    const parameters = [taskId, ...terms.map((term) => ftsQuery(term))];
+    const total = this.#database
+      .prepare(`SELECT COUNT(*) FROM records WHERE task_id = ? ${querySql}`)
+      .pluck()
+      .get(...parameters) as number;
+    const items = this.#database
+      .prepare(
+        `
+        SELECT id, sequence, timestamp, method, path, endpoint, status,
+          message_count, token_count, target_url
+        FROM records
+        WHERE task_id = ? ${querySql}
+        ORDER BY sequence DESC
+        LIMIT ? OFFSET ?
+      `,
+      )
+      .all(...parameters, boundedLimit, boundedOffset) as RepositoryRecord[];
     const nextOffset = boundedOffset + items.length;
     return {
       items,
