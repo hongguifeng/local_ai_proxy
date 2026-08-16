@@ -260,6 +260,7 @@ export class TrafficRepository {
         stringValue(record["started_at"] ?? record["started_timestamp"] ?? record["timestamp"]) ||
         now,
       duration_ms: floatValue(record["duration_ms"], 0),
+      first_byte_ms: optionalFloat(record["first_byte_ms"]),
       proxy_id: optionalString(record["proxy_id"]),
       proxy_name: optionalString(record["proxy_name"]),
       client_host: optionalString(record["client_host"]),
@@ -291,7 +292,7 @@ export class TrafficRepository {
         .prepare(
           `
       INSERT INTO records(
-        id, task_id, sequence, event, timestamp, started_at, duration_ms,
+        id, task_id, sequence, event, timestamp, started_at, duration_ms, first_byte_ms,
         proxy_id, proxy_name, client_host, client_port, target_id, target_name, target_url,
         method, path, endpoint, status, error, message_count, token_count,
         request_headers_json, response_headers_json, request_body_json, original_request_body_json,
@@ -299,7 +300,7 @@ export class TrafficRepository {
         model_route_json, stripped_fields_json, injected_fields_json, added_upstream_headers_json,
         created_at, updated_at
       ) VALUES (
-        @id, @task_id, @sequence, @event, @timestamp, @started_at, @duration_ms,
+        @id, @task_id, @sequence, @event, @timestamp, @started_at, @duration_ms, @first_byte_ms,
         @proxy_id, @proxy_name, @client_host, @client_port, @target_id, @target_name, @target_url,
         @method, @path, @endpoint, @status, @error, @message_count, @token_count,
         @request_headers_json, @response_headers_json, NULL,
@@ -309,6 +310,7 @@ export class TrafficRepository {
       ) ON CONFLICT(id) DO UPDATE SET
         task_id=excluded.task_id, sequence=excluded.sequence, event=excluded.event,
         timestamp=excluded.timestamp, started_at=excluded.started_at, duration_ms=excluded.duration_ms,
+        first_byte_ms=excluded.first_byte_ms,
         proxy_id=excluded.proxy_id, proxy_name=excluded.proxy_name,
         client_host=excluded.client_host, client_port=excluded.client_port,
         target_id=excluded.target_id, target_name=excluded.target_name, target_url=excluded.target_url,
@@ -625,6 +627,7 @@ export function recordSearchDocument(
       values["status"],
       values["message_count"],
       values["token_count"],
+      values["first_byte_ms"],
       values["duration_ms"],
       values["response_headers_json"],
       values["response_body_json"],
@@ -757,6 +760,14 @@ function floatValue(value: unknown, fallback: number): number {
   }
   const parsed = Number(text);
   return Number.isFinite(parsed) ? parsed : fallback;
+}
+
+function optionalFloat(value: unknown): number | null {
+  if (value === null || value === undefined || value === "") {
+    return null;
+  }
+  const parsed = Number(stringValue(value));
+  return Number.isFinite(parsed) ? parsed : null;
 }
 
 function jsonText(value: unknown, fallback: unknown): string {

@@ -1184,6 +1184,11 @@ describe("ProxyListener", () => {
         },
       },
     });
+    expect(finalRecords[0]?.["first_byte_ms"]).toEqual(expect.any(Number));
+    expect(finalRecords[0]?.["duration_ms"]).toEqual(expect.any(Number));
+    expect(Number(finalRecords[0]?.["first_byte_ms"])).toBeLessThanOrEqual(
+      Number(finalRecords[0]?.["duration_ms"]),
+    );
     await listener.close();
     await closeServer(upstream);
   });

@@ -6,6 +6,7 @@ import Database from "better-sqlite3";
 import { SCHEMA_V1_MIGRATION } from "./schema-v1.js";
 import { SCHEMA_V2_MIGRATION } from "./schema-v2.js";
 import { SCHEMA_V3_MIGRATION } from "./schema-v3.js";
+import { SCHEMA_V4_MIGRATION } from "./schema-v4.js";
 
 export const TRAFFIC_DB_NAME = "traffic.db";
 export const SCHEMA_VERSION_KEY = "schema_version";
@@ -40,7 +41,12 @@ export function connectLogDatabase(logRoot: string): Database.Database {
   const database = openLogDatabase(logRoot);
   try {
     verifyFts5(database);
-    runMigrations(database, [SCHEMA_V1_MIGRATION, SCHEMA_V2_MIGRATION, SCHEMA_V3_MIGRATION]);
+    runMigrations(database, [
+      SCHEMA_V1_MIGRATION,
+      SCHEMA_V2_MIGRATION,
+      SCHEMA_V3_MIGRATION,
+      SCHEMA_V4_MIGRATION,
+    ]);
     return database;
   } catch (error) {
     database.close();

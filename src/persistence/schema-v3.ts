@@ -2,7 +2,6 @@ import { migrateLegacyRecordBodies } from "./body-storage.js";
 import type { DatabaseMigration } from "./database.js";
 
 export const SCHEMA_V3_VERSION = 3;
-export const SCHEMA_VERSION = SCHEMA_V3_VERSION;
 
 export const SCHEMA_V3_MIGRATION: DatabaseMigration = {
   version: SCHEMA_V3_VERSION,

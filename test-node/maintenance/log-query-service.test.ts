@@ -187,6 +187,7 @@ describe("LogQueryService", () => {
       sequence: 2,
       timestamp: "2026-07-18T12:00:01.000+08:00",
       duration_ms: 15,
+      first_byte_ms: 4.5,
       method: "POST",
       path: "/v1/responses?trace=1",
       endpoint: "/v1/responses",
@@ -214,7 +215,7 @@ describe("LogQueryService", () => {
         client: "127.0.0.1:43111",
         message_count: 1,
       },
-      response_meta: { status: 200, token_count: 9 },
+      response_meta: { status: 200, first_byte_ms: 4.5, duration_ms: 15, token_count: 9 },
     });
   });
 
@@ -234,12 +235,13 @@ describe("LogQueryService", () => {
     });
 
     const service = new LogQueryService([root]);
-    expect(service.getRecordDetail("refresh-record")).toMatchObject({
+    const pendingDetail = service.getRecordDetail("refresh-record");
+    expect(pendingDetail).toMatchObject({
       id: "refresh-record",
       pending: true,
       response: null,
-      response_meta: {},
     });
+    expect(pendingDetail?.response_meta).toEqual({});
 
     repository.upsertRecord({
       id: "refresh-record",

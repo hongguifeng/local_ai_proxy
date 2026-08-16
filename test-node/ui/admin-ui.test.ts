@@ -213,12 +213,14 @@ beforeAll(async () => {
           pending,
           request: {
             input: "hello",
-            formatted: "long-text-".repeat(30),
-            nested: { deep: { value: 1 } },
+            formatted: Array.from({ length: 80 }, () => "long-text-long-text").join("\n"),
+            nested: { deep: { deeper: { value: 1 } } },
           },
-          response: pending ? null : { output: "done", nested: { deep: { value: 2 } } },
+          response: pending ? null : { output: "done", nested: { deep: { deeper: { value: 2 } } } },
           request_meta: { method: "POST", endpoint: "/v1/responses" },
-          response_meta: pending ? {} : { status: 200, token_count: 12 },
+          response_meta: pending
+            ? {}
+            : { status: 200, token_count: 12, first_byte_ms: 1_234, duration_ms: 65_678 },
         };
       },
     },
@@ -328,6 +330,12 @@ describe("admin UI proxy page", { timeout: UI_TEST_TIMEOUT_MS }, () => {
     await expectPage(targets.nth(0).locator("[data-target-enabled]")).toBeChecked();
     await targets.nth(0).locator("[data-target-enabled]").uncheck();
     await expectPage(targets.nth(0).locator("[data-target-enabled]")).not.toBeChecked();
+    await expectPage(targets.nth(0)).toHaveClass(/is-disabled-target/);
+    await expectPage(targets.nth(0)).toHaveCSS("background-color", "rgb(243, 244, 246)");
+    await expectPage(targets.nth(1)).toHaveClass(/is-default-target/);
+    await expectPage(targets.nth(1)).toHaveCSS("background-color", "rgb(232, 241, 251)");
+    await expectPage(targets.nth(2)).toHaveClass(/is-enabled-target/);
+    await expectPage(targets.nth(2)).toHaveCSS("background-color", "rgb(237, 247, 240)");
   });
 
   it("toggles and copies the target API key", async () => {
@@ -683,11 +691,20 @@ describe("admin UI history page", { timeout: UI_TEST_TIMEOUT_MS }, () => {
     ]);
     await expectPage(page.locator("#requestJson")).toContainText("hello");
     await expectPage(page.locator("#responseJson")).toContainText("null");
+    await expectPage(page.locator("#responseTiming")).toBeHidden();
     expect(detailReads.get("record-one")).toBe(1);
     const formattedString = page.locator("#requestJson .json-str-detail");
     await expectPage(formattedString).toHaveJSProperty("open", false);
     await formattedString.locator("summary").click();
     await expectPage(formattedString).toHaveJSProperty("open", true);
+    const requestJson = page.locator("#requestJson");
+    const formattedBody = formattedString.locator(".json-str-body");
+    const scrollPositions = {
+      pane: await setScrollTop(requestJson, 40),
+      body: await setScrollTop(formattedBody, 120),
+    };
+    expect(scrollPositions.pane).toBeGreaterThan(0);
+    expect(scrollPositions.body).toBeGreaterThan(0);
 
     const autoRefresh = page.locator("#autoRefreshLogs");
     await autoRefresh.uncheck();
@@ -698,24 +715,39 @@ describe("admin UI history page", { timeout: UI_TEST_TIMEOUT_MS }, () => {
     await finishedDetail;
     await expectPage(page.locator("#responseJson")).toContainText("done");
     await expectPage(page.locator("#responseMeta")).toBeHidden();
+    await expectPage(page.locator("#responseTiming")).toHaveText("First byte 00:01 · Total 01:06");
     await expectPage(formattedString).toHaveJSProperty("open", true);
+    await expect.poll(() => scrollTop(requestJson)).toBe(scrollPositions.pane);
+    await expect.poll(() => scrollTop(formattedBody)).toBe(scrollPositions.body);
     expect(detailReads.get("record-one")).toBe(2);
     await autoRefresh.uncheck();
   });
 
-  it("expands and collapses nested JSON trees", async () => {
+  it("expands nested JSON trees one level at a time", async () => {
     await openRecordDetail("record-two");
     const details = page.locator("#requestJson details[data-json-node-path]:not(.json-str-detail)");
-    await expectPage(details).toHaveCount(3);
+    const formattedString = page.locator("#requestJson .json-str-detail");
+    const expandButton = page.locator('[data-expand="request"]');
+    await expectPage(details).toHaveCount(4);
     await expectPage(details.nth(2)).toHaveJSProperty("open", false);
+    await expectPage(details.nth(3)).toHaveJSProperty("open", false);
+    await expectPage(expandButton).toHaveAttribute("title", "Expand one level");
 
-    await page.locator('[data-expand="request"]').click();
+    await expandButton.click();
     await expectPage(details.nth(2)).toHaveJSProperty("open", true);
+    await expectPage(details.nth(3)).toHaveJSProperty("open", false);
+    await expectPage(formattedString).toHaveJSProperty("open", true);
 
-    await page.locator('[data-expand="request"]').click();
+    await expandButton.click();
+    await expectPage(details.nth(3)).toHaveJSProperty("open", true);
+    await expectPage(expandButton).toHaveAttribute("title", "Collapse JSON");
+
+    await expandButton.click();
     await expectPage(details.nth(0)).toHaveJSProperty("open", true);
     await expectPage(details.nth(1)).toHaveJSProperty("open", true);
     await expectPage(details.nth(2)).toHaveJSProperty("open", false);
+    await expectPage(details.nth(3)).toHaveJSProperty("open", false);
+    await expectPage(formattedString).toHaveJSProperty("open", false);
   });
 
   it("wraps, formats, copies, and shows JSON metadata", async () => {
@@ -864,6 +896,21 @@ describe("admin UI visual regression", { timeout: UI_TEST_TIMEOUT_MS }, () => {
 
 function publicPair(pair: ProxyPair): PublicProxyPair {
   return { ...structuredClone(pair), actual_listen_port: null, running: pair.enabled };
+}
+
+async function setScrollTop(locator: Locator, value: number): Promise<number> {
+  return locator.evaluate((element, nextValue) => {
+    Reflect.set(element, "scrollTop", nextValue);
+    const actual: unknown = Reflect.get(element, "scrollTop");
+    return typeof actual === "number" ? actual : 0;
+  }, value);
+}
+
+async function scrollTop(locator: Locator): Promise<number> {
+  return locator.evaluate((element) => {
+    const value: unknown = Reflect.get(element, "scrollTop");
+    return typeof value === "number" ? value : 0;
+  });
 }
 
 async function openRecordDetail(recordId: string): Promise<void> {

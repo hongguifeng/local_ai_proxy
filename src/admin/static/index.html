@@ -69,7 +69,7 @@
                     title="切换自动换行"
                   >
                     ↵</button
-                  ><button class="icon" data-expand="request" title="展开 JSON">{}</button
+                  ><button class="icon" data-expand="request" title="向下展开一级">{}</button
                   ><button
                     class="icon"
                     data-format="request"
@@ -93,7 +93,9 @@
             <div id="splitter" class="splitter"></div>
             <div class="json-pane">
               <div class="pane-head">
-                <strong data-i18n="response">Response</strong
+                <span class="pane-title"
+                  ><strong data-i18n="response">Response</strong
+                  ><span id="responseTiming" class="response-timing" hidden></span></span
                 ><span class="pane-actions"
                   ><button class="icon" data-meta="response" title="显示元信息">ⓘ</button
                   ><button
@@ -103,7 +105,7 @@
                     title="切换自动换行"
                   >
                     ↵</button
-                  ><button class="icon" data-expand="response" title="展开 JSON">{}</button
+                  ><button class="icon" data-expand="response" title="向下展开一级">{}</button
                   ><button
                     class="icon"
                     data-format="response"

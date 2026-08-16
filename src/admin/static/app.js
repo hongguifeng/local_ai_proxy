@@ -5,6 +5,8 @@ const translations = {
     tabLogs: "历史日志",
     request: "请求",
     response: "响应",
+    firstByteTime: "首字",
+    totalTime: "总计",
     proxyPairs: "地址对",
     add: "添加",
     saveConfig: "保存配置",
@@ -18,7 +20,7 @@ const translations = {
     noSelectedLogs: "请先选择要清理的任务",
     autoRefresh: "自动刷新",
     toggleWrap: "切换自动换行",
-    expandJson: "展开 JSON",
+    expandJson: "向下展开一级",
     collapseJson: "折叠 JSON",
     formatStringContent: "格式化字符串内容",
     copyJson: "复制 JSON",
@@ -73,6 +75,8 @@ const translations = {
     tabLogs: "History",
     request: "Request",
     response: "Response",
+    firstByteTime: "First byte",
+    totalTime: "Total",
     proxyPairs: "Proxy pairs",
     add: "Add",
     saveConfig: "Save config",
@@ -86,7 +90,7 @@ const translations = {
     noSelectedLogs: "Select tasks to clean first",
     autoRefresh: "Auto refresh",
     toggleWrap: "Toggle line wrap",
-    expandJson: "Expand JSON",
+    expandJson: "Expand one level",
     collapseJson: "Collapse JSON",
     formatStringContent: "Format string content",
     copyJson: "Copy JSON",
@@ -201,6 +205,7 @@ function applyLanguage() {
   updateExpandButton("response");
   updateMetaButton("request");
   updateMetaButton("response");
+  updateResponseTiming();
 }
 function setLanguage(language) {
   if (!translations[language]) return;
@@ -210,8 +215,8 @@ function setLanguage(language) {
   applyLanguage();
   renderPairs();
   renderLogs();
-  renderJsonPane("request", { preserveOpen: true });
-  renderJsonPane("response", { preserveOpen: true });
+  renderJsonPane("request", { preserveView: true });
+  renderJsonPane("response", { preserveView: true });
   renderMetaPane("request");
   renderMetaPane("response");
 }
@@ -282,8 +287,13 @@ function mappingsText(mappings) {
 function renderTarget(target, pair, pairIndex, targetIndex) {
   const expanded = Boolean(target.expanded);
   const isDefault = pair.default_target_id === target.id;
+  const statusClass = isDefault
+    ? "is-default-target"
+    : target.enabled !== false
+      ? "is-enabled-target"
+      : "is-disabled-target";
   return `
-    <section class="target-card" data-target-index="${targetIndex}">
+    <section class="target-card ${statusClass}" data-target-index="${targetIndex}">
       <div class="target-head">
         <div class="target-title">
           <input data-target-field="name" value="${escapeHtml(target.name || "")}" placeholder="${escapeHtml(t("targetName"))}">
@@ -662,20 +672,34 @@ const defaultJsonExpandedDepth = 2;
 function jsonNodePathAttr(path) {
   return escapeHtml(JSON.stringify(path));
 }
-function collectJsonNodeOpenState(el) {
-  const openState = new Map();
+function collectJsonPaneViewState(el) {
+  const nodeState = new Map();
   el.querySelectorAll("details[data-json-node-path]").forEach((detail) => {
-    openState.set(detail.dataset.jsonNodePath, detail.open);
+    const body = detail.classList.contains("json-str-detail")
+      ? detail.querySelector(".json-str-body")
+      : null;
+    nodeState.set(detail.dataset.jsonNodePath, {
+      open: detail.open,
+      scrollTop: body?.scrollTop || 0,
+      scrollLeft: body?.scrollLeft || 0,
+    });
   });
-  return openState;
+  return { scrollTop: el.scrollTop, scrollLeft: el.scrollLeft, nodeState };
 }
-function restoreJsonNodeOpenState(el, openState) {
-  if (!openState) return;
+function restoreJsonPaneViewState(el, viewState) {
+  if (!viewState) return;
   el.querySelectorAll("details[data-json-node-path]").forEach((detail) => {
-    if (openState.has(detail.dataset.jsonNodePath)) {
-      detail.open = openState.get(detail.dataset.jsonNodePath);
-    }
+    const saved = viewState.nodeState.get(detail.dataset.jsonNodePath);
+    if (!saved) return;
+    detail.open = saved.open;
+    if (!detail.classList.contains("json-str-detail")) return;
+    const body = detail.querySelector(".json-str-body");
+    if (!body) return;
+    body.scrollTop = saved.scrollTop;
+    body.scrollLeft = saved.scrollLeft;
   });
+  el.scrollTop = viewState.scrollTop;
+  el.scrollLeft = viewState.scrollLeft;
 }
 function renderJsonValue(value, key = "", root = false, formatMode = false, depth = 0, path = []) {
   const type = jsonType(value);
@@ -735,12 +759,12 @@ function jsonText(value) {
 }
 function renderJsonPane(key, options = {}) {
   const el = $(key + "Json");
-  const openState = options.preserveOpen ? collectJsonNodeOpenState(el) : null;
+  const viewState = options.preserveView ? collectJsonPaneViewState(el) : null;
   el.classList.toggle("wrap", state.wrap[key]);
   el.classList.toggle("nowrap", !state.wrap[key]);
   if (state.tree[key]) {
     el.innerHTML = renderJsonValue(state.raw[key], "", true, state.formatStrings[key], 0);
-    restoreJsonNodeOpenState(el, openState);
+    restoreJsonPaneViewState(el, viewState);
   } else {
     el.textContent = jsonText(state.raw[key]);
   }
@@ -757,6 +781,27 @@ function renderMetaPane(key) {
   el.hidden = !open;
   el.innerHTML = open ? renderJsonValue(state.meta[key], "", true, true, 0) : "";
   updateMetaButton(key);
+}
+function formatDuration(milliseconds) {
+  if (milliseconds === null || milliseconds === undefined || milliseconds === "") return "";
+  const value = Number(milliseconds);
+  if (!Number.isFinite(value) || value < 0) return "";
+  const totalSeconds = Math.round(value / 1_000);
+  const minutes = Math.floor(totalSeconds / 60);
+  const seconds = String(totalSeconds % 60).padStart(2, "0");
+  return `${String(minutes).padStart(2, "0")}:${seconds}`;
+}
+function updateResponseTiming() {
+  const element = $("responseTiming");
+  const meta = state.meta.response || {};
+  const firstByte = formatDuration(meta.first_byte_ms);
+  const total = formatDuration(meta.duration_ms);
+  const parts = [
+    ...(firstByte === "" ? [] : [`${t("firstByteTime")} ${firstByte}`]),
+    ...(total === "" ? [] : [`${t("totalTime")} ${total}`]),
+  ];
+  element.textContent = parts.join(" · ");
+  element.hidden = parts.length === 0;
 }
 function updateMetaButton(key) {
   const button = document.querySelector(`[data-meta="${key}"]`);
@@ -810,8 +855,9 @@ function applySelectedLogDetail(data, options = {}) {
   }
   renderMetaPane("request");
   renderMetaPane("response");
-  renderJsonPane("request", { preserveOpen: !options.resetView });
-  renderJsonPane("response", { preserveOpen: !options.resetView });
+  updateResponseTiming();
+  renderJsonPane("request", { preserveView: !options.resetView });
+  renderJsonPane("response", { preserveView: !options.resetView });
 }
 async function selectLog(id) {
   state.selected = id;
@@ -918,6 +964,12 @@ $("proxyGrid").addEventListener("change", async (event) => {
     renderPairs();
     return;
   }
+  if (event.target.matches("[data-target-enabled]")) {
+    const targetCard = event.target.closest(".target-card");
+    targetCard?.classList.toggle("is-enabled-target", event.target.checked);
+    targetCard?.classList.toggle("is-disabled-target", !event.target.checked);
+    return;
+  }
   if (!event.target.matches("[data-toggle]")) return;
   collectPairs();
   await savePairs();
@@ -976,7 +1028,7 @@ document.querySelectorAll("[data-wrap]").forEach((button) =>
   button.addEventListener("click", () => {
     const key = button.dataset.wrap;
     state.wrap[key] = !state.wrap[key];
-    renderJsonPane(key, { preserveOpen: true });
+    renderJsonPane(key, { preserveView: true });
   }),
 );
 document.querySelectorAll("[data-meta]").forEach((button) =>
@@ -993,12 +1045,30 @@ document.querySelectorAll("[data-expand]").forEach((button) =>
     state.tree[key] = true;
     if ($(key + "Json").querySelectorAll("details").length === 0) renderJsonPane(key);
     const details = Array.from($(key + "Json").querySelectorAll("details"));
-    const shouldOpen = !details.length || details.some((detail) => !detail.open);
-    details.forEach((detail) => {
-      const parentDetail = detail.parentElement ? detail.parentElement.closest("details") : null;
-      detail.open =
-        shouldOpen || detail.classList.contains("root") || parentDetail?.classList.contains("root");
-    });
+    const allOpen = details.length > 0 && details.every((detail) => detail.open);
+    if (allOpen) {
+      details.forEach((detail) => {
+        const parentDetail = detail.parentElement ? detail.parentElement.closest("details") : null;
+        detail.open =
+          !detail.classList.contains("json-str-detail") &&
+          (detail.classList.contains("root") || parentDetail?.classList.contains("root"));
+      });
+    } else {
+      const nextLevel = details.filter((detail) => {
+        if (detail.open) return false;
+        let parentDetail = detail.parentElement ? detail.parentElement.closest("details") : null;
+        while (parentDetail) {
+          if (!parentDetail.open) return false;
+          parentDetail = parentDetail.parentElement
+            ? parentDetail.parentElement.closest("details")
+            : null;
+        }
+        return true;
+      });
+      nextLevel.forEach((detail) => {
+        detail.open = true;
+      });
+    }
     updateExpandButton(key);
     updatePaneButtons(key);
   }),
@@ -1027,7 +1097,7 @@ document.querySelectorAll("[data-format]").forEach((button) =>
   button.addEventListener("click", () => {
     const key = button.dataset.format;
     state.formatStrings[key] = !state.formatStrings[key];
-    renderJsonPane(key, { preserveOpen: true });
+    renderJsonPane(key, { preserveView: true });
   }),
 );
 document.querySelectorAll("[data-copy]").forEach((button) =>

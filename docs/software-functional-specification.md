@@ -372,7 +372,7 @@ Default: Target C
 - `request`：请求业务内容。
 - `response`：响应业务内容。
 - `request_meta`：ID、序号、时间、耗时、method、path、endpoint、target、proxy、client、message_count、路由/改写信息和 Header。
-- `response_meta`：status、耗时、token_count、error 和 Header。
+- `response_meta`：status、首字耗时、总耗时、token_count、error 和 Header。
 
 前端对未完成响应持续刷新详情，直到 response meta 出现 status 或 error。
 
@@ -450,7 +450,7 @@ ZIP 当前整体在内存中生成后一次性返回。
 - 桌面端支持左右列表分隔条、上下请求响应分隔条拖动。
 - 小于 760 px 时转为移动布局，日志列表位于详情上方，目标卡使用单列布局。
 
-视觉基线：浅灰背景、白色主卡片、浅蓝灰目标卡、绿色运行/主按钮状态、系统字体和等宽 JSON 字体。重构应复用现有 HTML/CSS 或以截图回归保证等价。
+视觉基线：浅灰背景、白色主卡片；目标卡使用浅蓝、浅绿、浅灰分别表示默认、启用、未启用；绿色运行/主按钮状态；系统字体和等宽 JSON 字体。重构应复用现有 HTML/CSS 或以截图回归保证等价。
 
 ### 11.2 Proxy 页面交互
 
@@ -462,6 +462,7 @@ ZIP 当前整体在内存中生成后一次性返回。
 - 修改目标名称、URL、API Key 和模型映射。
 - API Key 默认密码显示，可切换可见和复制。
 - 非默认目标可启停。
+- 目标卡背景色随默认、启用、未启用状态即时变化。
 - “更多配置”展开 log root、脱敏、Header、删除字段、注入字段。
 - 保存配置后显示 Toast。
 - 目标列表随容器宽度自动调整每行数量。
@@ -480,13 +481,14 @@ ZIP 当前整体在内存中生成后一次性返回。
 ### 11.4 JSON 查看器
 
 - Object/array 以可折叠树显示，默认展开深度为 2。
-- 支持全部展开/折叠。
+- 展开按钮每次向下展开一级；全部展开后再次点击恢复默认展开深度。
 - Request 和 Response 独立控制自动换行。
 - 支持把含转义符、换行或超过 200 字符的 string 格式化显示。
 - 长 string 使用摘要和可展开正文，并可复制格式化文本。
 - 支持复制完整 JSON。
 - 支持显示/隐藏请求和响应元信息。
-- 自动刷新 selected record 时保留对象、数组、格式化长字符串的展开状态和视图选项。
+- Response 标题栏显示首字耗时和总耗时，使用 `分:秒` 格式并按最接近的整秒显示；旧记录缺少首字数据时仅显示总耗时。
+- 自动刷新 selected record 时保留对象、数组、格式化长字符串的展开状态、滚动位置和视图选项。
 
 ### 11.5 国际化
 
@@ -577,7 +579,7 @@ Node.js 重构不可能保持 Python import 兼容，但应在新的 npm package
 - 配置中的 API Key 明文存储。
 - SQLite schema version 只写版本号，没有迁移框架。
 - 多日志根的分页在应用层合并，日志根很多时效率下降。
-- schema v3 使用 contentless FTS5 `MATCH` 搜索；请求和响应正文存储为 64 KiB 去重压缩块。
+- schema v4 延续 v3 的 contentless FTS5 和 64 KiB 去重压缩正文，并为请求记录新增首字耗时字段。
 - History task 内请求固定最多读取 200 条，UI 没有 task 内继续分页入口。
 - UI 的导出按钮导出全部任务，而非仅勾选任务。
 - 原始请求体与最终上游请求体没有同时持久化。

@@ -200,9 +200,10 @@ export const TASK_RECORD_LIMIT = 200;
 
 function recordDetail(record: Readonly<RepositoryRecord>): LogRecordDetail {
   const proxyName = string(record["proxy_name"]);
+  const pending = string(record["event"]) !== "request_finished";
   return {
     id: string(record["id"]),
-    pending: string(record["event"]) !== "request_finished",
+    pending,
     request: record["request_body"] ?? null,
     response: record["response_body"] ?? null,
     request_meta: compactMeta({
@@ -225,7 +226,8 @@ function recordDetail(record: Readonly<RepositoryRecord>): LogRecordDetail {
     }),
     response_meta: compactMeta({
       status: record["status"],
-      duration_ms: record["duration_ms"],
+      first_byte_ms: pending ? undefined : record["first_byte_ms"],
+      duration_ms: pending ? undefined : record["duration_ms"],
       token_count: record["token_count"],
       error: record["error"],
       headers: record["response_headers"],

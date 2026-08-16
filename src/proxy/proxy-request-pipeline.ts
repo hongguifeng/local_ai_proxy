@@ -149,6 +149,7 @@ export class ProxyRequestPipeline {
     let responseCapture = new ResponseLogCapture(false, this.#options.responseCapture);
     let responseStatus: number;
     let responseHeaders: Record<string, string[]>;
+    let firstByteMs: number | undefined;
     try {
       const upstream = await openUpstreamResponse({
         target: selectedTarget,
@@ -169,7 +170,15 @@ export class ProxyRequestPipeline {
         upstream.statusMessage ?? undefined,
         forwardedResponseHeaders(upstream),
       );
-      await forwardResponseBody(upstream, response, request.method === "HEAD", responseCapture);
+      await forwardResponseBody(
+        upstream,
+        response,
+        request.method === "HEAD",
+        responseCapture,
+        () => {
+          firstByteMs ??= elapsedMilliseconds(context);
+        },
+      );
     } catch (error) {
       responseStatus = response.headersSent ? response.statusCode : 502;
       responseHeaders = response.headersSent
@@ -190,11 +199,17 @@ export class ProxyRequestPipeline {
     }
     const responseBody: ResponseLogPayload = await responseCapture.finalize();
     await selectedTarget.trafficLog.write(
-      eventRecord(baseRecord, "request_finished", elapsedMilliseconds(context), {
-        status: responseStatus,
-        headers: responseHeaders,
-        body: responseBody,
-      }),
+      eventRecord(
+        baseRecord,
+        "request_finished",
+        elapsedMilliseconds(context),
+        {
+          status: responseStatus,
+          headers: responseHeaders,
+          body: responseBody,
+        },
+        firstByteMs,
+      ),
     );
   }
 
@@ -308,11 +323,13 @@ function eventRecord(
     headers: {},
     body: bytesPayload(new Uint8Array()),
   },
+  firstByteMs?: number,
 ): RepositoryRecord {
   return {
     ...baseRecord,
     event,
     duration_ms: durationMs,
+    ...(firstByteMs === undefined ? {} : { first_byte_ms: firstByteMs }),
     response,
   };
 }
@@ -420,9 +437,11 @@ async function forwardResponseBody(
   response: ServerResponse,
   headRequest: boolean,
   capture: ResponseLogCapture,
+  onFirstByte?: () => void,
 ): Promise<void> {
   for await (const chunkValue of upstream) {
     const chunk = Buffer.isBuffer(chunkValue) ? chunkValue : Buffer.from(chunkValue as Uint8Array);
+    if (chunk.byteLength > 0) onFirstByte?.();
     capture.addChunk(chunk);
     if (!headRequest && !response.write(chunk)) {
       await once(response, "drain");

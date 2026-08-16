@@ -202,8 +202,19 @@ main {
   padding: 10px;
   display: grid;
   gap: 8px;
-  background: #e6edf4;
   align-self: start;
+}
+.target-card.is-default-target {
+  background: #e8f1fb;
+  border-color: #91afd0;
+}
+.target-card.is-enabled-target {
+  background: #edf7f0;
+  border-color: #9fc5aa;
+}
+.target-card.is-disabled-target {
+  background: #f3f4f6;
+  border-color: #c5c8cc;
 }
 .target-card input,
 .target-card textarea {
@@ -518,9 +529,28 @@ label span {
   justify-content: space-between;
   background: var(--panel);
 }
+.pane-title {
+  min-width: 0;
+  display: inline-flex;
+  align-items: baseline;
+  gap: 10px;
+}
+.response-timing {
+  min-width: 0;
+  color: var(--muted);
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.response-timing[hidden] {
+  display: none;
+}
 .pane-actions {
   display: inline-flex;
   gap: 6px;
+  flex-shrink: 0;
 }
 .meta-panel {
   max-height: min(220px, 34vh);

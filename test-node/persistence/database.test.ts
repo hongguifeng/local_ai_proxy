@@ -151,7 +151,7 @@ describe("connectLogDatabase", () => {
       .prepare("SELECT name, type FROM sqlite_master WHERE name NOT LIKE 'sqlite_%'")
       .all() as { name: string; type: string }[];
     const names = new Set(objects.map(({ name }) => name));
-    expect(readSchemaVersion(database)).toBe(3);
+    expect(readSchemaVersion(database)).toBe(4);
     expect([...names]).toEqual(
       expect.arrayContaining([
         "schema_meta",
@@ -169,7 +169,7 @@ describe("connectLogDatabase", () => {
     );
     expect(
       (database.pragma("table_info(records)") as { name: string }[]).map(({ name }) => name),
-    ).toContain("original_request_body_json");
+    ).toEqual(expect.arrayContaining(["original_request_body_json", "first_byte_ms"]));
 
     database.close();
   });
@@ -232,7 +232,7 @@ describe("database backup", () => {
     expect(backup.prepare("SELECT value FROM backup_fixture").pluck().get()).toBe(
       "persisted through WAL",
     );
-    expect(readSchemaVersion(backup)).toBe(3);
+    expect(readSchemaVersion(backup)).toBe(4);
     backup.close();
   });
 
