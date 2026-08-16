@@ -293,7 +293,7 @@ Node 版本完整接管单个 proxy listener 的 HTTP 转发。
 1. 支持当前七种 HTTP 方法和任意其他非 CONNECT 普通方法的通用处理。
 2. 实现 Header 过滤、Host、X-Forwarded-*、API Key 和 override。
 3. 实现 path join 和 query 保留。
-4. 实现 timeout、客户端断开和上游 abort。
+4. 实现客户端断开和上游 abort。（上游 timeout 后续已移除。）
 5. 保持当前响应 Header 和 `Connection: close` parity。
 6. SSE 不得缓冲；测试第一行在上游结束前到达客户端。
 7. 正确支持 incoming chunked request body，这是相对 Python 版的兼容增强。
@@ -310,7 +310,7 @@ Node 版本完整接管单个 proxy listener 的 HTTP 转发。
 - SSE 分两段、慢速、无 `[DONE]`、中途断开。
 - 普通 chunked response。
 - incoming chunked request。
-- timeout 前后是否已发 Header。
+- 上游错误发生前后是否已发 Header。
 - client abort。
 - 10+ 并发请求。
 

@@ -54,7 +54,6 @@ function fixturePair(): PublicProxyPair {
         target_headers: [],
         strip_request_fields: "",
         inject_request_fields: "",
-        timeout: 600,
         log_root: "logs",
         redact_logs: false,
         model_mappings: [],
@@ -375,7 +374,6 @@ describe("admin UI proxy page", { timeout: UI_TEST_TIMEOUT_MS }, () => {
 
     await target.locator("[data-toggle-target-options]").click();
     await expectPage(options).toBeVisible();
-    await expectPage(options.locator('[data-target-field="timeout"]')).toHaveValue("600");
     await expectPage(options.locator('[data-target-field="log_root"]')).toHaveValue("logs");
     await expectPage(options.locator('[data-target-field="strip_request_fields"]')).toHaveAttribute(
       "placeholder",
@@ -437,19 +435,32 @@ describe("admin UI proxy page", { timeout: UI_TEST_TIMEOUT_MS }, () => {
     await expectPage(page.locator("#saveProxies")).toHaveText("Save config");
   });
 
-  it("preserves target horizontal scroll during pair rerenders", async () => {
+  it("wraps targets onto additional rows without horizontal scrolling", async () => {
+    await page.setViewportSize({ width: 1000, height: 900 });
     await loadAdminPage();
     const card = page.locator('.proxy-card[data-index="0"]');
     for (let index = 0; index < 4; index += 1) {
       await card.locator("[data-add-target]").click();
     }
     const row = card.locator(".targets-row");
-    await row.evaluate((element) => Reflect.set(element, "scrollLeft", 180));
-    const before = await scrollLeft(row);
-    expect(before).toBeGreaterThan(0);
+    const targets = card.locator(".target-card");
+    const firstBox = await requiredBox(targets.nth(0));
+    const secondBox = await requiredBox(targets.nth(1));
+    const fourthBox = await requiredBox(targets.nth(3));
 
-    await card.locator(".target-card").first().locator("[data-toggle-target-options]").click();
-    expect(await scrollLeft(card.locator(".targets-row"))).toBe(before);
+    expect(secondBox.y).toBe(firstBox.y);
+    expect(fourthBox.y).toBeGreaterThan(firstBox.y + firstBox.height / 2);
+    expect(
+      await row.evaluate((element) => {
+        const scrollWidth: unknown = Reflect.get(element, "scrollWidth");
+        const clientWidth: unknown = Reflect.get(element, "clientWidth");
+        return (
+          typeof scrollWidth === "number" &&
+          typeof clientWidth === "number" &&
+          scrollWidth <= clientWidth
+        );
+      }),
+    ).toBe(true);
   });
 });
 
@@ -513,6 +524,41 @@ describe("admin UI history page", { timeout: UI_TEST_TIMEOUT_MS }, () => {
     expect(Date.now() - startedAt).toBeGreaterThanOrEqual(200);
     expect(logQueries).toEqual([""]);
     await autoRefresh.uncheck();
+  });
+
+  it("refreshes a pending list item when its response finishes", async () => {
+    await loadAdminPage();
+    await Promise.all([
+      page.waitForResponse((response) => response.url().includes("/api/logs?")),
+      page.locator('[data-tab="logs"]').click(),
+    ]);
+    await Promise.all([
+      page.waitForResponse((response) => response.url().includes("/api/log-groups/task-one/logs")),
+      page.locator('[data-group-id="task-one"]').click(),
+    ]);
+    const pendingItem = page.locator('[data-log-id="record-one"]');
+    await expectPage(pendingItem).toContainText("pending");
+
+    detailReads.set("record-one", 1);
+    const autoRefresh = page.locator("#autoRefreshLogs");
+    await autoRefresh.uncheck();
+    const finishedDetail = page.waitForResponse((response) =>
+      response.url().endsWith("/api/logs/record-one"),
+    );
+    await autoRefresh.check();
+    await finishedDetail;
+
+    await expectPage(pendingItem).toContainText("12 tokens");
+    await expectPage(pendingItem).toContainText("| 200");
+    await expectPage(pendingItem).not.toContainText("pending");
+    await autoRefresh.uncheck();
+
+    const completedReads = detailReads.get("record-one");
+    await Promise.all([
+      page.waitForResponse((response) => response.url().includes("/api/logs?")),
+      page.locator("#refreshLogs").click(),
+    ]);
+    expect(detailReads.get("record-one")).toBe(completedReads);
   });
 
   it("loads task records only when a group is expanded", async () => {
@@ -638,6 +684,10 @@ describe("admin UI history page", { timeout: UI_TEST_TIMEOUT_MS }, () => {
     await expectPage(page.locator("#requestJson")).toContainText("hello");
     await expectPage(page.locator("#responseJson")).toContainText("null");
     expect(detailReads.get("record-one")).toBe(1);
+    const formattedString = page.locator("#requestJson .json-str-detail");
+    await expectPage(formattedString).toHaveJSProperty("open", false);
+    await formattedString.locator("summary").click();
+    await expectPage(formattedString).toHaveJSProperty("open", true);
 
     const autoRefresh = page.locator("#autoRefreshLogs");
     await autoRefresh.uncheck();
@@ -648,13 +698,14 @@ describe("admin UI history page", { timeout: UI_TEST_TIMEOUT_MS }, () => {
     await finishedDetail;
     await expectPage(page.locator("#responseJson")).toContainText("done");
     await expectPage(page.locator("#responseMeta")).toBeHidden();
+    await expectPage(formattedString).toHaveJSProperty("open", true);
     expect(detailReads.get("record-one")).toBe(2);
     await autoRefresh.uncheck();
   });
 
   it("expands and collapses nested JSON trees", async () => {
     await openRecordDetail("record-two");
-    const details = page.locator("#requestJson details[data-json-node-path]");
+    const details = page.locator("#requestJson details[data-json-node-path]:not(.json-str-detail)");
     await expectPage(details).toHaveCount(3);
     await expectPage(details.nth(2)).toHaveJSProperty("open", false);
 
@@ -787,6 +838,12 @@ describe("admin UI visual regression", { timeout: UI_TEST_TIMEOUT_MS }, () => {
       "grid-template-columns",
       "698px",
     );
+    const mobileTargets = page.locator(".target-card");
+    const firstMobileTarget = await requiredBox(mobileTargets.nth(0));
+    const secondMobileTarget = await requiredBox(mobileTargets.nth(1));
+    expect(secondMobileTarget.y).toBeGreaterThan(
+      firstMobileTarget.y + firstMobileTarget.height / 2,
+    );
     expect(
       screenshotContentRatio(await page.screenshot({ animations: "disabled" })),
     ).toBeGreaterThan(0.05);
@@ -807,13 +864,6 @@ describe("admin UI visual regression", { timeout: UI_TEST_TIMEOUT_MS }, () => {
 
 function publicPair(pair: ProxyPair): PublicProxyPair {
   return { ...structuredClone(pair), actual_listen_port: null, running: pair.enabled };
-}
-
-async function scrollLeft(locator: Locator): Promise<number> {
-  return locator.evaluate((element) => {
-    const value: unknown = Reflect.get(element, "scrollLeft");
-    return typeof value === "number" ? value : 0;
-  });
 }
 
 async function openRecordDetail(recordId: string): Promise<void> {
@@ -868,7 +918,6 @@ function visualPairs(): PublicProxyPair[] {
     target_headers: [],
     strip_request_fields: "",
     inject_request_fields: "",
-    timeout: 600,
     log_root: "logs",
     redact_logs: false,
     model_mappings: [

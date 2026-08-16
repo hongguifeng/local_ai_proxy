@@ -63,7 +63,6 @@ function pairFixture(upstreamPort: number, name: string): ProxyPair {
         target_headers: [],
         strip_request_fields: "",
         inject_request_fields: "",
-        timeout: 10,
         log_root: "",
         redact_logs: false,
         model_mappings: [],

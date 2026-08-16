@@ -207,7 +207,6 @@ function runtimeTarget(target: TargetConfig, trafficLog: TrafficLogService): Pro
     targetBasePath: parsed.basePath,
     targetApiKey: target.target_api_key,
     targetHeaders: parseHeaderOverrides(target.target_headers),
-    timeoutMs: target.timeout * 1_000,
     trafficLog,
   };
 }

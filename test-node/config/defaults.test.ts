@@ -17,7 +17,6 @@ describe("configuration defaults", () => {
       target_headers: [],
       strip_request_fields: "",
       inject_request_fields: "",
-      timeout: 600,
       log_root: "custom-logs",
       redact_logs: false,
       model_mappings: [],

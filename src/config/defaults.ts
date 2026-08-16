@@ -5,7 +5,6 @@ export const DEFAULT_LOG_ROOT = "logs";
 export const DEFAULT_PROXY_HOST = "127.0.0.1";
 export const DEFAULT_PROXY_PORT = 1234;
 export const DEFAULT_TARGET_URL = "http://127.0.0.1:1235";
-export const DEFAULT_TARGET_TIMEOUT_SECONDS = 600;
 
 export const SUGGESTED_STRIP_REQUEST_FIELDS = [
   "temperature",
@@ -29,7 +28,6 @@ export function createDefaultTarget(logRoot = DEFAULT_LOG_ROOT): TargetConfig {
     target_headers: [],
     strip_request_fields: "",
     inject_request_fields: "",
-    timeout: DEFAULT_TARGET_TIMEOUT_SECONDS,
     log_root: logRoot,
     redact_logs: false,
     model_mappings: [],

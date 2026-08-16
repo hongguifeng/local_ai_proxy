@@ -187,15 +187,16 @@ main {
 }
 .targets-row {
   min-width: 0;
-  display: flex;
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(300px, 360px));
   gap: 10px;
-  overflow-x: auto;
-  padding: 2px 2px 8px;
-  scrollbar-gutter: stable;
+  align-items: start;
+  justify-content: start;
+  padding: 2px;
 }
 .target-card {
-  flex: 0 0 min(360px, calc(100vw - 78px));
-  min-width: 300px;
+  width: 100%;
+  min-width: 0;
   border: 1px solid #b8c5d3;
   border-radius: 8px;
   padding: 10px;
@@ -708,8 +709,7 @@ label span {
   .fields.three {
     grid-template-columns: 1fr;
   }
-  .target-card {
-    flex-basis: min(340px, calc(100vw - 56px));
-    min-width: 280px;
+  .targets-row {
+    grid-template-columns: minmax(0, 1fr);
   }
 }

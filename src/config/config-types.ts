@@ -24,7 +24,6 @@ export interface RuntimeTarget {
   readonly targetHost: string;
   readonly targetPort: number;
   readonly targetScheme: TargetScheme;
-  readonly timeoutMs: number;
 }
 
 export interface RuntimeProxyConfig {

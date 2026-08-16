@@ -118,7 +118,6 @@ export {
 export { joinTargetPath, parseTargetUrl, type ParsedTargetUrl } from "./target.js";
 export {
   openUpstreamResponse,
-  UpstreamTimeoutError,
   type OpenUpstreamResponseOptions,
   type UpstreamTarget,
 } from "./upstream-forwarder.js";

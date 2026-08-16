@@ -34,7 +34,7 @@ flowchart LR
   MatchB -- no --> Default["Default target<br/>fallback upstream"]
 ```
 
-Each upstream target keeps its own timeout, log directory, upstream headers, and request-field rewrite rules. Non-default targets can be disabled temporarily; disabled targets are skipped during model matching.
+Each upstream target keeps its own log directory, upstream headers, and request-field rewrite rules. Non-default targets can be disabled temporarily; disabled targets are skipped during model matching.
 
 ## What It Does
 
@@ -139,7 +139,7 @@ The **Proxy** tab is the main control surface. Each proxy pair includes:
 
 - Name and enabled/running status.
 - Listen host and port.
-- One or more upstream targets, shown horizontally inside the proxy pair.
+- One or more upstream targets, arranged in rows that wrap to the available width.
 - A default target for unmatched request models.
 
 Each upstream target includes:
@@ -148,14 +148,15 @@ Each upstream target includes:
 - Upstream target URL.
 - API Key. If set, it adds or replaces `Authorization: Bearer ...` on forwarded requests.
 - Model mappings, one per line. Use `local-model => upstream-model`; the listened model supports `*` as a wildcard matching any number of characters. Omit `=> upstream-model` to preserve the requested model name.
-- Timeout.
 - Log directory, default `logs`.
 - Upstream headers, one `Name: value` entry per line.
 - Request fields to strip before forwarding.
 - Request fields to inject before forwarding as a JSON object.
 - stored log redaction.
 
-The target URL, API Key, and model mappings are shown by default. Use **More settings** on a target card to reveal timeout, log directory, headers, and request-field rewriting options.
+The target URL, API Key, and model mappings are shown by default. Use **More settings** on a target card to reveal the log directory, headers, and request-field rewriting options.
+
+The proxy does not impose an upstream response timeout. Clients control request deadlines and disconnecting a client request aborts its upstream request.
 
 Proxy pairs are saved to `logs/proxies.json` unless `--config-file` is provided.
 
@@ -314,7 +315,7 @@ Common launcher options and environment variables:
 - `--log-root` / `LLM_PROXY_LOG_ROOT`, default `logs`
 - `--no-browser` / `LLM_PROXY_NO_BROWSER=1`
 
-Proxy listen addresses, upstream targets, API keys, headers, model mappings, timeouts, and request-field rewriting are configured in the web console and saved to `logs/proxies.json`.
+Proxy listen addresses, upstream targets, API keys, headers, model mappings, and request-field rewriting are configured in the web console and saved to `logs/proxies.json`.
 
 ## Project Structure
 

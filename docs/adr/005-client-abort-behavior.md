@@ -61,4 +61,4 @@ shutdown abort 与 client abort 使用不同错误类别，便于 History 和诊
 - 客户端取消会尽快释放上游资源和成本。
 - aborted 日志可能只有部分响应，这是批准行为。
 - 需要测试上传中断、Header 前中断、Header 后中断、SSE 中断和 shutdown 中断。
-- Node 数据面中的所有 stream 和 timeout 必须连接到同一个请求级 abort signal。
+- Node 数据面中的所有 stream 必须连接到同一个请求级 abort signal。

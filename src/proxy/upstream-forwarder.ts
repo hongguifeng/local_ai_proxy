@@ -8,7 +8,6 @@ export interface UpstreamTarget {
   readonly targetHost: string;
   readonly targetPort: number;
   readonly targetScheme: "http" | "https";
-  readonly timeoutMs?: number;
 }
 
 export interface OpenUpstreamResponseOptions {
@@ -18,13 +17,6 @@ export interface OpenUpstreamResponseOptions {
   readonly path: string;
   readonly signal?: AbortSignal;
   readonly target: UpstreamTarget;
-}
-
-export class UpstreamTimeoutError extends Error {
-  constructor(timeoutMs: number) {
-    super(`Upstream request timed out after ${timeoutMs} ms.`);
-    this.name = "UpstreamTimeoutError";
-  }
 }
 
 export function openUpstreamResponse(
@@ -47,11 +39,6 @@ export function openUpstreamResponse(
       },
       resolve,
     );
-    if (options.target.timeoutMs !== undefined) {
-      request.setTimeout(options.target.timeoutMs, () => {
-        request.destroy(new UpstreamTimeoutError(options.target.timeoutMs ?? 0));
-      });
-    }
     request.once("error", reject);
     request.end(options.body);
   });

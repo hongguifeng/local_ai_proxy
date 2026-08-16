@@ -28,7 +28,7 @@ sha256sum doc/ui_proxy_cn.png doc/ui_proxy_en.png doc/ui_logs_cn.png doc/ui_logs
 - 顶部白色 Header，左侧产品名，右侧 Tab 和语言选择器。
 - 页面浅灰背景，代理为白色圆角卡片。
 - 代理名称、运行圆点、监听地址、端口和开关位于同一行。
-- Target 使用浅蓝灰卡片，并在代理卡片内横向排列。
+- Target 使用浅蓝灰卡片，并在代理卡片内按可用宽度自动换行排列。
 - Target 默认展示名称、默认目标、URL、API Key、模型映射、启用状态和“更多配置”。
 - API Key 输入框包含显隐与复制按钮。
 - 代理卡片底部右侧包含添加 Target 和删除代理操作。

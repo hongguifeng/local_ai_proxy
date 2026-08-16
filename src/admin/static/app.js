@@ -38,7 +38,6 @@ const translations = {
     showApiKey: "显示 API Key",
     hideApiKey: "隐藏 API Key",
     copyApiKey: "复制 API Key",
-    timeoutSeconds: "超时秒数",
     logRoot: "日志目录",
     redactLogs: "日志脱敏",
     upstreamHeaders: "上游 Headers，每行一个 Name: value",
@@ -107,7 +106,6 @@ const translations = {
     showApiKey: "Show API Key",
     hideApiKey: "Hide API Key",
     copyApiKey: "Copy API Key",
-    timeoutSeconds: "Timeout seconds",
     logRoot: "Log directory",
     redactLogs: "Redact logs",
     upstreamHeaders: "Upstream headers, one Name: value per line",
@@ -221,10 +219,11 @@ function formatLogMeta(meta) {
   const text = String(meta || "");
   return text.replace(/(\d+)\s+requests/g, (_, count) => `${count} ${t("requests")}`);
 }
+function isPendingStatus(status) {
+  return status === undefined || status === null || status === "pending";
+}
 function formatStatus(status) {
-  return status === undefined || status === null || status === "pending"
-    ? t("pending")
-    : String(status);
+  return isPendingStatus(status) ? t("pending") : String(status);
 }
 function logItemTitle(item) {
   const parts = [];
@@ -245,7 +244,6 @@ const newTarget = () => ({
   target_headers: [],
   strip_request_fields: "",
   inject_request_fields: "",
-  timeout: 600,
   log_root: "logs",
   redact_logs: false,
   model_mappings: [],
@@ -309,7 +307,6 @@ function renderTarget(target, pair, pairIndex, targetIndex) {
       </div>
       <div class="target-options" ${expanded ? "" : "hidden"}>
         <div class="fields">
-          <label><span>${escapeHtml(t("timeoutSeconds"))}</span><input type="number" data-target-field="timeout" value="${target.timeout || 600}"></label>
           <label><span>${escapeHtml(t("logRoot"))}</span><input data-target-field="log_root" value="${escapeHtml(target.log_root || "logs")}"></label>
         </div>
         <label class="target-enabled"><input type="checkbox" data-redact-logs ${target.redact_logs ? "checked" : ""}> <span>${escapeHtml(t("redactLogs"))}</span></label>
@@ -341,12 +338,6 @@ function renderPairs() {
     )
     .join("");
 }
-function rerenderPairAtScroll(card, scrollLeft) {
-  const index = card.dataset.index;
-  renderPairs();
-  const nextRow = document.querySelector(`.proxy-card[data-index="${index}"] .targets-row`);
-  if (nextRow) nextRow.scrollLeft = scrollLeft;
-}
 function escapeHtml(text) {
   return String(text).replace(
     /[&<>"']/g,
@@ -360,7 +351,6 @@ function collectPairs() {
       const field = input.dataset.field;
       let value = input.value;
       if (field === "listen_port") value = Number(value);
-      if (field === "timeout") value = Number(value);
       if (field === "target_headers")
         value = value
           .split(/\n/)
@@ -375,7 +365,6 @@ function collectPairs() {
       targetCard.querySelectorAll("[data-target-field]").forEach((input) => {
         const field = input.dataset.targetField;
         let value = input.value;
-        if (field === "timeout") value = Number(value);
         if (field === "target_headers")
           value = value
             .split(/\n/)
@@ -524,7 +513,8 @@ async function loadLogs(options = {}) {
     if (!rendered) renderLogs();
     state.logsLoadedAt = Date.now();
     try {
-      await refreshSelectedLogDetail();
+      const refreshedPendingIds = await refreshPendingLogItems();
+      if (!refreshedPendingIds.has(state.selected)) await refreshSelectedLogDetail();
     } catch (e) {
       if (!options.quiet) toast(e.message);
     }
@@ -532,6 +522,33 @@ async function loadLogs(options = {}) {
     state.logsLoading = false;
     scheduleLogRefresh();
   }
+}
+async function refreshPendingLogItems() {
+  const pendingItems = state.logGroups
+    .filter((group) => group.logsLoaded && state.collapsedGroups[group.id])
+    .flatMap((group) => group.logs || [])
+    .filter((item) => isPendingStatus(item.status));
+  const refreshedIds = new Set();
+  let listChanged = false;
+  await Promise.all(
+    pendingItems.map(async (item) => {
+      const data = await api(`/api/logs/${encodeURIComponent(item.id)}`);
+      refreshedIds.add(item.id);
+      if (state.selected === item.id) applySelectedLogDetail(data, { resetView: false });
+      if (data.pending) return;
+      const requestMeta = data.request_meta || {};
+      const responseMeta = data.response_meta || {};
+      item.message_count = requestMeta.message_count ?? item.message_count;
+      item.status = responseMeta.status ?? item.status;
+      item.token_count = responseMeta.token_count ?? item.token_count;
+      listChanged = true;
+    }),
+  );
+  if (listChanged) {
+    state.logs = state.logGroups.flatMap((group) => group.logs || []);
+    renderLogs();
+  }
+  return refreshedIds;
 }
 function appendLogGroups(currentGroups, nextGroups) {
   const merged = currentGroups.map((group) => ({ ...group, logs: [...(group.logs || [])] }));
@@ -690,7 +707,7 @@ function renderJsonValue(value, key = "", root = false, formatMode = false, dept
       const summarySingleLine = escapeHtml(summaryRaw.replace(/\r\n/g, "↵").replace(/\n/g, "↵"));
       const summaryText = summarySingleLine + (displayValue.length > 150 ? "…" : "");
       const fullLines = displayValue.split(String.fromCharCode(10)).length;
-      return `${keyHtml}<details class="json-str-detail"><summary>${summaryText} <span class="json-muted">(${fullLines} ${t("lines")})</span></summary><div class="json-str-full"><button class="json-str-copy" data-copy-string title="${escapeHtml(t("copyFormattedText"))}">📋</button><pre class="json-str-body">${escapeHtml(displayValue)}</pre></div></details>`;
+      return `${keyHtml}<details class="json-str-detail" data-json-node-path="${jsonNodePathAttr(path)}"><summary>${summaryText} <span class="json-muted">(${fullLines} ${t("lines")})</span></summary><div class="json-str-full"><button class="json-str-copy" data-copy-string title="${escapeHtml(t("copyFormattedText"))}">📋</button><pre class="json-str-body">${escapeHtml(displayValue)}</pre></div></details>`;
     }
     return `${keyHtml}<span class="json-string format-mode">${escapeHtml(displayValue)}</span>`;
   }
@@ -844,14 +861,12 @@ $("proxyGrid").addEventListener("click", (event) => {
   const card = event.target.closest(".proxy-card");
   if (!card) return;
   const pair = state.pairs[Number(card.dataset.index)];
-  const targetRow = card.querySelector(".targets-row");
-  const targetScrollLeft = targetRow ? targetRow.scrollLeft : 0;
   if (event.target.matches("[data-add-target]")) {
     collectPairs();
     const target = newTarget();
     pairTargets(pair).push(target);
     pair.default_target_id = pair.default_target_id || target.id;
-    rerenderPairAtScroll(card, targetScrollLeft);
+    renderPairs();
     return;
   }
   if (event.target.matches("[data-toggle-target-options]")) {
@@ -859,7 +874,7 @@ $("proxyGrid").addEventListener("click", (event) => {
     const targetCard = event.target.closest(".target-card");
     const target = pairTargets(pair)[Number(targetCard.dataset.targetIndex)];
     target.expanded = !target.expanded;
-    rerenderPairAtScroll(card, targetScrollLeft);
+    renderPairs();
     return;
   }
   if (event.target.matches("[data-toggle-api-key]")) {
@@ -889,7 +904,7 @@ $("proxyGrid").addEventListener("click", (event) => {
     if (targets.length <= 1) return;
     const removed = targets.splice(Number(targetCard.dataset.targetIndex), 1)[0];
     if (pair.default_target_id === removed.id) pair.default_target_id = targets[0].id;
-    rerenderPairAtScroll(card, targetScrollLeft);
+    renderPairs();
     return;
   }
   if (event.target.matches("[data-remove]")) {
@@ -899,11 +914,8 @@ $("proxyGrid").addEventListener("click", (event) => {
 });
 $("proxyGrid").addEventListener("change", async (event) => {
   if (event.target.matches("[data-default-target]")) {
-    const card = event.target.closest(".proxy-card");
-    const targetRow = card?.querySelector(".targets-row");
-    const targetScrollLeft = targetRow ? targetRow.scrollLeft : 0;
     collectPairs();
-    if (card) rerenderPairAtScroll(card, targetScrollLeft);
+    renderPairs();
     return;
   }
   if (!event.target.matches("[data-toggle]")) return;

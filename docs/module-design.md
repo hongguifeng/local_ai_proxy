@@ -404,7 +404,7 @@ repository 封装所有 SQL 和 JSON 字段编码/解码：
 ### 4.2 CSS
 
 - CSS 变量定义颜色和动态布局尺寸。
-- Proxy target 使用横向 flex 滚动。
+- Proxy target 使用响应式网格，空间不足时自动换行。
 - History 使用三列 grid：sidebar、splitter、detail。
 - Detail 使用三行 grid：request、splitter、response。
 - JSON tree 使用 `details/summary`。
@@ -446,7 +446,6 @@ erDiagram
     boolean enabled
     string target_url
     string target_api_key
-    number timeout
     string log_root
     boolean redact_logs
   }
@@ -686,7 +685,8 @@ create pending record
 - 原样支持 HTTP/HTTPS。
 - 正确处理 incoming chunked body。
 - 使用 `stream.pipeline()` 和 backpressure。
-- 支持 AbortController：客户端断开、timeout、应用关闭。
+- 不设置上游响应超时；请求截止时间由客户端控制。
+- 支持 AbortController：客户端断开和应用关闭。
 - 保留当前 `Connection: close` 合同作为 parity 阶段默认行为；性能优化另做变更。
 
 #### TrafficLogService

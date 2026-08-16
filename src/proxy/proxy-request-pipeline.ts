@@ -46,7 +46,6 @@ export interface ProxyPipelineTarget {
   readonly targetBasePath: string;
   readonly targetApiKey?: string;
   readonly targetHeaders?: readonly HeaderEntry[];
-  readonly timeoutMs?: number;
   readonly trafficLog: TrafficLogWriter;
 }
 

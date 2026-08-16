@@ -40,7 +40,6 @@ describe("createNodeApplication", () => {
                 target_headers: [],
                 strip_request_fields: "",
                 inject_request_fields: "",
-                timeout: 1,
                 log_root: "logs",
                 redact_logs: false,
                 model_mappings: [],

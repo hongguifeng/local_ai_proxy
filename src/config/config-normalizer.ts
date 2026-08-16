@@ -124,7 +124,6 @@ export function normalizeTargetConfig(
     target_headers: rawHeaders,
     strip_request_fields: primitiveText(raw["strip_request_fields"]),
     inject_request_fields: normalizeInjectRequestFields(raw["inject_request_fields"]),
-    timeout: positiveNumber(raw["timeout"], 600),
     log_root: normalizeLogRoot(raw["log_root"], defaultLogRoot),
     redact_logs: Boolean(raw["redact_logs"] ?? false),
     model_mappings: normalizeModelMappings(raw["model_mappings"] ?? raw["models"]),

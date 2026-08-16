@@ -1,7 +1,6 @@
 import { z } from "zod";
 
 const MAX_PORT = 65_535;
-const MAX_TIMEOUT_SECONDS = 86_400;
 
 const targetUrlSchema = z
   .string()
@@ -34,7 +33,6 @@ export const targetConfigSchema = z.object({
   target_headers: z.array(headerOverrideSchema),
   strip_request_fields: z.string(),
   inject_request_fields: injectRequestFieldsSchema,
-  timeout: z.number().positive().max(MAX_TIMEOUT_SECONDS),
   log_root: z.string(),
   redact_logs: z.boolean(),
   model_mappings: z.array(modelMappingSchema),

@@ -44,7 +44,7 @@
 
 - [x] `BASE-010` P0 测试 GET/POST/PUT/PATCH/DELETE/OPTIONS/HEAD。
 - [x] `BASE-011` P0 测试自定义 Header 覆盖、API Key 优先级和重复 Header。
-- [x] `BASE-012` P0 测试上游 502、timeout、响应开始后断开。
+- [x] `BASE-012` P0 测试上游 502、响应开始后断开。（上游 timeout 后续已移除。）
 - [x] `BASE-013` P0 测试多 target 使用不同 log root。
 - [x] `BASE-014` P0 测试 config invalid JSON、invalid shape、port conflict。
 - [x] `BASE-015` P0 测试管理 API 400/404 和非法 query。
@@ -104,7 +104,7 @@
 - [x] `CFG-002` P0 定义 `TargetConfig` schema/type。
 - [x] `CFG-003` P0 定义 `ProxyPair` schema/type。
 - [x] `CFG-004` P0 定义 public/runtime config 类型。
-- [x] `CFG-005` P0 校验 URL、port、timeout、header line、inject JSON object。
+- [x] `CFG-005` P0 校验 URL、port、header line、inject JSON object。（上游 timeout 后续已移除。）
 - [x] `CFG-006` P1 检测重复 pair ID 和 target ID。
 
 ### 5.2 默认值和规范化
@@ -299,7 +299,7 @@
 - [x] `HTTP-021` P0 HTTPS target。
 - [x] `HTTP-022` P0 base path/query。
 - [x] `HTTP-023` P0 Header 过滤和覆盖。
-- [x] `HTTP-024` P0 timeout。
+- [x] `HTTP-024` P0 timeout。（后续设计决定由客户端管理请求超时，已移除。）
 - [x] `HTTP-025` P0 AbortController 连接 client/upstream/shutdown。
 - [x] `HTTP-026` P1 TLS 错误和 DNS 错误测试。
 
@@ -402,7 +402,7 @@
 - [x] `UI-015` P0 More settings。
 - [x] `UI-016` P0 save 和 enable toggle。
 - [x] `UI-017` P0 语言切换不丢表单值。
-- [x] `UI-018` P1 target 横向滚动位置。
+- [x] `UI-018` P1 target 横向滚动位置。（后续改为响应式多行布局。）
 
 ### 12.3 History 页面 E2E
 
