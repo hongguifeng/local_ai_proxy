@@ -37,8 +37,10 @@ export {
   requestUserMessages,
   responseIdsFromBody,
   responseTokenCount,
+  responseTokenCounts,
   stableHash,
   type EndpointKind,
+  type ResponseTokenCounts,
 } from "./records.js";
 export {
   parseInjectRequestFields,

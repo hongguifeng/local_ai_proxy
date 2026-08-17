@@ -10,12 +10,12 @@ import {
 import type { Readable } from "node:stream";
 
 export interface LogGroupSummary {
+  readonly ended_at: string;
   readonly id: string;
-  readonly meta: string;
   readonly model: string | null;
   readonly request_count: number;
+  readonly started_at: string;
   readonly target: string | null;
-  readonly title: string;
 }
 
 export interface LogGroupPage {
@@ -37,7 +37,8 @@ export interface LogListItem {
   readonly status: number | null;
   readonly target: string;
   readonly timestamp: string;
-  readonly token_count: number | null;
+  readonly request_token_count: number | null;
+  readonly response_token_count: number | null;
 }
 
 export interface LogGroupLogs {
@@ -229,7 +230,8 @@ function recordDetail(record: Readonly<RepositoryRecord>): LogRecordDetail {
       status: record["status"],
       first_byte_ms: pending ? undefined : record["first_byte_ms"],
       duration_ms: pending ? undefined : record["duration_ms"],
-      token_count: record["token_count"],
+      request_token_count: record["request_token_count"],
+      response_token_count: record["response_token_count"],
       error: record["error"],
       headers: record["response_headers"],
     }),
@@ -266,7 +268,8 @@ function logListItem(record: Readonly<RepositoryRecord>): LogListItem {
     endpoint: string(record["endpoint"]),
     message_count: optionalInteger(record["message_count"]),
     status: optionalInteger(record["status"]),
-    token_count: optionalInteger(record["token_count"]),
+    request_token_count: optionalInteger(record["request_token_count"]),
+    response_token_count: optionalInteger(record["response_token_count"]),
     target: string(record["target_url"]),
   };
 }
@@ -279,32 +282,17 @@ function taskSortTime(task: Readonly<RepositoryRecord>): number {
 
 function taskGroupSummary(task: Readonly<RepositoryRecord>): LogGroupSummary {
   const requestCount = integer(task["request_count"], 0);
-  const model = optionalString(task["model"]);
+  const rawModel = optionalString(task["model"]);
+  const model = rawModel === null ? null : basename(rawModel);
   const target = optionalString(task["target"]);
-  const meta = [
-    ...(model === null ? [] : [basename(model)]),
-    `${requestCount} requests`,
-    ...(target === null ? [] : [target]),
-  ].join(" | ");
   return {
+    ended_at: displayTimestamp(task["last_response_at"] ?? task["last_seen_at"]),
     id: string(task["id"]),
-    title: taskTitle(task),
-    meta,
     model,
-    target,
     request_count: requestCount,
+    started_at: displayTimestamp(task["started_at"]),
+    target,
   };
-}
-
-function taskTitle(task: Readonly<RepositoryRecord>): string {
-  const start = displayTimestamp(task["started_at"]);
-  const end = displayTimestamp(task["last_response_at"] ?? task["last_seen_at"]);
-  if (start !== "" && end !== "") {
-    return start.slice(0, 10) === end.slice(0, 10)
-      ? `${start} - ${end.slice(11)}`
-      : `${start} - ${end}`;
-  }
-  return start || end || string(task["id"]);
 }
 
 function displayTimestamp(value: unknown): string {

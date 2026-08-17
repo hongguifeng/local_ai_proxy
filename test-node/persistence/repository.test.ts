@@ -254,7 +254,8 @@ describe("TrafficRepository history summaries", () => {
       endpoint: "/v1/responses",
       status: null,
       message_count: null,
-      token_count: null,
+      request_token_count: null,
+      response_token_count: null,
       target_url: null,
     });
     repository.close();

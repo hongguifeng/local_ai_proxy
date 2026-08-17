@@ -151,7 +151,7 @@ describe("connectLogDatabase", () => {
       .prepare("SELECT name, type FROM sqlite_master WHERE name NOT LIKE 'sqlite_%'")
       .all() as { name: string; type: string }[];
     const names = new Set(objects.map(({ name }) => name));
-    expect(readSchemaVersion(database)).toBe(4);
+    expect(readSchemaVersion(database)).toBe(5);
     expect([...names]).toEqual(
       expect.arrayContaining([
         "schema_meta",
@@ -169,7 +169,14 @@ describe("connectLogDatabase", () => {
     );
     expect(
       (database.pragma("table_info(records)") as { name: string }[]).map(({ name }) => name),
-    ).toEqual(expect.arrayContaining(["original_request_body_json", "first_byte_ms"]));
+    ).toEqual(
+      expect.arrayContaining([
+        "original_request_body_json",
+        "first_byte_ms",
+        "request_token_count",
+        "response_token_count",
+      ]),
+    );
 
     database.close();
   });
@@ -232,7 +239,7 @@ describe("database backup", () => {
     expect(backup.prepare("SELECT value FROM backup_fixture").pluck().get()).toBe(
       "persisted through WAL",
     );
-    expect(readSchemaVersion(backup)).toBe(4);
+    expect(readSchemaVersion(backup)).toBe(5);
     backup.close();
   });
 
@@ -241,6 +248,23 @@ describe("database backup", () => {
     temporaryDirectories.push(root);
     const database = openLogDatabase(root);
     runMigrations(database, [SCHEMA_V1_MIGRATION]);
+    database.exec(`
+      INSERT INTO tasks(
+        id, kind, started_at, last_seen_at, match_strategy_version, created_at, updated_at
+      ) VALUES (
+        'task-old-token-counts', 'responses', '2026-07-18', '2026-07-18', 4,
+        '2026-07-18', '2026-07-18'
+      );
+      INSERT INTO records(
+        id, task_id, sequence, event, timestamp, started_at, method, path, endpoint,
+        token_count, response_body_json, created_at, updated_at
+      ) VALUES (
+        'record-old-token-counts', 'task-old-token-counts', 1, 'request_finished',
+        '2026-07-18', '2026-07-18', 'POST', '/v1/responses', '/v1/responses', 9,
+        '{"usage":{"input_tokens":6,"output_tokens":3,"total_tokens":9}}',
+        '2026-07-18', '2026-07-18'
+      );
+    `);
     database.close();
     const databasePath = path.join(root, TRAFFIC_DB_NAME);
     const rollbackPath = path.join(root, "traffic.v1.rollback.db");
@@ -256,6 +280,11 @@ describe("database backup", () => {
     expect(migrated.getTask("task-migration-rehearsal")).toMatchObject({
       id: "task-migration-rehearsal",
       model: "fixture-model",
+    });
+    expect(migrated.getRecord("record-old-token-counts")).toMatchObject({
+      token_count: 9,
+      request_token_count: 6,
+      response_token_count: 3,
     });
     migrated.close();
 

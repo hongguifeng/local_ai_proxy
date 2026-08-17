@@ -6,6 +6,7 @@ import {
   redactRecord,
   requestMessageCount,
   responseTokenCount,
+  responseTokenCounts,
 } from "../proxy/index.js";
 import { isRecord, stableJsonStringify, StructuredLogger } from "../shared/index.js";
 import { TaskMatcher } from "./task-matcher.js";
@@ -95,6 +96,7 @@ export class TrafficLogService {
     const originalRequestBody = bodyValue(request["body"]);
     const hasUpstreamBody = isRecord(request["upstream_body"]);
     const requestBody = hasUpstreamBody ? bodyValue(request["upstream_body"]) : originalRequestBody;
+    const tokenCounts = responseTokenCounts(assignment.responsePayload);
     const distinctOriginalBody =
       hasUpstreamBody &&
       stableJsonStringify(originalRequestBody) !== stableJsonStringify(requestBody)
@@ -130,6 +132,8 @@ export class TrafficLogService {
         error: recordToWrite["error"],
         message_count: requestMessageCount(kind, requestBody),
         token_count: responseTokenCount(assignment.responsePayload),
+        request_token_count: tokenCounts.request,
+        response_token_count: tokenCounts.response,
         request_headers: mapping(request["headers"]),
         response_headers: mapping(response["headers"]),
         request_body: requestBody,

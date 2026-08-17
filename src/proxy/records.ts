@@ -82,16 +82,35 @@ export function responseTokenCount(payload: unknown): number | undefined {
   if (typeof total === "number" && Number.isInteger(total)) {
     return total;
   }
-  const tokenKeys = [
-    "input_tokens",
-    "output_tokens",
-    "cache_creation_input_tokens",
-    "cache_read_input_tokens",
-  ] as const;
-  const values = tokenKeys
-    .map((key) => usage[key])
-    .filter((value): value is number => typeof value === "number" && Number.isInteger(value));
+  const counts = responseTokenCounts(payload);
+  const values = [counts.request, counts.response].filter(
+    (value): value is number => value !== undefined,
+  );
   return values.length === 0 ? undefined : values.reduce((sum, value) => sum + value, 0);
+}
+
+export interface ResponseTokenCounts {
+  readonly request: number | undefined;
+  readonly response: number | undefined;
+}
+
+export function responseTokenCounts(payload: unknown): ResponseTokenCounts {
+  const usage = responseUsage(payload);
+  if (!isRecord(usage)) {
+    return { request: undefined, response: undefined };
+  }
+  const input = tokenValue(usage, "input_tokens") ?? tokenValue(usage, "prompt_tokens");
+  const cachedInputValues = ["cache_creation_input_tokens", "cache_read_input_tokens"]
+    .map((key) => tokenValue(usage, key))
+    .filter((value): value is number => value !== undefined);
+  const cachedInput = cachedInputValues.reduce((sum, value) => sum + value, 0);
+  return {
+    request:
+      input === undefined && cachedInputValues.length === 0
+        ? undefined
+        : (input ?? 0) + cachedInput,
+    response: tokenValue(usage, "output_tokens") ?? tokenValue(usage, "completion_tokens"),
+  };
 }
 
 export function responseIdsFromBody(body: unknown): string[] {
@@ -481,6 +500,11 @@ function responseUsage(payload: unknown): unknown {
   }
   const response = payload["response"];
   return isRecord(response) && isPythonTruthy(response["usage"]) ? response["usage"] : undefined;
+}
+
+function tokenValue(usage: Readonly<Record<string, unknown>>, key: string): number | undefined {
+  const value = usage[key];
+  return typeof value === "number" && Number.isInteger(value) ? value : undefined;
 }
 
 function isPythonTruthy(value: unknown): boolean {

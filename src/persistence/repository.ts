@@ -275,6 +275,8 @@ export class TrafficRepository {
       error: optionalString(record["error"]),
       message_count: optionalInteger(record["message_count"]),
       token_count: optionalInteger(record["token_count"]),
+      request_token_count: optionalInteger(record["request_token_count"]),
+      response_token_count: optionalInteger(record["response_token_count"]),
       request_headers_json: jsonText(record["request_headers"], {}),
       response_headers_json: jsonText(record["response_headers"], {}),
       request_body_json: optionalJsonText(record["request_body"]),
@@ -295,6 +297,7 @@ export class TrafficRepository {
         id, task_id, sequence, event, timestamp, started_at, duration_ms, first_byte_ms,
         proxy_id, proxy_name, client_host, client_port, target_id, target_name, target_url,
         method, path, endpoint, status, error, message_count, token_count,
+        request_token_count, response_token_count,
         request_headers_json, response_headers_json, request_body_json, original_request_body_json,
         response_body_json,
         model_route_json, stripped_fields_json, injected_fields_json, added_upstream_headers_json,
@@ -303,6 +306,7 @@ export class TrafficRepository {
         @id, @task_id, @sequence, @event, @timestamp, @started_at, @duration_ms, @first_byte_ms,
         @proxy_id, @proxy_name, @client_host, @client_port, @target_id, @target_name, @target_url,
         @method, @path, @endpoint, @status, @error, @message_count, @token_count,
+        @request_token_count, @response_token_count,
         @request_headers_json, @response_headers_json, NULL,
         NULL, NULL,
         @model_route_json, @stripped_fields_json, @injected_fields_json, @added_upstream_headers_json,
@@ -317,6 +321,8 @@ export class TrafficRepository {
         method=excluded.method, path=excluded.path, endpoint=excluded.endpoint,
         status=excluded.status, error=excluded.error,
         message_count=excluded.message_count, token_count=excluded.token_count,
+        request_token_count=excluded.request_token_count,
+        response_token_count=excluded.response_token_count,
         request_headers_json=excluded.request_headers_json,
         response_headers_json=excluded.response_headers_json,
         request_body_json=NULL,
@@ -450,7 +456,7 @@ export class TrafficRepository {
       .prepare(
         `
         SELECT id, sequence, timestamp, method, path, endpoint, status,
-          message_count, token_count, target_url
+          message_count, request_token_count, response_token_count, target_url
         FROM records
         WHERE task_id = ? ${querySql}
         ORDER BY sequence DESC

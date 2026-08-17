@@ -220,24 +220,94 @@ function setLanguage(language) {
   renderMetaPane("request");
   renderMetaPane("response");
 }
-function formatLogMeta(meta) {
-  const text = String(meta || "");
-  return text.replace(/(\d+)\s+requests/g, (_, count) => `${count} ${t("requests")}`);
-}
 function isPendingStatus(status) {
   return status === undefined || status === null || status === "pending";
 }
 function formatStatus(status) {
   return isPendingStatus(status) ? t("pending") : String(status);
 }
-function logItemTitle(item) {
-  const parts = [];
-  const messageCount = Number(item.message_count);
-  const tokenCount = Number(item.token_count);
-  if (Number.isFinite(messageCount)) parts.push(`${messageCount} ${t("messages")}`);
-  if (Number.isFinite(tokenCount)) parts.push(`${tokenCount} ${t("tokens")}`);
-  if (!parts.length) parts.push(formatStatus(item.status));
-  return `${item.sequence ? `[${item.sequence}] ` : ""}${parts.join(" | ")}`;
+function logStatusClass(status) {
+  if (isPendingStatus(status)) return "pending";
+  const code = Number(status);
+  if (Number.isFinite(code) && code >= 200 && code < 400) return "success";
+  if (Number.isFinite(code) && code >= 400) return "error";
+  return "neutral";
+}
+function displayTimestampParts(value) {
+  const text = String(value || "").trim();
+  const match = /^(\d{4})-(\d{2})-(\d{2})[ T](.+)$/.exec(text);
+  if (!match) return { date: "", shortDate: "", time: text };
+  return {
+    date: `${match[1]}-${match[2]}-${match[3]}`,
+    shortDate: `${match[2]}-${match[3]}`,
+    time: match[4],
+  };
+}
+function logGroupTimeHtml(group) {
+  const start = displayTimestampParts(group.started_at);
+  const end = displayTimestampParts(group.ended_at);
+  const fallback = group.started_at || group.ended_at || group.id || t("task");
+  if (!start.date && !end.date) {
+    return `<span class="log-group-time-fallback">${escapeHtml(fallback)}</span>`;
+  }
+  const primary = start.date ? start : end;
+  const endText = end.date && end.date !== primary.date ? `${end.shortDate} ${end.time}` : end.time;
+  const range = [
+    primary.time ? `<span>${escapeHtml(primary.time)}</span>` : "",
+    primary.time && endText ? '<span class="log-time-arrow" aria-hidden="true">→</span>' : "",
+    endText ? `<span>${escapeHtml(endText)}</span>` : "",
+  ].join("");
+  return `<span class="log-group-time" title="${escapeHtml([group.started_at, group.ended_at].filter(Boolean).join(" - "))}">
+    <span class="log-group-date">${escapeHtml(primary.shortDate)}</span>
+    <span class="log-time-range">${range}</span>
+  </span>`;
+}
+function logGroupFactsHtml(group) {
+  return `<span class="log-group-facts">
+    ${group.model ? `<span class="log-model">${escapeHtml(group.model)}</span>` : ""}
+    <span class="log-request-count"><strong>${escapeHtml(group.request_count ?? 0)}</strong> ${escapeHtml(t("requests"))}</span>
+    ${group.target ? `<span class="log-target" title="${escapeHtml(group.target)}">${escapeHtml(group.target)}</span>` : ""}
+  </span>`;
+}
+function logMetricHtml(className, label, value, title = label) {
+  return `<span class="log-metric ${className}" title="${escapeHtml(title)}">
+    <span class="log-metric-label">${escapeHtml(label)}</span>
+    <strong class="log-metric-value">${escapeHtml(value)}</strong>
+  </span>`;
+}
+function logItemMetricsHtml(item) {
+  const metrics = [];
+  const messageCount = optionalFiniteNumber(item.message_count);
+  const requestTokenCount = optionalFiniteNumber(item.request_token_count);
+  const responseTokenCount = optionalFiniteNumber(item.response_token_count);
+  if (messageCount !== null) {
+    metrics.push(logMetricHtml("messages", t("messages"), messageCount));
+  }
+  if (requestTokenCount !== null || responseTokenCount !== null) {
+    metrics.push(
+      logMetricHtml(
+        "request-tokens",
+        t("request"),
+        requestTokenCount ?? "-",
+        `${t("request")} ${t("tokens")}`,
+      ),
+      logMetricHtml(
+        "response-tokens",
+        t("response"),
+        responseTokenCount ?? "-",
+        `${t("response")} ${t("tokens")}`,
+      ),
+    );
+  }
+  return (
+    metrics.join("") ||
+    `<span class="log-item-empty">${escapeHtml(formatStatus(item.status))}</span>`
+  );
+}
+function optionalFiniteNumber(value) {
+  if (value === null || value === undefined || value === "") return null;
+  const converted = Number(value);
+  return Number.isFinite(converted) ? converted : null;
 }
 const suggestedStripRequestFields = __SUGGESTED_STRIP_REQUEST_FIELDS__;
 const newTarget = () => ({
@@ -468,7 +538,15 @@ function logGroupsSignature(groups) {
   return (groups || []).map((group) => logGroupSummarySignature(group)).join("\n");
 }
 function logGroupSummarySignature(group) {
-  return [group.id, group.dir, group.title, group.meta].join("|");
+  return [
+    group.id,
+    group.dir,
+    group.started_at,
+    group.ended_at,
+    group.model,
+    group.request_count,
+    group.target,
+  ].join("|");
 }
 function sameLogGroups(nextGroups) {
   return logGroupsSignature(state.logGroups) === logGroupsSignature(nextGroups);
@@ -550,7 +628,8 @@ async function refreshPendingLogItems() {
       const responseMeta = data.response_meta || {};
       item.message_count = requestMeta.message_count ?? item.message_count;
       item.status = responseMeta.status ?? item.status;
-      item.token_count = responseMeta.token_count ?? item.token_count;
+      item.request_token_count = responseMeta.request_token_count ?? item.request_token_count;
+      item.response_token_count = responseMeta.response_token_count ?? item.response_token_count;
       listChanged = true;
     }),
   );
@@ -634,8 +713,8 @@ function renderLogs() {
       <button class="log-group-head" data-group-id="${escapeHtml(group.id || "")}">
         <input class="log-group-select" type="checkbox" data-select-group="${escapeHtml(group.id || "")}" title="${escapeHtml(t("selectLogGroup"))}" ${state.selectedLogGroups[group.id] ? "checked" : ""}>
         <span class="log-group-caret">${!state.collapsedGroups[group.id] ? "▸" : "▾"}</span>
-        <span class="log-group-title">${escapeHtml(group.title || group.id || t("task"))}</span>
-        <span class="log-meta">${escapeHtml(formatLogMeta(group.meta || ""))}</span>
+        ${logGroupTimeHtml(group)}
+        ${logGroupFactsHtml(group)}
       </button>
       ${
         !state.collapsedGroups[group.id]
@@ -646,8 +725,14 @@ function renderLogs() {
                 .map(
                   (item) => `
         <button class="log-item ${state.selected === item.id ? "active" : ""}" data-log-id="${escapeHtml(item.id)}">
-          <span class="log-title">${escapeHtml(logItemTitle(item))}</span>
-          <span class="log-meta">${escapeHtml(item.timestamp || "")} | ${escapeHtml(formatStatus(item.status))}</span>
+          <span class="log-sequence">${escapeHtml(item.sequence ? `#${item.sequence}` : "-")}</span>
+          <span class="log-item-content">
+            <span class="log-item-metrics">${logItemMetricsHtml(item)}</span>
+            <span class="log-item-subline">
+              <span class="log-timestamp">${escapeHtml(item.timestamp || "")}</span>
+              <span class="log-status ${logStatusClass(item.status)}"><span class="log-status-dot" aria-hidden="true"></span>${escapeHtml(formatStatus(item.status))}</span>
+            </span>
+          </span>
         </button>`,
                 )
                 .join("") +

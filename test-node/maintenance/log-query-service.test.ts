@@ -32,7 +32,8 @@ describe("LogQueryService", () => {
       id: "task-3",
       model: "gpt-5",
       request_count: 2,
-      meta: "gpt-5 | 2 requests | fixture-target",
+      started_at: "2026-07-18 12:00:00",
+      ended_at: "2026-07-18 12:00:00",
     });
   });
 
@@ -67,7 +68,6 @@ describe("LogQueryService", () => {
 
     expect(new LogQueryService([root]).listGroups().groups[0]).toMatchObject({
       target: "https://api.example.com:443/v1/responses",
-      meta: "gpt-5 | 2 requests | https://api.example.com:443/v1/responses",
     });
   });
 
@@ -111,6 +111,8 @@ describe("LogQueryService", () => {
       status: 202,
       message_count: 1,
       token_count: 7,
+      request_token_count: 5,
+      response_token_count: 2,
       target_url: "http://fixture/v1/responses",
       request_body: { input: "searchable" },
     });
@@ -130,7 +132,8 @@ describe("LogQueryService", () => {
           sequence: "1",
           endpoint: "/v1/responses",
           status: 202,
-          token_count: 7,
+          request_token_count: 5,
+          response_token_count: 2,
         }),
       ],
     });
@@ -193,6 +196,8 @@ describe("LogQueryService", () => {
       endpoint: "/v1/responses",
       status: 200,
       token_count: 9,
+      request_token_count: 6,
+      response_token_count: 3,
       message_count: 1,
       client_host: "127.0.0.1",
       client_port: 43111,
@@ -216,7 +221,13 @@ describe("LogQueryService", () => {
         client: "127.0.0.1:43111",
         message_count: 1,
       },
-      response_meta: { status: 200, first_byte_ms: 4.5, duration_ms: 15, token_count: 9 },
+      response_meta: {
+        status: 200,
+        first_byte_ms: 4.5,
+        duration_ms: 15,
+        request_token_count: 6,
+        response_token_count: 3,
+      },
     });
   });
 

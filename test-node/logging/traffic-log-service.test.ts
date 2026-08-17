@@ -138,7 +138,10 @@ describe("TrafficLogService record mapping", () => {
         body: {
           size_bytes: 0,
           base64: "",
-          text: JSON.stringify({ id: "resp-mapped", usage: { total_tokens: 42 } }),
+          text: JSON.stringify({
+            id: "resp-mapped",
+            usage: { input_tokens: 30, output_tokens: 12, total_tokens: 42 },
+          }),
         },
       },
     });
@@ -165,6 +168,8 @@ describe("TrafficLogService record mapping", () => {
       first_byte_ms: 125,
       message_count: 3,
       token_count: 42,
+      request_token_count: 30,
+      response_token_count: 12,
       model_route: { requested: "alias", upstream: "gpt-5" },
       stripped_fields: ["temperature"],
       injected_fields: ["stream"],

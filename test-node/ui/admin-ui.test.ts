@@ -88,8 +88,8 @@ beforeAll(async () => {
         const sourceGroups = useLargeLogFixture
           ? Array.from({ length: 101 }, (_, index) => ({
               id: `task-${index + 1}`,
-              title: `Task ${index + 1}`,
-              meta: `gpt-5 | 1 requests | target-${index + 1}`,
+              started_at: `2026-07-18 12:${String(index % 60).padStart(2, "0")}:00`,
+              ended_at: `2026-07-18 12:${String(index % 60).padStart(2, "0")}:05`,
               model: "gpt-5",
               request_count: 1,
               target: `target-${index + 1}`,
@@ -97,16 +97,16 @@ beforeAll(async () => {
           : [
               {
                 id: "task-one",
-                title: "2026-07-18 12:00:00 - 12:00:02",
-                meta: "gpt-5 | 2 requests | fixture-target",
+                started_at: "2026-07-18 12:00:00",
+                ended_at: "2026-07-18 12:00:02",
                 model: "gpt-5",
                 request_count: 2,
                 target: "fixture-target",
               },
               {
                 id: "task-needle",
-                title: "Needle task",
-                meta: "claude | 1 requests | fixture-target",
+                started_at: "2026-07-18 11:30:00",
+                ended_at: "2026-07-18 11:30:05",
                 model: "claude",
                 request_count: 1,
                 target: "fixture-target",
@@ -115,7 +115,10 @@ beforeAll(async () => {
         const groups = sourceGroups.filter(
           (group) =>
             !deletedLogGroups.has(group.id) &&
-            `${group.title} ${group.meta}`.toLowerCase().includes(query.toLowerCase()),
+            [group.id, group.started_at, group.ended_at, group.model, group.target]
+              .join(" ")
+              .toLowerCase()
+              .includes(query.toLowerCase()),
         );
         const pageGroups = groups.slice(offset, offset + limit);
         const nextOffset = offset + pageGroups.length;
@@ -145,7 +148,8 @@ beforeAll(async () => {
               endpoint: "/v1/responses",
               message_count: 1,
               status: 200,
-              token_count: sequence,
+              request_token_count: sequence * 2,
+              response_token_count: sequence,
               target: "fixture-target",
             };
           });
@@ -178,7 +182,8 @@ beforeAll(async () => {
               endpoint: "/v1/responses",
               message_count: 2,
               status: 200,
-              token_count: 12,
+              request_token_count: 8,
+              response_token_count: 4,
               target: "fixture-target",
             },
             {
@@ -190,7 +195,8 @@ beforeAll(async () => {
               endpoint: "/v1/responses",
               message_count: 1,
               status: null,
-              token_count: null,
+              request_token_count: null,
+              response_token_count: null,
               target: "fixture-target",
             },
           ],
@@ -220,7 +226,13 @@ beforeAll(async () => {
           request_meta: { method: "POST", endpoint: "/v1/responses" },
           response_meta: pending
             ? {}
-            : { status: 200, token_count: 12, first_byte_ms: 1_234, duration_ms: 65_678 },
+            : {
+                status: 200,
+                request_token_count: 8,
+                response_token_count: 4,
+                first_byte_ms: 1_234,
+                duration_ms: 65_678,
+              },
         };
       },
     },
@@ -497,7 +509,7 @@ describe("admin UI history page", { timeout: UI_TEST_TIMEOUT_MS }, () => {
     await response;
     expect(logQueries).toEqual(["needle"]);
     await expectPage(page.locator("#autoRefreshLogs")).toBeDisabled();
-    await expectPage(page.locator(".log-group-title")).toHaveText("Needle task");
+    await expectPage(page.locator(".log-model")).toHaveText("claude");
 
     const clearResponse = page.waitForResponse((candidate) => candidate.url().includes("q="));
     await page.locator("#logSearch").fill("");
@@ -556,8 +568,9 @@ describe("admin UI history page", { timeout: UI_TEST_TIMEOUT_MS }, () => {
     await autoRefresh.check();
     await finishedDetail;
 
-    await expectPage(pendingItem).toContainText("12 tokens");
-    await expectPage(pendingItem).toContainText("| 200");
+    await expectPage(pendingItem.locator(".request-tokens .log-metric-value")).toHaveText("8");
+    await expectPage(pendingItem.locator(".response-tokens .log-metric-value")).toHaveText("4");
+    await expectPage(pendingItem.locator(".log-status")).toHaveText("200");
     await expectPage(pendingItem).not.toContainText("pending");
     await autoRefresh.uncheck();
 
@@ -583,8 +596,12 @@ describe("admin UI history page", { timeout: UI_TEST_TIMEOUT_MS }, () => {
       page.locator('[data-group-id="task-one"]').click(),
     ]);
     expect(groupLogQueries).toEqual(["task-one:"]);
-    await expectPage(page.locator('[data-log-id="record-two"]')).toContainText("12 tokens");
-    await expectPage(page.locator('[data-log-id="record-one"]')).toContainText("1 messages");
+    const completedItem = page.locator('[data-log-id="record-two"]');
+    await expectPage(completedItem.locator(".request-tokens .log-metric-value")).toHaveText("8");
+    await expectPage(completedItem.locator(".response-tokens .log-metric-value")).toHaveText("4");
+    await expectPage(
+      page.locator('[data-log-id="record-one"] .messages .log-metric-value'),
+    ).toHaveText("1");
   });
 
   it("loads 100 more records within an expanded task", async () => {

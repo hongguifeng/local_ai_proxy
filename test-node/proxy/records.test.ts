@@ -8,6 +8,7 @@ import {
   requestMessageCount,
   responseIdsFromBody,
   responseTokenCount,
+  responseTokenCounts,
   stableHash,
 } from "../../src/proxy/records.js";
 
@@ -139,6 +140,38 @@ describe("responseTokenCount", () => {
     null,
   ])("returns undefined for unsupported usage %#", (payload) => {
     expect(responseTokenCount(payload)).toBeUndefined();
+  });
+});
+
+describe("responseTokenCounts", () => {
+  it.each([
+    [{ usage: { input_tokens: 6, output_tokens: 3 } }, { request: 6, response: 3 }],
+    [{ usage: { prompt_tokens: 5, completion_tokens: 2 } }, { request: 5, response: 2 }],
+    [
+      {
+        usage: {
+          input_tokens: 2,
+          output_tokens: 3,
+          cache_creation_input_tokens: 5,
+          cache_read_input_tokens: 7,
+        },
+      },
+      { request: 14, response: 3 },
+    ],
+    [{ usage: { input_tokens: 0, output_tokens: 0 } }, { request: 0, response: 0 }],
+    [{ usage: { total_tokens: 9 } }, { request: undefined, response: undefined }],
+  ])("splits request and response usage for %#", (payload, expected) => {
+    expect(responseTokenCounts(payload)).toEqual(expected);
+  });
+
+  it("uses stream usage before top-level and nested response usage", () => {
+    expect(
+      responseTokenCounts({
+        stream_summary: { usage: { input_tokens: 4, output_tokens: 2 } },
+        usage: { input_tokens: 10, output_tokens: 5 },
+        response: { usage: { input_tokens: 20, output_tokens: 10 } },
+      }),
+    ).toEqual({ request: 4, response: 2 });
   });
 });
 
