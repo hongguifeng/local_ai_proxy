@@ -205,12 +205,12 @@ main {
   align-self: start;
 }
 .target-card.is-default-target {
-  background: #e8f1fb;
-  border-color: #91afd0;
-}
-.target-card.is-enabled-target {
   background: #edf7f0;
   border-color: #9fc5aa;
+}
+.target-card.is-enabled-target {
+  background: #e8f1fb;
+  border-color: #91afd0;
 }
 .target-card.is-disabled-target {
   background: #f3f4f6;
