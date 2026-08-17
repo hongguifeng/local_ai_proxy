@@ -333,9 +333,9 @@ describe("admin UI proxy page", { timeout: UI_TEST_TIMEOUT_MS }, () => {
     await expectPage(targets.nth(0)).toHaveClass(/is-disabled-target/);
     await expectPage(targets.nth(0)).toHaveCSS("background-color", "rgb(243, 244, 246)");
     await expectPage(targets.nth(1)).toHaveClass(/is-default-target/);
-    await expectPage(targets.nth(1)).toHaveCSS("background-color", "rgb(232, 241, 251)");
+    await expectPage(targets.nth(1)).toHaveCSS("background-color", "rgb(237, 247, 240)");
     await expectPage(targets.nth(2)).toHaveClass(/is-enabled-target/);
-    await expectPage(targets.nth(2)).toHaveCSS("background-color", "rgb(237, 247, 240)");
+    await expectPage(targets.nth(2)).toHaveCSS("background-color", "rgb(232, 241, 251)");
   });
 
   it("toggles and copies the target API key", async () => {
