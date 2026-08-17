@@ -57,7 +57,7 @@ export function createNodeApplication(options: NodeApplicationOptions): NodeAppl
             ),
           pairService: currentManager,
           logService: new LogQueryService(() => currentManager.logRoots()),
-          staticAssets: await loadAdminStaticAssets(),
+          staticAssets: options.version !== undefined ? await loadAdminStaticAssets() : loadAdminStaticAssets,
         });
         address = await admin.start();
       } catch (error) {

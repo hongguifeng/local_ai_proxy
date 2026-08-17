@@ -26,7 +26,7 @@ export interface AdminServerOptions {
   readonly logService?: LogAdminService;
   readonly logger?: AdminRequestLogger;
   readonly pairService?: PairAdminService;
-  readonly staticAssets?: AdminStaticAssets;
+  readonly staticAssets?: AdminStaticAssets | (() => Promise<AdminStaticAssets>);
 }
 
 export interface LogAdminService {
@@ -427,23 +427,27 @@ export function createAdminServer(options: AdminServerOptions): FastifyInstance 
     }
   }
   if (options.staticAssets !== undefined) {
+    const resolveStaticAssets = async (): Promise<AdminStaticAssets | undefined> => {
+      const assets = options.staticAssets;
+      return typeof assets === "function" ? assets() : assets;
+    };
     server.get("/", async (_request, reply) =>
       reply
         .header("cache-control", "no-store")
         .type("text/html; charset=utf-8")
-        .send(options.staticAssets?.indexHtml),
+        .send((await resolveStaticAssets())?.indexHtml),
     );
     server.get("/static/app.css", async (_request, reply) =>
       reply
         .header("cache-control", "no-cache")
         .type("text/css; charset=utf-8")
-        .send(options.staticAssets?.appCss),
+        .send((await resolveStaticAssets())?.appCss),
     );
     server.get("/static/app.js", async (_request, reply) =>
       reply
         .header("cache-control", "no-cache")
         .type("application/javascript; charset=utf-8")
-        .send(options.staticAssets?.appJs),
+        .send((await resolveStaticAssets())?.appJs),
     );
   }
   return server;
