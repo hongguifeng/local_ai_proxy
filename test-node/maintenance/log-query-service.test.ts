@@ -210,6 +210,7 @@ describe("LogQueryService", () => {
       request: { input: "hello" },
       response: { output: "world" },
       request_meta: {
+        task_id: "detail-task",
         method: "POST",
         endpoint: "/v1/responses",
         client: "127.0.0.1:43111",

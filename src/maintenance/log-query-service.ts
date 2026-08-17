@@ -208,6 +208,7 @@ function recordDetail(record: Readonly<RepositoryRecord>): LogRecordDetail {
     response: record["response_body"] ?? null,
     request_meta: compactMeta({
       id: record["id"],
+      task_id: record["task_id"],
       sequence: record["sequence"],
       timestamp: displayTimestamp(record["timestamp"]) || record["timestamp"],
       duration_ms: record["duration_ms"],
