@@ -485,20 +485,20 @@ label span {
 }
 .log-group-date {
   flex: 0 0 auto;
-  padding: 1px 5px;
+  padding: 2px 6px;
   border-radius: 4px;
   background: #d8eee5;
   color: #155f45;
-  font-size: 11px;
+  font-size: 14px;
   font-weight: 700;
 }
 .log-time-range {
   min-width: 0;
   display: flex;
   align-items: baseline;
-  gap: 4px;
+  gap: 3px;
   font-family: ui-monospace, SFMono-Regular, Consolas, monospace;
-  font-size: 12px;
+  font-size: 17px;
   font-weight: 700;
   white-space: nowrap;
 }
@@ -573,13 +573,13 @@ label span {
 }
 .log-sequence {
   align-self: start;
-  min-width: 34px;
-  padding: 2px 4px;
+  min-width: 42px;
+  padding: 3px 6px;
   border-radius: 4px;
   background: #edf1f5;
   color: #526170;
   font-family: ui-monospace, SFMono-Regular, Consolas, monospace;
-  font-size: 11px;
+  font-size: 14px;
   font-weight: 700;
   font-variant-numeric: tabular-nums;
   text-align: center;
@@ -651,6 +651,7 @@ label span {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+  font-size: 13px;
   font-variant-numeric: tabular-nums;
 }
 .log-status {
