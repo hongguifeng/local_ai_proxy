@@ -20,8 +20,9 @@
     "format": "prettier --write .",
     "format:check": "prettier --check .",
     "lint": "eslint \"src/**/*.ts\" \"electron/**/*.ts\" \"test-node/**/*.ts\" \"scripts/**/*.ts\" --no-error-on-unmatched-pattern --max-warnings=0",
-    "package:electron": "npm run build && electron-builder --publish never",
-    "package:electron:dir": "npm run build && electron-builder --dir",
+    "rebuild:electron": "electron-rebuild --force --only better-sqlite3",
+    "package:electron": "npm run build && npm run rebuild:electron && electron-builder --publish never",
+    "package:electron:dir": "npm run build && npm run rebuild:electron && electron-builder --dir",
     "package:cli": "npm run build && node --enable-source-maps dist-node/scripts/create_cli_archive.js",
     "smoke:database": "node --enable-source-maps dist-node/scripts/database_smoke.js",
     "smoke:artifact": "node --enable-source-maps dist-node/scripts/artifact_smoke.js",
@@ -34,6 +35,7 @@
     "typecheck": "tsc -p tsconfig.json --noEmit"
   },
   "devDependencies": {
+    "@electron/rebuild": "^4.2.0",
     "@eslint/js": "^10.0.1",
     "@playwright/test": "^1.61.1",
     "@types/archiver": "^8.0.0",

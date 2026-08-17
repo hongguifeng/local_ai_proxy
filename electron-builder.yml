@@ -11,7 +11,7 @@ asarUnpack:
 extraResources:
   - from: resources/tray-icon.png
     to: tray-icon.png
-npmRebuild: true
+npmRebuild: false
 forceCodeSigning: false
 win:
   icon: resources/app-icon.ico
