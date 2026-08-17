@@ -12,10 +12,10 @@
 
 ## SQLite native module errors
 
-`better-sqlite3` is native code and must match its runtime ABI. For the Node CLI, remove `node_modules`
-and run `npm ci` with Node 24. For Electron packaging, use the pinned Electron version and let
-electron-builder rebuild production dependencies. Do not reuse an Electron-rebuilt `node_modules` for
-Node tests without running `npm rebuild better-sqlite3` or `npm ci` again.
+`better-sqlite3` is native code and must match its runtime ABI. The standard build, development,
+start, and test npm lifecycles rebuild it for Node before use. Electron packaging rebuilds it for the
+pinned Electron runtime. If the native module is damaged rather than merely built for the other
+runtime, remove `node_modules` and run `npm ci` with Node 24.
 
 ## Tray application
 

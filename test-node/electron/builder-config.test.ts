@@ -24,7 +24,25 @@ describe("electron-builder configuration", () => {
   it("unpacks the SQLite native module from the application archive", async () => {
     const config = await readFile(new URL("../../electron-builder.yml", import.meta.url), "utf8");
     expect(config).toContain("node_modules/better-sqlite3/**/*");
-    expect(config).toContain("npmRebuild: true");
+    expect(config).toContain("npmRebuild: false");
+  });
+
+  it("rebuilds SQLite for each Node lifecycle after Electron packaging", async () => {
+    const packageJson = JSON.parse(
+      await readFile(new URL("../../package.json", import.meta.url), "utf8"),
+    ) as { scripts?: Record<string, string> };
+    const scripts = packageJson.scripts ?? {};
+    expect(scripts["rebuild:node"]).toBe("npm rebuild better-sqlite3");
+    for (const lifecycle of [
+      "prebuild",
+      "predev",
+      "prestart",
+      "pretest",
+      "pretest:coverage",
+      "pretest:watch",
+    ]) {
+      expect(scripts[lifecycle]).toBe("npm run rebuild:node");
+    }
   });
 
   it("packages native Windows application and tray icons", async () => {
