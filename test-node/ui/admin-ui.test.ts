@@ -980,9 +980,9 @@ describe("admin UI history page", { timeout: UI_TEST_TIMEOUT_MS }, () => {
     const label = page.locator(".auto-refresh");
     const fullSpan = (await span.boundingBox())!;
     const fullLabel = (await label.boundingBox())!;
-    await page.evaluate(() => {
-      document.querySelector("#logs")!.style.setProperty("--sidebar-w", "260px");
-    });
+    await page.evaluate(
+      'document.querySelector("#logs").style.setProperty("--sidebar-w", "260px")',
+    );
     const clippedSpan = (await span.boundingBox())!;
     expect(clippedSpan.height).toBeCloseTo(fullSpan.height, 0);
     expect(clippedSpan.width).toBeLessThan(fullSpan.width);
