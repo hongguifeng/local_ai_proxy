@@ -811,7 +811,7 @@ function renderJsonValue(value, key = "", root = false, formatMode = false, dept
       typeof value === "string" &&
       (value.indexOf(String.fromCharCode(10)) !== -1 ||
         value.indexOf("\\") !== -1 ||
-        value.length > 200);
+        value.indexOf('"') !== -1);
     if (!shouldFormat)
       return `${keyHtml}<span class="json-string">${escapeHtml(JSON.stringify(value))}</span>`;
     const displayValue = formatString(value);
