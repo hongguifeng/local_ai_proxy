@@ -6,6 +6,7 @@ import { afterEach, describe, expect, it } from "vitest";
 
 import { LogQueryService } from "../../src/maintenance/index.js";
 import { TrafficRepository } from "../../src/persistence/index.js";
+import { formatLocalTimestamp } from "../../src/shared/time.js";
 
 const temporaryDirectories: string[] = [];
 
@@ -28,12 +29,13 @@ describe("LogQueryService", () => {
     const page = new LogQueryService([root]).listGroups("gpt-5", 1, 0);
     expect(page).toMatchObject({ total: 2, limit: 1, offset: 0, next_offset: 1, has_more: true });
     expect(page.groups).toHaveLength(1);
+    const expectedDisplayTime = formatLocalTimestamp("2026-07-18T12:00:00.000+08:00");
     expect(page.groups[0]).toMatchObject({
       id: "task-3",
       model: "gpt-5",
       request_count: 2,
-      started_at: "2026-07-18 12:00:00",
-      ended_at: "2026-07-18 12:00:00",
+      started_at: expectedDisplayTime,
+      ended_at: expectedDisplayTime,
     });
   });
 

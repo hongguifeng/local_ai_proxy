@@ -904,6 +904,32 @@ describe("admin UI history page", { timeout: UI_TEST_TIMEOUT_MS }, () => {
     await expectPage(formattedString).toHaveJSProperty("open", false);
   });
 
+  it("keeps JSON parent summaries sticky while scrolling", async () => {
+    await openRecordDetail("record-two");
+    const requestJson = page.locator("#requestJson");
+    const root = requestJson.locator('details[data-json-depth="0"] > summary');
+    const firstLevelParent = requestJson.locator('details[data-json-depth="1"] > summary').first();
+
+    await expectPage(root).toHaveCSS("position", "sticky");
+    await expectPage(firstLevelParent).toHaveCSS("position", "sticky");
+    await expectPage(
+      firstLevelParent.locator(".."),
+      "first-level parent should be open",
+    ).toHaveJSProperty("open", true);
+    await requestJson.locator(".json-str-detail summary").click();
+
+    const initialTop = (await requiredBox(root)).y;
+    const scrollPosition = await setScrollTop(requestJson, 100);
+    expect(scrollPosition).toBeGreaterThan(0);
+    const paneBox = await requiredBox(requestJson);
+    const rootBox = await requiredBox(root);
+    const firstLevelBox = await requiredBox(firstLevelParent);
+
+    expect(rootBox.y).toBeGreaterThanOrEqual(paneBox.y);
+    expect(rootBox.y).toBeLessThanOrEqual(initialTop + 1);
+    expect(firstLevelBox.y).toBeGreaterThan(rootBox.y);
+  });
+
   it("wraps, formats, copies, and shows JSON metadata", async () => {
     await openRecordDetail("record-two");
     const requestJson = page.locator("#requestJson");
@@ -980,15 +1006,15 @@ describe("admin UI history page", { timeout: UI_TEST_TIMEOUT_MS }, () => {
     ]);
     const span = page.locator(".auto-refresh span");
     const label = page.locator(".auto-refresh");
-    const fullSpan = (await span.boundingBox())!;
-    const fullLabel = (await label.boundingBox())!;
+    const fullSpan = await requiredBox(span);
+    const fullLabel = await requiredBox(label);
     await page.evaluate(
       'document.querySelector("#logs").style.setProperty("--sidebar-w", "260px")',
     );
-    const clippedSpan = (await span.boundingBox())!;
+    const clippedSpan = await requiredBox(span);
     expect(clippedSpan.height).toBeCloseTo(fullSpan.height, 0);
     expect(clippedSpan.width).toBeLessThan(fullSpan.width);
-    expect((await label.boundingBox())!.height).toBeCloseTo(fullLabel.height, 0);
+    expect((await requiredBox(label)).height).toBeCloseTo(fullLabel.height, 0);
   });
 });
 

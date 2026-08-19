@@ -773,7 +773,7 @@ label span {
 }
 .json-view {
   margin: 0;
-  padding: 12px;
+  padding: 0 12px 12px;
   overflow: auto;
   min-height: 0;
   font:
@@ -795,6 +795,19 @@ label span {
 .json-view summary {
   cursor: pointer;
   list-style-position: outside;
+}
+.json-view details.json-node > summary {
+  position: sticky;
+  top: calc(var(--json-sticky-depth, 0) * 18px);
+  z-index: calc(10 - var(--json-sticky-depth, 0));
+  line-height: 18px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  background: #fbfcfd;
+}
+.json-view details.json-node > summary:hover {
+  background: #f1f6f8;
 }
 .json-row {
   min-height: 18px;

@@ -823,7 +823,7 @@ function renderJsonValue(
       )
       .join("")}</div>`;
     const openAttr = depth < defaultJsonExpandedDepth ? " open" : "";
-    return `<details${openAttr}${root ? ' class="root"' : ""} data-json-node-path="${jsonNodePathAttr(path)}"><summary>${summary}</summary>${childrenHtml}<div class="json-muted">${end}</div></details>`;
+    return `<details${openAttr} class="json-node${root ? " root" : ""}" data-json-depth="${depth}" style="--json-sticky-depth: ${depth}" data-json-node-path="${jsonNodePathAttr(path)}"><summary>${summary}</summary>${childrenHtml}<div class="json-muted">${end}</div></details>`;
   }
   if (type === "string") {
     const plain = `${keyHtml}<span class="json-string">${escapeHtml(JSON.stringify(value))}</span>`;
