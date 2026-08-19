@@ -10,10 +10,10 @@
 
 | 页面 | 语言 | 文件 | 图片尺寸 | SHA-256 |
 | --- | --- | --- | --- | --- |
-| Proxy | 中文 | `doc/ui_proxy_cn.png` | 1278 x 1215 | `5a44cb6a2a809f086da471a11c66b08bf1de8c20650ac924e323dac7ad2bb680` |
-| Proxy | 英文 | `doc/ui_proxy_en.png` | 1278 x 1208 | `c432337827cf643ad1ecb9887d0e0afa503b8b685fddc0570daa5e442c485475` |
-| History | 中文 | `doc/ui_logs_cn.png` | 1384 x 1212 | `3f7cd6858ec705f0c1413077392f89400c775385d2141e9b9da33b9bb797043d` |
-| History | 英文 | `doc/ui_logs_en.png` | 1384 x 1224 | `a1a4e788b76d1911484bdb78473696fcb0e5ecd77172abfb45eb9e1d44cea1b1` |
+| Proxy | 中文 | `doc/ui_proxy_cn.png` | 1278 x 1215 | `6194df6ac87b9a4dc2ac70c3acce5f94c698934e304eb6be9e34f13cabebee17` |
+| Proxy | 英文 | `doc/ui_proxy_en.png` | 1278 x 1208 | `fc57457ceee2676262649d5df84a00c6555eff5d0634d774b6ba185af0f653ce` |
+| History | 中文 | `doc/ui_logs_cn.png` | 1384 x 1212 | `e6d6e69bb3399c24dc23cd601750c7c61cd17fcf6ead57ba207de9f09180c07d` |
+| History | 英文 | `doc/ui_logs_en.png` | 1384 x 1224 | `72a1e5fd6bcbf970029edec1554a00dd44afa9788593d7ca87fe4edaf060b128` |
 
 哈希复现命令：
 
@@ -41,14 +41,19 @@ sha256sum doc/ui_proxy_cn.png doc/ui_proxy_en.png doc/ui_logs_cn.png doc/ui_logs
 
 - 左侧为固定宽度 task/request 列表，右侧为上下分隔的 Request/Response。
 - 左侧顶部包含搜索、刷新、导出、清理选中、自动刷新。
-- task header 使用蓝灰背景，包含复选框、折叠箭头、时间范围和 model/request/target 摘要。
-- 展开的 task 下显示按 sequence 排列的请求项。
+- fixture 包含多个 task：首个 task 展开，其余以单行折叠卡片显示（不同 model 和 request 数）。
+- 每个 task 是浅灰列表区内一张独立的白色圆角卡片，卡片之间用留白分隔。
+- task header 是卡片顶部的蓝灰色块，带加粗左侧色条，包含复选框、折叠箭头、时间范围和 model/request/target 摘要；header 与请求项列表之间有一条分隔线。
+- 展开的 task 下按 sequence 倒序显示 5 条请求项，白底、相对 header 缩进，仅用浅色细线分隔，视觉层级从属于 task header。
+- 请求项状态圆点覆盖三种状态：绿色 200 成功、红色 4xx 错误（响应 tokens 为 0）、琥珀色 pending（tokens 未返回）。
 - 右侧 JSON 使用等宽字体、语法颜色和 `details/summary` 折叠树。
 - Request/Response 标题栏右侧包含 meta、wrap、expand、format、copy 按钮。
 - Request 和 Response 之间有可拖动水平分隔条；列表和详情之间有可拖动垂直分隔条。
-- 长字符串格式化后显示可滚动正文和复制按钮。
+- Request 中的格式化长字符串字段以展开的多行纯文本块显示（含换行、分段标记和 raw payload 尾部），并带复制按钮。
 
 ## 自动化视觉回归约定
+
+基线重生成：`npm run regen:ui-baselines`（通过视觉回归测试重新捕获四张截图，并自动同步上表 SHA-256）。
 
 Playwright 视觉测试建立后固定：
 

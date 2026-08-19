@@ -425,44 +425,59 @@ label span {
   display: flex;
   align-items: center;
   gap: 8px;
+  overflow: hidden;
 }
 .log-actions button {
   flex: 0 0 auto;
+  white-space: nowrap;
 }
 .auto-refresh {
   display: inline-flex;
   align-items: center;
   gap: 6px;
+  min-width: 0;
   color: var(--muted);
   font-size: 12px;
 }
 .auto-refresh input {
   width: auto;
 }
+.auto-refresh span {
+  white-space: nowrap;
+  overflow: hidden;
+}
 .log-items {
   overflow: auto;
+  padding: 10px 12px;
+  background: #eef2f6;
 }
 .load-more {
-  width: calc(100% - 24px);
-  margin: 10px 12px;
+  width: 100%;
+  margin: 8px 0;
 }
 .log-group {
-  border-bottom: 1px solid var(--line);
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: white;
+  overflow: hidden;
+}
+.log-group + .log-group {
+  margin-top: 10px;
 }
 .log-group-head {
   width: 100%;
   border: 0;
   border-radius: 0;
-  padding: 10px 12px;
-  background: #eef3f6;
+  padding: 11px 12px;
+  background: #dfe9f1;
   display: grid;
   grid-template-columns: 18px 16px minmax(0, 1fr);
   gap: 5px 7px;
   text-align: left;
-  box-shadow: inset 3px 0 #a9b8c5;
+  box-shadow: inset 4px 0 #6b87a1;
 }
 .log-group-head:hover {
-  background: #e6edf2;
+  background: #d3e0ea;
 }
 .log-group-select {
   grid-row: 1 / span 2;
@@ -543,13 +558,17 @@ label span {
   margin-right: 6px;
   color: #9ba6b2;
 }
+.log-group-body {
+  border-top: 1px solid var(--line);
+  background: white;
+}
 .log-item {
   width: 100%;
   text-align: left;
   border: 0;
-  border-bottom: 1px solid var(--line);
+  border-bottom: 1px solid #e9eff5;
   border-radius: 0;
-  padding: 9px 12px;
+  padding: 8px 12px;
   background: white;
   display: grid;
   grid-template-columns: 38px minmax(0, 1fr);
@@ -558,9 +577,12 @@ label span {
 .log-group .log-item {
   padding-left: 18px;
 }
+.log-group-body .log-item:last-child {
+  border-bottom: 0;
+}
 .log-group-load-more {
-  width: calc(100% - 48px);
-  margin-left: 24px;
+  width: calc(100% - 30px);
+  margin: 6px 12px 8px 18px;
 }
 .log-item.active {
   background: var(--accent-soft);

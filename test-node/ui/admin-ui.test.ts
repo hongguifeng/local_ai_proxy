@@ -7,7 +7,7 @@ import {
   type Page,
 } from "@playwright/test";
 import type { AddressInfo } from "node:net";
-import { readFile } from "node:fs/promises";
+import { readFile, writeFile } from "node:fs/promises";
 import { Readable } from "node:stream";
 import pixelmatch from "pixelmatch";
 import { PNG } from "pngjs";
@@ -62,6 +62,36 @@ function fixturePair(): PublicProxyPair {
   };
 }
 
+function sessionTranscriptFixture(): string {
+  return [
+    "=== LLM session transcript ===",
+    "model: gpt-5",
+    "window: 2026-07-18 12:00:01 -> 12:00:02 (1.9s)",
+    "",
+    "--- request #1 ---",
+    "user: Summarize the deployment log below.",
+    "",
+    "Deployment started at 11:58:40.",
+    "Stage build   : ok (18s)",
+    "Stage migrate : ok (3s)",
+    "Stage health  : ok (2s)",
+    "Deployment finished successfully in 2m 21s.",
+    "",
+    "--- response #1 ---",
+    "assistant: The deployment completed successfully in three stages.",
+    "  build took the longest at 18 seconds, followed by",
+    "  migration (3s) and the health check (2s). No errors",
+    "  were reported and the service is running on port 4321.",
+    "",
+    "--- raw payload tail ---",
+    "long-text-long-text-long-text-long-text-long-text-long-text-long-text-long-text-long-text",
+    "long-text-long-text-long-text-long-text-long-text-long-text-long-text-long-text-long-text",
+    "long-text-long-text-long-text-long-text-long-text-long-text-long-text-long-text-long-text",
+    "",
+    "=== end of transcript ===",
+  ].join("\n");
+}
+
 beforeAll(async () => {
   server = createAdminServer({
     getHealth: () => applicationHealth("running"),
@@ -98,9 +128,9 @@ beforeAll(async () => {
               {
                 id: "task-one",
                 started_at: "2026-07-18 12:00:00",
-                ended_at: "2026-07-18 12:00:02",
+                ended_at: "2026-07-18 12:00:05",
                 model: "gpt-5",
-                request_count: 2,
+                request_count: 5,
                 target: "fixture-target",
               },
               {
@@ -109,6 +139,22 @@ beforeAll(async () => {
                 ended_at: "2026-07-18 11:30:05",
                 model: "claude",
                 request_count: 1,
+                target: "fixture-target",
+              },
+              {
+                id: "task-three",
+                started_at: "2026-07-18 10:42:00",
+                ended_at: "2026-07-18 10:44:30",
+                model: "qwen3.6-27b",
+                request_count: 3,
+                target: "fixture-target",
+              },
+              {
+                id: "task-four",
+                started_at: "2026-07-18 09:15:00",
+                ended_at: "2026-07-18 09:20:10",
+                model: "gpt-4o-mini",
+                request_count: 12,
                 target: "fixture-target",
               },
             ];
@@ -167,12 +213,51 @@ beforeAll(async () => {
         }
         return {
           id: groupId,
-          total: 2,
+          total: 5,
           limit: 200,
           offset: 0,
-          next_offset: 2,
+          next_offset: 5,
           has_more: false,
           logs: [
+            {
+              id: "record-five",
+              timestamp: "2026-07-18 12:00:05",
+              sequence: "5",
+              method: "POST",
+              path: "/v1/responses",
+              endpoint: "/v1/responses",
+              message_count: 3,
+              status: 200,
+              request_token_count: 46,
+              response_token_count: 212,
+              target: "fixture-target",
+            },
+            {
+              id: "record-four",
+              timestamp: "2026-07-18 12:00:04",
+              sequence: "4",
+              method: "POST",
+              path: "/v1/responses",
+              endpoint: "/v1/responses",
+              message_count: 1,
+              status: 400,
+              request_token_count: 12,
+              response_token_count: 0,
+              target: "fixture-target",
+            },
+            {
+              id: "record-three",
+              timestamp: "2026-07-18 12:00:03",
+              sequence: "3",
+              method: "POST",
+              path: "/v1/responses",
+              endpoint: "/v1/responses",
+              message_count: 2,
+              status: 200,
+              request_token_count: 24,
+              response_token_count: 96,
+              target: "fixture-target",
+            },
             {
               id: "record-two",
               timestamp: "2026-07-18 12:00:02",
@@ -210,29 +295,79 @@ beforeAll(async () => {
       getRecordDetail: (recordId) => {
         const reads = (detailReads.get(recordId) ?? 0) + 1;
         detailReads.set(recordId, reads);
-        if (recordId !== "record-one" && recordId !== "record-two") {
+        if (recordId === "record-one" || recordId === "record-two") {
+          const pending = recordId === "record-one" && reads === 1;
+          return {
+            id: recordId,
+            pending,
+            request: {
+              input: "hello",
+              formatted: sessionTranscriptFixture(),
+              nested: { deep: { deeper: { value: 1 } } },
+            },
+            response: pending
+              ? null
+              : { output: "done", nested: { deep: { deeper: { value: 2 } } } },
+            request_meta: { method: "POST", endpoint: "/v1/responses" },
+            response_meta: pending
+              ? {}
+              : {
+                  status: 200,
+                  request_token_count: 8,
+                  response_token_count: 4,
+                  first_byte_ms: 1_234,
+                  duration_ms: 65_678,
+                },
+          };
+        }
+        const extra = {
+          "record-three": {
+            status: 200,
+            input: "summarize the build log",
+            output: "Build succeeded in 48 seconds.",
+            request_token_count: 24,
+            response_token_count: 96,
+            first_byte_ms: 820,
+            duration_ms: 3_412,
+          },
+          "record-four": {
+            status: 400,
+            input: "broken prompt",
+            output: null,
+            request_token_count: 12,
+            response_token_count: 0,
+            first_byte_ms: 95,
+            duration_ms: 210,
+          },
+          "record-five": {
+            status: 200,
+            input: "translate to English",
+            output: "Done.",
+            request_token_count: 46,
+            response_token_count: 212,
+            first_byte_ms: 1_480,
+            duration_ms: 9_032,
+          },
+        }[recordId];
+        if (extra === undefined) {
           return undefined;
         }
-        const pending = recordId === "record-one" && reads === 1;
         return {
           id: recordId,
-          pending,
-          request: {
-            input: "hello",
-            formatted: Array.from({ length: 80 }, () => "long-text-long-text").join("\n"),
-            nested: { deep: { deeper: { value: 1 } } },
-          },
-          response: pending ? null : { output: "done", nested: { deep: { deeper: { value: 2 } } } },
+          pending: false,
+          request: { input: extra.input, nested: { stage: "chat" } },
+          response:
+            extra.output === null
+              ? { error: { message: "Invalid request payload", code: "invalid_request_error" } }
+              : { output: extra.output, usage: { tokens: extra.response_token_count } },
           request_meta: { method: "POST", endpoint: "/v1/responses" },
-          response_meta: pending
-            ? {}
-            : {
-                status: 200,
-                request_token_count: 8,
-                response_token_count: 4,
-                first_byte_ms: 1_234,
-                duration_ms: 65_678,
-              },
+          response_meta: {
+            status: extra.status,
+            request_token_count: extra.request_token_count,
+            response_token_count: extra.response_token_count,
+            first_byte_ms: extra.first_byte_ms,
+            duration_ms: extra.duration_ms,
+          },
         };
       },
     },
@@ -834,6 +969,25 @@ describe("admin UI history page", { timeout: UI_TEST_TIMEOUT_MS }, () => {
       /--response-fr: \d+(\.\d+)?px/,
     );
   });
+
+  it("clips the auto refresh label instead of wrapping it when the sidebar narrows", async () => {
+    await loadAdminPage();
+    await Promise.all([
+      page.waitForResponse((response) => response.url().includes("/api/logs?")),
+      page.locator('[data-tab="logs"]').click(),
+    ]);
+    const span = page.locator(".auto-refresh span");
+    const label = page.locator(".auto-refresh");
+    const fullSpan = (await span.boundingBox())!;
+    const fullLabel = (await label.boundingBox())!;
+    await page.evaluate(() => {
+      document.querySelector("#logs")!.style.setProperty("--sidebar-w", "260px");
+    });
+    const clippedSpan = (await span.boundingBox())!;
+    expect(clippedSpan.height).toBeCloseTo(fullSpan.height, 0);
+    expect(clippedSpan.width).toBeLessThan(fullSpan.width);
+    expect((await label.boundingBox())!.height).toBeCloseTo(fullLabel.height, 0);
+  });
 });
 
 describe("admin UI visual regression", { timeout: UI_TEST_TIMEOUT_MS }, () => {
@@ -862,6 +1016,7 @@ describe("admin UI visual regression", { timeout: UI_TEST_TIMEOUT_MS }, () => {
     await openRecordDetail("record-two");
     await page.locator("#languageSelect").selectOption("zh");
     await expectPage(page.locator('[data-i18n="request"]')).toHaveText("请求");
+    await page.locator("#requestJson .json-str-detail summary").click();
     await moveRowSplitterTo(875);
 
     expect(await screenshotDifference("doc/ui_logs_cn.png")).toBeLessThan(0.25);
@@ -872,6 +1027,7 @@ describe("admin UI visual regression", { timeout: UI_TEST_TIMEOUT_MS }, () => {
     await openRecordDetail("record-two");
     await page.locator("#languageSelect").selectOption("en");
     await expectPage(page.locator('[data-i18n="request"]')).toHaveText("Request");
+    await page.locator("#requestJson .json-str-detail summary").click();
     await moveRowSplitterTo(883);
 
     expect(await screenshotDifference("doc/ui_logs_en.png")).toBeLessThan(0.25);
@@ -1054,6 +1210,11 @@ function visualPairs(): PublicProxyPair[] {
 }
 
 async function screenshotDifference(baselinePath: string): Promise<number> {
+  if (process.env["REGEN_BASELINES"] === "1") {
+    await writeFile(baselinePath, await page.screenshot({ animations: "disabled" }));
+    console.log(`[regen] wrote ${baselinePath}`);
+    return 0;
+  }
   const [actualBuffer, baselineBuffer] = await Promise.all([
     page.screenshot({ animations: "disabled" }),
     readFile(baselinePath),

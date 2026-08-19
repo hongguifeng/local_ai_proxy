@@ -35,6 +35,7 @@
     "start": "node --enable-source-maps dist-node/src/main.js",
     "pretest": "npm run rebuild:node",
     "test": "vitest run",
+    "regen:ui-baselines": "node scripts/regen_ui_baselines.mjs",
     "pretest:coverage": "npm run rebuild:node",
     "test:coverage": "vitest run --coverage",
     "pretest:watch": "npm run rebuild:node",

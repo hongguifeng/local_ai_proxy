@@ -357,6 +357,7 @@ npm run format:check
 npm run lint
 npm run typecheck
 npm test
+npm run regen:ui-baselines  # 重新捕获 UI 视觉基线并同步文档 SHA-256
 npm run build
 ```
 

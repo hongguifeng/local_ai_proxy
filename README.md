@@ -359,6 +359,7 @@ npm run format:check
 npm run lint
 npm run typecheck
 npm test
+npm run regen:ui-baselines  # recapture UI visual baselines and sync SHA-256 in docs
 npm run build
 ```
 

@@ -719,11 +719,13 @@ function renderLogs() {
       ${
         !state.collapsedGroups[group.id]
           ? ""
-          : state.loadingLogGroups[group.id]
-            ? `<div class="log-item log-loading">${escapeHtml(t("loading"))}</div>`
-            : (group.logs || [])
-                .map(
-                  (item) => `
+          : `<div class="log-group-body">
+            ${
+              state.loadingLogGroups[group.id]
+                ? `<div class="log-item log-loading">${escapeHtml(t("loading"))}</div>`
+                : (group.logs || [])
+                    .map(
+                      (item) => `
         <button class="log-item ${state.selected === item.id ? "active" : ""}" data-log-id="${escapeHtml(item.id)}">
           <span class="log-sequence">${escapeHtml(item.sequence ? `#${item.sequence}` : "-")}</span>
           <span class="log-item-content">
@@ -734,11 +736,13 @@ function renderLogs() {
             </span>
           </span>
         </button>`,
-                )
-                .join("") +
-              (group.logsHasMore
-                ? `<button class="load-more log-group-load-more" data-load-more-records="${escapeHtml(group.id || "")}" ${state.loadingMoreLogGroups[group.id] ? "disabled" : ""}>${escapeHtml(state.loadingMoreLogGroups[group.id] ? t("loading") : t("loadMore"))} (${group.logs.length}/${group.logsTotal})</button>`
-                : "")
+                    )
+                    .join("") +
+                  (group.logsHasMore
+                    ? `<button class="load-more log-group-load-more" data-load-more-records="${escapeHtml(group.id || "")}" ${state.loadingMoreLogGroups[group.id] ? "disabled" : ""}>${escapeHtml(state.loadingMoreLogGroups[group.id] ? t("loading") : t("loadMore"))} (${group.logs.length}/${group.logsTotal})</button>`
+                    : "")
+            }
+          </div>`
       }
     </section>`,
       )
