@@ -11,6 +11,7 @@ test-results/
 dist-node/
 dist-electron/
 release/
+.vscode
 *.tsbuildinfo
 fixtures/parity/database/**/*.db-shm
 fixtures/parity/database/**/*.db-wal
