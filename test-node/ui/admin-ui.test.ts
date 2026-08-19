@@ -888,7 +888,9 @@ describe("admin UI history page", { timeout: UI_TEST_TIMEOUT_MS }, () => {
     await expandButton.click();
     await expectPage(details.nth(2)).toHaveJSProperty("open", true);
     await expectPage(details.nth(3)).toHaveJSProperty("open", false);
-    await expectPage(formattedString).toHaveJSProperty("open", true);
+    // The expand button only walks JSON structure levels; formatted string blocks
+    // stay collapsed until the user opens them manually.
+    await expectPage(formattedString).toHaveJSProperty("open", false);
 
     await expandButton.click();
     await expectPage(details.nth(3)).toHaveJSProperty("open", true);

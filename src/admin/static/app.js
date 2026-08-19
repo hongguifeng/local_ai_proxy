@@ -954,7 +954,7 @@ function updatePaneButtons(key) {
     .classList.toggle("active", state.formatStrings[key]);
   const expandBtn = document.querySelector(`[data-expand="${key}"]`);
   if (expandBtn) {
-    const details = Array.from($(key + "Json").querySelectorAll("details"));
+    const details = Array.from($(key + "Json").querySelectorAll("details:not(.json-str-detail)"));
     const allOpen = details.length > 0 && details.every((detail) => detail.open);
     expandBtn.classList.toggle("active", !allOpen);
   }
@@ -962,7 +962,7 @@ function updatePaneButtons(key) {
 function updateExpandButton(key) {
   const button = document.querySelector(`[data-expand="${key}"]`);
   if (!button) return;
-  const details = Array.from($(key + "Json").querySelectorAll("details"));
+  const details = Array.from($(key + "Json").querySelectorAll("details:not(.json-str-detail)"));
   const allOpen = details.length > 0 && details.every((detail) => detail.open);
   button.title = allOpen ? t("collapseJson") : t("expandJson");
 }
@@ -1180,14 +1180,13 @@ document.querySelectorAll("[data-expand]").forEach((button) =>
     const key = button.dataset.expand;
     state.tree[key] = true;
     if ($(key + "Json").querySelectorAll("details").length === 0) renderJsonPane(key);
-    const details = Array.from($(key + "Json").querySelectorAll("details"));
+    const details = Array.from($(key + "Json").querySelectorAll("details:not(.json-str-detail)"));
     const allOpen = details.length > 0 && details.every((detail) => detail.open);
     if (allOpen) {
       details.forEach((detail) => {
         const parentDetail = detail.parentElement ? detail.parentElement.closest("details") : null;
         detail.open =
-          !detail.classList.contains("json-str-detail") &&
-          (detail.classList.contains("root") || parentDetail?.classList.contains("root"));
+          detail.classList.contains("root") || Boolean(parentDetail?.classList.contains("root"));
       });
     } else {
       const nextLevel = details.filter((detail) => {
