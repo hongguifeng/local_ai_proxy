@@ -790,7 +790,15 @@ function restoreJsonPaneViewState(el, viewState) {
   el.scrollTop = viewState.scrollTop;
   el.scrollLeft = viewState.scrollLeft;
 }
-function renderJsonValue(value, key = "", root = false, formatMode = false, depth = 0, path = []) {
+function renderJsonValue(
+  value,
+  key = "",
+  root = false,
+  formatMode = false,
+  depth = 0,
+  path = [],
+  lineWidth = 0,
+) {
   const type = jsonType(value);
   const keyHtml =
     key === "" ? "" : `<span class="json-key">${escapeHtml(JSON.stringify(key))}</span>: `;
@@ -800,28 +808,39 @@ function renderJsonValue(value, key = "", root = false, formatMode = false, dept
     const start = type === "array" ? "[" : "{";
     const end = type === "array" ? "]" : "}";
     const summary = `${keyHtml}${start}<span class="json-muted">${entries.length ? ` ${entries.length} ${t("items")} ` : ""}</span>${end}`;
-    const childrenHtml = `<div class="json-children">${entries.map(([childKey, childValue]) => `<div class="json-row">${renderJsonValue(childValue, String(childKey), false, formatMode, depth + 1, path.concat([childKey]))}</div>`).join("")}</div>`;
+    const childrenHtml = `<div class="json-children">${entries
+      .map(
+        ([childKey, childValue]) =>
+          `<div class="json-row">${renderJsonValue(
+            childValue,
+            String(childKey),
+            false,
+            formatMode,
+            depth + 1,
+            path.concat([childKey]),
+            lineWidth,
+          )}</div>`,
+      )
+      .join("")}</div>`;
     const openAttr = depth < defaultJsonExpandedDepth ? " open" : "";
     return `<details${openAttr}${root ? ' class="root"' : ""} data-json-node-path="${jsonNodePathAttr(path)}"><summary>${summary}</summary>${childrenHtml}<div class="json-muted">${end}</div></details>`;
   }
   if (type === "string") {
-    if (!formatMode)
-      return `${keyHtml}<span class="json-string">${escapeHtml(JSON.stringify(value))}</span>`;
-    const shouldFormat =
-      typeof value === "string" &&
-      (value.indexOf(String.fromCharCode(10)) !== -1 ||
-        value.indexOf("\\") !== -1 ||
-        value.indexOf('"') !== -1);
-    if (!shouldFormat)
-      return `${keyHtml}<span class="json-string">${escapeHtml(JSON.stringify(value))}</span>`;
+    const plain = `${keyHtml}<span class="json-string">${escapeHtml(JSON.stringify(value))}</span>`;
+    if (!formatMode) return plain;
     const displayValue = formatString(value);
-    if (displayValue.indexOf(String.fromCharCode(10)) !== -1 || displayValue.length > 200) {
+    const hasNewline = displayValue.indexOf(String.fromCharCode(10)) !== -1;
+    const shouldFormat = hasNewline || value.indexOf("\\") !== -1 || value.indexOf('"') !== -1;
+    const tooWide =
+      !hasNewline && lineWidth > 0 && !jsonTextFitsOnLine(displayValue, key, depth, lineWidth);
+    if (hasNewline || tooWide) {
       const summaryRaw = displayValue.substring(0, 150);
       const summarySingleLine = escapeHtml(summaryRaw.replace(/\r\n/g, "↵").replace(/\n/g, "↵"));
       const summaryText = summarySingleLine + (displayValue.length > 150 ? "…" : "");
       const fullLines = displayValue.split(String.fromCharCode(10)).length;
       return `${keyHtml}<details class="json-str-detail" data-json-node-path="${jsonNodePathAttr(path)}"><summary>${summaryText} <span class="json-muted">(${fullLines} ${t("lines")})</span></summary><div class="json-str-full"><button class="json-str-copy" data-copy-string title="${escapeHtml(t("copyFormattedText"))}">📋</button><pre class="json-str-body">${escapeHtml(displayValue)}</pre></div></details>`;
     }
+    if (!shouldFormat) return plain;
     return `${keyHtml}<span class="json-string format-mode">${escapeHtml(displayValue)}</span>`;
   }
   if (type === "number")
@@ -830,6 +849,25 @@ function renderJsonValue(value, key = "", root = false, formatMode = false, dept
     return `${keyHtml}<span class="json-boolean">${escapeHtml(String(value))}</span>`;
   if (type === "undefined") return `${keyHtml}<span class="json-null">undefined</span>`;
   return `${keyHtml}<span class="json-null">null</span>`;
+}
+let jsonMeasureSpan = null;
+function measureJsonTextWidth(text) {
+  if (!jsonMeasureSpan) {
+    jsonMeasureSpan = document.createElement("span");
+    jsonMeasureSpan.style.cssText =
+      "position:absolute;top:0;left:-9999px;visibility:hidden;white-space:pre;display:inline-block;padding:0;margin:0;border:0;font:12px/1.5 ui-monospace,SFMono-Regular,Consolas,monospace;";
+    document.body.appendChild(jsonMeasureSpan);
+  }
+  jsonMeasureSpan.textContent = text;
+  return jsonMeasureSpan.offsetWidth;
+}
+function jsonTextFitsOnLine(displayValue, key, depth, lineWidth) {
+  const probe = (key === "" ? "" : JSON.stringify(key) + ": ") + displayValue;
+  const available = lineWidth - 16 * depth - 8;
+  if (available <= 0) return false;
+  if (probe.length * 12 <= available) return true;
+  if (probe.length * 7.2 > available) return false;
+  return measureJsonTextWidth(probe) <= available;
 }
 function formatString(value) {
   if (typeof value !== "string") return value;
@@ -852,7 +890,16 @@ function renderJsonPane(key, options = {}) {
   el.classList.toggle("wrap", state.wrap[key]);
   el.classList.toggle("nowrap", !state.wrap[key]);
   if (state.tree[key]) {
-    el.innerHTML = renderJsonValue(state.raw[key], "", true, state.formatStrings[key], 0);
+    const lineWidth = el.clientWidth > 24 ? el.clientWidth - 24 : 0;
+    el.innerHTML = renderJsonValue(
+      state.raw[key],
+      "",
+      true,
+      state.formatStrings[key],
+      0,
+      [],
+      lineWidth,
+    );
     restoreJsonPaneViewState(el, viewState);
   } else {
     el.textContent = jsonText(state.raw[key]);
@@ -1237,7 +1284,20 @@ document.querySelectorAll("[data-copy]").forEach((button) =>
   });
   logSplitter.addEventListener("pointerup", () => {
     dragging = false;
+    refreshJsonPanesForWidth();
   });
 })();
+let jsonWidthRefreshQueued = false;
+function refreshJsonPanesForWidth() {
+  if (!state.selected || jsonWidthRefreshQueued) return;
+  jsonWidthRefreshQueued = true;
+  requestAnimationFrame(() => {
+    jsonWidthRefreshQueued = false;
+    if (!state.selected) return;
+    renderJsonPane("request", { preserveView: true });
+    renderJsonPane("response", { preserveView: true });
+  });
+}
+window.addEventListener("resize", refreshJsonPanesForWidth);
 applyLanguage();
 loadPairs().catch((e) => toast(e.message));
