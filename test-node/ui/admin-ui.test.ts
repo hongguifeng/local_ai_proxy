@@ -930,9 +930,7 @@ describe("admin UI history page", { timeout: UI_TEST_TIMEOUT_MS }, () => {
     expect(firstLevelBox.y).toBeGreaterThan(rootBox.y);
 
     await root.click();
-    await expectPage
-      .poll(async () => await scrollTop(requestJson))
-      .toBeLessThan(2, { timeout: 3000 });
+    await expectPage.poll(async () => await scrollTop(requestJson)).toBeLessThan(2);
     await expectPage(
       requestJson.locator('details[data-json-depth="0"]'),
       "jump must not toggle the node",
@@ -941,7 +939,7 @@ describe("admin UI history page", { timeout: UI_TEST_TIMEOUT_MS }, () => {
     const nestedNaturalTop = await requestJson.evaluate((container) => {
       const detail = container.querySelector('details[data-json-depth="1"]');
       let top = 0;
-      let node: Element | null = detail;
+      let node = detail;
       while (node && node !== container) {
         top += node.offsetTop;
         node = node.offsetParent;
@@ -950,7 +948,7 @@ describe("admin UI history page", { timeout: UI_TEST_TIMEOUT_MS }, () => {
     });
     await requestJson.evaluate((container) => {
       const detail = container.querySelector('details[data-json-depth="1"]');
-      const spacer = document.createElement("div");
+      const spacer = container.ownerDocument.createElement("div");
       spacer.style.height = "1500px";
       detail.appendChild(spacer);
     });
@@ -958,11 +956,8 @@ describe("admin UI history page", { timeout: UI_TEST_TIMEOUT_MS }, () => {
 
     await firstLevelParent.click();
     await expectPage
-      .poll(
-        async () => Math.abs((await scrollTop(requestJson)) - (nestedNaturalTop - 18)),
-        "stuck row in the transition band should jump, not toggle",
-      )
-      .toBeLessThan(3, { timeout: 3000 });
+      .poll(async () => Math.abs((await scrollTop(requestJson)) - (nestedNaturalTop - 18)))
+      .toBeLessThan(3);
     await expectPage(firstLevelParent.locator(".."), "band click must not toggle").toHaveJSProperty(
       "open",
       true,
