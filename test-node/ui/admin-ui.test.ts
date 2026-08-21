@@ -977,7 +977,9 @@ describe("admin UI history page", { timeout: UI_TEST_TIMEOUT_MS }, () => {
     await finishedDetail;
     await expectPage(page.locator("#responseJson")).toContainText("done");
     await expectPage(page.locator("#responseMeta")).toBeHidden();
-    await expectPage(page.locator("#responseTiming")).toHaveText("First byte 00:01 · Total 01:06");
+    await expectPage(page.locator("#responseTiming")).toHaveText(
+      "First byte 00:01 · Total 01:06 · Prefill 6.5 tok/s · Decode 0.1 tok/s",
+    );
     await expectPage(formattedString).toHaveJSProperty("open", true);
     await expect.poll(() => scrollTop(requestJson)).toBe(scrollPositions.pane);
     await expect.poll(() => scrollTop(formattedBody)).toBe(scrollPositions.body);

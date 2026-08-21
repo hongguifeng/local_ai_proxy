@@ -7,6 +7,9 @@ const translations = {
     response: "响应",
     firstByteTime: "首字",
     totalTime: "总计",
+    prefillSpeed: "Prefill",
+    decodeSpeed: "Decode",
+    tokensPerSecond: "token/s",
     proxyPairs: "地址对",
     add: "添加",
     saveConfig: "保存配置",
@@ -87,6 +90,9 @@ const translations = {
     response: "Response",
     firstByteTime: "First byte",
     totalTime: "Total",
+    prefillSpeed: "Prefill",
+    decodeSpeed: "Decode",
+    tokensPerSecond: "tok/s",
     proxyPairs: "Proxy pairs",
     add: "Add",
     saveConfig: "Save config",
@@ -958,6 +964,16 @@ function formatDuration(milliseconds) {
   const seconds = String(totalSeconds % 60).padStart(2, "0");
   return `${String(minutes).padStart(2, "0")}:${seconds}`;
 }
+function positiveNumber(value) {
+  const number = Number(value);
+  return Number.isFinite(number) && number > 0 ? number : undefined;
+}
+function formatTokensPerSecond(value) {
+  if (value === undefined || !Number.isFinite(value) || value <= 0) return "";
+  if (value >= 1000) return `${(value / 1000).toFixed(1)}k`;
+  if (value >= 100) return String(Math.round(value));
+  return value.toFixed(1);
+}
 function updateResponseTiming() {
   const element = $("responseTiming");
   const meta = state.meta.response || {};
@@ -967,6 +983,22 @@ function updateResponseTiming() {
     ...(firstByte === "" ? [] : [`${t("firstByteTime")} ${firstByte}`]),
     ...(total === "" ? [] : [`${t("totalTime")} ${total}`]),
   ];
+  const firstByteMs = positiveNumber(meta.first_byte_ms);
+  const durationMs = positiveNumber(meta.duration_ms);
+  if (firstByteMs !== undefined && durationMs !== undefined) {
+    const prefill = formatTokensPerSecond(
+      (positiveNumber(meta.request_token_count) ?? 0) * (1000 / firstByteMs),
+    );
+    const decodeWindowMs = durationMs - firstByteMs;
+    const decode =
+      decodeWindowMs > 0
+        ? formatTokensPerSecond(
+            (positiveNumber(meta.response_token_count) ?? 0) * (1000 / decodeWindowMs),
+          )
+        : "";
+    if (prefill !== "") parts.push(`${t("prefillSpeed")} ${prefill} ${t("tokensPerSecond")}`);
+    if (decode !== "") parts.push(`${t("decodeSpeed")} ${decode} ${t("tokensPerSecond")}`);
+  }
   element.textContent = parts.join(" · ");
   element.hidden = parts.length === 0;
 }
