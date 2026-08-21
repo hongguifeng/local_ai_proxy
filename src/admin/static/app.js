@@ -48,6 +48,16 @@ const translations = {
     targets: "转发地址",
     addTarget: "添加转发地址",
     targetName: "名称",
+    checkTarget: "测试",
+    checkDialogTitle: "测试转发地址",
+    checkApiType: "API 类型",
+    checkModel: "模型 ID",
+    startCheck: "开始测试",
+    checking: "测试中…",
+    close: "关闭",
+    checkOk: "成功：转发地址已正常响应",
+    checkBadStatus: "收到响应，但状态码为 {status}（API Key 或模型 ID 可能无效）",
+    checkFail: "失败：未收到响应",
     defaultTarget: "默认",
     targetEnabled: "启用",
     modelMappings: "模型映射，每行一个 监听模型 => 转发模型；监听模型支持 * 通配符",
@@ -119,6 +129,17 @@ const translations = {
     targets: "Targets",
     addTarget: "Add target",
     targetName: "Name",
+    checkTarget: "Test",
+    checkDialogTitle: "Test target",
+    checkApiType: "API type",
+    checkModel: "Model ID",
+    startCheck: "Start test",
+    checking: "Testing…",
+    close: "Close",
+    checkOk: "Success: the target responded normally",
+    checkBadStatus:
+      "A response was received, but with status {status} (the API key or model ID may be invalid)",
+    checkFail: "Failed: no response was received",
     defaultTarget: "Default",
     targetEnabled: "Enabled",
     modelMappings:
@@ -369,6 +390,7 @@ function renderTarget(target, pair, pairIndex, targetIndex) {
           <input data-target-field="name" value="${escapeHtml(target.name || "")}" placeholder="${escapeHtml(t("targetName"))}">
           <label class="default-target"><input type="radio" name="default-target-${pairIndex}" data-default-target ${isDefault ? "checked" : ""}> <span>${escapeHtml(t("defaultTarget"))}</span></label>
         </div>
+        <button data-check-target title="${escapeHtml(t("checkTarget"))}">${escapeHtml(t("checkTarget"))}</button>
         <button data-remove-target>${escapeHtml(t("delete"))}</button>
       </div>
       <label><span>${escapeHtml(t("targetUrl"))}</span><input data-target-field="target_url" value="${escapeHtml(target.target_url || "")}" placeholder="https://api.example.com/v1"></label>
@@ -1088,6 +1110,13 @@ $("proxyGrid").addEventListener("click", (event) => {
     );
     return;
   }
+  if (event.target.matches("[data-check-target]")) {
+    collectPairs();
+    const targetCard = event.target.closest(".target-card");
+    const target = pairTargets(pair)[Number(targetCard.dataset.targetIndex)];
+    openTargetCheckDialog(target);
+    return;
+  }
   if (event.target.matches("[data-remove-target]")) {
     collectPairs();
     const targetCard = event.target.closest(".target-card");
@@ -1101,6 +1130,62 @@ $("proxyGrid").addEventListener("click", (event) => {
   if (event.target.matches("[data-remove]")) {
     state.pairs.splice(Number(card.dataset.index), 1);
     renderPairs();
+  }
+});
+const targetCheckStart = $("targetCheckStart");
+function openTargetCheckDialog(target) {
+  $("targetCheckUrl").value = target.target_url || "";
+  $("targetCheckApiType").value = "chat";
+  $("targetCheckApiKey").value = target.target_api_key || "";
+  const mappings = target.model_mappings || [];
+  $("targetCheckModel").value = mappings[mappings.length - 1]?.upstream || "";
+  const result = $("targetCheckResult");
+  result.hidden = true;
+  result.textContent = "";
+  result.className = "target-check-result";
+  $("targetCheckDialog").showModal();
+}
+$("targetCheckClose").addEventListener("click", () => $("targetCheckDialog").close());
+$("targetCheckForm").addEventListener("submit", async (event) => {
+  event.preventDefault();
+  if (targetCheckStart.disabled) return;
+  const result = $("targetCheckResult");
+  targetCheckStart.disabled = true;
+  targetCheckStart.textContent = t("checking");
+  result.hidden = false;
+  result.className = "target-check-result testing";
+  result.textContent = t("checking");
+  try {
+    const data = await api("/api/target-check", {
+      method: "POST",
+      body: JSON.stringify({
+        targetUrl: $("targetCheckUrl").value,
+        model: $("targetCheckModel").value,
+        apiType: $("targetCheckApiType").value,
+        apiKey: $("targetCheckApiKey").value,
+      }),
+    });
+    const duration = `${Math.round(data.durationMs)} ms`;
+    if (data.ok) {
+      if ((data.status ?? 0) < 400) {
+        result.className = "target-check-result success";
+        result.textContent = `${t("checkOk")} · HTTP ${data.status} · ${duration}`;
+      } else {
+        const detail =
+          typeof data.detail === "string" && data.detail !== "" ? `\n${data.detail}` : "";
+        result.className = "target-check-result warning";
+        result.textContent = `${t("checkBadStatus").replace("{status}", String(data.status))} · ${duration}${detail}`;
+      }
+    } else {
+      result.className = "target-check-result failure";
+      result.textContent = `${t("checkFail")} · ${data.error || "unknown error"} · ${duration}`;
+    }
+  } catch (error) {
+    result.className = "target-check-result failure";
+    result.textContent = `${t("checkFail")} · ${error.message || error}`;
+  } finally {
+    targetCheckStart.disabled = false;
+    targetCheckStart.textContent = t("startCheck");
   }
 });
 $("proxyGrid").addEventListener("change", async (event) => {

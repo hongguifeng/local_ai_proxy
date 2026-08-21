@@ -27,6 +27,7 @@ export interface AdminServerOptions {
   readonly logger?: AdminRequestLogger;
   readonly pairService?: PairAdminService;
   readonly staticAssets?: AdminStaticAssets | (() => Promise<AdminStaticAssets>);
+  readonly targetCheckService?: TargetCheckAdminService;
 }
 
 export interface LogAdminService {
@@ -48,6 +49,27 @@ export interface PairAdminService {
   listPairs(): readonly PublicProxyPair[];
   readonly replacePairs?: (pairs: readonly ProxyPair[]) => Promise<readonly PublicProxyPair[]>;
   readonly setPairEnabled?: (pairId: string, enabled: boolean) => Promise<PublicProxyPair>;
+}
+
+export type TargetCheckApiType = "chat" | "responses" | "anthropic";
+
+export interface TargetCheckRequest {
+  readonly targetUrl: string;
+  readonly model: string;
+  readonly apiType?: TargetCheckApiType;
+  readonly apiKey?: string;
+}
+
+export interface TargetCheckResponse {
+  readonly ok: boolean;
+  readonly status?: number;
+  readonly durationMs: number;
+  readonly error?: string;
+  readonly detail?: string;
+}
+
+export interface TargetCheckAdminService {
+  checkTarget(request: TargetCheckRequest): Promise<TargetCheckResponse>;
 }
 
 export interface AdminRequestLogger {
@@ -125,6 +147,31 @@ export const SET_PAIR_ENABLED_REQUEST_SCHEMA = {
   additionalProperties: false,
   required: ["enabled"],
   properties: { enabled: { type: "boolean" } },
+} as const;
+
+export const TARGET_CHECK_REQUEST_SCHEMA = {
+  type: "object",
+  additionalProperties: false,
+  required: ["targetUrl", "model"],
+  properties: {
+    targetUrl: { type: "string", minLength: 1, maxLength: 8_192, pattern: "^https?://" },
+    model: { type: "string", minLength: 1, maxLength: 512 },
+    apiType: { type: "string", enum: ["chat", "responses", "anthropic"] },
+    apiKey: { type: "string", maxLength: 65_536 },
+  },
+} as const;
+
+export const TARGET_CHECK_RESPONSE_SCHEMA = {
+  type: "object",
+  additionalProperties: false,
+  required: ["ok", "durationMs"],
+  properties: {
+    ok: { type: "boolean" },
+    status: { type: "integer", minimum: 100, maximum: 599 },
+    durationMs: { type: "number", minimum: 0 },
+    error: { type: "string", maxLength: 8_192 },
+    detail: { type: "string", maxLength: 8_192 },
+  },
 } as const;
 
 export const PAIR_RESPONSE_SCHEMA = {
@@ -246,6 +293,38 @@ export function createAdminServer(options: AdminServerOptions): FastifyInstance 
       return reply.code(health.status === "degraded" ? 503 : 200).send(health);
     },
   );
+  if (options.targetCheckService !== undefined) {
+    const targetCheckService = options.targetCheckService;
+    server.post<{
+      Body: { apiType?: TargetCheckApiType; apiKey?: string; model: string; targetUrl: string };
+    }>(
+      "/api/target-check",
+      {
+        schema: {
+          body: TARGET_CHECK_REQUEST_SCHEMA,
+          response: { 200: TARGET_CHECK_RESPONSE_SCHEMA },
+        },
+      },
+      async (request, reply) => {
+        const apiKey = request.body.apiKey;
+        const apiType = request.body.apiType;
+        const checkRequest: TargetCheckRequest = {
+          targetUrl: request.body.targetUrl,
+          model: request.body.model,
+          ...(apiType ? { apiType } : {}),
+          ...(apiKey ? { apiKey } : {}),
+        };
+        try {
+          return await targetCheckService.checkTarget(checkRequest);
+        } catch (error) {
+          if (error instanceof TypeError) {
+            return reply.code(400).send(adminError("invalid_target_url", error.message));
+          }
+          throw error;
+        }
+      },
+    );
+  }
   if (options.logService !== undefined) {
     const logService = options.logService;
     const cleanupSelectedGroups = logService.cleanupSelectedGroups?.bind(logService);

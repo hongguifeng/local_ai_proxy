@@ -130,6 +130,53 @@
         </section>
       </main>
     </div>
+    <dialog id="targetCheckDialog" class="target-check-dialog">
+      <form id="targetCheckForm" class="target-check-form">
+        <h2 data-i18n="checkDialogTitle">测试转发地址</h2>
+        <label>
+          <span data-i18n="targetUrl">转发地址</span>
+          <input id="targetCheckUrl" readonly />
+        </label>
+        <label>
+          <span data-i18n="checkApiType">API 类型</span>
+          <select id="targetCheckApiType">
+            <option value="chat">OpenAI Chat Completions</option>
+            <option value="responses">OpenAI Responses</option>
+            <option value="anthropic">Anthropic Messages</option>
+          </select>
+        </label>
+        <label>
+          <span data-i18n="targetApiKey">API Key</span>
+          <input id="targetCheckApiKey" type="password" placeholder="sk-..." autocomplete="off" />
+        </label>
+        <label>
+          <span data-i18n="checkModel">模型 ID</span>
+          <input
+            id="targetCheckModel"
+            list="targetCheckModelOptions"
+            placeholder="gpt-4o-mini"
+            autocomplete="off"
+            required
+          />
+          <datalist id="targetCheckModelOptions">
+            <option value="gpt-4o-mini"></option>
+            <option value="gpt-5.6-sol"></option>
+            <option value="gpt-5.6-luna"></option>
+            <option value="claude-haiku-4-5"></option>
+            <option value="qwen3.8-27b"></option>
+            <option value="qwen-plus"></option>
+            <option value="deepseek-chat"></option>
+          </datalist>
+        </label>
+        <div id="targetCheckResult" class="target-check-result" hidden></div>
+        <div class="target-check-actions">
+          <button type="button" id="targetCheckClose" data-i18n="close">关闭</button>
+          <button type="submit" id="targetCheckStart" class="primary" data-i18n="startCheck">
+            开始测试
+          </button>
+        </div>
+      </form>
+    </dialog>
     <div id="toast" class="toast"></div>
     <script src="/static/app.js"></script>
   </body>

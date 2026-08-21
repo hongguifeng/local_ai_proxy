@@ -10,10 +10,10 @@
 
 | 页面 | 语言 | 文件 | 图片尺寸 | SHA-256 |
 | --- | --- | --- | --- | --- |
-| Proxy | 中文 | `doc/ui_proxy_cn.png` | 1278 x 1215 | `6194df6ac87b9a4dc2ac70c3acce5f94c698934e304eb6be9e34f13cabebee17` |
-| Proxy | 英文 | `doc/ui_proxy_en.png` | 1278 x 1208 | `fc57457ceee2676262649d5df84a00c6555eff5d0634d774b6ba185af0f653ce` |
-| History | 中文 | `doc/ui_logs_cn.png` | 1384 x 1212 | `e6d6e69bb3399c24dc23cd601750c7c61cd17fcf6ead57ba207de9f09180c07d` |
-| History | 英文 | `doc/ui_logs_en.png` | 1384 x 1224 | `72a1e5fd6bcbf970029edec1554a00dd44afa9788593d7ca87fe4edaf060b128` |
+| Proxy | 中文 | `doc/ui_proxy_cn.png` | 1278 x 1215 | `aa44512263e5ffac844c00fb4c872f54b2cc450457ca650b3fac1bbea766b2d6` |
+| Proxy | 英文 | `doc/ui_proxy_en.png` | 1278 x 1208 | `93b74ae36c31a4ae4e3b2d0a92d0241ff093ce7c9b1ca039e661e79cbc5f5e83` |
+| History | 中文 | `doc/ui_logs_cn.png` | 1384 x 1212 | `651ac50056dc8318d023a6fa2bcde4da9c127f35e59974a6c5988b070fe05f83` |
+| History | 英文 | `doc/ui_logs_en.png` | 1384 x 1224 | `13dc6dd1e6d94a535a45588a033a60c144eec19714c9aefc40975cdcd7735903` |
 
 哈希复现命令：
 

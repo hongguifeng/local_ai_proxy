@@ -12,6 +12,8 @@ export {
   PAIR_RESPONSE_SCHEMA,
   REPLACE_PAIRS_REQUEST_SCHEMA,
   SET_PAIR_ENABLED_REQUEST_SCHEMA,
+  TARGET_CHECK_REQUEST_SCHEMA,
+  TARGET_CHECK_RESPONSE_SCHEMA,
   type AdminControlPlaneAddress,
   type AdminControlPlaneOptions,
   type AdminErrorDto,
@@ -22,5 +24,9 @@ export {
   type HealthStatus,
   type LogAdminService,
   type PairAdminService,
+  type TargetCheckAdminService,
+  type TargetCheckApiType,
+  type TargetCheckRequest,
+  type TargetCheckResponse,
 } from "./admin-server.js";
 export { loadAdminStaticAssets } from "./static-assets.js";

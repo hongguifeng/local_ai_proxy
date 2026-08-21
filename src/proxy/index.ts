@@ -119,6 +119,13 @@ export {
 } from "./proxy-request-pipeline.js";
 export { joinTargetPath, parseTargetUrl, type ParsedTargetUrl } from "./target.js";
 export {
+  checkTarget,
+  DEFAULT_TARGET_CHECK_TIMEOUT_MS,
+  type TargetCheckApiType,
+  type TargetCheckRequest,
+  type TargetCheckResponse,
+} from "./target-check.js";
+export {
   openUpstreamResponse,
   type OpenUpstreamResponseOptions,
   type UpstreamTarget,

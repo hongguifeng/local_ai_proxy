@@ -176,6 +176,24 @@ fallback-model
 
 The first line matches model names such as `hyper-gpt-5.5` and `hyper-gpt-5.5-test`. Matching is case-sensitive, and the first matching mapping wins in configuration order. In the last line, `fallback-model` is forwarded with the same model name.
 
+### Target Check
+
+Each target card has a **Test** button for verifying an upstream without sending real application traffic. It opens a dialog prefilled from the target: the target URL (read-only), the target's API Key, the upstream model name from the last model mapping, and the API type (OpenAI Chat Completions by default). The model field accepts free input and offers common presets as suggestions.
+
+On submit, the admin server sends a minimal ping request directly to the target:
+
+- **OpenAI Chat Completions**: `POST {base}/chat/completions` with `Authorization: Bearer <key>` and body `{ "model": ..., "messages": [{ "role": "user", "content": "ping" }] }`.
+- **OpenAI Responses**: `POST {base}/responses` with the same Bearer header and body `{ "model": ..., "input": "ping" }`.
+- **Anthropic Messages**: `POST {base}/messages` with `x-api-key` and `anthropic-version: 2023-06-01`, and body `{ "model": ..., "messages": [...], "max_tokens": 1, "stream": false }`.
+
+The request has a 30-second timeout, and the response body is read up to 8 KiB for error details. The dialog then shows:
+
+- **Success** (green): the server answered with HTTP < 400; displays the status code and round-trip duration.
+- **Warning** (orange): the server answered with HTTP >= 400, for example an invalid API key or unknown model; displays the status, duration, and the server's error body when available.
+- **Failure** (red): the connection failed or timed out; displays the network error and elapsed time.
+
+The check runs directly from the admin server, not through the proxy listener, so it does not appear in the traffic history. It is also exposed as the admin API `POST /api/target-check`, which accepts `{ "targetUrl", "model", "apiType"?, "apiKey"? }` and returns `{ "ok", "status"?, "durationMs", "error"?, "detail"? }`.
+
 ### Supported Request Shapes
 
 The proxy forwards arbitrary HTTP paths, but it understands the common LLM request shapes below for log summaries, stream summaries, and task grouping:

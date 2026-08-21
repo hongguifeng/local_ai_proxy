@@ -175,6 +175,24 @@ fallback-model
 
 第一行可匹配 `hyper-gpt-5.5`、`hyper-gpt-5.5-test` 等模型名。匹配区分大小写，并按配置顺序使用第一个命中的映射。最后一行表示监听并转发同名模型 `fallback-model`。
 
+### 测试转发地址
+
+每个转发地址块上有一个 **测试** 按钮，用于在不发送真实业务流量的情况下验证上游是否可用。点击后弹出对话框，并预填当前转发地址的信息：转发地址（只读）、该地址的 API Key、最后一个模型映射里的转发模型名，以及 API 类型（默认为 OpenAI Chat Completions）。模型 ID 可以自由输入，也提供了常用模型的候选建议。
+
+点击 **开始测试** 后，管理端会直接向转发地址发送一个最小 ping 请求：
+
+- **OpenAI Chat Completions**：`POST {base}/chat/completions`，带 `Authorization: Bearer <key>`，请求体 `{ "model": ..., "messages": [{ "role": "user", "content": "ping" }] }`。
+- **OpenAI Responses**：`POST {base}/responses`，同样的 Bearer 头，请求体 `{ "model": ..., "input": "ping" }`。
+- **Anthropic Messages**：`POST {base}/messages`，带 `x-api-key` 和 `anthropic-version: 2023-06-01`，请求体 `{ "model": ..., "messages": [...], "max_tokens": 1, "stream": false }`。
+
+请求默认 30 秒超时，响应体会读取最多 8 KiB 用于展示错误详情。对话框随后显示：
+
+- **成功**（绿色）：服务器返回 HTTP < 400，显示状态码和往返耗时。
+- **警告**（橙色）：服务器返回 HTTP >= 400（例如 API Key 无效、模型不存在），显示状态码、耗时，以及服务器返回的错误内容（如有）。
+- **失败**（红色）：连接失败或超时，显示网络错误和耗时。
+
+该请求由管理端直接发出，不经过代理监听端口，因此不会出现在历史日志中。它同时暴露为管理 API `POST /api/target-check`，请求体 `{ "targetUrl", "model", "apiType"?, "apiKey"? }`，响应 `{ "ok", "status"?, "durationMs", "error"?, "detail"? }`。
+
 ### 支持的请求形态
 
 代理会转发任意 HTTP path，但会针对下面这些常见 LLM 请求形态做日志摘要、流式摘要和任务归类：

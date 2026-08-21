@@ -234,6 +234,10 @@ main {
   align-items: center;
   justify-content: space-between;
 }
+.target-head button {
+  flex: none;
+  white-space: nowrap;
+}
 .target-title {
   min-width: 0;
   display: grid;
@@ -956,4 +960,122 @@ label span {
   .targets-row {
     grid-template-columns: minmax(0, 1fr);
   }
+}
+
+#targetCheckDialog {
+  width: min(560px, calc(100vw - 32px));
+  margin: auto;
+  padding: 16px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: var(--panel);
+  color: var(--ink);
+  box-shadow: 0 20px 50px rgba(23, 32, 42, 0.18);
+}
+
+#targetCheckDialog::backdrop {
+  background: rgba(23, 32, 42, 0.35);
+}
+
+.target-check-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  margin-bottom: 14px;
+}
+
+.target-check-head strong {
+  font-size: 15px;
+}
+
+.target-check-form {
+  display: grid;
+  gap: 10px;
+}
+
+.target-check-form label {
+  display: grid;
+  gap: 5px;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--muted);
+}
+
+.target-check-form input {
+  height: 32px;
+  padding: 7px 10px;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  background: var(--control);
+  font-size: 13px;
+  color: var(--ink);
+}
+
+.target-check-form select {
+  height: 32px;
+  width: 100%;
+  min-width: 0;
+  padding: 7px 30px 7px 10px;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  background-color: var(--control);
+  background-image: url("data:image/svg+xml;charset=utf-8,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='6'%3E%3Cpath d='M1 1l4 4 4-4' fill='none' stroke='%23607086' stroke-width='1.5' stroke-linecap='round'/%3E%3C/svg%3E");
+  background-repeat: no-repeat;
+  background-position: right 10px center;
+  font-size: 13px;
+  color: var(--ink);
+  appearance: none;
+  cursor: pointer;
+}
+
+.target-check-form input:disabled,
+.target-check-form select:disabled {
+  color: var(--muted);
+}
+
+.target-check-form input:focus,
+.target-check-form select:focus {
+  border-color: var(--accent);
+  outline: 2px solid var(--accent-soft);
+}
+
+.target-check-result {
+  min-height: 18px;
+  padding: 10px 12px;
+  border-radius: 6px;
+  background: var(--control);
+  border: 1px solid var(--line);
+  font-size: 13px;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.target-check-result.testing {
+  color: var(--muted);
+}
+
+.target-check-result.success {
+  background: var(--accent-soft);
+  border-color: var(--accent);
+  color: var(--accent);
+}
+
+.target-check-result.warning {
+  background: #fff4e5;
+  border-color: #e0a03a;
+  color: #8a5a14;
+}
+
+.target-check-result.failure {
+  background: #fdeceb;
+  border-color: var(--danger);
+  color: var(--danger);
+}
+
+.target-check-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  margin-top: 12px;
 }

@@ -8,7 +8,7 @@ import {
 } from "../admin/index.js";
 import { ConfigRepository } from "../config/index.js";
 import { LogQueryService } from "../maintenance/index.js";
-import { ProxyManager } from "../proxy/index.js";
+import { ProxyManager, checkTarget } from "../proxy/index.js";
 import { Application } from "./application.js";
 
 export interface NodeApplicationOptions {
@@ -57,6 +57,7 @@ export function createNodeApplication(options: NodeApplicationOptions): NodeAppl
             ),
           pairService: currentManager,
           logService: new LogQueryService(() => currentManager.logRoots()),
+          targetCheckService: { checkTarget },
           staticAssets:
             options.version !== undefined ? await loadAdminStaticAssets() : loadAdminStaticAssets,
         });

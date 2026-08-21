@@ -30,6 +30,19 @@ let useLargeGroupLogFixture = false;
 const deletedLogGroups = new Set<string>();
 const detailReads = new Map<string, number>();
 const UI_TEST_TIMEOUT_MS = 30_000;
+const targetCheckCalls: {
+  targetUrl: string;
+  model: string;
+  apiType?: "chat" | "responses" | "anthropic";
+  apiKey?: string;
+}[] = [];
+let targetCheckOutcome: {
+  ok: boolean;
+  status?: number;
+  durationMs: number;
+  error?: string;
+  detail?: string;
+} = { ok: true, status: 200, durationMs: 5 };
 
 const pairs: PublicProxyPair[] = [];
 
@@ -95,6 +108,12 @@ function sessionTranscriptFixture(): string {
 beforeAll(async () => {
   server = createAdminServer({
     getHealth: () => applicationHealth("running"),
+    targetCheckService: {
+      checkTarget: (request) => {
+        targetCheckCalls.push({ ...request });
+        return Promise.resolve({ ...targetCheckOutcome });
+      },
+    },
     pairService: {
       listPairs: () => pairs,
       replacePairs: (nextPairs) => {
@@ -395,6 +414,8 @@ beforeEach(async () => {
   useLargeGroupLogFixture = false;
   deletedLogGroups.clear();
   detailReads.clear();
+  targetCheckCalls.length = 0;
+  targetCheckOutcome = { ok: true, status: 200, durationMs: 5 };
 
   page = await browser.newPage();
   await page.addInitScript(() => {
@@ -537,6 +558,95 @@ describe("admin UI proxy page", { timeout: UI_TEST_TIMEOUT_MS }, () => {
 
     await target.locator("[data-toggle-target-options]").click();
     await expectPage(options).toBeHidden();
+  });
+
+  it("checks the forwarding target from the target card dialog", async () => {
+    await loadAdminPage();
+    const target = page.locator('.proxy-card[data-index="0"] .target-card').first();
+    await target.locator("[data-check-target]").click();
+
+    const dialog = page.locator("#targetCheckDialog");
+    await expectPage(dialog).toBeVisible();
+    await expectPage(dialog.locator("#targetCheckUrl")).toHaveValue("https://example.test/v1");
+    await expectPage(dialog.locator("#targetCheckApiKey")).toHaveValue("secret-key");
+    await dialog.locator("#targetCheckModel").fill("gpt-5.5");
+    await dialog.locator("#targetCheckStart").click();
+
+    const result = dialog.locator("#targetCheckResult");
+    await expectPage(result).toBeVisible();
+    await expectPage(result).toHaveClass(/success/);
+    await expectPage(result).toHaveText(/HTTP 200/);
+    expect(targetCheckCalls).toEqual([
+      {
+        targetUrl: "https://example.test/v1",
+        model: "gpt-5.5",
+        apiType: "chat",
+        apiKey: "secret-key",
+      },
+    ]);
+  });
+
+  it("sends the selected api type with the target check request", async () => {
+    await loadAdminPage();
+    const target = page.locator('.proxy-card[data-index="0"] .target-card').first();
+    await target.locator("[data-check-target]").click();
+
+    const dialog = page.locator("#targetCheckDialog");
+    await expectPage(dialog.locator("#targetCheckApiType")).toHaveValue("chat");
+    await expectPage(dialog.locator("#targetCheckModel")).toHaveAttribute(
+      "list",
+      "targetCheckModelOptions",
+    );
+    await expectPage(page.locator("#targetCheckModelOptions option")).toHaveCount(7);
+    await dialog.locator("#targetCheckApiType").selectOption("anthropic");
+    await dialog.locator("#targetCheckModel").fill("claude-opus-4-6");
+    await dialog.locator("#targetCheckStart").click();
+
+    await expectPage(dialog.locator("#targetCheckResult")).toHaveText(/HTTP 200/);
+    expect(targetCheckCalls).toEqual([
+      {
+        targetUrl: "https://example.test/v1",
+        model: "claude-opus-4-6",
+        apiType: "anthropic",
+        apiKey: "secret-key",
+      },
+    ]);
+  });
+
+  it("shows a warning with the server error detail when the status is an error", async () => {
+    targetCheckOutcome = {
+      ok: true,
+      status: 401,
+      durationMs: 12,
+      detail: '{"error":{"message":"invalid api key"}}',
+    };
+    await loadAdminPage();
+    const target = page.locator('.proxy-card[data-index="0"] .target-card').first();
+    await target.locator("[data-check-target]").click();
+
+    const dialog = page.locator("#targetCheckDialog");
+    await dialog.locator("#targetCheckModel").fill("gpt-5.5");
+    await dialog.locator("#targetCheckStart").click();
+
+    const result = dialog.locator("#targetCheckResult");
+    await expectPage(result).toHaveClass(/warning/);
+    await expectPage(result).toHaveText(/401/);
+    await expectPage(result).toHaveText(/invalid api key/);
+  });
+
+  it("shows a failure when the target check cannot reach the endpoint", async () => {
+    targetCheckOutcome = { ok: false, durationMs: 8, error: "connect ECONNREFUSED 127.0.0.1:9" };
+    await loadAdminPage();
+    const target = page.locator('.proxy-card[data-index="0"] .target-card').first();
+    await target.locator("[data-check-target]").click();
+
+    const dialog = page.locator("#targetCheckDialog");
+    await dialog.locator("#targetCheckModel").fill("gpt-5.5");
+    await dialog.locator("#targetCheckStart").click();
+
+    const result = dialog.locator("#targetCheckResult");
+    await expectPage(result).toHaveClass(/failure/);
+    await expectPage(result).toHaveText(/ECONNREFUSED/);
   });
 
   it("saves form changes and toggles the proxy enabled state", async () => {
@@ -937,17 +1047,19 @@ describe("admin UI history page", { timeout: UI_TEST_TIMEOUT_MS }, () => {
     ).toHaveJSProperty("open", true);
 
     const nestedNaturalTop = await requestJson.evaluate((container) => {
-      const detail = container.querySelector('details[data-json-depth="1"]');
+      const detail = container.querySelector<HTMLElement>('details[data-json-depth="1"]');
+      if (detail === null) throw new Error("Expected nested JSON detail");
       let top = 0;
-      let node = detail;
-      while (node && node !== container) {
+      let node: HTMLElement | null = detail;
+      while (node !== null && node !== container) {
         top += node.offsetTop;
-        node = node.offsetParent;
+        node = node.offsetParent as HTMLElement | null;
       }
       return top;
     });
     await requestJson.evaluate((container) => {
-      const detail = container.querySelector('details[data-json-depth="1"]');
+      const detail = container.querySelector<HTMLElement>('details[data-json-depth="1"]');
+      if (detail === null) throw new Error("Expected nested JSON detail");
       const spacer = container.ownerDocument.createElement("div");
       spacer.style.height = "1500px";
       detail.appendChild(spacer);

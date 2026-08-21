@@ -34,3 +34,20 @@ test-node/ui/admin-ui.test.ts` to isolate UI failures.
 
 If local requests unexpectedly use an HTTP proxy, exclude `127.0.0.1` and `localhost` through
 `NO_PROXY`; otherwise health checks can be sent to the external proxy rather than the local UI.
+
+## Upstream target not responding
+
+If clients see connection errors or odd upstream statuses, click **Test** on the target card in the
+admin UI. The check sends a minimal ping directly from the admin server to the upstream (it does not
+pass through the proxy listener and is not recorded in the traffic history), which separates the
+common causes:
+
+- **Red failure**: the network cannot reach the upstream. Check the target URL, DNS, firewall, or
+  whether the upstream process is running.
+- **Orange warning with HTTP 401/403**: authentication failed. Verify the API key and the API type
+  in the check dialog (Chat Completions and Responses use `Authorization: Bearer`; Anthropic uses
+  `x-api-key`).
+- **Orange warning with HTTP 404**: unknown model or wrong base path. Verify the model ID and the
+  target URL base path (for example whether it includes `/v1`).
+- **Green success**: the upstream is healthy, so the problem is likely in the local client
+  configuration or proxy routing instead.
