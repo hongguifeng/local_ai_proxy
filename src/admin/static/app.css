@@ -774,6 +774,7 @@ label span {
 .json-view {
   margin: 0;
   padding: 0 12px 12px;
+  position: relative;
   overflow: auto;
   min-height: 0;
   font:
@@ -799,7 +800,7 @@ label span {
 .json-view details.json-node > summary {
   position: sticky;
   top: calc(var(--json-sticky-depth, 0) * 18px);
-  z-index: calc(10 - var(--json-sticky-depth, 0));
+  z-index: calc(1000 - var(--json-sticky-depth, 0));
   line-height: 18px;
   white-space: nowrap;
   overflow: hidden;

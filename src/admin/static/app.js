@@ -758,6 +758,15 @@ function jsonType(value) {
   return typeof value;
 }
 const defaultJsonExpandedDepth = 2;
+function jsonContentOffset(container, el) {
+  let top = 0;
+  let node = el;
+  while (node && node !== container) {
+    top += node.offsetTop;
+    node = node.offsetParent;
+  }
+  return top;
+}
 function jsonNodePathAttr(path) {
   return escapeHtml(JSON.stringify(path));
 }
@@ -1218,6 +1227,25 @@ document.querySelectorAll("[data-expand]").forEach((button) =>
     true,
   );
   $(key + "Json").addEventListener("click", (event) => {
+    const summary = event.target.closest("summary");
+    const detail =
+      summary && summary.parentElement.matches("details.json-node") ? summary.parentElement : null;
+    if (detail) {
+      const container = $(key + "Json");
+      const naturalTop = jsonContentOffset(container, detail);
+      const visualTop =
+        summary.getBoundingClientRect().top -
+        container.getBoundingClientRect().top +
+        container.scrollTop;
+      const stuckBy = visualTop - naturalTop;
+      if (stuckBy > 0.5) {
+        event.preventDefault();
+        container.scrollTo({
+          top: Math.max(0, container.scrollTop - stuckBy),
+          behavior: "smooth",
+        });
+      }
+    }
     const button = event.target.closest("[data-copy-string]");
     if (!button) return;
     const body = button.closest(".json-str-full")?.querySelector(".json-str-body");
