@@ -10,10 +10,10 @@
 
 | 页面 | 语言 | 文件 | 图片尺寸 | SHA-256 |
 | --- | --- | --- | --- | --- |
-| Proxy | 中文 | `doc/ui_proxy_cn.png` | 1278 x 1215 | `aa44512263e5ffac844c00fb4c872f54b2cc450457ca650b3fac1bbea766b2d6` |
-| Proxy | 英文 | `doc/ui_proxy_en.png` | 1278 x 1208 | `93b74ae36c31a4ae4e3b2d0a92d0241ff093ce7c9b1ca039e661e79cbc5f5e83` |
-| History | 中文 | `doc/ui_logs_cn.png` | 1384 x 1212 | `651ac50056dc8318d023a6fa2bcde4da9c127f35e59974a6c5988b070fe05f83` |
-| History | 英文 | `doc/ui_logs_en.png` | 1384 x 1224 | `13dc6dd1e6d94a535a45588a033a60c144eec19714c9aefc40975cdcd7735903` |
+| Proxy | 中文 | `doc/ui_proxy_cn.png` | 1278 x 1215 | `4e149fbde73f6f25cd871129a9d95f25dd039e368c52ebf17324f65c7295bf25` |
+| Proxy | 英文 | `doc/ui_proxy_en.png` | 1278 x 1208 | `af0233de7fb22d719b76db738d7e3e89a5e53dbea1d1d27d8f3e86af170a74bf` |
+| History | 中文 | `doc/ui_logs_cn.png` | 1384 x 1212 | `c47d64cb09755ae1d2b2b36c61a5512de89bdc8d59955ff3005fcd5193415fe1` |
+| History | 英文 | `doc/ui_logs_en.png` | 1384 x 1224 | `8c7bd265ef7c278d07c664aaa563c6ebfb00f29b0c5a35cc206fe05275cb0bef` |
 
 哈希复现命令：
 
@@ -43,7 +43,7 @@ sha256sum doc/ui_proxy_cn.png doc/ui_proxy_en.png doc/ui_logs_cn.png doc/ui_logs
 - 左侧顶部包含搜索、刷新、导出、清理选中、自动刷新。
 - fixture 包含多个 task：首个 task 展开，其余以单行折叠卡片显示（不同 model 和 request 数）。
 - 每个 task 是浅灰列表区内一张独立的白色圆角卡片，卡片之间用留白分隔。
-- task header 是卡片顶部的蓝灰色块，带加粗左侧色条，包含复选框、折叠箭头、时间范围和 model/request/target 摘要；header 与请求项列表之间有一条分隔线。
+- task header 是卡片顶部的蓝灰色块，带加粗左侧色条；左侧控制列中复选框（上）与折叠箭头（下）上下排列，右侧为时间范围和 model/request/target 摘要。header 与请求项列表之间有一条分隔线。
 - 展开的 task 下按 sequence 倒序显示 5 条请求项，白底、相对 header 缩进，仅用浅色细线分隔，视觉层级从属于 task header。
 - 请求项状态圆点覆盖三种状态：绿色 200 成功、红色 4xx 错误（响应 tokens 为 0）、琥珀色 pending（tokens 未返回）。
 - 右侧 JSON 使用等宽字体、语法颜色和 `details/summary` 折叠树。

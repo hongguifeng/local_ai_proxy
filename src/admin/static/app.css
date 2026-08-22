@@ -475,8 +475,8 @@ label span {
   padding: 11px 12px;
   background: #dfe9f1;
   display: grid;
-  grid-template-columns: 18px 16px minmax(0, 1fr);
-  gap: 5px 7px;
+  grid-template-columns: auto minmax(0, 1fr);
+  gap: 3px 7px;
   text-align: left;
   box-shadow: inset 4px 0 #6b87a1;
 }
@@ -484,19 +484,30 @@ label span {
   background: #d3e0ea;
 }
 .log-group-select {
-  grid-row: 1 / span 2;
-  width: 16px;
+  grid-column: 1;
+  grid-row: 1;
+  justify-self: center;
   align-self: center;
+  width: 14px;
+  height: 14px;
+  margin: 0;
 }
 .log-group-caret {
-  grid-row: 1 / span 2;
+  grid-column: 1;
+  grid-row: 2;
+  justify-self: center;
+  align-self: center;
   color: var(--muted);
+  font-size: 20px;
+  line-height: 1;
 }
 .log-group-time,
 .log-group-facts {
+  grid-column: 2;
   min-width: 0;
 }
 .log-group-time {
+  grid-row: 1;
   display: flex;
   align-items: center;
   gap: 7px;
@@ -533,6 +544,7 @@ label span {
   white-space: nowrap;
 }
 .log-group-facts {
+  grid-row: 2;
   display: flex;
   align-items: baseline;
   gap: 6px;
