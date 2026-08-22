@@ -736,6 +736,7 @@ label span {
   display: grid;
   grid-template-rows: 40px auto 1fr;
   background: #fbfcfd;
+  contain: layout;
 }
 .pane-head {
   border-bottom: 1px solid var(--line);
@@ -903,11 +904,25 @@ label span {
 .splitter {
   background: var(--line);
   cursor: row-resize;
+  touch-action: none;
+}
+.splitter.dragging {
+  z-index: 20;
+  background: var(--accent);
+  transform: translateY(var(--splitter-preview-y, 0));
+  will-change: transform;
 }
 .log-splitter {
   background: var(--line);
   cursor: col-resize;
   flex-shrink: 0;
+  touch-action: none;
+}
+.log-splitter.dragging {
+  z-index: 20;
+  background: var(--accent);
+  transform: translateX(var(--splitter-preview-x, 0));
+  will-change: transform;
 }
 .empty {
   height: 100%;

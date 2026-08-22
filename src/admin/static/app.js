@@ -197,6 +197,7 @@ const state = {
   logsHasMore: false,
   logsTotal: 0,
   logQuery: "",
+  splitterDragging: false,
   refreshTimer: null,
 };
 const $ = (id) => document.getElementById(id);
@@ -555,7 +556,7 @@ function scheduleLogRefresh(delay = 3000) {
   clearTimeout(state.refreshTimer);
   if (!$("autoRefreshLogs").checked || state.logQuery !== "") return;
   state.refreshTimer = setTimeout(() => {
-    if (document.hidden || !$("logs").classList.contains("active")) {
+    if (state.splitterDragging || document.hidden || !$("logs").classList.contains("active")) {
       scheduleLogRefresh(delay);
       return;
     }
@@ -887,16 +888,66 @@ function renderJsonValue(
   if (type === "undefined") return `${keyHtml}<span class="json-null">undefined</span>`;
   return `${keyHtml}<span class="json-null">null</span>`;
 }
-let jsonMeasureSpan = null;
-function measureJsonTextWidth(text) {
-  if (!jsonMeasureSpan) {
-    jsonMeasureSpan = document.createElement("span");
-    jsonMeasureSpan.style.cssText =
-      "position:absolute;top:0;left:-9999px;visibility:hidden;white-space:pre;display:inline-block;padding:0;margin:0;border:0;font:12px/1.5 ui-monospace,SFMono-Regular,Consolas,monospace;";
-    document.body.appendChild(jsonMeasureSpan);
+let jsonMeasureBox = null;
+let jsonMeasureResults = new Map();
+function ensureJsonMeasureBox() {
+  if (!jsonMeasureBox) {
+    jsonMeasureBox = document.createElement("div");
+    jsonMeasureBox.style.cssText =
+      "position:absolute;top:0;left:-9999px;visibility:hidden;white-space:pre;padding:0;margin:0;border:0;font:12px/1.5 ui-monospace,SFMono-Regular,Consolas,monospace;";
+    document.body.appendChild(jsonMeasureBox);
   }
-  jsonMeasureSpan.textContent = text;
-  return jsonMeasureSpan.offsetWidth;
+  return jsonMeasureBox;
+}
+function collectJsonMeasureProbes(value, key, depth, lineWidth, probes) {
+  if (value === null || value === undefined) return;
+  const type = jsonType(value);
+  if (type === "array" || type === "object") {
+    const entries =
+      type === "array" ? value.map((item, index) => [index, item]) : Object.entries(value);
+    for (const [childKey, childValue] of entries) {
+      collectJsonMeasureProbes(childValue, String(childKey), depth + 1, lineWidth, probes);
+    }
+    return;
+  }
+  if (type !== "string") return;
+  const displayValue = formatString(value);
+  if (displayValue.indexOf(String.fromCharCode(10)) !== -1) return;
+  const probe = (key === "" ? "" : JSON.stringify(key) + ": ") + displayValue;
+  const available = lineWidth - 16 * depth - 8;
+  if (available > 0 && probe.length * 12 > available && probe.length * 7.2 <= available) {
+    probes.push(probe);
+  }
+}
+function prepareJsonMeasurements(value, lineWidth) {
+  jsonMeasureResults = new Map();
+  if (lineWidth <= 0) return;
+  const probes = [];
+  collectJsonMeasureProbes(value, "", 0, lineWidth, probes);
+  if (!probes.length) return;
+  const box = ensureJsonMeasureBox();
+  box.textContent = "";
+  const measured = [];
+  const seen = new Set();
+  for (const probe of probes) {
+    if (seen.has(probe)) continue;
+    seen.add(probe);
+    const el = document.createElement("div");
+    el.textContent = probe;
+    box.appendChild(el);
+    measured.push([probe, el]);
+  }
+  // 一次性强制布局，批量拿到全部探测文本的宽度
+  void box.offsetHeight;
+  for (const [probe, el] of measured) jsonMeasureResults.set(probe, el.offsetWidth);
+}
+function measureJsonTextWidth(text) {
+  const cached = jsonMeasureResults.get(text);
+  if (cached !== undefined) return cached;
+  // 回退：预扫描未覆盖时单独测量
+  const box = ensureJsonMeasureBox();
+  box.textContent = text;
+  return box.offsetWidth;
 }
 function jsonTextFitsOnLine(displayValue, key, depth, lineWidth) {
   const probe = (key === "" ? "" : JSON.stringify(key) + ": ") + displayValue;
@@ -928,6 +979,7 @@ function renderJsonPane(key, options = {}) {
   el.classList.toggle("nowrap", !state.wrap[key]);
   if (state.tree[key]) {
     const lineWidth = el.clientWidth > 24 ? el.clientWidth - 24 : 0;
+    if (state.formatStrings[key]) prepareJsonMeasurements(state.raw[key], lineWidth);
     el.innerHTML = renderJsonValue(
       state.raw[key],
       "",
@@ -1394,54 +1446,105 @@ document.querySelectorAll("[data-copy]").forEach((button) =>
 (() => {
   const detail = $("detail"),
     splitter = $("splitter");
-  let dragging = false;
+  let dragging = false,
+    previewFrame = 0,
+    baseRect = null,
+    baseTop = 0,
+    baseY = 0,
+    targetY = 0;
+  const clampedTop = () =>
+    Math.max(120, Math.min(baseRect.height - 120, baseTop + (targetY - baseY)));
+  const previewTop = () => {
+    previewFrame = 0;
+    if (!dragging || !baseRect) return;
+    splitter.style.setProperty("--splitter-preview-y", `${clampedTop() - baseTop}px`);
+  };
+  const clearPreview = () => {
+    if (previewFrame) cancelAnimationFrame(previewFrame);
+    previewFrame = 0;
+    splitter.classList.remove("dragging");
+    splitter.style.removeProperty("--splitter-preview-y");
+  };
   splitter.addEventListener("pointerdown", (e) => {
     dragging = true;
+    state.splitterDragging = true;
     splitter.setPointerCapture(e.pointerId);
+    baseRect = detail.getBoundingClientRect();
+    baseTop = splitter.offsetTop;
+    baseY = e.clientY;
+    targetY = e.clientY;
+    splitter.classList.add("dragging");
   });
   splitter.addEventListener("pointermove", (e) => {
     if (!dragging) return;
-    const rect = detail.getBoundingClientRect();
-    const top = Math.max(120, Math.min(rect.height - 120, e.clientY - rect.top));
-    detail.style.setProperty("--request-fr", `${top}px`);
-    detail.style.setProperty("--response-fr", `${rect.height - top - 8}px`);
+    targetY = e.clientY;
+    if (!previewFrame) previewFrame = requestAnimationFrame(previewTop);
   });
-  splitter.addEventListener("pointerup", () => {
+  const stopDragging = (commit) => {
+    if (!dragging) return;
     dragging = false;
-  });
+    state.splitterDragging = false;
+    if (commit && baseRect) {
+      const top = clampedTop();
+      detail.style.setProperty("--request-fr", `${top}px`);
+      detail.style.setProperty("--response-fr", `${baseRect.height - top - 8}px`);
+    }
+    clearPreview();
+    baseRect = null;
+  };
+  splitter.addEventListener("pointerup", () => stopDragging(true));
+  splitter.addEventListener("pointercancel", () => stopDragging(false));
+  splitter.addEventListener("lostpointercapture", () => stopDragging(false));
 })();
 (() => {
   const logsView = $("logs"),
-    logSplitter = $("logSplitter");
-  let dragging = false;
+    logSplitter = $("logSplitter"),
+    logList = document.querySelector(".log-list");
+  let dragging = false,
+    previewFrame = 0,
+    baseRect = null,
+    baseWidth = 0,
+    baseX = 0,
+    targetX = 0;
+  const clampedWidth = () =>
+    Math.max(200, Math.min(baseRect.width * 0.8, baseWidth + (targetX - baseX)));
+  const previewWidth = () => {
+    previewFrame = 0;
+    if (!dragging || !baseRect) return;
+    logSplitter.style.setProperty("--splitter-preview-x", `${clampedWidth() - baseWidth}px`);
+  };
+  const clearPreview = () => {
+    if (previewFrame) cancelAnimationFrame(previewFrame);
+    previewFrame = 0;
+    logSplitter.classList.remove("dragging");
+    logSplitter.style.removeProperty("--splitter-preview-x");
+  };
   logSplitter.addEventListener("pointerdown", (e) => {
     dragging = true;
+    state.splitterDragging = true;
     logSplitter.setPointerCapture(e.pointerId);
+    baseRect = logsView.getBoundingClientRect();
+    baseWidth = logList.getBoundingClientRect().width;
+    baseX = e.clientX;
+    targetX = e.clientX;
+    logSplitter.classList.add("dragging");
   });
   logSplitter.addEventListener("pointermove", (e) => {
     if (!dragging) return;
-    const rect = logsView.getBoundingClientRect();
-    const minW = 200,
-      maxW = rect.width * 0.8;
-    const w = Math.max(minW, Math.min(maxW, e.clientX - rect.left));
-    logsView.style.setProperty("--sidebar-w", `${w}px`);
+    targetX = e.clientX;
+    if (!previewFrame) previewFrame = requestAnimationFrame(previewWidth);
   });
-  logSplitter.addEventListener("pointerup", () => {
+  const stopDragging = (commit) => {
+    if (!dragging) return;
     dragging = false;
-    refreshJsonPanesForWidth();
-  });
+    state.splitterDragging = false;
+    if (commit && baseRect) logsView.style.setProperty("--sidebar-w", `${clampedWidth()}px`);
+    clearPreview();
+    baseRect = null;
+  };
+  logSplitter.addEventListener("pointerup", () => stopDragging(true));
+  logSplitter.addEventListener("pointercancel", () => stopDragging(false));
+  logSplitter.addEventListener("lostpointercapture", () => stopDragging(false));
 })();
-let jsonWidthRefreshQueued = false;
-function refreshJsonPanesForWidth() {
-  if (!state.selected || jsonWidthRefreshQueued) return;
-  jsonWidthRefreshQueued = true;
-  requestAnimationFrame(() => {
-    jsonWidthRefreshQueued = false;
-    if (!state.selected) return;
-    renderJsonPane("request", { preserveView: true });
-    renderJsonPane("response", { preserveView: true });
-  });
-}
-window.addEventListener("resize", refreshJsonPanesForWidth);
 applyLanguage();
 loadPairs().catch((e) => toast(e.message));

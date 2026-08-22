@@ -407,7 +407,7 @@ repository 封装所有 SQL 和 JSON 字段编码/解码：
 - Proxy target 使用响应式网格，空间不足时自动换行。
 - History 使用三列 grid：sidebar、splitter、detail。
 - Detail 使用三行 grid：request、splitter、response。
-- JSON tree 使用 `details/summary`。
+- JSON tree 使用 `details/summary`；`.json-pane` 使用 `contain: layout`，限制普通布局变化的重排影响范围。
 - 760 px media query 切换窄屏布局。
 
 ### 4.3 JavaScript 状态
@@ -423,6 +423,10 @@ repository 封装所有 SQL 和 JSON 字段编码/解码：
 前端没有路由器或组件框架，使用模板字符串整块重绘。为了防止重绘丢失输入，语言切换和部分操作前先调用 `collectPairs()` 回收 DOM 值。
 
 task records API 保留单次最多 200 条的边界，避免一个长期 task 生成无界管理端响应。响应同时返回 `total`、`limit` 和 `has_more`，不再静默隐藏截断状态；当前 UI 继续显示最新 200 条。
+
+Splitter 拖动（左右分栏与上下分栏）采用“预览后提交”：pointerdown 时缓存容器和原始分栏尺寸，pointermove 只通过 `transform` 移动 splitter 预览线，不改变 grid 尺寸，因此大 JSON DOM 不参与拖动过程中的重排；pointerup 时才一次性提交新的 CSS 分栏变量。拖动期间置位 `state.splitterDragging`，跳过周期性自动刷新，避免列表 DOM 重建干扰交互。
+
+分栏提交后不重新生成 JSON DOM。浏览器直接按现有节点完成一次布局，保留所有 `details` 展开状态和滚动位置，也避免松手后因 `innerHTML` 替换产生界面闪烁。JSON pane 在用户主动切换树形、格式化、换行等显示选项时，仍会先预扫描长字符串并批量测量宽度，把原来逐字符串触发的同步布局合并为一次。
 
 ## 5. 当前数据模型
 

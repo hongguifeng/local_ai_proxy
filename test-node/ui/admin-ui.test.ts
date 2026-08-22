@@ -1120,13 +1120,24 @@ describe("admin UI history page", { timeout: UI_TEST_TIMEOUT_MS }, () => {
     await expectPage(metadata).toBeHidden();
   });
 
-  it("drags the column and row splitters", async () => {
+  it("drags the column and row splitters without rebuilding the JSON panes", async () => {
     await openRecordDetail("record-two");
+    await page.evaluate(`
+      window.__jsonPaneMutationCount = 0;
+      const observer = new MutationObserver((records) => {
+        window.__jsonPaneMutationCount += records.length;
+      });
+      observer.observe(document.querySelector("#requestJson"), { childList: true, subtree: true });
+      observer.observe(document.querySelector("#responseJson"), { childList: true, subtree: true });
+    `);
     const logSplitter = page.locator("#logSplitter");
     const logBox = await requiredBox(logSplitter);
     await page.mouse.move(logBox.x + logBox.width / 2, logBox.y + logBox.height / 2);
     await page.mouse.down();
     await page.mouse.move(logBox.x + 120, logBox.y + logBox.height / 2);
+    await expectPage(logSplitter).toHaveClass(/dragging/);
+    await expectPage(logSplitter).toHaveAttribute("style", /--splitter-preview-x:/);
+    await expectPage(page.locator("#logs")).not.toHaveAttribute("style", /--sidebar-w:/);
     await page.mouse.up();
     await expectPage(page.locator("#logs")).toHaveAttribute("style", /--sidebar-w: \d+(\.\d+)?px/);
 
@@ -1135,6 +1146,9 @@ describe("admin UI history page", { timeout: UI_TEST_TIMEOUT_MS }, () => {
     await page.mouse.move(rowBox.x + rowBox.width / 2, rowBox.y + rowBox.height / 2);
     await page.mouse.down();
     await page.mouse.move(rowBox.x + rowBox.width / 2, rowBox.y + 80);
+    await expectPage(rowSplitter).toHaveClass(/dragging/);
+    await expectPage(rowSplitter).toHaveAttribute("style", /--splitter-preview-y:/);
+    await expectPage(page.locator("#detail")).not.toHaveAttribute("style", /--request-fr:/);
     await page.mouse.up();
     await expectPage(page.locator("#detail")).toHaveAttribute(
       "style",
@@ -1144,6 +1158,7 @@ describe("admin UI history page", { timeout: UI_TEST_TIMEOUT_MS }, () => {
       "style",
       /--response-fr: \d+(\.\d+)?px/,
     );
+    expect(await page.evaluate("window.__jsonPaneMutationCount")).toBe(0);
   });
 
   it("clips the auto refresh label instead of wrapping it when the sidebar narrows", async () => {
