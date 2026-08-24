@@ -1185,26 +1185,42 @@ describe("admin UI history page", { timeout: UI_TEST_TIMEOUT_MS }, () => {
     expect(await page.evaluate("window.__jsonPaneMutationCount")).toBe(0);
   });
 
-  it("keeps the auto refresh label on one line when the sidebar narrows", async () => {
+  it("places auto refresh after the refresh button without clipping it", async () => {
     await loadAdminPage();
     await Promise.all([
       page.waitForResponse((response) => response.url().includes("/api/logs?")),
       page.locator('[data-tab="logs"]').click(),
     ]);
     const span = page.locator(".auto-refresh span");
-    const label = page.locator(".auto-refresh");
-    const search = page.locator("#logSearch");
-    const fullSpan = await requiredBox(span);
-    const fullLabel = await requiredBox(label);
-    const fullSearch = await requiredBox(search);
+    const order = await page.evaluate(() =>
+      [...document.querySelector(".log-actions")!.children].map(
+        (el) => (el as HTMLElement).id || el.className,
+      ),
+    );
+    expect(order).toEqual([
+      "selectAllLogs",
+      "cleanupLogs",
+      "exportLogs",
+      "refreshLogs",
+      "auto-refresh",
+    ]);
+
+    const measure = async () => {
+      const box = await requiredBox(span);
+      const sidebar = await requiredBox(page.locator("#logs .log-list"));
+      return { box, rightEdge: sidebar.x + sidebar.width };
+    };
+    const full = await measure();
     await page.evaluate(
       'document.querySelector("#logs").style.setProperty("--sidebar-w", "260px")',
     );
-    const narrowSpan = await requiredBox(span);
-    expect(narrowSpan.height).toBeCloseTo(fullSpan.height, 0);
-    expect(narrowSpan.width).toBeCloseTo(fullSpan.width, 0);
-    expect((await requiredBox(label)).height).toBeCloseTo(fullLabel.height, 0);
-    expect((await requiredBox(search)).width).toBeLessThan(fullSearch.width);
+    const narrow = await measure();
+    expect(narrow.box.height).toBeCloseTo(full.box.height, 0);
+    expect(narrow.box.width).toBeCloseTo(full.box.width, 0);
+    expect(narrow.box.height).toBeLessThanOrEqual(20);
+    expect(
+      Math.abs(narrow.rightEdge - 12 - (narrow.box.x + narrow.box.width)),
+    ).toBeLessThanOrEqual(3);
   });
 });
 
