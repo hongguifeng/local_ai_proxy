@@ -458,10 +458,13 @@ label span {
 .auto-refresh {
   display: inline-flex;
   flex-direction: column;
-  align-items: flex-start;
+  align-items: center;
   gap: 2px;
   align-self: center;
-  min-width: 0;
+  /* Stay at full content width; if the row is too narrow, the toolbar
+     overflows to the right and the clipped edge hides this label instead
+     of shrinking it on top of the previous button. */
+  min-width: max-content;
   color: var(--muted);
   font-size: 12px;
 }
