@@ -285,7 +285,7 @@ For OpenAI-compatible and Claude Messages SSE responses, the stored response bod
 
 SSE responses are forwarded to the client line by line as they arrive from the upstream. Non-SSE responses are still forwarded in regular binary chunks.
 
-The History tab can export task logs as `llm-proxy-logs.zip`. The ZIP is generated from SQLite on demand and contains human-readable Markdown plus `request.json` and `response.json` files. Select one or more task groups in the log list, then use cleanup to delete those tasks and their request records from the database.
+The History tab can export task logs as `llm-proxy-logs.zip`. The ZIP is generated from SQLite on demand and contains human-readable Markdown plus `request.json` and `response.json` files. Select one or more task groups in the log list (use the Select all button to select every listed group, which toggles to Deselect all), then use cleanup to delete those tasks and their request records from the database.
 
 ## Backup, Migration, and Rollback
 

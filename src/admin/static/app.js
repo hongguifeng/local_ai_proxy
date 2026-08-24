@@ -19,6 +19,8 @@ const translations = {
     exportLogs: "导出",
     cleanupLogs: "清理",
     cleanupSelectedLogs: "清理选中",
+    selectAllLogs: "全选",
+    clearSelectedLogs: "取消全选",
     selectLogGroup: "选择任务",
     noSelectedLogs: "请先选择要清理的任务",
     autoRefresh: "自动刷新",
@@ -101,7 +103,9 @@ const translations = {
     refresh: "Refresh",
     exportLogs: "Export",
     cleanupLogs: "Clean",
-    cleanupSelectedLogs: "Clean selected",
+    cleanupSelectedLogs: "Clean",
+    selectAllLogs: "Select all",
+    clearSelectedLogs: "Deselect all",
     selectLogGroup: "Select task",
     noSelectedLogs: "Select tasks to clean first",
     autoRefresh: "Auto refresh",
@@ -234,6 +238,7 @@ function applyLanguage() {
   updateMetaButton("request");
   updateMetaButton("response");
   updateResponseTiming();
+  updateSelectAllLogsButton();
 }
 function setLanguage(language) {
   if (!translations[language]) return;
@@ -563,6 +568,24 @@ function scheduleLogRefresh(delay = 3000) {
     loadLogs({ quiet: true }).catch((e) => toast(e.message));
   }, delay);
 }
+function allLogGroupsSelected() {
+  return (
+    state.logGroups.length > 0 &&
+    state.logGroups.every((group) => state.selectedLogGroups[group.id])
+  );
+}
+function updateSelectAllLogsButton() {
+  $("selectAllLogs").textContent = t(
+    allLogGroupsSelected() ? "clearSelectedLogs" : "selectAllLogs",
+  );
+}
+function toggleSelectAllLogs() {
+  const selectAll = !allLogGroupsSelected();
+  state.logGroups.forEach((group) => {
+    state.selectedLogGroups[group.id] = selectAll;
+  });
+  renderLogs();
+}
 function logGroupsSignature(groups) {
   return (groups || []).map((group) => logGroupSummarySignature(group)).join("\n");
 }
@@ -776,6 +799,7 @@ function renderLogs() {
     </section>`,
       )
       .join("") || `<div class="empty">${escapeHtml(t("noLogs"))}</div>`;
+  updateSelectAllLogsButton();
   const moreHtml = state.logsHasMore
     ? `<button class="load-more" data-load-more>${escapeHtml(t("loadMore"))} (${state.logGroups.length}/${state.logsTotal})</button>`
     : "";
@@ -1309,10 +1333,12 @@ $("searchLogs").addEventListener("click", () => {
 });
 $("exportLogs").addEventListener("click", () => exportLogs().catch((e) => toast(e.message)));
 $("cleanupLogs").addEventListener("click", () => cleanupLogs().catch((e) => toast(e.message)));
+$("selectAllLogs").addEventListener("click", () => toggleSelectAllLogs());
 $("autoRefreshLogs").addEventListener("change", () => scheduleLogRefresh(250));
 $("logItems").addEventListener("click", (event) => {
   if (event.target.matches("[data-select-group]")) {
     state.selectedLogGroups[event.target.dataset.selectGroup] = event.target.checked;
+    updateSelectAllLogsButton();
     return;
   }
   const group = event.target.closest("[data-group-id]");

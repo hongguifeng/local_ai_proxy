@@ -1161,7 +1161,7 @@ describe("admin UI history page", { timeout: UI_TEST_TIMEOUT_MS }, () => {
     expect(await page.evaluate("window.__jsonPaneMutationCount")).toBe(0);
   });
 
-  it("clips the auto refresh label instead of wrapping it when the sidebar narrows", async () => {
+  it("keeps the auto refresh label on one line when the sidebar narrows", async () => {
     await loadAdminPage();
     await Promise.all([
       page.waitForResponse((response) => response.url().includes("/api/logs?")),
@@ -1169,15 +1169,18 @@ describe("admin UI history page", { timeout: UI_TEST_TIMEOUT_MS }, () => {
     ]);
     const span = page.locator(".auto-refresh span");
     const label = page.locator(".auto-refresh");
+    const search = page.locator("#logSearch");
     const fullSpan = await requiredBox(span);
     const fullLabel = await requiredBox(label);
+    const fullSearch = await requiredBox(search);
     await page.evaluate(
       'document.querySelector("#logs").style.setProperty("--sidebar-w", "260px")',
     );
-    const clippedSpan = await requiredBox(span);
-    expect(clippedSpan.height).toBeCloseTo(fullSpan.height, 0);
-    expect(clippedSpan.width).toBeLessThan(fullSpan.width);
+    const narrowSpan = await requiredBox(span);
+    expect(narrowSpan.height).toBeCloseTo(fullSpan.height, 0);
+    expect(narrowSpan.width).toBeCloseTo(fullSpan.width, 0);
     expect((await requiredBox(label)).height).toBeCloseTo(fullLabel.height, 0);
+    expect((await requiredBox(search)).width).toBeLessThan(fullSearch.width);
   });
 });
 

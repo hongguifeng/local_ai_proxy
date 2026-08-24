@@ -284,7 +284,7 @@ presence_penalty, frequency_penalty, seed
 
 SSE 响应会按上游到达的行逐行转发给客户端。非 SSE 响应仍按普通二进制块转发。
 
-历史日志页面可以将任务日志导出为 `llm-proxy-logs.zip`。ZIP 会从 SQLite 按需生成，包含便于阅读的 Markdown 以及 `request.json`、`response.json` 文件。在日志列表中选择一个或多个任务组后，可以从数据库中清理这些任务及其对应的请求记录。
+历史日志页面可以将任务日志导出为 `llm-proxy-logs.zip`。ZIP 会从 SQLite 按需生成，包含便于阅读的 Markdown 以及 `request.json`、`response.json` 文件。在日志列表中选择一个或多个任务组（可用“全选”按钮选中全部任务，再次点击切换为“取消全选”），然后从数据库中清理这些任务及其对应的请求记录。
 
 ## 数据备份、迁移和回滚
 

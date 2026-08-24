@@ -42,15 +42,16 @@
                   placeholder="搜索时间 / 请求 / 响应 / id"
                 />
                 <button id="searchLogs" class="primary" data-i18n="search">搜索</button>
-              </div>
-              <div class="log-actions">
-                <button id="refreshLogs" data-i18n="refresh">刷新</button>
-                <button id="exportLogs" data-i18n="exportLogs">导出</button>
-                <button id="cleanupLogs" data-i18n="cleanupSelectedLogs">清理选中</button>
                 <label class="auto-refresh" data-i18n-title="autoRefresh">
                   <input id="autoRefreshLogs" type="checkbox" checked />
                   <span data-i18n="autoRefresh">自动刷新</span></label
                 >
+              </div>
+              <div class="log-actions">
+                <button id="selectAllLogs" data-i18n="selectAllLogs">全选</button>
+                <button id="cleanupLogs" data-i18n="cleanupSelectedLogs">清理选中</button>
+                <button id="exportLogs" data-i18n="exportLogs">导出</button>
+                <button id="refreshLogs" data-i18n="refresh">刷新</button>
               </div>
             </div>
             <div id="logItems" class="log-items"></div>
