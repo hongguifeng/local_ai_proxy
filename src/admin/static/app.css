@@ -458,9 +458,8 @@ label span {
 .auto-refresh {
   display: inline-flex;
   flex-direction: column;
-  align-items: center;
+  align-items: flex-start;
   gap: 2px;
-  margin-left: auto;
   align-self: center;
   min-width: 0;
   color: var(--muted);

@@ -1206,10 +1206,12 @@ describe("admin UI history page", { timeout: UI_TEST_TIMEOUT_MS }, () => {
     ]);
 
     const row = page.locator(".log-actions");
+    const refresh = page.locator("#refreshLogs");
     const measure = async () => {
       const box = await requiredBox(span);
       const actions = await requiredBox(row);
-      return { box, actions };
+      const refreshBox = await requiredBox(refresh);
+      return { box, actions, refreshBox };
     };
     const full = await measure();
     await page.evaluate(
@@ -1220,6 +1222,9 @@ describe("admin UI history page", { timeout: UI_TEST_TIMEOUT_MS }, () => {
     expect(narrow.box.y).toBeCloseTo(full.box.y, 0);
     expect(narrow.box.width).toBeCloseTo(full.box.width, 0);
     expect(narrow.box.height).toBeLessThanOrEqual(20);
+    expect(narrow.box.x).toBeGreaterThanOrEqual(
+      narrow.refreshBox.x + narrow.refreshBox.width - 1,
+    );
   });
 });
 
