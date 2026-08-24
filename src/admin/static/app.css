@@ -449,8 +449,8 @@ label span {
 }
 .log-actions {
   display: flex;
-  flex-wrap: wrap;
   gap: 6px;
+  overflow: hidden;
 }
 .log-actions button {
   white-space: nowrap;

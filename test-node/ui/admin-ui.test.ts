@@ -1185,7 +1185,7 @@ describe("admin UI history page", { timeout: UI_TEST_TIMEOUT_MS }, () => {
     expect(await page.evaluate("window.__jsonPaneMutationCount")).toBe(0);
   });
 
-  it("places auto refresh after the refresh button without clipping it", async () => {
+  it("keeps the log toolbar on one row, clipping auto refresh when narrow", async () => {
     await loadAdminPage();
     await Promise.all([
       page.waitForResponse((response) => response.url().includes("/api/logs?")),
@@ -1205,22 +1205,21 @@ describe("admin UI history page", { timeout: UI_TEST_TIMEOUT_MS }, () => {
       "auto-refresh",
     ]);
 
+    const row = page.locator(".log-actions");
     const measure = async () => {
       const box = await requiredBox(span);
-      const sidebar = await requiredBox(page.locator("#logs .log-list"));
-      return { box, rightEdge: sidebar.x + sidebar.width };
+      const actions = await requiredBox(row);
+      return { box, actions };
     };
     const full = await measure();
     await page.evaluate(
       'document.querySelector("#logs").style.setProperty("--sidebar-w", "260px")',
     );
     const narrow = await measure();
-    expect(narrow.box.height).toBeCloseTo(full.box.height, 0);
+    expect(narrow.actions.height).toBeCloseTo(full.actions.height, 0);
+    expect(narrow.box.y).toBeCloseTo(full.box.y, 0);
     expect(narrow.box.width).toBeCloseTo(full.box.width, 0);
     expect(narrow.box.height).toBeLessThanOrEqual(20);
-    expect(
-      Math.abs(narrow.rightEdge - 12 - (narrow.box.x + narrow.box.width)),
-    ).toBeLessThanOrEqual(3);
   });
 });
 
