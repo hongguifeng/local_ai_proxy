@@ -763,6 +763,30 @@ describe("admin UI history page", { timeout: UI_TEST_TIMEOUT_MS }, () => {
     await expectPage(page.locator("#autoRefreshLogs")).toBeEnabled();
   });
 
+  it("shows a progress bar below the search box while a search is running", async () => {
+    await loadAdminPage();
+    await Promise.all([
+      page.waitForResponse((response) => response.url().includes("/api/logs?")),
+      page.locator('[data-tab="logs"]').click(),
+    ]);
+    const progress = page.locator("#logSearchProgress");
+    await expectPage(progress).toBeHidden();
+
+    let releaseSearch: (value?: unknown) => void;
+    const release = new Promise((resolve) => (releaseSearch = resolve));
+    await page.route("**/api/logs**", async (route) => {
+      if (route.request().method() !== "GET") return route.continue();
+      const response = await route.fetch();
+      await release;
+      await route.fulfill({ response });
+    });
+    await page.locator("#searchLogs").click();
+    await expectPage(progress).toBeVisible();
+    releaseSearch();
+    await expectPage(progress).toBeHidden();
+    await page.unroute("**/api/logs**");
+  });
+
   it("supports manual and automatic history refresh", async () => {
     await loadAdminPage();
     await Promise.all([

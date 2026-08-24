@@ -622,6 +622,8 @@ function mergeLogGroupSummaries(currentGroups, nextGroups) {
 async function loadLogs(options = {}) {
   if (state.logsLoading) return;
   state.logsLoading = true;
+  const showSearchProgress = Boolean(options.search);
+  if (showSearchProgress) $("logSearchProgress").hidden = false;
   const q = encodeURIComponent(state.logQuery);
   try {
     const offset = options.append ? state.logOffset : 0;
@@ -659,6 +661,7 @@ async function loadLogs(options = {}) {
       if (!options.quiet) toast(e.message);
     }
   } finally {
+    if (showSearchProgress) $("logSearchProgress").hidden = true;
     state.logsLoading = false;
     scheduleLogRefresh();
   }
@@ -1329,7 +1332,7 @@ $("searchLogs").addEventListener("click", () => {
   state.logsHasMore = false;
   state.logsTotal = 0;
   state.selectedLogGroups = {};
-  loadLogs().catch((e) => toast(e.message));
+  loadLogs({ search: true }).catch((e) => toast(e.message));
 });
 $("exportLogs").addEventListener("click", () => exportLogs().catch((e) => toast(e.message)));
 $("cleanupLogs").addEventListener("click", () => cleanupLogs().catch((e) => toast(e.message)));

@@ -426,6 +426,27 @@ label span {
   align-items: center;
   gap: 8px;
 }
+.log-search-progress {
+  height: 3px;
+  border-radius: 2px;
+  overflow: hidden;
+  background: var(--line);
+}
+.log-search-progress > div {
+  width: 40%;
+  height: 100%;
+  border-radius: 2px;
+  background: var(--accent);
+  animation: log-search-progress-slide 1s ease-in-out infinite;
+}
+@keyframes log-search-progress-slide {
+  from {
+    transform: translateX(-110%);
+  }
+  to {
+    transform: translateX(280%);
+  }
+}
 .log-actions {
   display: flex;
   flex-wrap: wrap;
