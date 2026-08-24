@@ -772,7 +772,7 @@ describe("admin UI history page", { timeout: UI_TEST_TIMEOUT_MS }, () => {
     const progress = page.locator("#logSearchProgress");
     await expectPage(progress).toBeHidden();
 
-    let releaseSearch: (value?: unknown) => void;
+    let releaseSearch: (value?: unknown) => void = () => {};
     const release = new Promise((resolve) => (releaseSearch = resolve));
     await page.route("**/api/logs**", async (route) => {
       if (route.request().method() !== "GET") return route.continue();
