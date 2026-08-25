@@ -800,8 +800,10 @@ describe("admin UI history page", { timeout: UI_TEST_TIMEOUT_MS }, () => {
     const progress = page.locator("#logSearchProgress");
     await expectPage(progress).toBeHidden();
 
-    let releaseSearch: (value?: unknown) => void = () => {};
-    const release = new Promise((resolve) => (releaseSearch = resolve));
+    let releaseSearch: (() => void) | undefined;
+    const release = new Promise<void>((resolve) => {
+      releaseSearch = resolve;
+    });
     await page.route("**/api/logs**", async (route) => {
       if (route.request().method() !== "GET") return route.continue();
       const response = await route.fetch();
@@ -810,7 +812,7 @@ describe("admin UI history page", { timeout: UI_TEST_TIMEOUT_MS }, () => {
     });
     await page.locator("#searchLogs").click();
     await expectPage(progress).toBeVisible();
-    releaseSearch();
+    releaseSearch?.();
     await expectPage(progress).toBeHidden();
     await page.unroute("**/api/logs**");
   });
@@ -1266,11 +1268,11 @@ describe("admin UI history page", { timeout: UI_TEST_TIMEOUT_MS }, () => {
       page.locator('[data-tab="logs"]').click(),
     ]);
     const span = page.locator(".auto-refresh span");
-    const order = await page.evaluate(() =>
-      [...document.querySelector(".log-actions")!.children].map(
-        (el) => (el as HTMLElement).id || el.className,
-      ),
-    );
+    const order = await page
+      .locator(".log-actions")
+      .evaluate((actions) =>
+        [...actions.children].map((el) => (el as HTMLElement).id || el.className),
+      );
     expect(order).toEqual([
       "selectAllLogs",
       "cleanupLogs",
