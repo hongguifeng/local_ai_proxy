@@ -138,12 +138,11 @@ export class TrafficRepository {
             request_count, pending_request_only, match_confidence, match_strategy_version,
             fingerprints_json, boundary_fingerprints_json, last_user_messages_json, created_at, updated_at
           )) LIKE ? ESCAPE '\\'
-          OR EXISTS (
-            SELECT 1
-            FROM record_search_map
-            JOIN record_search_fts ON record_search_fts.rowid = record_search_map.search_rowid
-            WHERE record_search_map.task_id = tasks.id
-              AND record_search_fts MATCH ?
+          OR tasks.id IN (
+            SELECT record_search_map.task_id
+            FROM record_search_fts
+            JOIN record_search_map ON record_search_map.search_rowid = record_search_fts.rowid
+            WHERE record_search_fts MATCH ?
           )
         )`,
     );
@@ -195,15 +194,18 @@ export class TrafficRepository {
     // Keep the group predicate identical to the record predicate used by
     // listTaskRecordSummaries: one FTS row of the task must match every
     // term, so a listed group always contains at least one expandable record.
+    // The subquery must stay uncorrelated: a correlated EXISTS makes SQLite
+    // full-scan the contentless FTS table once per group row (minutes on a
+    // real database), while this form evaluates the FTS query exactly once
+    // and then resolves groups by primary key.
     const whereSql =
       terms.length === 0
         ? ""
-        : `WHERE EXISTS (
-          SELECT 1
-          FROM record_search_map
-          JOIN record_search_fts ON record_search_fts.rowid = record_search_map.search_rowid
-          WHERE record_search_map.task_id = tasks.id
-            AND record_search_fts MATCH ?
+        : `WHERE tasks.id IN (
+          SELECT record_search_map.task_id
+          FROM record_search_fts
+          JOIN record_search_map ON record_search_map.search_rowid = record_search_fts.rowid
+          WHERE record_search_fts MATCH ?
         )`;
     const parameters = terms.length ? [terms.map((term) => ftsQuery(term)).join(" AND ")] : [];
     const total = this.#database
@@ -387,17 +389,24 @@ export class TrafficRepository {
     const boundedLimit = Math.max(1, Math.min(integerValue(limit, 200), 500));
     const boundedOffset = Math.max(0, integerValue(offset, 0));
     const terms = searchTerms(query);
-    const clauses = terms.map(
-      () => `EXISTS (
-        SELECT 1
-        FROM record_search_map
-        JOIN record_search_fts ON record_search_fts.rowid = record_search_map.search_rowid
-        WHERE record_search_map.record_id = records.id
-          AND record_search_fts MATCH ?
-      )`,
-    );
-    const querySql = clauses.length === 0 ? "" : `AND ${clauses.join(" AND ")}`;
-    const parameters = [taskId, ...terms.map((term) => ftsQuery(term))];
+    // The compound query must match every term in the record's own FTS row,
+    // exactly like the previous per-term EXISTS clauses. The subquery must
+    // stay uncorrelated: a correlated EXISTS full-scans the contentless FTS
+    // table once per record row (minutes on a real database), while this
+    // form evaluates the FTS query exactly once.
+    const querySql =
+      terms.length === 0
+        ? ""
+        : `AND records.id IN (
+          SELECT record_search_map.record_id
+          FROM record_search_fts
+          JOIN record_search_map ON record_search_map.search_rowid = record_search_fts.rowid
+          WHERE record_search_fts MATCH ?
+        )`;
+    const parameters = [
+      taskId,
+      ...(terms.length ? [terms.map((term) => ftsQuery(term)).join(" AND ")] : []),
+    ];
     const total = this.#database
       .prepare(`SELECT COUNT(*) FROM records WHERE task_id = ? ${querySql}`)
       .pluck()
@@ -433,17 +442,24 @@ export class TrafficRepository {
     const boundedLimit = Math.max(1, Math.min(integerValue(limit, 200), 500));
     const boundedOffset = Math.max(0, integerValue(offset, 0));
     const terms = searchTerms(query);
-    const clauses = terms.map(
-      () => `EXISTS (
-        SELECT 1
-        FROM record_search_map
-        JOIN record_search_fts ON record_search_fts.rowid = record_search_map.search_rowid
-        WHERE record_search_map.record_id = records.id
-          AND record_search_fts MATCH ?
-      )`,
-    );
-    const querySql = clauses.length === 0 ? "" : `AND ${clauses.join(" AND ")}`;
-    const parameters = [taskId, ...terms.map((term) => ftsQuery(term))];
+    // The compound query must match every term in the record's own FTS row,
+    // exactly like the previous per-term EXISTS clauses. The subquery must
+    // stay uncorrelated: a correlated EXISTS full-scans the contentless FTS
+    // table once per record row (minutes on a real database), while this
+    // form evaluates the FTS query exactly once.
+    const querySql =
+      terms.length === 0
+        ? ""
+        : `AND records.id IN (
+          SELECT record_search_map.record_id
+          FROM record_search_fts
+          JOIN record_search_map ON record_search_map.search_rowid = record_search_fts.rowid
+          WHERE record_search_fts MATCH ?
+        )`;
+    const parameters = [
+      taskId,
+      ...(terms.length ? [terms.map((term) => ftsQuery(term)).join(" AND ")] : []),
+    ];
     const total = this.#database
       .prepare(`SELECT COUNT(*) FROM records WHERE task_id = ? ${querySql}`)
       .pluck()

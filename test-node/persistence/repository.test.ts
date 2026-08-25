@@ -305,6 +305,46 @@ describe("TrafficRepository history summaries", () => {
     expect(repository.listTaskRecordSummaries("task-split", "alpha").items).toHaveLength(1);
     repository.close();
   });
+
+  it("evaluates the FTS query once so large databases search fast", async () => {
+    const root = await mkdtemp(path.join(os.tmpdir(), "llm-proxy-fts-perf-"));
+    temporaryDirectories.push(root);
+    const repository = new TrafficRepository(root);
+    // A correlated EXISTS makes SQLite full-scan the contentless FTS table once
+    // per outer row (minutes on the 1.9GB production database of 2026-08); ~10k
+    // records with multi-kilobyte bodies make that regression visible while the
+    // uncorrelated form stays far under the bound.
+    const payload = Array.from({ length: 1600 }, (_, index) => `needle word${index % 500}`).join(
+      " ",
+    );
+    repository.transaction(() => {
+      for (let task = 0; task < 500; task += 1) {
+        const taskId = `task-${task}`;
+        repository.upsertTask({ id: taskId, request_count: 20 });
+        for (let sequence = 1; sequence <= 20; sequence += 1) {
+          repository.upsertRecord({
+            id: `${taskId}-record-${sequence}`,
+            task_id: taskId,
+            sequence,
+            method: "POST",
+            path: "/v1/responses",
+            request_body: { text: payload },
+          });
+        }
+      }
+    });
+
+    const groupStart = Date.now();
+    const groupPage = repository.listTaskSummaries("needle");
+    expect(groupPage.total).toBe(500);
+    expect(Date.now() - groupStart).toBeLessThan(2000);
+
+    const recordStart = Date.now();
+    const recordPage = repository.listTaskRecordSummaries("task-0", "needle");
+    expect(recordPage.total).toBe(20);
+    expect(Date.now() - recordStart).toBeLessThan(2000);
+    repository.close();
+  }, 60000);
 });
 
 describe("literal LIKE search characters", () => {

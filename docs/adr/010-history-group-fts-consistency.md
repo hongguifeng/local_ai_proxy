@@ -18,16 +18,28 @@ FTS `MATCH`。两个谓词不等价，会产生用户可见的缺陷：
 
 管理端还有次要问题：分组记录缓存在搜索词变化后不失效，旧查询的记录可能继续显示。
 
+2026-08-26 进一步发现性能问题：FTS `MATCH` 写在**相关**子查询（`EXISTS (... WHERE
+record_search_map.task_id = tasks.id AND record_search_fts MATCH ?)`）里时，SQLite
+不会把它当作驱动索引，而是对外层每一行都全量扫描 contentless FTS 表。在 1.9 GB、
+13.4k 条记录的库上实测：分组搜索 `qwen` 4.4s、`qwen3.8` 112s（管理端表现为搜索永远
+不返回）；单任务 2.5k 条记录的组内记录计数查询 388s。
+
 ## 决策
 
 1. 历史分组列表改用单一 FTS5 布尔表达式：
-   `record_search_fts MATCH '"t1"*" AND "t2"*'`（通过 `record_search_map` 关联到
-   `tasks.id` 的相关子查询）。该谓词与记录列表逐条 `EXISTS AND` 的判定结构同构，
+   `record_search_fts MATCH '"t1"*" AND "t2"*'`，通过 `record_search_map` 关联
+   `tasks.id` 的**非相关** `IN` 子查询。该谓词与记录列表的判定结构同构，
    结构性保证：**分组出现在搜索结果中 ⇔ 该组至少存在一条记录同时匹配所有 term**。
-2. 历史分组搜索不再支持任务元数据（model、target、时间戳等）的任意大小写无关子串
+2. 所有 FTS `MATCH` 子查询保持非相关（`tasks.id IN (...)` / `records.id IN (...)`），
+   FTS 查询只求值一次，结果集用主键回查。组内记录查询同时把逐 term 的 `EXISTS AND`
+   合并为同一 FTS 行上的复合 `MATCH`，语义与原先逐条 EXISTS 等价（所有 term 必须
+   命中该记录自己的 FTS 行）。`listTaskRecords`、`listTaskRecordSummaries`、
+   `listTaskSummaries`、`listTasks` 中的 FTS 部分均采用非相关形态。
+3. 历史分组搜索不再支持任务元数据（model、target、时间戳等）的任意大小写无关子串
    匹配；任务字段只通过记录 FTS 行里的 `task_text` 快照参与 token/前缀匹配。
-3. `listTasks`（清理、导出等内部流程使用）保留原 `LIKE OR FTS` 语义，不受影响。
-4. 管理端 UI：
+4. `listTasks`（清理、导出等内部流程使用）保留原 `LIKE OR FTS` 语义，仅将 FTS
+   部分改为非相关形态。
+5. 管理端 UI：
    - 每个分组的记录缓存带上加载时的搜索词标记；搜索词变化时缓存失效并自动重取，
      展开分组时若缓存对应旧查询也会重取。
    - 分组已加载但记录为空时显示明确占位提示（"该组下没有匹配的记录"），
@@ -36,9 +48,13 @@ FTS `MATCH`。两个谓词不等价，会产生用户可见的缺陷：
 ## 后果
 
 - 历史搜索展开任意可见分组至少能取到一条匹配记录，空组不再出现。
+- 搜索恢复可接受延迟：上述三处查询在同一 1.9 GB 库上均回到 200ms 以内
+  （此前分别为 4.4s / 112s / 388s）。
 - 用户失去两类子串搜索能力：token 内部子串（例如 "pt-5" 不再命中 "gpt-5"，
   "gpt-5" 前缀仍命中）和仅存在于任务元数据的词。搜索提示仍为"关键词空格分隔、AND"。
 - [ADR-009](./009-chunked-body-storage.md) 第 6 条"任务自身的元数据仍支持原有大小写无关
   子串匹配"对历史分组列表部分被本 ADR 取代；该能力仅保留在 `listTasks` 内部路径。
 - 记录 FTS 行写入时的 `task_text` 快照是任务当时字段的副本；若任务元数据在记录写入后
   变更，搜索命中以快照为准，与记录级搜索行为一致。
+- `test-node/persistence/repository.test.ts` 含性能回归测试：构造约 1 万条 FTS 行后
+  断言分组搜索与组内记录搜索在 2s 内完成（相关 `EXISTS` 形态在同一数据量下需要数十秒）。
