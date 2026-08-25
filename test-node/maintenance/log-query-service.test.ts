@@ -22,8 +22,29 @@ describe("LogQueryService", () => {
     temporaryDirectories.push(root);
     const repository = new TrafficRepository(root);
     repository.upsertTask(task("task-1", "gpt-5", "2026-07-18T10:00:00.000+08:00"));
+    repository.upsertRecord({
+      id: "record-task-1",
+      task_id: "task-1",
+      sequence: 1,
+      method: "POST",
+      path: "/v1/responses",
+    });
     repository.upsertTask(task("task-2", "claude", "2026-07-18T11:00:00.000+08:00"));
+    repository.upsertRecord({
+      id: "record-task-2",
+      task_id: "task-2",
+      sequence: 1,
+      method: "POST",
+      path: "/v1/responses",
+    });
     repository.upsertTask(task("task-3", "gpt-5", "2026-07-18T12:00:00.000+08:00"));
+    repository.upsertRecord({
+      id: "record-task-3",
+      task_id: "task-3",
+      sequence: 1,
+      method: "POST",
+      path: "/v1/responses",
+    });
     repository.close();
 
     const page = new LogQueryService([root]).listGroups("gpt-5", 1, 0);
@@ -79,11 +100,39 @@ describe("LogQueryService", () => {
     temporaryDirectories.push(firstRoot, secondRoot);
     const first = new TrafficRepository(firstRoot);
     first.upsertTask(task("task-a-old", "shared", "2026-07-18T09:00:00.000+08:00"));
+    first.upsertRecord({
+      id: "record-a-old",
+      task_id: "task-a-old",
+      sequence: 1,
+      method: "POST",
+      path: "/v1/responses",
+    });
     first.upsertTask(task("task-a-new", "shared", "2026-07-18T12:00:00.000+08:00"));
+    first.upsertRecord({
+      id: "record-a-new",
+      task_id: "task-a-new",
+      sequence: 1,
+      method: "POST",
+      path: "/v1/responses",
+    });
     first.close();
     const second = new TrafficRepository(secondRoot);
     second.upsertTask(task("task-b-middle", "shared", "2026-07-18T11:00:00.000+08:00"));
+    second.upsertRecord({
+      id: "record-b-middle",
+      task_id: "task-b-middle",
+      sequence: 1,
+      method: "POST",
+      path: "/v1/responses",
+    });
     second.upsertTask(task("task-b-other", "other", "2026-07-18T13:00:00.000+08:00"));
+    second.upsertRecord({
+      id: "record-b-other",
+      task_id: "task-b-other",
+      sequence: 1,
+      method: "POST",
+      path: "/v1/responses",
+    });
     second.close();
 
     const service = new LogQueryService([firstRoot, firstRoot, secondRoot]);

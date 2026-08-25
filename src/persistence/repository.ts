@@ -192,24 +192,20 @@ export class TrafficRepository {
     const boundedLimit = Math.max(1, Math.min(integerValue(limit, 100), 500));
     const boundedOffset = Math.max(0, integerValue(offset, 0));
     const terms = searchTerms(query);
-    const clauses = terms.map(
-      () => `(
-          lower(_search_text(
-            id, kind, endpoint, anchor, model, target, started_at, last_seen_at, last_response_at,
-            request_count, pending_request_only, match_confidence, match_strategy_version,
-            fingerprints_json, boundary_fingerprints_json, last_user_messages_json, created_at, updated_at
-          )) LIKE ? ESCAPE '\\'
-          OR EXISTS (
-            SELECT 1
-            FROM record_search_map
-            JOIN record_search_fts ON record_search_fts.rowid = record_search_map.search_rowid
-            WHERE record_search_map.task_id = tasks.id
-              AND record_search_fts MATCH ?
-          )
-        )`,
-    );
-    const whereSql = clauses.length === 0 ? "" : `WHERE ${clauses.join(" AND ")}`;
-    const parameters = terms.flatMap((term) => [likePattern(term), ftsQuery(term)]);
+    // Keep the group predicate identical to the record predicate used by
+    // listTaskRecordSummaries: one FTS row of the task must match every
+    // term, so a listed group always contains at least one expandable record.
+    const whereSql =
+      terms.length === 0
+        ? ""
+        : `WHERE EXISTS (
+          SELECT 1
+          FROM record_search_map
+          JOIN record_search_fts ON record_search_fts.rowid = record_search_map.search_rowid
+          WHERE record_search_map.task_id = tasks.id
+            AND record_search_fts MATCH ?
+        )`;
+    const parameters = terms.length ? [terms.map((term) => ftsQuery(term)).join(" AND ")] : [];
     const total = this.#database
       .prepare(`SELECT COUNT(*) AS count FROM tasks ${whereSql}`)
       .pluck()

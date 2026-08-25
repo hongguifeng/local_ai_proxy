@@ -954,6 +954,11 @@ label span {
   place-items: center;
   color: var(--muted);
 }
+.log-group-empty {
+  color: var(--muted);
+  font-style: italic;
+  cursor: default;
+}
 .toast {
   position: fixed;
   right: 14px;

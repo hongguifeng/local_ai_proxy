@@ -198,6 +198,17 @@ beforeAll(async () => {
       },
       getGroupLogs: (groupId, query, limit, offset) => {
         groupLogQueries.push(`${groupId}:${query}`);
+        if (groupId === "task-needle") {
+          return {
+            id: groupId,
+            total: 0,
+            limit,
+            offset,
+            next_offset: 0,
+            has_more: false,
+            logs: [],
+          };
+        }
         if (groupId !== "task-one") {
           return undefined;
         }
@@ -873,6 +884,52 @@ describe("admin UI history page", { timeout: UI_TEST_TIMEOUT_MS }, () => {
     ).toHaveText("1");
   });
 
+  it("refetches an expanded group's records when the search query changes", async () => {
+    await loadAdminPage();
+    await Promise.all([
+      page.waitForResponse((response) => response.url().includes("/api/logs?")),
+      page.locator('[data-tab="logs"]').click(),
+    ]);
+    await Promise.all([
+      page.waitForResponse((response) => response.url().includes("/api/log-groups/task-one/logs")),
+      page.locator('[data-group-id="task-one"]').click(),
+    ]);
+    expect(groupLogQueries).toEqual(["task-one:"]);
+
+    // The term matches every fixture group, so the expanded group remains in
+    // the list and must be refetched under the new query.
+    const refetch = page.waitForResponse((response) =>
+      response.url().includes("/api/log-groups/task-one/logs?q=task"),
+    );
+    await page.locator("#logSearch").fill("task");
+    await page.locator("#searchLogs").click();
+    await refetch;
+    expect(groupLogQueries).toEqual(["task-one:", "task-one:task"]);
+  });
+
+  it("shows a placeholder when an expanded group has no matching records", async () => {
+    await loadAdminPage();
+    await Promise.all([
+      page.waitForResponse((response) => response.url().includes("/api/logs?")),
+      page.locator('[data-tab="logs"]').click(),
+    ]);
+    await page.locator("#logSearch").fill("task-needle");
+    const searchResponse = page.waitForResponse((response) =>
+      response.url().includes("q=task-needle"),
+    );
+    await page.locator("#searchLogs").click();
+    await searchResponse;
+    await Promise.all([
+      page.waitForResponse((response) =>
+        response.url().includes("/api/log-groups/task-needle/logs"),
+      ),
+      page.locator('[data-group-id="task-needle"]').click(),
+    ]);
+    const placeholder = page.locator(".log-group-empty");
+    await expectPage(placeholder).toHaveCount(1);
+    await expectPage(placeholder).toHaveText("No matching records in this group");
+  });
+
   it("loads 100 more records within an expanded task", async () => {
     useLargeGroupLogFixture = true;
     await loadAdminPage();
@@ -1222,9 +1279,7 @@ describe("admin UI history page", { timeout: UI_TEST_TIMEOUT_MS }, () => {
     expect(narrow.box.y).toBeCloseTo(full.box.y, 0);
     expect(narrow.box.width).toBeCloseTo(full.box.width, 0);
     expect(narrow.box.height).toBeLessThanOrEqual(20);
-    expect(narrow.box.x).toBeGreaterThanOrEqual(
-      narrow.refreshBox.x + narrow.refreshBox.width - 1,
-    );
+    expect(narrow.box.x).toBeGreaterThanOrEqual(narrow.refreshBox.x + narrow.refreshBox.width - 1);
   });
 });
 

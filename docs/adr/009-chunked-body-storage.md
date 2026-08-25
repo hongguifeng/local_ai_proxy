@@ -20,7 +20,8 @@
 3. 请求、原始请求和响应都使用同一块存储；`records` 中旧正文列迁移后置为 `NULL`。
 4. 删除块引用时由 SQLite trigger 更新引用数并回收最后一个引用。
 5. 搜索改用 `record_search_fts` contentless FTS5 与 `record_search_map`，不保存第二份正文。
-6. FTS 查询采用 token/prefix `MATCH`。任务自身的元数据仍支持原有大小写无关子串匹配。
+6. FTS 查询采用 token/prefix `MATCH`。任务自身的元数据仍支持原有大小写无关子串匹配
+   （历史分组列表部分已被 [ADR-010](./010-history-group-fts-consistency.md) 取代）。
 7. `compact:traffic` 只迁移在线备份副本，并在交付前验证正文摘要、关系数量、完整性和外键。
 
 ## 后果

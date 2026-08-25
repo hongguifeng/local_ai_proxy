@@ -260,6 +260,51 @@ describe("TrafficRepository history summaries", () => {
     });
     repository.close();
   });
+
+  it("never lists a group whose records do not all match the search terms", async () => {
+    const root = await mkdtemp(path.join(os.tmpdir(), "llm-proxy-group-record-consistency-"));
+    temporaryDirectories.push(root);
+    const repository = new TrafficRepository(root);
+    repository.upsertTask({ id: "task-match", model: "gpt-5", request_count: 1 });
+    repository.upsertRecord({
+      id: "record-match",
+      task_id: "task-match",
+      sequence: 1,
+      method: "POST",
+      path: "/v1/responses",
+      request_body: { text: "alpha beta" },
+    });
+    repository.upsertTask({ id: "task-split", model: "gpt-5", request_count: 2 });
+    repository.upsertRecord({
+      id: "record-split-a",
+      task_id: "task-split",
+      sequence: 1,
+      method: "POST",
+      path: "/v1/responses",
+      request_body: { text: "alpha" },
+    });
+    repository.upsertRecord({
+      id: "record-split-b",
+      task_id: "task-split",
+      sequence: 2,
+      method: "POST",
+      path: "/v1/responses",
+      request_body: { text: "beta" },
+    });
+
+    // One record of task-match contains both terms, one record of task-split
+    // contains each: only the former group may be listed for the combined query.
+    const groupPage = repository.listTaskSummaries("alpha beta");
+    expect(groupPage.items.map(({ id }) => id)).toEqual(["task-match"]);
+    expect(repository.listTaskRecordSummaries("task-match", "alpha beta").items).toHaveLength(1);
+
+    expect(repository.listTaskSummaries("alpha").items.map(({ id }) => id)).toEqual([
+      "task-split",
+      "task-match",
+    ]);
+    expect(repository.listTaskRecordSummaries("task-split", "alpha").items).toHaveLength(1);
+    repository.close();
+  });
 });
 
 describe("literal LIKE search characters", () => {

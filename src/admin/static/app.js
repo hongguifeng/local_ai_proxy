@@ -73,6 +73,7 @@ const translations = {
     task: "任务",
     pending: "等待中",
     noLogs: "暂无日志",
+    noMatchedLogs: "该组下没有匹配的记录",
     loadMore: "加载更多",
     requests: "个请求",
     messages: "条消息",
@@ -161,6 +162,7 @@ const translations = {
     task: "Task",
     pending: "pending",
     noLogs: "No logs",
+    noMatchedLogs: "No matching records in this group",
     loadMore: "Load more",
     requests: "requests",
     messages: "messages",
@@ -201,6 +203,7 @@ const state = {
   logsHasMore: false,
   logsTotal: 0,
   logQuery: "",
+  lastLogQuery: "",
   splitterDragging: false,
   refreshTimer: null,
 };
@@ -603,12 +606,14 @@ function logGroupSummarySignature(group) {
 function sameLogGroups(nextGroups) {
   return logGroupsSignature(state.logGroups) === logGroupsSignature(nextGroups);
 }
-function mergeLogGroupSummaries(currentGroups, nextGroups) {
+function mergeLogGroupSummaries(currentGroups, nextGroups, query = "") {
   const currentById = new Map(currentGroups.map((group) => [group.id, group]));
   return nextGroups.map((group) => {
     const existing = currentById.get(group.id);
     if (!existing) return group;
-    const summaryChanged = logGroupSummarySignature(existing) !== logGroupSummarySignature(group);
+    const summaryChanged =
+      logGroupSummarySignature(existing) !== logGroupSummarySignature(group) ||
+      (existing.searchQuery ?? "") !== query;
     return {
       ...group,
       logs: summaryChanged ? [] : existing.logs,
@@ -616,6 +621,7 @@ function mergeLogGroupSummaries(currentGroups, nextGroups) {
       logsHasMore: summaryChanged ? false : existing.logsHasMore,
       logsTotal: summaryChanged ? 0 : existing.logsTotal,
       logsOffset: summaryChanged ? 0 : existing.logsOffset,
+      searchQuery: summaryChanged ? undefined : existing.searchQuery,
     };
   });
 }
@@ -643,8 +649,8 @@ async function loadLogs(options = {}) {
       state.logs = state.logGroups.flatMap((group) => group.logs || []);
       renderLogs();
       rendered = true;
-    } else if (!sameLogGroups(nextGroups)) {
-      state.logGroups = mergeLogGroupSummaries(state.logGroups, nextGroups);
+    } else if (state.lastLogQuery !== state.logQuery || !sameLogGroups(nextGroups)) {
+      state.logGroups = mergeLogGroupSummaries(state.logGroups, nextGroups, state.logQuery);
       state.logs = state.logGroups.flatMap((group) => group.logs || []);
       renderLogs();
       rendered = true;
@@ -654,6 +660,7 @@ async function loadLogs(options = {}) {
     }
     if (!rendered) renderLogs();
     state.logsLoadedAt = Date.now();
+    state.lastLogQuery = state.logQuery;
     try {
       const refreshedPendingIds = await refreshPendingLogItems();
       if (!refreshedPendingIds.has(state.selected)) await refreshSelectedLogDetail();
@@ -713,7 +720,8 @@ function appendLogGroups(currentGroups, nextGroups) {
 }
 async function loadLogGroup(groupId) {
   const group = state.logGroups.find((item) => item.id === groupId);
-  if (!group || group.logsLoaded || state.loadingLogGroups[groupId]) return;
+  if (!group || state.loadingLogGroups[groupId]) return;
+  if (group.logsLoaded && (group.searchQuery ?? "") === state.logQuery) return;
   state.loadingLogGroups[groupId] = true;
   renderLogs();
   try {
@@ -726,6 +734,7 @@ async function loadLogGroup(groupId) {
     group.logsHasMore = Boolean(data.has_more);
     group.logsTotal = Number(data.total || group.logs.length);
     group.logsOffset = Number(data.next_offset ?? group.logs.length);
+    group.searchQuery = state.logQuery;
     state.logs = state.logGroups.flatMap((item) => item.logs || []);
   } finally {
     delete state.loadingLogGroups[groupId];
@@ -776,11 +785,12 @@ function renderLogs() {
           ? ""
           : `<div class="log-group-body">
             ${
-              state.loadingLogGroups[group.id]
+              state.loadingLogGroups[group.id] || (!group.logsLoaded && !(group.logs || []).length)
                 ? `<div class="log-item log-loading">${escapeHtml(t("loading"))}</div>`
-                : (group.logs || [])
-                    .map(
-                      (item) => `
+                : (group.logs || []).length
+                  ? (group.logs || [])
+                      .map(
+                        (item) => `
         <button class="log-item ${state.selected === item.id ? "active" : ""}" data-log-id="${escapeHtml(item.id)}">
           <span class="log-sequence">${escapeHtml(item.sequence ? `#${item.sequence}` : "-")}</span>
           <span class="log-item-content">
@@ -791,11 +801,12 @@ function renderLogs() {
             </span>
           </span>
         </button>`,
-                    )
-                    .join("") +
-                  (group.logsHasMore
-                    ? `<button class="load-more log-group-load-more" data-load-more-records="${escapeHtml(group.id || "")}" ${state.loadingMoreLogGroups[group.id] ? "disabled" : ""}>${escapeHtml(state.loadingMoreLogGroups[group.id] ? t("loading") : t("loadMore"))} (${group.logs.length}/${group.logsTotal})</button>`
-                    : "")
+                      )
+                      .join("") +
+                    (group.logsHasMore
+                      ? `<button class="load-more log-group-load-more" data-load-more-records="${escapeHtml(group.id || "")}" ${state.loadingMoreLogGroups[group.id] ? "disabled" : ""}>${escapeHtml(state.loadingMoreLogGroups[group.id] ? t("loading") : t("loadMore"))} (${group.logs.length}/${group.logsTotal})</button>`
+                      : "")
+                  : `<div class="log-item log-group-empty">${escapeHtml(t("noMatchedLogs"))}</div>`
             }
           </div>`
       }
