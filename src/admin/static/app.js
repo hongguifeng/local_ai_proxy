@@ -1333,8 +1333,7 @@ $("proxyGrid").addEventListener("change", async (event) => {
   Object.assign(pair, data.pair);
   renderPairs();
 });
-$("refreshLogs").addEventListener("click", () => loadLogs().catch((e) => toast(e.message)));
-$("searchLogs").addEventListener("click", () => {
+function runLogSearch() {
   state.logQuery = $("logSearch").value.trim();
   $("autoRefreshLogs").disabled = state.logQuery !== "";
   state.logGroups = [];
@@ -1344,6 +1343,11 @@ $("searchLogs").addEventListener("click", () => {
   state.logsTotal = 0;
   state.selectedLogGroups = {};
   loadLogs({ search: true }).catch((e) => toast(e.message));
+}
+$("refreshLogs").addEventListener("click", () => loadLogs().catch((e) => toast(e.message)));
+$("searchLogs").addEventListener("click", runLogSearch);
+$("logSearch").addEventListener("keydown", (event) => {
+  if (event.key === "Enter") runLogSearch();
 });
 $("exportLogs").addEventListener("click", () => exportLogs().catch((e) => toast(e.message)));
 $("cleanupLogs").addEventListener("click", () => cleanupLogs().catch((e) => toast(e.message)));

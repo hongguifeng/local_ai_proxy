@@ -774,6 +774,23 @@ describe("admin UI history page", { timeout: UI_TEST_TIMEOUT_MS }, () => {
     await expectPage(page.locator("#autoRefreshLogs")).toBeEnabled();
   });
 
+  it("searches when Enter is pressed in the search box", async () => {
+    await loadAdminPage();
+    await Promise.all([
+      page.waitForResponse((response) => response.url().includes("/api/logs?")),
+      page.locator('[data-tab="logs"]').click(),
+    ]);
+    logQueries.splice(0);
+
+    const response = page.waitForResponse((candidate) => candidate.url().includes("q=needle"));
+    await page.locator("#logSearch").fill("needle");
+    await page.locator("#logSearch").press("Enter");
+    await response;
+    expect(logQueries).toEqual(["needle"]);
+    await expectPage(page.locator("#autoRefreshLogs")).toBeDisabled();
+    await expectPage(page.locator(".log-model")).toHaveText("claude");
+  });
+
   it("shows a progress bar below the search box while a search is running", async () => {
     await loadAdminPage();
     await Promise.all([
