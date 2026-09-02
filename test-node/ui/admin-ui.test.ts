@@ -138,7 +138,7 @@ beforeAll(async () => {
           ? Array.from({ length: 101 }, (_, index) => ({
               id: `task-${index + 1}`,
               started_at: `2026-07-18 12:${String(index % 60).padStart(2, "0")}:00`,
-              ended_at: `2026-07-18 12:${String(index % 60).padStart(2, "0")}:05`,
+              last_activity_at: `2026-07-18 12:${String(index % 60).padStart(2, "0")}:05`,
               model: "gpt-5",
               request_count: 1,
               target: `target-${index + 1}`,
@@ -147,7 +147,7 @@ beforeAll(async () => {
               {
                 id: "task-one",
                 started_at: "2026-07-18 12:00:00",
-                ended_at: "2026-07-18 12:00:05",
+                last_activity_at: "2026-07-18 12:00:05",
                 model: "gpt-5",
                 request_count: 5,
                 target: "fixture-target",
@@ -155,7 +155,7 @@ beforeAll(async () => {
               {
                 id: "task-needle",
                 started_at: "2026-07-18 11:30:00",
-                ended_at: "2026-07-18 11:30:05",
+                last_activity_at: "2026-07-18 11:30:05",
                 model: "claude",
                 request_count: 1,
                 target: "fixture-target",
@@ -163,7 +163,7 @@ beforeAll(async () => {
               {
                 id: "task-three",
                 started_at: "2026-07-18 10:42:00",
-                ended_at: "2026-07-18 10:44:30",
+                last_activity_at: "2026-07-18 10:44:30",
                 model: "qwen3.6-27b",
                 request_count: 3,
                 target: "fixture-target",
@@ -171,7 +171,7 @@ beforeAll(async () => {
               {
                 id: "task-four",
                 started_at: "2026-07-18 09:15:00",
-                ended_at: "2026-07-18 09:20:10",
+                last_activity_at: "2026-07-18 09:20:10",
                 model: "gpt-4o-mini",
                 request_count: 12,
                 target: "fixture-target",
@@ -180,7 +180,7 @@ beforeAll(async () => {
         const groups = sourceGroups.filter(
           (group) =>
             !deletedLogGroups.has(group.id) &&
-            [group.id, group.started_at, group.ended_at, group.model, group.target]
+            [group.id, group.started_at, group.last_activity_at, group.model, group.target]
               .join(" ")
               .toLowerCase()
               .includes(query.toLowerCase()),

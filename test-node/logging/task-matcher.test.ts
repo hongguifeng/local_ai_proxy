@@ -599,6 +599,115 @@ describe("TaskAssignment", () => {
     repository.close();
   });
 
+  it("moves an active task to the front before its response completes", async () => {
+    const root = await mkdtemp(path.join(os.tmpdir(), "llm-proxy-task-active-order-"));
+    temporaryDirectories.push(root);
+    const repository = new TrafficRepository(root);
+    let now = "2026-07-18T10:00:00.000+08:00";
+    const matcher = new TaskMatcher(repository, {
+      createId: () => "active-task",
+      now: () => now,
+    });
+    const firstRecord = {
+      ...trafficRecord("active-request-1", false, {
+        model: "gpt-5",
+        conversation_id: "active-conversation",
+        input: "start",
+      }),
+      timestamp: now,
+    };
+    const first = matcher.assign(firstRecord);
+    if (first === undefined) {
+      throw new Error("Active-order baseline request was not assigned.");
+    }
+    persistAssignment(repository, first, "active-request-1");
+    repository.upsertTask({
+      id: "other-task",
+      kind: "responses",
+      started_at: "2026-07-18T10:02:00.000+08:00",
+      last_seen_at: "2026-07-18T10:02:00.000+08:00",
+      last_response_at: "2026-07-18T10:02:00.000+08:00",
+      match_strategy_version: TASK_MATCH_STRATEGY_VERSION,
+    });
+
+    now = "2026-07-18T10:03:00.000+08:00";
+    const pendingRecord = {
+      ...trafficRecord("active-request-2", false, {
+        model: "gpt-5",
+        conversation_id: "active-conversation",
+        input: "continue",
+      }),
+      timestamp: "2026-07-18T10:01:00.000+08:00",
+      response: {
+        status: null,
+        body: { size_bytes: 0, text: "{}" },
+      },
+    };
+    const pending = matcher.assign(pendingRecord);
+    if (pending === undefined) {
+      throw new Error("Active request was not assigned.");
+    }
+    expect(pending.task).toMatchObject({
+      id: "active-task",
+      last_seen_at: now,
+      last_response_at: "2026-07-18T10:00:00.000+08:00",
+    });
+    persistAssignment(repository, pending, "active-request-2");
+    expect(repository.listTaskSummaries().items.map(({ id }) => id)).toEqual([
+      "active-task",
+      "other-task",
+    ]);
+
+    now = "2026-07-18T10:04:00.000+08:00";
+    const finished = matcher.assign({
+      ...pendingRecord,
+      response: trafficRecord("active-request-2", false, {}).response,
+    });
+    expect(finished?.task).toMatchObject({
+      id: "active-task",
+      last_seen_at: now,
+      last_response_at: now,
+    });
+    repository.close();
+  });
+
+  it("does not move task activity timestamps backwards", async () => {
+    const root = await mkdtemp(path.join(os.tmpdir(), "llm-proxy-task-monotonic-time-"));
+    temporaryDirectories.push(root);
+    const repository = new TrafficRepository(root);
+    repository.upsertTask({
+      id: "monotonic-task",
+      kind: "responses",
+      endpoint: "/v1/responses",
+      model: "gpt-5",
+      started_at: "2026-07-18T10:00:00.000+08:00",
+      last_seen_at: "2026-07-18T10:10:00.000+08:00",
+      last_response_at: "2026-07-18T10:09:00.000+08:00",
+      match_strategy_version: TASK_MATCH_STRATEGY_VERSION,
+      boundary_fingerprints: {},
+    });
+    repository.upsertRecord({
+      id: "monotonic-request",
+      task_id: "monotonic-task",
+      sequence: 1,
+      method: "POST",
+      path: "/v1/responses",
+    });
+    const matcher = new TaskMatcher(repository, {
+      now: () => "2026-07-18T10:05:00.000+08:00",
+    });
+    const record = {
+      ...trafficRecord("monotonic-request", false, { model: "gpt-5" }),
+      timestamp: "2026-07-18T10:01:00.000+08:00",
+    };
+
+    expect(matcher.assign(record)?.task).toMatchObject({
+      last_seen_at: "2026-07-18T10:10:00.000+08:00",
+      last_response_at: "2026-07-18T10:09:00.000+08:00",
+    });
+    repository.close();
+  });
+
   it("updates request count and last-seen/response timestamps", async () => {
     const root = await mkdtemp(path.join(os.tmpdir(), "llm-proxy-task-updates-"));
     temporaryDirectories.push(root);

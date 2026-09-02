@@ -330,7 +330,7 @@ export class TaskMatcher {
       kind,
       anchor: taskAnchor(record),
       started_at: record["started_timestamp"] ?? record["timestamp"] ?? now,
-      last_seen_at: record["timestamp"] ?? now,
+      last_seen_at: latestTimestamp(now, record["timestamp"]),
       endpoint: recordRequestPath(record),
       match_strategy_version: TASK_MATCH_STRATEGY_VERSION,
       ...(typeof model === "string" && model !== "" ? { model } : {}),
@@ -354,20 +354,22 @@ export class TaskMatcher {
     responsePayload: unknown,
   ): RepositoryRecord {
     const taskId = stringValue(task["id"]);
-    const timestamp = record["timestamp"] ?? task["last_seen_at"] ?? this.#now();
+    const now = this.#now();
+    const observedAt = latestTimestamp(now, task["last_seen_at"], record["timestamp"]);
     const response = record["response"];
     const status = isRecord(response) ? response["status"] : undefined;
     const model = isRecord(payload) ? payload["model"] : undefined;
     const existingRecord = this.#repository.getRecord(requestId);
     const responseIds = responseIdsFromBody(responsePayload);
+    const hasResponse = (status !== null && status !== undefined) || responseIds.length > 0;
     return {
       ...task,
       pending_request_only: false,
       kind,
       endpoint: recordRequestPath(record),
-      last_seen_at: timestamp,
-      ...((status !== null && status !== undefined) || responseIds.length > 0
-        ? { last_response_at: timestamp }
+      last_seen_at: observedAt,
+      ...(hasResponse
+        ? { last_response_at: latestTimestamp(now, task["last_response_at"], record["timestamp"]) }
         : {}),
       ...(typeof model === "string" && model !== "" ? { model } : {}),
       fingerprints: requestFingerprints(kind, payload),
@@ -375,7 +377,7 @@ export class TaskMatcher {
       last_user_messages: requestUserMessages(kind, payload),
       request_count:
         this.#repository.recordCount(taskId) + (existingRecord?.["task_id"] === taskId ? 0 : 1),
-      updated_at: this.#now(),
+      updated_at: now,
     };
   }
 }
@@ -458,6 +460,28 @@ function timestampMilliseconds(value: unknown): number | undefined {
   }
   const milliseconds = Date.parse(value);
   return Number.isNaN(milliseconds) ? undefined : milliseconds;
+}
+
+function latestTimestamp(fallback: string, ...values: readonly unknown[]): string {
+  let latestText = fallback;
+  let latestMs = Date.parse(fallback);
+  for (const value of values) {
+    if (typeof value !== "string" || value === "") {
+      continue;
+    }
+    const milliseconds = Date.parse(value);
+    if (Number.isNaN(milliseconds)) {
+      if (Number.isNaN(latestMs)) {
+        latestText = value;
+      }
+      continue;
+    }
+    if (Number.isNaN(latestMs) || milliseconds > latestMs) {
+      latestText = value;
+      latestMs = milliseconds;
+    }
+  }
+  return latestText;
 }
 
 function taskUserMessagesMatch(

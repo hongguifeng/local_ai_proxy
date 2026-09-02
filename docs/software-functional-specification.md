@@ -348,7 +348,9 @@ Default: Target C
 
 - 默认每页 100，前端可继续“加载更多”。
 - 后端单次 limit 最小 1、最大 500。
-- 按 `last_response_at`、`last_seen_at`、`started_at` 的优先级倒序。
+- 按 `last_seen_at`、`last_response_at`、`started_at` 的优先级倒序（以最近一次活动为准）。
+- `last_seen_at` 在每次任务活动（包括仍在进行的请求）时都会刷新且不允许回退，因此进行中的请求会立即把该任务排到最前；`last_response_at` 仅在有响应时刷新，表示最后一次收到响应的时间。
+- 任务列表摘要通过 `last_activity_at` 返回最近活动时间，不再把进行中请求的活动时间错误表示为结束时间。
 - 多日志根时，各数据库分别读取 `offset + limit` 项，再在内存中合并排序和截页。
 
 ### 9.2 搜索语义

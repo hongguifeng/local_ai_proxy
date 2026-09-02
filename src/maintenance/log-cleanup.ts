@@ -43,7 +43,7 @@ export function cleanupLogsOlderThan(
     try {
       const selected = allTasks(repository)
         .filter((task) => {
-          const timestamp = task["last_response_at"] ?? task["last_seen_at"] ?? task["started_at"];
+          const timestamp = task["last_seen_at"] ?? task["last_response_at"] ?? task["started_at"];
           const epoch = typeof timestamp === "string" ? Date.parse(timestamp) : Number.NaN;
           return !Number.isNaN(epoch) && epoch < cutoff;
         })

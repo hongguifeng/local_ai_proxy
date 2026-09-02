@@ -20,8 +20,17 @@ import {
 } from "../../src/persistence/database.js";
 import { TrafficRepository } from "../../src/persistence/repository.js";
 import { SCHEMA_V1_MIGRATION } from "../../src/persistence/schema-v1.js";
+import { SCHEMA_V7_MIGRATION } from "../../src/persistence/schema-v7.js";
 
 const temporaryDirectories: string[] = [];
+
+function taskSortIndexSql(database: Database.Database): string {
+  const sql = database
+    .prepare("SELECT sql FROM sqlite_master WHERE type = 'index' AND name = 'idx_tasks_sort'")
+    .pluck()
+    .get();
+  return typeof sql === "string" ? sql : "";
+}
 
 afterEach(async () => {
   await Promise.all(
@@ -108,6 +117,23 @@ describe("runMigrations", () => {
     database.close();
   });
 
+  it("rebuilds the task sort index to prioritize last activity", async () => {
+    const root = await mkdtemp(path.join(os.tmpdir(), "llm-proxy-sort-index-migration-"));
+    temporaryDirectories.push(root);
+    const database = openLogDatabase(root);
+    runMigrations(database, [SCHEMA_V1_MIGRATION]);
+    expect(taskSortIndexSql(database)).toContain(
+      "COALESCE(last_response_at, last_seen_at, started_at)",
+    );
+
+    runMigrations(database, [SCHEMA_V7_MIGRATION]);
+    expect(readSchemaVersion(database)).toBe(7);
+    expect(taskSortIndexSql(database)).toContain(
+      "COALESCE(last_seen_at, last_response_at, started_at)",
+    );
+    database.close();
+  });
+
   it("rolls back every migration and schema version when a later migration fails", async () => {
     const root = await mkdtemp(path.join(os.tmpdir(), "llm-proxy-migration-rollback-"));
     temporaryDirectories.push(root);
@@ -151,7 +177,7 @@ describe("connectLogDatabase", () => {
       .prepare("SELECT name, type FROM sqlite_master WHERE name NOT LIKE 'sqlite_%'")
       .all() as { name: string; type: string }[];
     const names = new Set(objects.map(({ name }) => name));
-    expect(readSchemaVersion(database)).toBe(6);
+    expect(readSchemaVersion(database)).toBe(7);
     expect([...names]).toEqual(
       expect.arrayContaining([
         "schema_meta",
@@ -242,7 +268,7 @@ describe("database backup", () => {
     expect(backup.prepare("SELECT value FROM backup_fixture").pluck().get()).toBe(
       "persisted through WAL",
     );
-    expect(readSchemaVersion(backup)).toBe(6);
+    expect(readSchemaVersion(backup)).toBe(7);
     backup.close();
   });
 

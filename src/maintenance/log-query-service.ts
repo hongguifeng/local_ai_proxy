@@ -10,8 +10,8 @@ import {
 import type { Readable } from "node:stream";
 
 export interface LogGroupSummary {
-  readonly ended_at: string;
   readonly id: string;
+  readonly last_activity_at: string;
   readonly model: string | null;
   readonly request_count: number;
   readonly started_at: string;
@@ -275,7 +275,7 @@ function logListItem(record: Readonly<RepositoryRecord>): LogListItem {
 }
 
 function taskSortTime(task: Readonly<RepositoryRecord>): number {
-  const value = task["last_response_at"] ?? task["last_seen_at"] ?? task["started_at"];
+  const value = task["last_seen_at"] ?? task["last_response_at"] ?? task["started_at"];
   const timestamp = typeof value === "string" ? Date.parse(value) : Number.NaN;
   return Number.isNaN(timestamp) ? 0 : timestamp;
 }
@@ -286,8 +286,8 @@ function taskGroupSummary(task: Readonly<RepositoryRecord>): LogGroupSummary {
   const model = rawModel === null ? null : basename(rawModel);
   const target = optionalString(task["target"]);
   return {
-    ended_at: displayTimestamp(task["last_response_at"] ?? task["last_seen_at"]),
     id: string(task["id"]),
+    last_activity_at: displayTimestamp(task["last_seen_at"] ?? task["last_response_at"]),
     model,
     request_count: requestCount,
     started_at: displayTimestamp(task["started_at"]),

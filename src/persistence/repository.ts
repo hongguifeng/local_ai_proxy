@@ -119,7 +119,7 @@ export class TrafficRepository {
         SELECT *
         FROM tasks
         WHERE pending_request_only = 0
-        ORDER BY COALESCE(last_response_at, last_seen_at, started_at) DESC
+        ORDER BY COALESCE(last_seen_at, last_response_at, started_at) DESC
         LIMIT ?
       `,
       )
@@ -170,7 +170,7 @@ export class TrafficRepository {
           ) AS target
         FROM tasks
         ${whereSql}
-        ORDER BY COALESCE(last_response_at, last_seen_at, started_at) DESC
+        ORDER BY COALESCE(last_seen_at, last_response_at, started_at) DESC
         LIMIT ? OFFSET ?
       `,
       )
@@ -230,7 +230,7 @@ export class TrafficRepository {
           ) AS target
         FROM tasks
         ${whereSql}
-        ORDER BY COALESCE(last_response_at, last_seen_at, started_at) DESC
+        ORDER BY COALESCE(last_seen_at, last_response_at, started_at) DESC
         LIMIT ? OFFSET ?
       `,
       )

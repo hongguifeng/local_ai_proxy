@@ -281,19 +281,22 @@ function displayTimestampParts(value) {
 }
 function logGroupTimeHtml(group) {
   const start = displayTimestampParts(group.started_at);
-  const end = displayTimestampParts(group.ended_at);
-  const fallback = group.started_at || group.ended_at || group.id || t("task");
-  if (!start.date && !end.date) {
+  const activity = displayTimestampParts(group.last_activity_at);
+  const fallback = group.started_at || group.last_activity_at || group.id || t("task");
+  if (!start.date && !activity.date) {
     return `<span class="log-group-time-fallback">${escapeHtml(fallback)}</span>`;
   }
-  const primary = start.date ? start : end;
-  const endText = end.date && end.date !== primary.date ? `${end.shortDate} ${end.time}` : end.time;
+  const primary = start.date ? start : activity;
+  const activityText =
+    activity.date && activity.date !== primary.date
+      ? `${activity.shortDate} ${activity.time}`
+      : activity.time;
   const range = [
     primary.time ? `<span>${escapeHtml(primary.time)}</span>` : "",
-    primary.time && endText ? '<span class="log-time-arrow" aria-hidden="true">→</span>' : "",
-    endText ? `<span>${escapeHtml(endText)}</span>` : "",
+    primary.time && activityText ? '<span class="log-time-arrow" aria-hidden="true">→</span>' : "",
+    activityText ? `<span>${escapeHtml(activityText)}</span>` : "",
   ].join("");
-  return `<span class="log-group-time" title="${escapeHtml([group.started_at, group.ended_at].filter(Boolean).join(" - "))}">
+  return `<span class="log-group-time" title="${escapeHtml([group.started_at, group.last_activity_at].filter(Boolean).join(" - "))}">
     <span class="log-group-date">${escapeHtml(primary.shortDate)}</span>
     <span class="log-time-range">${range}</span>
   </span>`;
@@ -597,7 +600,7 @@ function logGroupSummarySignature(group) {
     group.id,
     group.dir,
     group.started_at,
-    group.ended_at,
+    group.last_activity_at,
     group.model,
     group.request_count,
     group.target,

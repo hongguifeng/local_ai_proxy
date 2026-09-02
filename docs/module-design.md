@@ -473,7 +473,7 @@ erDiagram
 
 - 标识：`id`, `kind`, `endpoint`, `anchor`。
 - 业务：`model`, `target`。
-- 时间：`started_at`, `last_seen_at`, `last_response_at`。
+- 时间：`started_at`, `last_seen_at`（最近一次活动，含进行中请求，按旧值、记录时间和观察时间的最大值单调更新）， `last_response_at`（最近一次收到响应；不变式 `last_seen_at >= last_response_at`，任务列表排序与清理均优先使用 `last_seen_at`）。
 - 状态：`request_count`, `pending_request_only`, `match_confidence`, `match_strategy_version`。
 - 归并证据：`fingerprints_json`, `boundary_fingerprints_json`, `last_user_messages_json`。
 - 审计：`created_at`, `updated_at`。

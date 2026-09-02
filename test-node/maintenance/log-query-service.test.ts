@@ -56,7 +56,7 @@ describe("LogQueryService", () => {
       model: "gpt-5",
       request_count: 2,
       started_at: expectedDisplayTime,
-      ended_at: expectedDisplayTime,
+      last_activity_at: expectedDisplayTime,
     });
   });
 
