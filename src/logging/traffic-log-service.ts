@@ -117,7 +117,7 @@ export class TrafficLogService {
           stringValue(recordToWrite["started_timestamp"]) ||
           stringValue(recordToWrite["timestamp"]),
         duration_ms: recordToWrite["duration_ms"],
-        first_byte_ms: recordToWrite["first_byte_ms"],
+        first_token_ms: recordToWrite["first_token_ms"],
         proxy_id: proxy["id"],
         proxy_name: proxy["name"],
         client_host: client["host"],

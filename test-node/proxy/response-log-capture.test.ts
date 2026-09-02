@@ -90,6 +90,22 @@ describe("ResponseLogCapture", () => {
     );
     expect(() => new ResponseLogCapture(true, { maxSseSummaryInputBytes: 0 })).toThrow(RangeError);
   });
+
+  it("tracks the first generated text token for SSE captures only", async () => {
+    const plain = new ResponseLogCapture(false, { memoryThresholdBytes: 1_024 });
+    const plainChunk = 'data: {"type":"response.output_text.delta","delta":"hi"}\n\n';
+    plain.addChunk(Buffer.from(plainChunk));
+    expect(plain.hasSeenTextToken()).toBe(false);
+    await expect(plain.finalize()).resolves.toMatchObject({
+      size_bytes: Buffer.byteLength(plainChunk),
+    });
+
+    const sse = new ResponseLogCapture(true, { memoryThresholdBytes: 1_024 });
+    expect(sse.hasSeenTextToken()).toBe(false);
+    sse.addChunk(Buffer.from('data: {"type":"response.output_text.delta","delta":"hi"}\n\n'));
+    expect(sse.hasSeenTextToken()).toBe(true);
+    await sse.finalize();
+  });
 });
 
 async function temporaryDirectory(prefix: string): Promise<string> {

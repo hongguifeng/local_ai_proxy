@@ -345,7 +345,7 @@ beforeAll(async () => {
                   status: 200,
                   request_token_count: 8,
                   response_token_count: 4,
-                  first_byte_ms: 1_234,
+                  first_token_ms: 2_400,
                   duration_ms: 65_678,
                 },
           };
@@ -357,7 +357,7 @@ beforeAll(async () => {
             output: "Build succeeded in 48 seconds.",
             request_token_count: 24,
             response_token_count: 96,
-            first_byte_ms: 820,
+            first_token_ms: 1_200,
             duration_ms: 3_412,
           },
           "record-four": {
@@ -366,7 +366,7 @@ beforeAll(async () => {
             output: null,
             request_token_count: 12,
             response_token_count: 0,
-            first_byte_ms: 95,
+            first_token_ms: 110,
             duration_ms: 210,
           },
           "record-five": {
@@ -375,7 +375,7 @@ beforeAll(async () => {
             output: "Done.",
             request_token_count: 46,
             response_token_count: 212,
-            first_byte_ms: 1_480,
+            first_token_ms: 2_600,
             duration_ms: 9_032,
           },
         }[recordId];
@@ -395,7 +395,7 @@ beforeAll(async () => {
             status: extra.status,
             request_token_count: extra.request_token_count,
             response_token_count: extra.response_token_count,
-            first_byte_ms: extra.first_byte_ms,
+            first_token_ms: extra.first_token_ms,
             duration_ms: extra.duration_ms,
           },
         };
@@ -1078,7 +1078,7 @@ describe("admin UI history page", { timeout: UI_TEST_TIMEOUT_MS }, () => {
     await expectPage(page.locator("#responseJson")).toContainText("done");
     await expectPage(page.locator("#responseMeta")).toBeHidden();
     await expectPage(page.locator("#responseTiming")).toHaveText(
-      "First byte 00:01 · Total 01:06 · Prefill 6.5 tok/s · Decode 0.1 tok/s",
+      "First token 00:02 · Total 01:06 · Prefill 3.3 tok/s · Decode 0.1 tok/s",
     );
     await expectPage(formattedString).toHaveJSProperty("open", true);
     await expect.poll(() => scrollTop(requestJson)).toBe(scrollPositions.pane);

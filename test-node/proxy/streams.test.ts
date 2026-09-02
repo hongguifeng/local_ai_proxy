@@ -394,6 +394,24 @@ describe("IncrementalSseAccumulator", () => {
     expect(accumulator.finalize()).toBeUndefined();
   });
 
+  it("reports the first generated text token as it arrives", () => {
+    const accumulator = new IncrementalSseAccumulator();
+    expect(accumulator.hasSeenTextToken()).toBe(false);
+    // Non-text bookkeeping events do not count as generated text.
+    accumulator.addChunk('data: {"type":"response.created","response":{"id":"resp_1"}}\n\n');
+    expect(accumulator.hasSeenTextToken()).toBe(false);
+    accumulator.addChunk('data: {"type":"response.output_text.delta","delta":"Hi"}\n\n');
+    expect(accumulator.hasSeenTextToken()).toBe(true);
+  });
+
+  it("treats the first reasoning delta as the first token for reasoning streams", () => {
+    const accumulator = new IncrementalSseAccumulator();
+    accumulator.addChunk(
+      'data: {"type":"response.reasoning_text.delta","delta":"Thinking..."}\n\n',
+    );
+    expect(accumulator.hasSeenTextToken()).toBe(true);
+  });
+
   it("rejects chunks added after finalization", () => {
     const accumulator = new IncrementalSseAccumulator();
     accumulator.addChunk('data: {"ok":true}\n\n');

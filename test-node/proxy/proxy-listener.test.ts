@@ -1184,9 +1184,9 @@ describe("ProxyListener", () => {
         },
       },
     });
-    expect(finalRecords[0]?.["first_byte_ms"]).toEqual(expect.any(Number));
+    expect(finalRecords[0]?.["first_token_ms"]).toEqual(expect.any(Number));
     expect(finalRecords[0]?.["duration_ms"]).toEqual(expect.any(Number));
-    expect(Number(finalRecords[0]?.["first_byte_ms"])).toBeLessThanOrEqual(
+    expect(Number(finalRecords[0]?.["first_token_ms"])).toBeLessThanOrEqual(
       Number(finalRecords[0]?.["duration_ms"]),
     );
     await listener.close();
@@ -1200,8 +1200,12 @@ describe("ProxyListener", () => {
       setImmediate(() => response.end("second"));
     });
     const upstreamPort = await listenServer(upstream);
+    const plainRecords: Readonly<Record<string, unknown>>[] = [];
     const trafficLog: TrafficLogWriter = {
-      write: () => Promise.resolve(),
+      write(record) {
+        if (record["event"] === "request_finished") plainRecords.push(record);
+        return Promise.resolve();
+      },
       update: () => Promise.resolve(),
     };
     const pipeline = new ProxyRequestPipeline({
@@ -1230,6 +1234,8 @@ describe("ProxyListener", () => {
       status: 200,
       body: "first-second",
     });
+    expect(plainRecords[0]?.["first_byte_ms"]).toBeUndefined();
+    expect(plainRecords[0]?.["first_token_ms"]).toBeUndefined();
     await listener.close();
     await closeServer(upstream);
   });

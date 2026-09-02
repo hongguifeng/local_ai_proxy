@@ -18,7 +18,8 @@ export { SCHEMA_V1_MIGRATION, SCHEMA_V1_VERSION } from "./schema-v1.js";
 export { SCHEMA_V2_MIGRATION, SCHEMA_V2_VERSION } from "./schema-v2.js";
 export { SCHEMA_V3_MIGRATION, SCHEMA_V3_VERSION } from "./schema-v3.js";
 export { SCHEMA_V4_MIGRATION, SCHEMA_V4_VERSION } from "./schema-v4.js";
-export { SCHEMA_V5_MIGRATION, SCHEMA_V5_VERSION, SCHEMA_VERSION } from "./schema-v5.js";
+export { SCHEMA_V5_MIGRATION, SCHEMA_V5_VERSION } from "./schema-v5.js";
+export { SCHEMA_VERSION, SCHEMA_V6_MIGRATION, SCHEMA_V6_VERSION } from "./schema-v6.js";
 export {
   BODY_CHUNK_BYTES,
   BODY_CHUNK_CODEC,

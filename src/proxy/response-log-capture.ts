@@ -91,6 +91,10 @@ export class ResponseLogCapture {
     }
   }
 
+  hasSeenTextToken(): boolean {
+    return this.#sseAccumulator?.hasSeenTextToken() ?? false;
+  }
+
   async finalize(): Promise<ResponseLogPayload> {
     if (this.#finalized) {
       throw new Error("Response log capture has already been finalized.");

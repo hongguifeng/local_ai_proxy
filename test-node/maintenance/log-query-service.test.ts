@@ -241,7 +241,7 @@ describe("LogQueryService", () => {
       sequence: 2,
       timestamp: "2026-07-18T12:00:01.000+08:00",
       duration_ms: 15,
-      first_byte_ms: 4.5,
+      first_token_ms: 8,
       method: "POST",
       path: "/v1/responses?trace=1",
       endpoint: "/v1/responses",
@@ -274,7 +274,7 @@ describe("LogQueryService", () => {
       },
       response_meta: {
         status: 200,
-        first_byte_ms: 4.5,
+        first_token_ms: 8,
         duration_ms: 15,
         request_token_count: 6,
         response_token_count: 3,

@@ -5,7 +5,7 @@ const translations = {
     tabLogs: "历史日志",
     request: "请求",
     response: "响应",
-    firstByteTime: "首字",
+    firstTokenTime: "首 token",
     totalTime: "总计",
     prefillSpeed: "Prefill",
     decodeSpeed: "Decode",
@@ -91,7 +91,7 @@ const translations = {
     tabLogs: "History",
     request: "Request",
     response: "Response",
-    firstByteTime: "First byte",
+    firstTokenTime: "First token",
     totalTime: "Total",
     prefillSpeed: "Prefill",
     decodeSpeed: "Decode",
@@ -1049,6 +1049,9 @@ function formatDuration(milliseconds) {
   if (milliseconds === null || milliseconds === undefined || milliseconds === "") return "";
   const value = Number(milliseconds);
   if (!Number.isFinite(value) || value < 0) return "";
+  // Do not round sub-second timings to seconds: a real 95 ms TTFT used to
+  // be rendered as 00:00, which looked like a missing/zero measurement.
+  if (value < 1_000) return `${Math.round(value)} ms`;
   const totalSeconds = Math.round(value / 1_000);
   const minutes = Math.floor(totalSeconds / 60);
   const seconds = String(totalSeconds % 60).padStart(2, "0");
@@ -1067,19 +1070,21 @@ function formatTokensPerSecond(value) {
 function updateResponseTiming() {
   const element = $("responseTiming");
   const meta = state.meta.response || {};
-  const firstByte = formatDuration(meta.first_byte_ms);
+  const firstToken = formatDuration(meta.first_token_ms);
   const total = formatDuration(meta.duration_ms);
   const parts = [
-    ...(firstByte === "" ? [] : [`${t("firstByteTime")} ${firstByte}`]),
+    ...(firstToken === "" ? [] : [`${t("firstTokenTime")} ${firstToken}`]),
     ...(total === "" ? [] : [`${t("totalTime")} ${total}`]),
   ];
-  const firstByteMs = positiveNumber(meta.first_byte_ms);
+  const tokenMs = positiveNumber(meta.first_token_ms);
   const durationMs = positiveNumber(meta.duration_ms);
-  if (firstByteMs !== undefined && durationMs !== undefined) {
+  if (tokenMs !== undefined && durationMs !== undefined) {
+    // Prefill is measured until the first generated text token; records without
+    // that timing (e.g. non-streaming responses) do not show speed estimates.
     const prefill = formatTokensPerSecond(
-      (positiveNumber(meta.request_token_count) ?? 0) * (1000 / firstByteMs),
+      (positiveNumber(meta.request_token_count) ?? 0) * (1000 / tokenMs),
     );
-    const decodeWindowMs = durationMs - firstByteMs;
+    const decodeWindowMs = durationMs - tokenMs;
     const decode =
       decodeWindowMs > 0
         ? formatTokensPerSecond(

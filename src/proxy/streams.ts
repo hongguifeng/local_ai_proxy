@@ -26,6 +26,7 @@ export class StreamAccumulator {
   #eventCount: number;
   #responsePayload: Record<string, unknown> | undefined;
   #usage: unknown;
+  #firstTextSeen = false;
 
   constructor(eventCount: number, doneSeen: boolean) {
     this.#eventCount = eventCount;
@@ -40,9 +41,7 @@ export class StreamAccumulator {
     const eventType = event["type"];
     if (typeof eventType === "string" && eventType.startsWith("response.")) {
       this.#addResponseEvent(eventType, event);
-      return;
-    }
-    if (
+    } else if (
       typeof eventType === "string" &&
       [
         "message_start",
@@ -56,14 +55,24 @@ export class StreamAccumulator {
       ].includes(eventType)
     ) {
       this.#addClaudeEvent(eventType, event);
-      return;
+    } else {
+      this.#addChatEvent(event);
     }
-    this.#addChatEvent(event);
+    if (
+      !this.#firstTextSeen &&
+      (this.#contentParts.length > 0 || this.#reasoningParts.length > 0)
+    ) {
+      this.#firstTextSeen = true;
+    }
   }
 
   addParsedEvent(event: unknown): void {
     this.#eventCount += 1;
     this.addEvent(event);
+  }
+
+  hasSeenTextToken(): boolean {
+    return this.#firstTextSeen;
   }
 
   markDone(): void {
@@ -371,6 +380,10 @@ export class IncrementalSseAccumulator {
     const text = typeof chunk === "string" ? chunk : this.#decoder.decode(chunk, { stream: true });
     this.#buffer += text;
     this.#processCompleteLines();
+  }
+
+  hasSeenTextToken(): boolean {
+    return this.#accumulator.hasSeenTextToken();
   }
 
   finalize(): StreamSummary | undefined {

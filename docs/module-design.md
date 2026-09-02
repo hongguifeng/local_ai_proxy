@@ -483,7 +483,7 @@ erDiagram
 字段分组：
 
 - 标识与关系：`id`, `task_id`, `sequence`，并有 `UNIQUE(task_id, sequence)`。
-- 生命周期：`event`, `timestamp`, `started_at`, `first_byte_ms`, `duration_ms`。
+- 生命周期：`event`, `timestamp`, `started_at`, `first_token_ms`, `duration_ms`。
 - 来源：proxy/client/target 字段。
 - HTTP：method/path/endpoint/status/error。
 - 摘要：message_count/token_count。

@@ -372,7 +372,7 @@ Default: Target C
 - `request`：请求业务内容。
 - `response`：响应业务内容。
 - `request_meta`：ID、序号、时间、耗时、method、path、endpoint、target、proxy、client、message_count、路由/改写信息和 Header。
-- `response_meta`：status、首字耗时、总耗时、token_count、error 和 Header。
+- `response_meta`：status、首 token 耗时、总耗时、token_count、error 和 Header。
 
 前端对未完成响应持续刷新详情，直到 response meta 出现 status 或 error。
 
@@ -487,8 +487,8 @@ ZIP 当前整体在内存中生成后一次性返回。
 - 长 string 使用摘要和可展开正文，并可复制格式化文本。
 - 支持复制完整 JSON。
 - 支持显示/隐藏请求和响应元信息。
-- Response 标题栏显示首字耗时和总耗时，使用 `分:秒` 格式并按最接近的整秒显示；旧记录缺少首字数据时仅显示总耗时。
-- 记录包含首字耗时、总耗时和 token 数时，标题栏额外显示 Prefill 和 Decode 速度（token/s）：Prefill = 请求 token 数 / 首字耗时；Decode = 响应 token 数 / (总耗时 - 首字耗时)。速度 ≥ 1000 时显示为 `k`（如 `1.2k`），≥ 100 取整，否则保留 1 位小数；对应耗时或 token 数缺失/非正时不显示该速度。
+- Response 标题栏显示首 token 耗时和总耗时：≥ 1 秒使用 `分:秒` 格式（按最接近的整秒显示），不足 1 秒显示毫秒；某一项耗时缺失（旧记录、pending 或非流式响应）时仅显示可用段。
+- 记录包含首 token 耗时、总耗时和 token 数时，标题栏额外显示 Prefill 和 Decode 速度（token/s）：Prefill = 请求 token 数 / 首 token 耗时；Decode = 响应 token 数 / (总耗时 - 首 token 耗时)。速度 ≥ 1000 时显示为 `k`（如 `1.2k`），≥ 100 取整，否则保留 1 位小数；对应耗时或 token 数缺失/非正时不显示该速度。
 - 自动刷新 selected record 时保留对象、数组、格式化长字符串的展开状态、滚动位置和视图选项。
 
 ### 11.5 国际化
@@ -578,9 +578,8 @@ Node.js 重构不可能保持 Python import 兼容，但应在新的 npm package
 - 导出 ZIP 完整累积在内存中。
 - 管理端和代理端没有鉴权与速率限制。
 - 配置中的 API Key 明文存储。
-- SQLite schema version 只写版本号，没有迁移框架。
 - 多日志根的分页在应用层合并，日志根很多时效率下降。
-- schema v4 延续 v3 的 contentless FTS5 和 64 KiB 去重压缩正文，并为请求记录新增首字耗时字段。
+- schema v4 延续 v3 的 contentless FTS5 和 64 KiB 去重压缩正文；schema v6 为请求记录新增首 token 耗时字段（SSE 首个生成文本 token 的时间点，Prefill/Decode 估算的窗口依据），并移除 v4 曾新增的首字耗时字段。
 - History task 内请求固定最多读取 200 条，UI 没有 task 内继续分页入口。
 - UI 的导出按钮导出全部任务，而非仅勾选任务。
 - 原始请求体与最终上游请求体没有同时持久化。

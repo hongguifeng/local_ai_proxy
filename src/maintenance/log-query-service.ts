@@ -228,7 +228,7 @@ function recordDetail(record: Readonly<RepositoryRecord>): LogRecordDetail {
     }),
     response_meta: compactMeta({
       status: record["status"],
-      first_byte_ms: pending ? undefined : record["first_byte_ms"],
+      first_token_ms: pending ? undefined : record["first_token_ms"],
       duration_ms: pending ? undefined : record["duration_ms"],
       request_token_count: record["request_token_count"],
       response_token_count: record["response_token_count"],

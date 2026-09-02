@@ -149,7 +149,7 @@ export class ProxyRequestPipeline {
     let responseCapture = new ResponseLogCapture(false, this.#options.responseCapture);
     let responseStatus: number;
     let responseHeaders: Record<string, string[]>;
-    let firstByteMs: number | undefined;
+    let firstTokenMs: number | undefined;
     try {
       const upstream = await openUpstreamResponse({
         target: selectedTarget,
@@ -176,7 +176,7 @@ export class ProxyRequestPipeline {
         request.method === "HEAD",
         responseCapture,
         () => {
-          firstByteMs ??= elapsedMilliseconds(context);
+          firstTokenMs ??= elapsedMilliseconds(context);
         },
       );
     } catch (error) {
@@ -208,7 +208,7 @@ export class ProxyRequestPipeline {
           headers: responseHeaders,
           body: responseBody,
         },
-        firstByteMs,
+        firstTokenMs,
       ),
     );
   }
@@ -323,13 +323,13 @@ function eventRecord(
     headers: {},
     body: bytesPayload(new Uint8Array()),
   },
-  firstByteMs?: number,
+  firstTokenMs?: number,
 ): RepositoryRecord {
   return {
     ...baseRecord,
     event,
     duration_ms: durationMs,
-    ...(firstByteMs === undefined ? {} : { first_byte_ms: firstByteMs }),
+    ...(firstTokenMs === undefined ? {} : { first_token_ms: firstTokenMs }),
     response,
   };
 }
@@ -437,12 +437,12 @@ async function forwardResponseBody(
   response: ServerResponse,
   headRequest: boolean,
   capture: ResponseLogCapture,
-  onFirstByte?: () => void,
+  onFirstToken?: () => void,
 ): Promise<void> {
   for await (const chunkValue of upstream) {
     const chunk = Buffer.isBuffer(chunkValue) ? chunkValue : Buffer.from(chunkValue as Uint8Array);
-    if (chunk.byteLength > 0) onFirstByte?.();
     capture.addChunk(chunk);
+    if (capture.hasSeenTextToken() && chunk.byteLength > 0) onFirstToken?.();
     if (!headRequest && !response.write(chunk)) {
       await once(response, "drain");
     }

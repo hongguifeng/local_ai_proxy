@@ -100,7 +100,7 @@ describe("TrafficLogService record mapping", () => {
       started_timestamp: "2026-07-18T10:59:59.500+08:00",
       event: "request_finished",
       duration_ms: 500,
-      first_byte_ms: 125,
+      first_token_ms: 300,
       proxy: { id: "proxy-1", name: "Primary proxy" },
       client: { host: "127.0.0.1", port: 43123 },
       target: {
@@ -165,7 +165,7 @@ describe("TrafficLogService record mapping", () => {
       path: "/v1/responses/?trace=1",
       endpoint: "/v1/responses",
       duration_ms: 500,
-      first_byte_ms: 125,
+      first_token_ms: 300,
       message_count: 3,
       token_count: 42,
       request_token_count: 30,

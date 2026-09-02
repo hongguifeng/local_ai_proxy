@@ -35,6 +35,27 @@ test-node/ui/admin-ui.test.ts` to isolate UI failures.
 If local requests unexpectedly use an HTTP proxy, exclude `127.0.0.1` and `localhost` through
 `NO_PROXY`; otherwise health checks can be sent to the external proxy rather than the local UI.
 
+## Response timing and token-speed metrics
+
+The detail view shows one timing value per request:
+
+- **First token** (`first_token_ms`) is the first point at which a real generated text arrives in
+  an SSE stream — the first non-empty content or thinking/reasoning delta of any supported protocol
+  (Responses API, Claude messages, or chat completions). It is the closest proxy-side approximation
+  of the model's true TTFT. The value stays missing for records where no generated text token was
+  observed, including non-SSE responses.
+
+Values below one second are displayed in milliseconds. Older UI code rounded them to whole seconds,
+so a valid measurement such as 95 ms appeared as `00:00` and looked like a missing value. A missing
+timing is different from zero: it means the response was still pending, or (for first token) the
+stream never delivered a text token.
+
+The displayed **Prefill** and **Decode** rates are derived from usage token counts divided by these
+network windows — the prefill window is the first token timing and the decode window is the
+remaining time until the total duration. They are throughput estimates, not hardware benchmark
+values. Records without a first token timing (for example non-streaming responses) do not show speed
+estimates.
+
 ## Upstream target not responding
 
 If clients see connection errors or odd upstream statuses, click **Test** on the target card in the

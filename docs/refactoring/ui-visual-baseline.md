@@ -12,8 +12,8 @@
 | --- | --- | --- | --- | --- |
 | Proxy | 中文 | `doc/ui_proxy_cn.png` | 1278 x 1215 | `4e149fbde73f6f25cd871129a9d95f25dd039e368c52ebf17324f65c7295bf25` |
 | Proxy | 英文 | `doc/ui_proxy_en.png` | 1278 x 1208 | `af0233de7fb22d719b76db738d7e3e89a5e53dbea1d1d27d8f3e86af170a74bf` |
-| History | 中文 | `doc/ui_logs_cn.png` | 1384 x 1212 | `6a8fdef856667fc9e12203bdb85a0b343a52508133f72381c3efa5e0c7bf2ee4` |
-| History | 英文 | `doc/ui_logs_en.png` | 1384 x 1224 | `5a1277788a08be25c9be4f9a071b9b5985d698098a46446eb08c19f3fb5ca303` |
+| History | 中文 | `doc/ui_logs_cn.png` | 1384 x 1212 | `9c0cb264e00c155e42436799956be85533d1c78c821a0720f67a5fc224832f2a` |
+| History | 英文 | `doc/ui_logs_en.png` | 1384 x 1224 | `0cb583ce2e75c4efac9a5dda9765c2c8d591b959bfcedc8914056f22728046fa` |
 
 哈希复现命令：
 
