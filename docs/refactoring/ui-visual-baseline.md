@@ -10,8 +10,8 @@
 
 | 页面 | 语言 | 文件 | 图片尺寸 | SHA-256 |
 | --- | --- | --- | --- | --- |
-| Proxy | 中文 | `doc/ui_proxy_cn.png` | 1278 x 1215 | `4e149fbde73f6f25cd871129a9d95f25dd039e368c52ebf17324f65c7295bf25` |
-| Proxy | 英文 | `doc/ui_proxy_en.png` | 1278 x 1208 | `af0233de7fb22d719b76db738d7e3e89a5e53dbea1d1d27d8f3e86af170a74bf` |
+| Proxy | 中文 | `doc/ui_proxy_cn.png` | 1278 x 1215 | `fdb22dfeef04c77be248c303f33f77cc1e9edf68875a0e9ef56c3f4cb9d44810` |
+| Proxy | 英文 | `doc/ui_proxy_en.png` | 1278 x 1208 | `3edc08ba9155a18b4acd1cee70c58518326536c9af9383720a61cc8a816fab2e` |
 | History | 中文 | `doc/ui_logs_cn.png` | 1384 x 1212 | `9c0cb264e00c155e42436799956be85533d1c78c821a0720f67a5fc224832f2a` |
 | History | 英文 | `doc/ui_logs_en.png` | 1384 x 1224 | `0cb583ce2e75c4efac9a5dda9765c2c8d591b959bfcedc8914056f22728046fa` |
 
@@ -28,7 +28,8 @@ sha256sum doc/ui_proxy_cn.png doc/ui_proxy_en.png doc/ui_logs_cn.png doc/ui_logs
 - 顶部白色 Header，左侧产品名，右侧 Tab 和语言选择器。
 - 页面浅灰背景，代理为白色圆角卡片。
 - 代理名称、运行圆点、监听地址、端口和开关位于同一行。
-- Target 使用浅蓝灰卡片，并在代理卡片内按可用宽度自动换行排列。
+- Target 卡片按状态区分背景色：默认目标浅绿色、已启用浅蓝色、未启用浅灰色，并在代理卡片内按可用宽度自动换行排列。
+- fixture 中第一个代理包含默认与已启用卡片，第二个代理包含一张未启用卡片，用于覆盖三种状态。
 - Target 默认展示名称、默认目标、URL、API Key、模型映射、启用状态和“更多配置”。
 - API Key 输入框包含显隐与复制按钮。
 - 代理卡片底部右侧包含添加 Target 和删除代理操作。

@@ -512,9 +512,9 @@ describe("admin UI proxy page", { timeout: UI_TEST_TIMEOUT_MS }, () => {
     await expectPage(targets.nth(0)).toHaveClass(/is-disabled-target/);
     await expectPage(targets.nth(0)).toHaveCSS("background-color", "rgb(243, 244, 246)");
     await expectPage(targets.nth(1)).toHaveClass(/is-default-target/);
-    await expectPage(targets.nth(1)).toHaveCSS("background-color", "rgb(237, 247, 240)");
+    await expectPage(targets.nth(1)).toHaveCSS("background-color", "rgb(176, 211, 194)");
     await expectPage(targets.nth(2)).toHaveClass(/is-enabled-target/);
-    await expectPage(targets.nth(2)).toHaveCSS("background-color", "rgb(232, 241, 251)");
+    await expectPage(targets.nth(2)).toHaveCSS("background-color", "rgb(172, 194, 219)");
   });
 
   it("toggles and copies the target API key", async () => {
@@ -1515,6 +1515,14 @@ function visualPairs(): PublicProxyPair[] {
           "sk-...",
           "A-gpt-5.5 => gpt-5.5",
           true,
+        ),
+        target(
+          "visual-disabled",
+          "Disabled target",
+          "http://127.0.0.1:12399",
+          "sk-...",
+          "gpt-5.4-nano",
+          false,
         ),
       ],
     },
