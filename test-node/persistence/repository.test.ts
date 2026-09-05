@@ -307,6 +307,9 @@ describe("TrafficRepository history summaries", () => {
   });
 
   it("evaluates the FTS query once so large databases search fast", async () => {
+    // The 2s search bounds below detect the correlated-EXISTS regression; the
+    // 300s overall budget covers the 10k-record fixture insert, which dominates
+    // the runtime and runs several times slower on 2-core CI runners.
     const root = await mkdtemp(path.join(os.tmpdir(), "llm-proxy-fts-perf-"));
     temporaryDirectories.push(root);
     const repository = new TrafficRepository(root);
@@ -344,10 +347,7 @@ describe("TrafficRepository history summaries", () => {
     expect(recordPage.total).toBe(20);
     expect(Date.now() - recordStart).toBeLessThan(2000);
     repository.close();
-  }, // The 2s search bounds above are the regression detectors; the generous overall
-  // budget covers inserting the 10k-record fixture, which dominates the runtime
-  // and takes several times longer on the slow 2-core CI runners than locally.
-  300000);
+  }, 300000);
 });
 
 describe("literal LIKE search characters", () => {
