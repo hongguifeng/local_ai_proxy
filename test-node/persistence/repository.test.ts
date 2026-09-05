@@ -344,7 +344,10 @@ describe("TrafficRepository history summaries", () => {
     expect(recordPage.total).toBe(20);
     expect(Date.now() - recordStart).toBeLessThan(2000);
     repository.close();
-  }, 60000);
+  }, // The 2s search bounds above are the regression detectors; the generous overall
+  // budget covers inserting the 10k-record fixture, which dominates the runtime
+  // and takes several times longer on the slow 2-core CI runners than locally.
+  300000);
 });
 
 describe("literal LIKE search characters", () => {
