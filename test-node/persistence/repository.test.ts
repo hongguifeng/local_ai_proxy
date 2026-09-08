@@ -346,6 +346,18 @@ describe("TrafficRepository history summaries", () => {
     const recordPage = repository.listTaskRecordSummaries("task-0", "needle");
     expect(recordPage.total).toBe(20);
     expect(Date.now() - recordStart).toBeLessThan(2000);
+    const previewStart = Date.now();
+    const previews = repository.listTaskSearchPreviews(
+      groupPage.items.map(({ id }) => String(id)),
+      "needle",
+      5,
+    );
+    expect(previews.size).toBe(groupPage.items.length);
+    for (const preview of previews.values()) {
+      expect(preview).toMatchObject({ total: 20, nextOffset: 5, hasMore: true });
+      expect(preview.items.map(({ sequence }) => sequence)).toEqual([20, 19, 18, 17, 16]);
+    }
+    expect(Date.now() - previewStart).toBeLessThan(2000);
     repository.close();
   }, 300000);
 });

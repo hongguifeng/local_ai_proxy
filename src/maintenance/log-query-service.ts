@@ -10,6 +10,7 @@ import {
 import type { Readable } from "node:stream";
 
 export interface LogGroupSummary {
+  readonly preview?: LogGroupLogs;
   readonly id: string;
   readonly last_activity_at: string;
   readonly model: string | null;
@@ -85,7 +86,7 @@ export class LogQueryService {
     try {
       const page = repository.listTaskSummaries(query, boundedLimit, boundedOffset);
       return {
-        groups: page.items.map(taskGroupSummary),
+        groups: groupsWithPreviews(repository, page.items, query),
         total: page.total,
         limit: page.limit,
         offset: page.offset,
@@ -171,6 +172,7 @@ export class LogQueryService {
     offset: number,
   ): LogGroupPage {
     const tasks: RepositoryRecord[] = [];
+    const taskRoots = new Map<string, string>();
     let total = 0;
     const fetchLimit = offset + limit;
     for (const root of roots) {
@@ -179,12 +181,36 @@ export class LogQueryService {
         const page = repository.listTaskSummaries(query, fetchLimit, 0);
         total += page.total;
         tasks.push(...page.items);
+        for (const task of page.items) taskRoots.set(string(task["id"]), root);
       } finally {
         repository.close();
       }
     }
     tasks.sort((left, right) => taskSortTime(right) - taskSortTime(left));
-    const groups = tasks.slice(offset, offset + limit).map(taskGroupSummary);
+    const visibleTasks = tasks.slice(offset, offset + limit);
+    const summaries = new Map<string, LogGroupSummary>();
+    for (const root of roots) {
+      const rootTasks = visibleTasks.filter((task) => taskRoots.get(string(task["id"])) === root);
+      if (!rootTasks.length) continue;
+      if (!query.trim()) {
+        for (const task of rootTasks) {
+          const group = taskGroupSummary(task);
+          summaries.set(group.id, group);
+        }
+        continue;
+      }
+      const repository = new TrafficRepository(root);
+      try {
+        for (const group of groupsWithPreviews(repository, rootTasks, query)) {
+          summaries.set(group.id, group);
+        }
+      } finally {
+        repository.close();
+      }
+    }
+    const groups = visibleTasks.map(
+      (task) => summaries.get(string(task["id"])) ?? taskGroupSummary(task),
+    );
     const nextOffset = offset + groups.length;
     return {
       groups,
@@ -198,6 +224,35 @@ export class LogQueryService {
 }
 
 export const TASK_RECORD_LIMIT = 200;
+
+function groupsWithPreviews(
+  repository: TrafficRepository,
+  tasks: readonly RepositoryRecord[],
+  query: string,
+): LogGroupSummary[] {
+  const previews = repository.listTaskSearchPreviews(
+    tasks.map((task) => string(task["id"])),
+    query,
+  );
+  return tasks.map((task) => {
+    const group = taskGroupSummary(task);
+    const page = previews.get(group.id);
+    return page === undefined
+      ? group
+      : {
+          ...group,
+          preview: {
+            id: group.id,
+            logs: page.items.map(logListItem),
+            total: page.total,
+            limit: page.limit,
+            offset: page.offset,
+            next_offset: page.nextOffset,
+            has_more: page.hasMore,
+          },
+        };
+  });
+}
 
 function recordDetail(record: Readonly<RepositoryRecord>): LogRecordDetail {
   const proxyName = string(record["proxy_name"]);

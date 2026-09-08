@@ -487,6 +487,63 @@ export class TrafficRepository {
     };
   }
 
+  listTaskSearchPreviews(
+    taskIds: readonly string[],
+    query: string,
+    limit = 20,
+  ): Map<string, RepositoryPage<RepositoryRecord>> {
+    const pages = new Map<string, RepositoryPage<RepositoryRecord>>();
+    const terms = searchTerms(query);
+    if (!taskIds.length || !terms.length) return pages;
+    const boundedLimit = Math.max(1, Math.min(integerValue(limit, 20), 200));
+    // Rank only matching record IDs before reading summary columns. One FTS
+    // evaluation serves the whole visible group page, without loading bodies.
+    const rows = this.#database
+      .prepare(
+        `WITH matches AS MATERIALIZED (
+          SELECT records.id, records.task_id, records.sequence
+          FROM records
+          WHERE records.task_id IN (${taskIds.map(() => "?").join(",")})
+            AND records.id IN (
+              SELECT record_search_map.record_id
+              FROM record_search_fts
+              JOIN record_search_map ON record_search_map.search_rowid = record_search_fts.rowid
+              WHERE record_search_fts MATCH ?
+            )
+        ), ranked AS (
+          SELECT id, task_id,
+            ROW_NUMBER() OVER (PARTITION BY task_id ORDER BY sequence DESC) AS position,
+            COUNT(*) OVER (PARTITION BY task_id) AS total
+          FROM matches
+        )
+        SELECT records.id, records.task_id, records.sequence, records.timestamp,
+          records.method, records.path, records.endpoint, records.status,
+          records.message_count, records.request_token_count, records.response_token_count,
+          records.target_url, ranked.total
+        FROM ranked JOIN records ON records.id = ranked.id
+        WHERE ranked.position <= ?
+        ORDER BY ranked.task_id, ranked.position`,
+      )
+      .all(
+        ...taskIds,
+        terms.map((term) => ftsQuery(term)).join(" AND "),
+        boundedLimit,
+      ) as RepositoryRecord[];
+    for (const taskId of taskIds) {
+      const items = rows.filter((row) => row["task_id"] === taskId);
+      const total = Number(items[0]?.["total"] ?? 0);
+      pages.set(taskId, {
+        items,
+        total,
+        limit: boundedLimit,
+        offset: 0,
+        nextOffset: items.length,
+        hasMore: items.length < total,
+      });
+    }
+    return pages;
+  }
+
   upsertResponseLink(responseId: string, taskId: string): void {
     if (responseId.trim() === "") {
       return;

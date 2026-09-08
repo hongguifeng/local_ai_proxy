@@ -619,12 +619,12 @@ function mergeLogGroupSummaries(currentGroups, nextGroups, query = "") {
       (existing.searchQuery ?? "") !== query;
     return {
       ...group,
-      logs: summaryChanged ? [] : existing.logs,
-      logsLoaded: summaryChanged ? false : existing.logsLoaded,
-      logsHasMore: summaryChanged ? false : existing.logsHasMore,
-      logsTotal: summaryChanged ? 0 : existing.logsTotal,
-      logsOffset: summaryChanged ? 0 : existing.logsOffset,
-      searchQuery: summaryChanged ? undefined : existing.searchQuery,
+      logs: summaryChanged ? group.logs : existing.logs,
+      logsLoaded: summaryChanged ? group.logsLoaded : existing.logsLoaded,
+      logsHasMore: summaryChanged ? group.logsHasMore : existing.logsHasMore,
+      logsTotal: summaryChanged ? group.logsTotal : existing.logsTotal,
+      logsOffset: summaryChanged ? group.logsOffset : existing.logsOffset,
+      searchQuery: summaryChanged ? group.searchQuery : existing.searchQuery,
     };
   });
 }
@@ -641,7 +641,19 @@ async function loadLogs(options = {}) {
         ? Math.max(state.logLimit, state.logOffset || state.logGroups.length)
         : state.logLimit;
     const data = await api(`/api/logs?q=${q}&limit=${limit}&offset=${offset}`);
-    const nextGroups = data.groups || [{ id: "logs", title: t("history"), logs: data.logs || [] }];
+    const nextGroups = (data.groups || []).map(({ preview, ...group }) =>
+      preview
+        ? {
+            ...group,
+            logs: preview.logs,
+            logsLoaded: true,
+            logsHasMore: preview.has_more,
+            logsTotal: preview.total,
+            logsOffset: preview.next_offset,
+            searchQuery: state.logQuery,
+          }
+        : group,
+    );
     state.logOffset = data.next_offset || state.logGroups.length;
     state.logsHasMore = Boolean(data.has_more);
     state.logsTotal = Number(data.total || state.logs.length);

@@ -71,6 +71,43 @@ describe("LogQueryService", () => {
     });
   });
 
+  it("includes bounded matching previews with offsets for continuing each search group", async () => {
+    const root = await mkdtemp(path.join(os.tmpdir(), "llm-proxy-search-preview-"));
+    temporaryDirectories.push(root);
+    const repository = new TrafficRepository(root);
+    repository.upsertTask(task("preview-task", "model", "2026-07-18T12:00:00.000+08:00"));
+    repository.transaction(() => {
+      for (let sequence = 1; sequence <= 45; sequence++) {
+        repository.upsertRecord({
+          id: `preview-${sequence}`,
+          task_id: "preview-task",
+          sequence,
+          method: "POST",
+          path: "/v1/responses",
+          request_body: { text: sequence % 2 ? "alpha beta" : "alpha" },
+        });
+      }
+    });
+    repository.close();
+    const service = new LogQueryService([root]);
+    const preview = service.listGroups("alpha beta").groups[0]?.preview;
+    expect(preview).toMatchObject({ total: 23, limit: 20, next_offset: 20, has_more: true });
+    expect(preview?.logs.map(({ id }) => id)).toEqual(
+      Array.from({ length: 20 }, (_, index) => `preview-${45 - index * 2}`),
+    );
+    expect(
+      service.getGroupLogs("preview-task", "alpha beta", 100, preview?.next_offset),
+    ).toMatchObject({
+      total: 23,
+      next_offset: 23,
+      has_more: false,
+      logs: [{ id: "preview-5" }, { id: "preview-3" }, { id: "preview-1" }],
+    });
+    expect(service.listGroups().groups[0]?.preview).toBeUndefined();
+    expect(service.listGroups("missing").groups).toEqual([]);
+    expect(service.listGroups("alpha").groups[0]?.preview?.total).toBe(45);
+  });
+
   it("falls back to the latest record target for task summaries", async () => {
     const root = await mkdtemp(path.join(os.tmpdir(), "llm-proxy-log-query-target-"));
     temporaryDirectories.push(root);
@@ -139,6 +176,10 @@ describe("LogQueryService", () => {
     const firstPage = service.listGroups("shared", 2, 0);
     expect(firstPage).toMatchObject({ total: 3, next_offset: 2, has_more: true });
     expect(firstPage.groups.map(({ id }) => id)).toEqual(["task-a-new", "task-b-middle"]);
+    expect(firstPage.groups.map((group) => group.preview?.logs[0]?.id)).toEqual([
+      "record-a-new",
+      "record-b-middle",
+    ]);
     const secondPage = service.listGroups("shared", 2, 2);
     expect(secondPage).toMatchObject({ total: 3, offset: 2, next_offset: 3, has_more: false });
     expect(secondPage.groups.map(({ id }) => id)).toEqual(["task-a-old"]);

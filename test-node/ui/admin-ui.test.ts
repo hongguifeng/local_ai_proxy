@@ -903,6 +903,55 @@ describe("admin UI history page", { timeout: UI_TEST_TIMEOUT_MS }, () => {
     ).toHaveText("1");
   });
 
+  it("expands search previews without a second request and replaces them on query changes", async () => {
+    await page.route("**/api/logs?**", async (route) => {
+      const response = await route.fetch();
+      const data = (await response.json()) as { groups: { id: string }[] };
+      const query = new URL(route.request().url()).searchParams.get("q");
+      if (query) {
+        data.groups = data.groups.map((group: { id: string }) => ({
+          ...group,
+          preview: {
+            id: group.id,
+            total: 21,
+            limit: 20,
+            offset: 0,
+            next_offset: 20,
+            has_more: true,
+            logs: [
+              {
+                id: `preview-${query}`,
+                sequence: "21",
+                timestamp: "2026-07-18 12:00:00",
+                method: "POST",
+                path: "/v1/responses",
+                status: 200,
+              },
+            ],
+          },
+        }));
+      }
+      await route.fulfill({ response, json: data });
+    });
+    await loadAdminPage();
+    await page.locator('[data-tab="logs"]').click();
+    await expectPage(page.locator('[data-group-id="task-one"]')).toBeVisible();
+    await page.locator("#logSearch").fill("task");
+    await page.locator("#searchLogs").click();
+    await expectPage(page.locator("#logSearchProgress")).toBeHidden();
+    await page.locator('[data-group-id="task-one"]').click();
+    await expectPage(page.locator('[data-log-id="preview-task"]')).toBeVisible();
+    expect(groupLogQueries).toEqual([]);
+    await page.locator("#logSearch").fill("task-one");
+    await page.locator("#searchLogs").click();
+    await expectPage(page.locator('[data-log-id="preview-task-one"]')).toBeVisible();
+    await expectPage(page.locator('[data-log-id="preview-task"]')).toHaveCount(0);
+    expect(groupLogQueries).toEqual([]);
+    const more = page.waitForRequest((request) => request.url().includes("limit=100&offset=20"));
+    await page.locator('[data-load-more-records="task-one"]').click();
+    await more;
+  });
+
   it("refetches an expanded group's records when the search query changes", async () => {
     await loadAdminPage();
     await Promise.all([
