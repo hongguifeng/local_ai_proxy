@@ -106,6 +106,33 @@ function sessionTranscriptFixture(): string {
   ].join("\n");
 }
 
+function fixtureRequestPricing(status: "pending" | "priced" | "unpriced" = "priced") {
+  return {
+    pricing_status: status,
+    pricing_reason: status === "unpriced" ? "missing_usage" : null,
+    billing_model: "gpt-5",
+    cost_nano_cny: status === "priced" ? "41125000" : null,
+    pricing_snapshot: {
+      model_pattern: "gpt-5",
+      target_name: "Fixture Target",
+      input_per_million: "5",
+      output_per_million: "30",
+      cache_read_per_million: "0.5",
+      cache_write_per_million: "6.25",
+    },
+    usage:
+      status === "priced"
+        ? {
+            source: "responses",
+            inputUncachedTokens: "1500",
+            outputTokens: "1000",
+            cacheReadTokens: "1000",
+            cacheWriteTokens: "500",
+          }
+        : null,
+  };
+}
+
 beforeAll(async () => {
   server = createAdminServer({
     getHealth: () => applicationHealth("running"),
@@ -330,6 +357,42 @@ beforeAll(async () => {
           ],
         };
       },
+      getGroupPricing: (groupId) => {
+        if (groupId !== "task-one") return undefined;
+        return {
+          target: "fixture-target",
+          cost_nano_cny: "42750000",
+          priced_request_count: 3,
+          unpriced_request_count: 1,
+          pending_request_count: 1,
+          breakdown: {
+            input_uncached: { tokens: "1500", amount: "0.0075" },
+            output: { tokens: "1250", amount: "0.0375" },
+            cache_read: { tokens: "1000", amount: "0.0005" },
+            cache_write: { tokens: "500", amount: "0.003125" },
+          },
+          unpriced_reasons: { missing_usage: 1 },
+          groups: [
+            {
+              billing_model: "gpt-5",
+              request_count: 3,
+              cost_nano_cny: "42750000",
+              price: {
+                input_per_million: "5",
+                output_per_million: "30",
+                cache_read_per_million: "0.5",
+                cache_write_per_million: "6.25",
+              },
+              breakdown: {
+                input_uncached: { tokens: "1500", amount: "0.0075" },
+                output: { tokens: "1250", amount: "0.0375" },
+                cache_read: { tokens: "1000", amount: "0.0005" },
+                cache_write: { tokens: "500", amount: "0.003125" },
+              },
+            },
+          ],
+        };
+      },
       cleanupSelectedGroups: (groupIds) => {
         groupIds.forEach((groupId) => deletedLogGroups.add(groupId));
         return { deleted: groupIds, deleted_count: groupIds.length };
@@ -361,6 +424,7 @@ beforeAll(async () => {
                   first_token_ms: 2_400,
                   duration_ms: 65_678,
                 },
+            pricing: fixtureRequestPricing(pending ? "pending" : "priced"),
           };
         }
         const extra = {
@@ -411,6 +475,7 @@ beforeAll(async () => {
             first_token_ms: extra.first_token_ms,
             duration_ms: extra.duration_ms,
           },
+          pricing: fixtureRequestPricing(recordId === "record-four" ? "unpriced" : "priced"),
         };
       },
     },
@@ -964,6 +1029,47 @@ describe("admin UI history page", { timeout: UI_TEST_TIMEOUT_MS }, () => {
     await expectPage(page.locator('[data-log-id="record-four"] .cost .log-metric-value')).toHaveText(
       "—",
     );
+  });
+
+  it("opens task and request pricing details without changing task selection or expansion", async () => {
+    await loadAdminPage();
+    await Promise.all([
+      page.waitForResponse((response) => response.url().includes("/api/logs?")),
+      page.locator('[data-tab="logs"]').click(),
+    ]);
+    const group = page.locator(".log-group").first();
+    await expectPage(group.locator(".log-group-body")).toHaveCount(0);
+    await expectPage(group.locator('[data-select-group="task-one"]')).not.toBeChecked();
+    await Promise.all([
+      page.waitForResponse((response) => response.url().endsWith("/api/log-groups/task-one/pricing")),
+      group.locator("[data-group-cost]").press("Enter"),
+    ]);
+    const panel = page.locator("#pricingPanel");
+    await expectPage(panel).toBeVisible();
+    await expectPage(panel).toContainText("Task pricing details");
+    await expectPage(panel).toContainText("Known ¥0.0428 · 1 Unpriced");
+    await expectPage(panel).toContainText("fixture-target");
+    await expectPage(panel).toContainText("gpt-5 · 3 requests · ¥0.0428");
+    await expectPage(group.locator(".log-group-body")).toHaveCount(0);
+    await expectPage(group.locator('[data-select-group="task-one"]')).not.toBeChecked();
+    await panel.locator("[data-close-pricing]").click();
+    await expectPage(panel).toBeHidden();
+
+    await Promise.all([
+      page.waitForResponse((response) => response.url().includes("/api/log-groups/task-one/logs")),
+      group.locator('[data-group-id="task-one"]').click(),
+    ]);
+    await Promise.all([
+      page.waitForResponse((response) => response.url().endsWith("/api/logs/record-two")),
+      page.locator('[data-log-id="record-two"]').click(),
+    ]);
+    const requestPricing = page.locator("#responsePricing");
+    await expectPage(requestPricing).toBeVisible();
+    await expectPage(requestPricing).toContainText("Cost estimate");
+    await expectPage(requestPricing).toContainText("¥0.0411");
+    await expectPage(requestPricing).toContainText("Billing model");
+    await expectPage(requestPricing).toContainText("gpt-5");
+    await expectPage(requestPricing).toContainText("1500");
   });
 
   it("expands search previews without a second request and replaces them on query changes", async () => {

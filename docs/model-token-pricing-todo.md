@@ -1,6 +1,6 @@
 # 模型 token 定价与历史费用开发 TODO
 
-创建日期：2026-09-11。当前进度：10 / 14 项完成。
+创建日期：2026-09-11。当前进度：11 / 14 项完成。
 
 设计依据：[转发地址模型定价与历史费用设计](./model-token-pricing-design.md)。本清单用于后续开发、验收与逐项提交；遇到设计调整，应同步更新设计文档、本清单及测试，不能只改代码。
 
@@ -49,7 +49,7 @@
 | [x] | PRICE-08 | 历史 API、schema 与导出 | PRICE-07 | 完成 |
 | [x] | PRICE-09 | target 价格编辑 UI | PRICE-01、02、08 | 完成 |
 | [x] | PRICE-10 | 费用格式化与两级列表 UI | PRICE-08、09 | 完成 |
-| [ ] | PRICE-11 | 请求与 task 费用明细 UI | PRICE-10 | 未开始 |
+| [x] | PRICE-11 | 请求与 task 费用明细 UI | PRICE-10 | 完成 |
 | [ ] | PRICE-12 | 自动刷新、异步竞态与任务生命周期 | PRICE-11 | 未开始 |
 | [ ] | PRICE-13 | 端到端、迁移与性能回归 | PRICE-12 | 未开始 |
 | [ ] | PRICE-14 | 使用文档与最终交付检查 | PRICE-13 | 未开始 |
@@ -425,6 +425,22 @@ UI 基线：`npm run regen:ui-baselines`；已更新 `doc/ui_*.png` 与 `docs/re
 UI 基线：`npm run regen:ui-baselines`；已更新 `doc/ui_logs_cn.png`、`doc/ui_logs_en.png` 与 `docs/refactoring/ui-visual-baseline.md`。
 设计偏差与迁移影响：无。
 提交定位：`feat(pricing): [PRICE-10] format pricing in history lists`。
+补充修复提交：无。
+遗留问题：无。
+
+### PRICE-11
+
+任务 ID：PRICE-11
+状态：完成
+完成日期：2026-09-11
+实现内容与实际文件：一级费用文本通过 `/api/log-groups/:id/pricing` 在详情区打开 task 面板，展示全任务总额、地址、四桶已计价用量、未计价原因和按冻结模型/单价分组的详情；关闭和重试为明确控件。选择请求后，响应详情内展示本次冻结模型、命中规则、价格来源、usage 来源、四项价格和分项金额。费用入口、展开控件和选择框为相互独立的可键盘操作元素。
+测试映射：P11-01、P11-02、P11-03 → `test-node/ui/admin-ui.test.ts` 的 task/request 定价面板浏览器用例，验证键盘入口不展开任务或修改选择框，以及冻结快照和分组内容；P11-04 → 同用例的关闭切换及前端错误/重试状态实现，配合既有 API schema 回归。
+验证命令与结果：`npm run typecheck` 通过；`npx vitest run test-node/ui/admin-ui.test.ts -t "opens task and request pricing" --reporter=dot` 通过（1 个测试）；`npx vitest run test-node/ui/admin-ui.test.ts --reporter=dot` 通过（39 个测试）；`npm run regen:ui-baselines` 通过（4 个中英文基线测试）。
+验收结论：通过；未知和进行中记录保留可访问的 task 入口，费用展示基于保存的快照而非当前 target 配置。
+文档更新：TODO 执行记录、UI 基线哈希。
+UI 基线：`npm run regen:ui-baselines`；已更新 `doc/ui_logs_cn.png`、`doc/ui_logs_en.png` 与 `docs/refactoring/ui-visual-baseline.md`。
+设计偏差与迁移影响：无。
+提交定位：`feat(pricing): [PRICE-11] add pricing detail panels`。
 补充修复提交：无。
 遗留问题：无。
 

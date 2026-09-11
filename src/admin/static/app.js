@@ -82,6 +82,29 @@ const translations = {
     knownCost: "已知",
     calculating: "计算中…",
     unpriced: "未计价",
+    taskPricing: "任务费用明细",
+    viewTaskPricing: "查看任务费用明细",
+    costEstimate: "费用估算",
+    billingModel: "计价模型",
+    matchedRule: "命中规则",
+    priceSource: "价格来源",
+    pricingUsage: "用量来源",
+    pricingReason: "未计价原因",
+    target: "转发地址",
+    inputUncached: "普通输入",
+    output: "输出",
+    cacheRead: "缓存读取",
+    cacheWrite: "缓存写入",
+    tokensBilled: "已计价 token 数",
+    pricePerMillion: "单价（元/M token）",
+    amountCny: "金额（元）",
+    total: "合计",
+    priceGroups: "按模型 / 单价分组",
+    priced: "已计价",
+    retry: "重试",
+    close: "关闭",
+    pricingUnavailable: "无法加载任务费用明细",
+    taskWholeScope: "整个任务费用，包含未匹配请求。",
     moreTargetOptions: "更多配置",
     lessTargetOptions: "收起配置",
     delete: "删除",
@@ -185,6 +208,29 @@ const translations = {
     knownCost: "Known",
     calculating: "Calculating…",
     unpriced: "Unpriced",
+    taskPricing: "Task pricing details",
+    viewTaskPricing: "View task pricing details",
+    costEstimate: "Cost estimate",
+    billingModel: "Billing model",
+    matchedRule: "Matched rule",
+    priceSource: "Price source",
+    pricingUsage: "Usage source",
+    pricingReason: "Unpriced reason",
+    target: "Target",
+    inputUncached: "Uncached input",
+    output: "Output",
+    cacheRead: "Cache read",
+    cacheWrite: "Cache write",
+    tokensBilled: "Billed tokens",
+    pricePerMillion: "Price (CNY/M tokens)",
+    amountCny: "Amount (CNY)",
+    total: "Total",
+    priceGroups: "Model / price groups",
+    priced: "Priced",
+    retry: "Retry",
+    close: "Close",
+    pricingUnavailable: "Could not load task pricing details",
+    taskWholeScope: "Whole-task cost, including requests outside this list.",
     modelMappings:
       "Model mapping, one per line: listened model => upstream model; * is supported as a wildcard",
     moreTargetOptions: "More settings",
@@ -229,6 +275,9 @@ const state = {
   logsLoading: false,
   selectedLogLoading: false,
   selectedLogRefreshLoading: false,
+  requestPricing: null,
+  activeTaskPricing: null,
+  taskPricing: null,
   logsLoadedAt: 0,
   logLimit: 100,
   logOffset: 0,
@@ -287,6 +336,8 @@ function setLanguage(language) {
   renderJsonPane("response", { preserveView: true });
   renderMetaPane("request");
   renderMetaPane("response");
+  renderRequestPricing();
+  renderTaskPricingPanel();
 }
 function isPendingStatus(status) {
   return status === undefined || status === null || status === "pending";
@@ -335,7 +386,7 @@ function logGroupTimeHtml(group) {
 }
 function logGroupFactsHtml(group) {
   return `<span class="log-group-facts">
-    <span class="log-group-fact-line">${group.model ? `<span class="log-model">${escapeHtml(group.model)}</span>` : ""}<span class="log-request-count"><strong>${escapeHtml(group.request_count ?? 0)}</strong> ${escapeHtml(t("requests"))}</span><button type="button" class="log-cost" data-group-cost="${escapeHtml(group.id || "")}">${escapeHtml(formatGroupCost(group.cost))}</button></span>
+    <span class="log-group-fact-line">${group.model ? `<span class="log-model">${escapeHtml(group.model)}</span>` : ""}<span class="log-request-count"><strong>${escapeHtml(group.request_count ?? 0)}</strong> ${escapeHtml(t("requests"))}</span><button type="button" class="log-cost" data-group-cost="${escapeHtml(group.id || "")}" aria-label="${escapeHtml(t("viewTaskPricing"))}">${escapeHtml(formatGroupCost(group.cost))}</button></span>
     <span class="log-group-fact-line log-target" title="${escapeHtml(group.target || "")}">${escapeHtml(group.target || "—")}</span>
   </span>`;
 }
@@ -951,6 +1002,130 @@ function renderLogs() {
     : "";
   $("logItems").innerHTML = groupsHtml + moreHtml;
 }
+function pricingDecimalFromNano(value) {
+  if (value === null || value === undefined || value === "") return null;
+  const nano = BigInt(String(value));
+  const integer = nano / 1_000_000_000n;
+  const fraction = (nano % 1_000_000_000n).toString().padStart(9, "0").replace(/0+$/, "");
+  return fraction ? `${integer}.${fraction}` : integer.toString();
+}
+function pricingAmount(value) {
+  return formatCurrencyAmount(pricingDecimalFromNano(value));
+}
+function pricingBucketAmount(tokens, price) {
+  if (tokens === null || tokens === undefined || price === null || price === undefined) return "—";
+  const [whole = "0", fraction = ""] = String(price).split(".");
+  if (!/^\d+$/.test(whole) || !/^\d*$/.test(fraction)) return "—";
+  const priceMicros = BigInt(whole) * 1_000_000n + BigInt((fraction + "000000").slice(0, 6));
+  const product = BigInt(String(tokens)) * priceMicros;
+  const integer = product / 1_000_000_000_000n;
+  const decimal = (product % 1_000_000_000_000n).toString().padStart(12, "0").replace(/0+$/, "");
+  return decimal ? `${integer}.${decimal}` : integer.toString();
+}
+function pricingStatusValue(pricing) {
+  if (!pricing || pricing.pricing_status === "unpriced") return "—";
+  if (pricing.pricing_status === "pending") return t("calculating");
+  return pricingAmount(pricing.cost_nano_cny);
+}
+const pricingBuckets = [
+  ["inputUncachedTokens", "input_per_million", "inputUncached"],
+  ["outputTokens", "output_per_million", "output"],
+  ["cacheReadTokens", "cache_read_per_million", "cacheRead"],
+  ["cacheWriteTokens", "cache_write_per_million", "cacheWrite"],
+];
+function pricingTableHtml(breakdown, price = null) {
+  const rows = pricingBuckets
+    .map(([usageKey, priceKey, label]) => {
+      const bucket = breakdown?.[usageKey] || breakdown?.[usageKey.replace("Tokens", "")] || {};
+      const tokens = bucket.tokens ?? breakdown?.[usageKey] ?? "—";
+      const amount = bucket.amount ?? "—";
+      return `<tr><th>${escapeHtml(t(label))}</th><td>${escapeHtml(String(tokens))}</td><td>${escapeHtml(price?.[priceKey] ?? "—")}</td><td>${escapeHtml(typeof amount === "string" ? formatCurrencyAmount(amount) : String(amount))}</td></tr>`;
+    })
+    .join("");
+  return `<table class="pricing-table"><thead><tr><th></th><th>${escapeHtml(t("tokensBilled"))}</th><th>${escapeHtml(t("pricePerMillion"))}</th><th>${escapeHtml(t("amountCny"))}</th></tr></thead><tbody>${rows}</tbody></table>`;
+}
+function renderRequestPricing() {
+  const el = $("responsePricing");
+  const pricing = state.requestPricing;
+  if (!pricing) {
+    el.hidden = true;
+    el.innerHTML = "";
+    return;
+  }
+  const snapshot = pricing.pricing_snapshot || {};
+  const usage = pricing.usage || {};
+  const reason = pricing.pricing_reason;
+  const breakdown = Object.fromEntries(
+    pricingBuckets.map(([usageKey, priceKey]) => [
+      usageKey,
+      {
+        tokens: usage[usageKey] ?? "—",
+        amount: pricingBucketAmount(usage[usageKey], snapshot[priceKey]),
+        price: snapshot[priceKey] ?? "—",
+      },
+    ]),
+  );
+  el.hidden = false;
+  el.innerHTML = `<section class="pricing-card"><div class="pricing-card-head"><strong>${escapeHtml(t("costEstimate"))}</strong><strong>${escapeHtml(pricingStatusValue(pricing))}</strong></div>
+    <dl class="pricing-facts"><dt>${escapeHtml(t("billingModel"))}</dt><dd>${escapeHtml(pricing.billing_model || "—")}</dd><dt>${escapeHtml(t("matchedRule"))}</dt><dd>${escapeHtml(snapshot.model_pattern || "—")}</dd><dt>${escapeHtml(t("priceSource"))}</dt><dd>${escapeHtml(snapshot.target_name || "—")}</dd><dt>${escapeHtml(t("pricingUsage"))}</dt><dd>${escapeHtml(usage.source || "—")}</dd>${reason ? `<dt>${escapeHtml(t("pricingReason"))}</dt><dd>${escapeHtml(reason)}</dd>` : ""}</dl>
+    ${pricing.pricing_status === "priced" ? pricingTableHtml(breakdown, snapshot) : ""}</section>`;
+}
+function taskBreakdownTableHtml(breakdown) {
+  const rows = [["input_uncached", "inputUncached"], ["output", "output"], ["cache_read", "cacheRead"], ["cache_write", "cacheWrite"]]
+    .map(([key, label]) => {
+      const bucket = breakdown?.[key] || {};
+      return `<tr><th>${escapeHtml(t(label))}</th><td>${escapeHtml(String(bucket.tokens ?? "0"))}</td><td>${escapeHtml(formatCurrencyAmount(bucket.amount ?? null))}</td></tr>`;
+    }).join("");
+  return `<table class="pricing-table task-breakdown"><thead><tr><th></th><th>${escapeHtml(t("tokensBilled"))}</th><th>${escapeHtml(t("amountCny"))}</th></tr></thead><tbody>${rows}</tbody></table>`;
+}
+function renderTaskPricingPanel() {
+  const panel = $("pricingPanel");
+  const detail = $("detail");
+  const pricing = state.taskPricing;
+  const active = state.activeTaskPricing;
+  detail.classList.toggle("pricing-open", Boolean(active));
+  panel.hidden = !active;
+  if (!active) {
+    panel.innerHTML = "";
+    return;
+  }
+  if (!pricing || pricing.id !== active || pricing.loading) {
+    panel.innerHTML = `<div class="pricing-panel-head"><strong>${escapeHtml(t("taskPricing"))}</strong><button type="button" data-close-pricing>${escapeHtml(t("close"))}</button></div><p>${escapeHtml(t("loading"))}</p>`;
+    return;
+  }
+  if (pricing.error) {
+    panel.innerHTML = `<div class="pricing-panel-head"><strong>${escapeHtml(t("taskPricing"))}</strong><button type="button" data-close-pricing>${escapeHtml(t("close"))}</button></div><p>${escapeHtml(t("pricingUnavailable"))}</p><button type="button" data-retry-pricing>${escapeHtml(t("retry"))}</button>`;
+    return;
+  }
+  const data = pricing.data;
+  const groups = (data.groups || []).map((group) => `<details><summary>${escapeHtml(group.billing_model || "—")} · ${escapeHtml(String(group.request_count))} ${escapeHtml(t("requests"))} · ${escapeHtml(pricingAmount(group.cost_nano_cny))}</summary><p>${escapeHtml(t("pricePerMillion"))}: ${escapeHtml(group.price?.input_per_million ?? "—")} / ${escapeHtml(group.price?.output_per_million ?? "—")} / ${escapeHtml(group.price?.cache_read_per_million ?? "—")} / ${escapeHtml(group.price?.cache_write_per_million ?? "—")}</p>${taskBreakdownTableHtml(group.breakdown)}</details>`).join("");
+  const reasons = Object.entries(data.unpriced_reasons || {}).map(([reason, count]) => `${reason}: ${count}`).join(" · ");
+  const cost = {
+    known_amount: pricingDecimalFromNano(data.cost_nano_cny),
+    priced_request_count: data.priced_request_count,
+    unpriced_request_count: data.unpriced_request_count,
+    pending_request_count: data.pending_request_count,
+  };
+  panel.innerHTML = `<div class="pricing-panel-head"><strong>${escapeHtml(t("taskPricing"))}</strong><button type="button" data-close-pricing>${escapeHtml(t("close"))}</button></div><div class="pricing-card-head"><strong>${escapeHtml(formatGroupCost(cost))}</strong><span>${escapeHtml(`${t("priced")} ${data.priced_request_count} / ${t("unpriced")} ${data.unpriced_request_count} / ${t("pending")} ${data.pending_request_count}`)}</span></div><p class="pricing-target"><strong>${escapeHtml(t("target"))}:</strong> ${escapeHtml(data.target || "—")}</p>${data.priced_request_count ? taskBreakdownTableHtml(data.breakdown) : `<p>${escapeHtml(reasons || t("unpriced"))}</p>`}<p class="pricing-note">${escapeHtml(t("taskWholeScope"))}</p><h3>${escapeHtml(t("priceGroups"))}</h3>${groups || `<p>${escapeHtml(t("unpriced"))}</p>`}`;
+}
+async function showTaskPricing(groupId) {
+  state.activeTaskPricing = groupId;
+  state.taskPricing = { id: groupId, loading: true, error: false, data: null };
+  renderTaskPricingPanel();
+  try {
+    const data = await api(`/api/log-groups/${encodeURIComponent(groupId)}/pricing`);
+    if (state.activeTaskPricing !== groupId) return;
+    state.taskPricing = { id: groupId, loading: false, error: false, data };
+  } catch {
+    if (state.activeTaskPricing !== groupId) return;
+    state.taskPricing = { id: groupId, loading: false, error: true, data: null };
+  }
+  renderTaskPricingPanel();
+}
+function closeTaskPricing() {
+  state.activeTaskPricing = null;
+  renderTaskPricingPanel();
+}
 function jsonType(value) {
   if (value === null) return "null";
   if (Array.isArray(value)) return "array";
@@ -1271,6 +1446,7 @@ function applySelectedLogDetail(data, options = {}) {
   state.raw.response = data.response;
   state.meta.request = data.request_meta || null;
   state.meta.response = data.response_meta || null;
+  state.requestPricing = data.pricing || null;
   if (options.resetView) {
     state.metaOpen.request = false;
     state.metaOpen.response = false;
@@ -1281,11 +1457,13 @@ function applySelectedLogDetail(data, options = {}) {
   }
   renderMetaPane("request");
   renderMetaPane("response");
+  renderRequestPricing();
   updateResponseTiming();
   renderJsonPane("request", { preserveView: !options.resetView });
   renderJsonPane("response", { preserveView: !options.resetView });
 }
 async function selectLog(id) {
+  closeTaskPricing();
   state.selected = id;
   renderLogs();
   state.selectedLogLoading = true;
@@ -1525,6 +1703,12 @@ $("logItems").addEventListener("click", (event) => {
     updateSelectAllLogsButton();
     return;
   }
+  const groupCost = event.target.closest("[data-group-cost]");
+  if (groupCost) {
+    event.stopPropagation();
+    showTaskPricing(groupCost.dataset.groupCost).catch((e) => toast(e.message));
+    return;
+  }
   const group = event.target.closest("[data-group-id]");
   if (group) {
     const groupId = group.dataset.groupId;
@@ -1541,6 +1725,15 @@ $("logItems").addEventListener("click", (event) => {
   }
   if (event.target.matches("[data-load-more]"))
     loadLogs({ append: true }).catch((e) => toast(e.message));
+});
+$("pricingPanel").addEventListener("click", (event) => {
+  if (event.target.closest("[data-close-pricing]")) {
+    closeTaskPricing();
+    return;
+  }
+  if (event.target.closest("[data-retry-pricing]") && state.activeTaskPricing) {
+    showTaskPricing(state.activeTaskPricing).catch((e) => toast(e.message));
+  }
 });
 $("logItems").addEventListener("click", (event) => {
   const group = event.target.closest("[data-group-id]");
