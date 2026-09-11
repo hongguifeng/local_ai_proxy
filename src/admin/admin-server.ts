@@ -42,6 +42,7 @@ export interface LogAdminService {
     offset: number,
   ) => LogGroupLogs | undefined;
   readonly getRecordDetail?: (recordId: string) => LogRecordDetail | undefined;
+  readonly getGroupPricing?: (groupId: string) => unknown | undefined;
   listGroups(query: string, limit: number, offset: number): LogGroupPage;
 }
 
@@ -407,6 +408,25 @@ export function createAdminServer(options: AdminServerOptions): FastifyInstance 
         ),
     );
     const getGroupLogs = logService.getGroupLogs?.bind(logService);
+    const getGroupPricing = logService.getGroupPricing?.bind(logService);
+    if (getGroupPricing !== undefined) {
+      server.get<{ Params: { id: string } }>(
+        "/api/log-groups/:id/pricing",
+        {
+          schema: {
+            params: {
+              type: "object",
+              required: ["id"],
+              properties: { id: { type: "string", minLength: 1 } },
+            },
+            response: { 200: LOG_GROUP_LOGS_SCHEMA },
+          },
+        },
+        (request, reply) =>
+          getGroupPricing(request.params.id) ??
+          reply.code(404).send(adminError("log_group_not_found", "Log group not found.")),
+      );
+    }
     if (getGroupLogs !== undefined) {
       server.get<{
         Params: { id: string };

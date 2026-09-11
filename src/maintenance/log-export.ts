@@ -5,7 +5,7 @@ import { TrafficRepository, type RepositoryRecord } from "../persistence/index.j
 import { formatLocalTimestamp, safeIdentifierPart } from "../shared/index.js";
 
 export interface LogExportEntry {
-  readonly name: "request.json" | "response.json";
+  readonly name: "pricing.json" | "request.json" | "response.json";
   readonly text: string;
 }
 
@@ -114,6 +114,7 @@ export function renderRecordSummaryMarkdown(
     `- Message count: ${text(record["message_count"])}`,
     `- Token count: ${text(record["token_count"])}`,
     `- Response: ${text(record["status"])}`,
+    `- Pricing: ${prettyJson(record["pricing"] ?? null)}`,
   ];
   if (text(record["error"]) !== "") {
     lines.push(`- Error: ${text(record["error"])}`);
@@ -137,6 +138,7 @@ export function recordJsonEntries(record: Readonly<RepositoryRecord>): readonly 
   return [
     { name: "request.json", text: prettyJson(record["request_body"] ?? null) },
     { name: "response.json", text: prettyJson(record["response_body"] ?? null) },
+    { name: "pricing.json", text: prettyJson(record["pricing"] ?? null) },
   ];
 }
 

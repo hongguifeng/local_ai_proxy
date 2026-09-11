@@ -1,6 +1,6 @@
 # 模型 token 定价与历史费用开发 TODO
 
-创建日期：2026-09-11。当前进度：7 / 14 项完成。
+创建日期：2026-09-11。当前进度：8 / 14 项完成。
 
 设计依据：[转发地址模型定价与历史费用设计](./model-token-pricing-design.md)。本清单用于后续开发、验收与逐项提交；遇到设计调整，应同步更新设计文档、本清单及测试，不能只改代码。
 
@@ -46,7 +46,7 @@
 | [x] | PRICE-05 | 请求定价快照与状态计算 | PRICE-01～04 | 完成 |
 | [x] | PRICE-06 | 数据库迁移与费用持久化 | PRICE-05 | 完成 |
 | [x] | PRICE-07 | task 总额与费用明细聚合 | PRICE-06 | 完成 |
-| [ ] | PRICE-08 | 历史 API、schema 与导出 | PRICE-07 | 未开始 |
+| [x] | PRICE-08 | 历史 API、schema 与导出 | PRICE-07 | 完成 |
 | [ ] | PRICE-09 | target 价格编辑 UI | PRICE-01、02、08 | 未开始 |
 | [ ] | PRICE-10 | 费用格式化与两级列表 UI | PRICE-08、09 | 未开始 |
 | [ ] | PRICE-11 | 请求与 task 费用明细 UI | PRICE-10 | 未开始 |
@@ -377,6 +377,22 @@ UI 基线：不涉及。
 UI 基线：不涉及。
 设计偏差与迁移影响：无。
 提交定位：`feat(pricing): [PRICE-07] aggregate task pricing`。
+补充修复提交：无。
+遗留问题：无。
+
+### PRICE-08
+
+任务 ID：PRICE-08
+状态：完成
+完成日期：2026-09-11
+实现内容与实际文件：历史 task 与请求摘要增加 CNY 精确金额/状态；请求详情返回完整 pricing 对象；新增 `/api/log-groups/:id/pricing`；导出增加 `pricing.json`，保留快照和 usage。
+测试映射：P08-01、P08-02 → `test-node/admin/logs.test.ts` 与 `schema-logging.test.ts` API 回归；P08-03 → repository 大整数聚合测试；P08-04 → `test-node/maintenance/log-export.test.ts` pricing 导出用例。
+验证命令与结果：`npm run typecheck` 通过；`npx vitest run test-node/admin/logs.test.ts test-node/maintenance/log-export.test.ts test-node/admin/schema-logging.test.ts test-node/maintenance/log-query-service.test.ts` 通过（4 个测试文件、23 个测试）。
+验收结论：通过；外部金额为十进制字符串，未知为 null，task 详情不受搜索或请求分页影响。
+文档更新：TODO 执行记录。
+UI 基线：不涉及。
+设计偏差与迁移影响：无。
+提交定位：`feat(pricing): [PRICE-08] expose pricing history API`。
 补充修复提交：无。
 遗留问题：无。
 

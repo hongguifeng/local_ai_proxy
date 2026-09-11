@@ -129,6 +129,7 @@ describe("record JSON export entries", () => {
     expect(recordJsonEntries({ request_body: { input: "你好" }, response_body: null })).toEqual([
       { name: "request.json", text: '{\n  "input": "你好"\n}' },
       { name: "response.json", text: "null" },
+      { name: "pricing.json", text: "null" },
     ]);
   });
 });

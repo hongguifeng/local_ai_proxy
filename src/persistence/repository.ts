@@ -561,7 +561,8 @@ export class TrafficRepository {
       .prepare(
         `
         SELECT id, sequence, timestamp, method, path, endpoint, status,
-          message_count, request_token_count, response_token_count, target_url
+          message_count, request_token_count, response_token_count, target_url,
+          pricing_status, pricing_reason, CAST(cost_nano_cny AS TEXT) AS cost_nano_cny
         FROM records
         WHERE task_id = ? ${querySql}
         ORDER BY sequence DESC
@@ -612,7 +613,8 @@ export class TrafficRepository {
         SELECT records.id, records.task_id, records.sequence, records.timestamp,
           records.method, records.path, records.endpoint, records.status,
           records.message_count, records.request_token_count, records.response_token_count,
-          records.target_url, ranked.total
+          records.target_url, records.pricing_status, records.pricing_reason,
+          CAST(records.cost_nano_cny AS TEXT) AS cost_nano_cny, ranked.total
         FROM ranked JOIN records ON records.id = ranked.id
         WHERE ranked.position <= ?
         ORDER BY ranked.task_id, ranked.position`,

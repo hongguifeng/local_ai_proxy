@@ -6,6 +6,7 @@ export {
   type LogGroupSummary,
   type LogTaskCost,
   type LogListItem,
+  type LogRequestCost,
   type LogRecordDetail,
 } from "./log-query-service.js";
 export {

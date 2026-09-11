@@ -42,6 +42,7 @@ export interface LogGroupPage {
 }
 
 export interface LogListItem {
+  readonly cost?: LogRequestCost;
   readonly endpoint: string;
   readonly id: string;
   readonly message_count: number | null;
@@ -53,6 +54,13 @@ export interface LogListItem {
   readonly timestamp: string;
   readonly request_token_count: number | null;
   readonly response_token_count: number | null;
+}
+
+export interface LogRequestCost {
+  readonly amount: string | null;
+  readonly currency: "CNY";
+  readonly reason: string | null;
+  readonly status: "pending" | "priced" | "unpriced";
 }
 
 export interface LogGroupLogs {
@@ -72,6 +80,7 @@ export interface LogRecordDetail {
   readonly request_meta: Readonly<Record<string, unknown>>;
   readonly response: unknown;
   readonly response_meta: Readonly<Record<string, unknown>>;
+  readonly pricing?: unknown;
 }
 
 export class LogQueryService {
@@ -290,6 +299,7 @@ function recordDetail(record: Readonly<RepositoryRecord>): LogRecordDetail {
     pending,
     request: record["request_body"] ?? null,
     response: record["response_body"] ?? null,
+    pricing: record["pricing"] ?? null,
     request_meta: compactMeta({
       id: record["id"],
       task_id: record["task_id"],
@@ -343,6 +353,7 @@ function emptyMetaValue(value: unknown): boolean {
 
 function logListItem(record: Readonly<RepositoryRecord>): LogListItem {
   return {
+    cost: requestCost(record),
     id: string(record["id"]),
     timestamp: displayTimestamp(record["timestamp"]) || string(record["timestamp"]),
     sequence: string(record["sequence"]),
@@ -354,6 +365,19 @@ function logListItem(record: Readonly<RepositoryRecord>): LogListItem {
     request_token_count: optionalInteger(record["request_token_count"]),
     response_token_count: optionalInteger(record["response_token_count"]),
     target: string(record["target_url"]),
+  };
+}
+
+function requestCost(record: Readonly<RepositoryRecord>): LogRequestCost {
+  const status = record["pricing_status"];
+  const pricingStatus =
+    status === "pending" || status === "priced" || status === "unpriced" ? status : "unpriced";
+  const nano = record["cost_nano_cny"];
+  return {
+    currency: "CNY",
+    status: pricingStatus,
+    reason: typeof record["pricing_reason"] === "string" ? record["pricing_reason"] : null,
+    amount: pricingStatus === "priced" && typeof nano === "string" ? nanoToCny(nano) : null,
   };
 }
 
