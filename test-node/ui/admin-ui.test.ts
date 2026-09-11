@@ -1008,7 +1008,7 @@ describe("admin UI history page", { timeout: UI_TEST_TIMEOUT_MS }, () => {
       await route.fulfill({ response, json: data });
     });
     await page.locator("#refreshLogs").click();
-    await expectPage(page.locator('[data-group-cost="task-one"]')).toHaveText("Total cost ¥5");
+    await expectPage(page.locator('[data-group-cost="task-one"]')).toHaveText("¥5");
     await page.unroute("**/api/logs?**");
   });
 
@@ -1061,7 +1061,7 @@ describe("admin UI history page", { timeout: UI_TEST_TIMEOUT_MS }, () => {
     await expectPage(summary.locator(".log-group-fact-line")).toHaveCount(2);
     await expectPage(summary.locator(".log-group-fact-line").first()).toContainText("gpt-5");
     await expectPage(summary.locator(".log-group-fact-line").first()).toContainText("5 requests");
-    await expectPage(summary.locator("[data-group-cost]")).toHaveText("Known ¥0.0428 · 1 Unpriced");
+    await expectPage(summary.locator("[data-group-cost]")).toHaveText("¥0.0428");
     await expectPage(summary.locator(".log-target")).toHaveText("fixture-target");
     await expectPage(group.locator("button button")).toHaveCount(0);
 
@@ -1106,9 +1106,15 @@ describe("admin UI history page", { timeout: UI_TEST_TIMEOUT_MS }, () => {
     const panel = page.locator("#pricingPanel");
     await expectPage(panel).toBeVisible();
     await expectPage(panel).toContainText("Task pricing details");
-    await expectPage(panel).toContainText("Known ¥0.0428 · 1 Unpriced");
+    await expectPage(panel).toContainText("¥0.0428");
     await expectPage(panel).toContainText("fixture-target");
     await expectPage(panel).toContainText("gpt-5 · 3 requests · ¥0.0428");
+    const groupDetails = panel.locator("details");
+    await expectPage(groupDetails).toBeVisible();
+    await expectPage(groupDetails.locator("summary")).toContainText("gpt-5 · 3 requests · ¥0.0428");
+    const groupBreakdown = groupDetails.locator(".task-breakdown");
+    await expectPage(groupBreakdown.locator("thead")).toContainText("Price (CNY/M tokens)");
+    await expectPage(groupBreakdown.locator("thead")).toContainText("Billed tokens");
     const taskBreakdown = panel.locator(".task-breakdown").first();
     await expectPage(taskBreakdown.locator("thead")).toContainText("Share");
     await expectPage(taskBreakdown.locator("tbody tr").first()).toContainText("17.54%");
@@ -1142,6 +1148,8 @@ describe("admin UI history page", { timeout: UI_TEST_TIMEOUT_MS }, () => {
     await expectPage(requestPricing.locator(".pricing-table tbody tr").first()).toContainText(
       "18.24%",
     );
+    await expectPage(requestPricing.locator(".pricing-table tfoot")).toContainText("Total");
+    await expectPage(requestPricing.locator(".pricing-table tfoot")).toContainText("100%");
     await pricingButton.click();
     await expectPage(requestPricing).toBeHidden();
   });

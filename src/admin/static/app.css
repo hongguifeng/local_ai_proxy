@@ -795,10 +795,12 @@ label span {
   min-width: 0;
   display: flex;
   align-items: stretch;
+  /* Never compress the metrics: keep natural widths and clip anything
+     that does not fit instead of squeezing/ellipsising the values. */
   overflow: hidden;
 }
 .log-metric {
-  min-width: 0;
+  flex-shrink: 0;
   padding: 0 8px;
   border-left: 1px solid #dce3ea;
   display: grid;
@@ -809,6 +811,7 @@ label span {
   border-left: 0;
 }
 .log-metric-label {
+  overflow: hidden;
   color: var(--muted);
   font-size: 10px;
   line-height: 1.2;

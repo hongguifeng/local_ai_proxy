@@ -82,8 +82,6 @@ const translations = {
     testPriceModel: "测试模型名",
     priceNoMatch: "未命中价格规则",
     cost: "费用",
-    totalCost: "总费用",
-    knownCost: "已知",
     calculating: "计算中…",
     unpriced: "未计价",
     taskPricing: "任务费用明细",
@@ -216,8 +214,6 @@ const translations = {
     testPriceModel: "Test model",
     priceNoMatch: "No price rule matched",
     cost: "Cost",
-    totalCost: "Total cost",
-    knownCost: "Known",
     calculating: "Calculating…",
     unpriced: "Unpriced",
     taskPricing: "Task pricing details",
@@ -427,19 +423,7 @@ function formatRequestCost(cost) {
   return formatCurrencyAmount(cost.amount);
 }
 function formatGroupCost(cost) {
-  if (!cost) return `— · ${t("unpriced")}`;
-  if (cost.priced_request_count === 0 && cost.pending_request_count > 0) return t("calculating");
-  if (cost.priced_request_count === 0) return `— · ${t("unpriced")}`;
-  const prefix =
-    cost.unpriced_request_count || cost.pending_request_count
-      ? `${t("knownCost")} `
-      : `${t("totalCost")} `;
-  const suffix = cost.unpriced_request_count
-    ? ` · ${cost.unpriced_request_count} ${t("unpriced")}`
-    : cost.pending_request_count
-      ? ` · ${cost.pending_request_count} ${t("pending")}`
-      : "";
-  return `${prefix}${formatCurrencyAmount(cost.known_amount)}${suffix}`;
+  return cost ? formatCurrencyAmount(cost.known_amount) : "—";
 }
 function logMetricHtml(className, label, value, title = label) {
   return `<span class="log-metric ${className}" title="${escapeHtml(title)}">
@@ -1135,7 +1119,7 @@ function pricingTableHtml(breakdown, price = null, totalAmount = null) {
       return `<tr><th>${escapeHtml(t(label))}</th><td>${escapeHtml(String(tokens))}</td><td>${escapeHtml(price?.[priceKey] ?? "—")}</td><td>${escapeHtml(typeof amount === "string" ? formatCurrencyAmount(amount) : String(amount))}</td><td>${escapeHtml(pricingPercentage(amount, totalAmount))}</td></tr>`;
     })
     .join("");
-  return `<table class="pricing-table"><thead><tr><th></th><th>${escapeHtml(t("tokensBilled"))}</th><th>${escapeHtml(t("pricePerMillion"))}</th><th>${escapeHtml(t("amountCny"))}</th><th>${escapeHtml(t("costShare"))}</th></tr></thead><tbody>${rows}</tbody></table>`;
+  return `<table class="pricing-table"><thead><tr><th></th><th>${escapeHtml(t("tokensBilled"))}</th><th>${escapeHtml(t("pricePerMillion"))}</th><th>${escapeHtml(t("amountCny"))}</th><th>${escapeHtml(t("costShare"))}</th></tr></thead><tbody>${rows}</tbody><tfoot><tr><th>${escapeHtml(t("total"))}</th><td></td><td></td><td>${escapeHtml(formatCurrencyAmount(totalAmount))}</td><td>${escapeHtml(pricingPercentage(totalAmount, totalAmount))}</td></tr></tfoot></table>`;
 }
 function renderRequestPricing() {
   const el = $("responsePricing");
@@ -1165,19 +1149,24 @@ function renderRequestPricing() {
     <dl class="pricing-facts"><dt>${escapeHtml(t("billingModel"))}</dt><dd>${escapeHtml(pricing.billing_model || "—")}</dd><dt>${escapeHtml(t("matchedRule"))}</dt><dd>${escapeHtml(snapshot.model_pattern || "—")}</dd><dt>${escapeHtml(t("priceSource"))}</dt><dd>${escapeHtml(snapshot.target_name || "—")}</dd><dt>${escapeHtml(t("pricingUsage"))}</dt><dd>${escapeHtml(usage.source || "—")}</dd>${reason ? `<dt>${escapeHtml(t("pricingReason"))}</dt><dd>${escapeHtml(reason)}</dd>` : ""}</dl>
     ${pricing.pricing_status === "priced" ? pricingTableHtml(breakdown, snapshot, pricingDecimalFromNano(pricing.cost_nano_cny)) : ""}</section>`;
 }
-function taskBreakdownTableHtml(breakdown, totalAmount) {
+function taskBreakdownTableHtml(breakdown, totalAmount, price = null) {
+  const priceHeader = price ? `<th>${escapeHtml(t("pricePerMillion"))}</th>` : "";
+  const priceCell = (value) =>
+    price
+      ? `<td>${escapeHtml(value === null || value === undefined ? "—" : String(value))}</td>`
+      : "";
   const rows = [
-    ["input_uncached", "inputUncached"],
-    ["output", "output"],
-    ["cache_read", "cacheRead"],
-    ["cache_write", "cacheWrite"],
+    ["input_uncached", "inputUncached", "input_per_million"],
+    ["output", "output", "output_per_million"],
+    ["cache_read", "cacheRead", "cache_read_per_million"],
+    ["cache_write", "cacheWrite", "cache_write_per_million"],
   ]
-    .map(([key, label]) => {
+    .map(([key, label, priceKey]) => {
       const bucket = breakdown?.[key] || {};
-      return `<tr><th>${escapeHtml(t(label))}</th><td>${escapeHtml(String(bucket.tokens ?? "0"))}</td><td>${escapeHtml(formatCurrencyAmount(bucket.amount ?? null))}</td><td>${escapeHtml(pricingPercentage(bucket.amount, totalAmount))}</td></tr>`;
+      return `<tr><th>${escapeHtml(t(label))}</th><td>${escapeHtml(String(bucket.tokens ?? "0"))}</td>${priceCell(price?.[priceKey])}<td>${escapeHtml(formatCurrencyAmount(bucket.amount ?? null))}</td><td>${escapeHtml(pricingPercentage(bucket.amount, totalAmount))}</td></tr>`;
     })
     .join("");
-  return `<table class="pricing-table task-breakdown"><thead><tr><th></th><th>${escapeHtml(t("tokensBilled"))}</th><th>${escapeHtml(t("amountCny"))}</th><th>${escapeHtml(t("costShare"))}</th></tr></thead><tbody>${rows}</tbody><tfoot><tr><th>${escapeHtml(t("total"))}</th><td></td><td>${escapeHtml(formatCurrencyAmount(totalAmount))}</td><td>${escapeHtml(pricingPercentage(totalAmount, totalAmount))}</td></tr></tfoot></table>`;
+  return `<table class="pricing-table task-breakdown"><thead><tr><th></th><th>${escapeHtml(t("tokensBilled"))}</th>${priceHeader}<th>${escapeHtml(t("amountCny"))}</th><th>${escapeHtml(t("costShare"))}</th></tr></thead><tbody>${rows}</tbody><tfoot><tr><th>${escapeHtml(t("total"))}</th><td></td>${price ? "<td></td>" : ""}<td>${escapeHtml(formatCurrencyAmount(totalAmount))}</td><td>${escapeHtml(pricingPercentage(totalAmount, totalAmount))}</td></tr></tfoot></table>`;
 }
 function renderTaskPricingPanel() {
   const panel = $("pricingPanel");
@@ -1203,7 +1192,7 @@ function renderTaskPricingPanel() {
   const groups = (data.groups || [])
     .map(
       (group) =>
-        `<details><summary>${escapeHtml(group.billing_model || "—")} · ${escapeHtml(String(group.request_count))} ${escapeHtml(t("requests"))} · ${escapeHtml(pricingAmount(group.cost_nano_cny))}</summary><p>${escapeHtml(t("pricePerMillion"))}: ${escapeHtml(group.price?.input_per_million ?? "—")} / ${escapeHtml(group.price?.output_per_million ?? "—")} / ${escapeHtml(group.price?.cache_read_per_million ?? "—")} / ${escapeHtml(group.price?.cache_write_per_million ?? "—")}</p>${taskBreakdownTableHtml(group.breakdown, pricingDecimalFromNano(group.cost_nano_cny))}</details>`,
+        `<details open><summary>${escapeHtml(group.billing_model || "—")} · ${escapeHtml(String(group.request_count))} ${escapeHtml(t("requests"))} · ${escapeHtml(pricingAmount(group.cost_nano_cny))}</summary>${taskBreakdownTableHtml(group.breakdown, pricingDecimalFromNano(group.cost_nano_cny), group.price)}</details>`,
     )
     .join("");
   const reasons = Object.entries(data.unpriced_reasons || {})
