@@ -26,3 +26,10 @@ export {
   DEFAULT_MAX_SSE_USAGE_EVENT_BYTES,
   type UsageCaptureResult,
 } from "./usage-accumulator.js";
+export {
+  completeRequestPricing,
+  freezeRequestPricing,
+  pendingRequestPricing,
+  type RequestPricingContext,
+  type RequestPricingResult,
+} from "./request-pricing.js";

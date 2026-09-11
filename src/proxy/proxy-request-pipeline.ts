@@ -3,6 +3,11 @@ import { once } from "node:events";
 import { performance } from "node:perf_hooks";
 
 import type { RepositoryRecord } from "../persistence/index.js";
+import {
+  completeRequestPricing,
+  freezeRequestPricing,
+  pendingRequestPricing,
+} from "../pricing/index.js";
 import { ActiveRequestRegistry } from "./active-requests.js";
 import {
   collectBody,
@@ -24,7 +29,7 @@ import {
   type ResponseLogPayload,
 } from "./response-log-capture.js";
 import { endpointKind } from "./records.js";
-import { rewriteRequestModel, selectTargetByModel } from "./routing.js";
+import { requestModelFromBody, rewriteRequestModel, selectTargetByModel } from "./routing.js";
 import { joinTargetPath } from "./target.js";
 import { openUpstreamResponse } from "./upstream-forwarder.js";
 
@@ -142,14 +147,26 @@ export class ProxyRequestPipeline {
       selectedTarget.stripRequestFields ?? new Set(),
       selectedTarget.injectRequestFields ?? {},
     );
-    const baseRecord = withRequestDetails(
-      this.#initialRecord(request, context, selectedTarget),
-      requestBody,
-      transformed.body,
-      selection,
-      transformed.strippedFields,
-      transformed.injectedFields,
+    const pricingContext = freezeRequestPricing(
+      requestModelFromBody(transformed.body),
+      selectedTarget.modelPrices ?? [],
+      {
+        frozenAt: context.startedAt,
+        targetId: selectedTarget.id,
+        targetName: selectedTarget.name,
+      },
     );
+    const baseRecord: RepositoryRecord = {
+      ...withRequestDetails(
+        this.#initialRecord(request, context, selectedTarget),
+        requestBody,
+        transformed.body,
+        selection,
+        transformed.strippedFields,
+        transformed.injectedFields,
+      ),
+      pricing: pendingRequestPricing(pricingContext),
+    };
     if (this.#options.targets.length > 1) {
       await selectedTarget.trafficLog.write(eventRecord(baseRecord, "request_received", 0));
     }
@@ -206,6 +223,12 @@ export class ProxyRequestPipeline {
       baseRecord["error"] = formatUpstreamError(error);
     }
     const responseBody: ResponseLogPayload = await responseCapture.finalize();
+    baseRecord["pricing"] = completeRequestPricing(
+      pricingContext,
+      endpointKind(request.url ?? "/"),
+      responseJson(responseBody),
+      responseCapture.usageCapture,
+    );
     await selectedTarget.trafficLog.write(
       eventRecord(
         baseRecord,
@@ -319,6 +342,14 @@ export async function readRequestBody(
     return await collected.bytes();
   } finally {
     await collected.cleanup();
+  }
+}
+
+function responseJson(payload: ResponseLogPayload): unknown {
+  try {
+    return JSON.parse(payload.text) as unknown;
+  } catch {
+    return undefined;
   }
 }
 
