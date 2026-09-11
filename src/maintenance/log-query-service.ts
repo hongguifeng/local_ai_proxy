@@ -228,16 +228,17 @@ export class LogQueryService {
     for (const root of roots) {
       const rootTasks = visibleTasks.filter((task) => taskRoots.get(string(task["id"])) === root);
       if (!rootTasks.length) continue;
-      if (!query.trim()) {
-        for (const task of rootTasks) {
-          const group = taskGroupSummary(task);
-          summaries.set(group.id, group);
-        }
-        continue;
-      }
       const repository = new TrafficRepository(root);
       try {
-        for (const group of groupsWithPreviews(repository, rootTasks, query)) {
+        const pricing = repository.taskPricingForTasks(rootTasks.map((task) => string(task["id"])));
+        if (!query.trim()) {
+          for (const task of rootTasks) {
+            const group = taskGroupSummary(task, pricing.get(string(task["id"])));
+            summaries.set(group.id, group);
+          }
+          continue;
+        }
+        for (const group of groupsWithPreviews(repository, rootTasks, query, pricing)) {
           summaries.set(group.id, group);
         }
       } finally {

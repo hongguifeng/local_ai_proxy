@@ -1,6 +1,6 @@
 # 模型 token 定价与历史费用开发 TODO
 
-创建日期：2026-09-11。当前进度：12 / 14 项完成。
+创建日期：2026-09-11。当前进度：13 / 14 项完成。
 
 设计依据：[转发地址模型定价与历史费用设计](./model-token-pricing-design.md)。本清单用于后续开发、验收与逐项提交；遇到设计调整，应同步更新设计文档、本清单及测试，不能只改代码。
 
@@ -51,7 +51,7 @@
 | [x] | PRICE-10 | 费用格式化与两级列表 UI | PRICE-08、09 | 完成 |
 | [x] | PRICE-11 | 请求与 task 费用明细 UI | PRICE-10 | 完成 |
 | [x] | PRICE-12 | 自动刷新、异步竞态与任务生命周期 | PRICE-11 | 完成 |
-| [ ] | PRICE-13 | 端到端、迁移与性能回归 | PRICE-12 | 未开始 |
+| [x] | PRICE-13 | 端到端、迁移与性能回归 | PRICE-12 | 完成 |
 | [ ] | PRICE-14 | 使用文档与最终交付检查 | PRICE-13 | 未开始 |
 
 ## 4. 逐项实施与验收
@@ -457,6 +457,22 @@ UI 基线：`npm run regen:ui-baselines`；已更新 `doc/ui_logs_cn.png`、`doc
 UI 基线：`npm run regen:ui-baselines` 通过；输出哈希未变化。
 设计偏差与迁移影响：无；仅运行时启动时标记未完成记录，不重算已有金额。
 提交定位：`feat(pricing): [PRICE-12] refresh pricing lifecycle state`。
+补充修复提交：无。
+遗留问题：无。
+
+### PRICE-13
+
+任务 ID：PRICE-13
+状态：完成
+完成日期：2026-09-11
+实现内容与实际文件：新增 `scripts/pricing_benchmark.ts` 与 `test-node/pricing/pricing-benchmark.test.ts`，以可重复的 4 目录、10,000 record、单 task 2,500 record fixture 覆盖任务列表、搜索和聚合详情；修复多日志目录合并列表未附加批量费用聚合的问题。
+测试映射：P13-01～P13-03 → `test-node/pricing/usage-normalizer.test.ts`、`usage-accumulator.test.ts`、`request-pricing.test.ts`、`test-node/persistence/database.test.ts`、`test-node/maintenance/log-export.test.ts`、`test-node/admin/logs.test.ts`；P13-04 → `pricing-benchmark.test.ts` 和可复用 benchmark 脚本；P13-05 → repository/查询服务的批量聚合、无正文和多根目录回归。
+验证命令与结果：`npm run typecheck` 通过；`npx vitest run test-node/maintenance/log-query-service.test.ts test-node/pricing/pricing-benchmark.test.ts --reporter=dot` 通过（2 个文件、10 个测试）；`npx tsx scripts/pricing_benchmark.ts` 完成 10,000 record、5 次中位数实测；`npx vitest run test-node/pricing/usage-normalizer.test.ts test-node/pricing/usage-accumulator.test.ts test-node/pricing/request-pricing.test.ts test-node/persistence/database.test.ts test-node/maintenance/log-export.test.ts test-node/admin/logs.test.ts --reporter=dot` 通过（6 个文件、38 个测试）。
+验收结论：通过；实测数据、方法、基线取舍与结果记录在 `docs/model-token-pricing-test-report.md`。
+文档更新：新增性能与端到端回归报告、TODO 执行记录。
+UI 基线：不涉及新的视觉改动。
+设计偏差与迁移影响：无；多目录列表现与单目录一致显示 task 费用。
+提交定位：`feat(pricing): [PRICE-13] add pricing integration benchmarks`。
 补充修复提交：无。
 遗留问题：无。
 

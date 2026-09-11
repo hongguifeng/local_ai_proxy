@@ -161,6 +161,18 @@ describe("LogQueryService", () => {
       sequence: 1,
       method: "POST",
       path: "/v1/responses",
+      pricing: {
+        pricing_status: "priced",
+        billing_model: "gpt-5",
+        pricing_snapshot: {
+          input_per_million: "5",
+          output_per_million: "30",
+          cache_read_per_million: "0.5",
+          cache_write_per_million: "6.25",
+        },
+        usage: { inputUncachedTokens: 1, outputTokens: 0, cacheReadTokens: 0, cacheWriteTokens: 0 },
+        cost_nano_cny: "5000",
+      },
     });
     second.upsertTask(task("task-b-other", "other", "2026-07-18T13:00:00.000+08:00"));
     second.upsertRecord({
@@ -176,6 +188,7 @@ describe("LogQueryService", () => {
     const firstPage = service.listGroups("shared", 2, 0);
     expect(firstPage).toMatchObject({ total: 3, next_offset: 2, has_more: true });
     expect(firstPage.groups.map(({ id }) => id)).toEqual(["task-a-new", "task-b-middle"]);
+    expect(firstPage.groups[1]?.cost).toMatchObject({ known_amount: "0.000005" });
     expect(firstPage.groups.map((group) => group.preview?.logs[0]?.id)).toEqual([
       "record-a-new",
       "record-b-middle",
