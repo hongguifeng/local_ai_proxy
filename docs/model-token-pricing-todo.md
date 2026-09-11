@@ -1,6 +1,6 @@
 # 模型 token 定价与历史费用开发 TODO
 
-创建日期：2026-09-11。当前进度：1 / 14 项完成。
+创建日期：2026-09-11。当前进度：2 / 14 项完成。
 
 设计依据：[转发地址模型定价与历史费用设计](./model-token-pricing-design.md)。本清单用于后续开发、验收与逐项提交；遇到设计调整，应同步更新设计文档、本清单及测试，不能只改代码。
 
@@ -40,7 +40,7 @@
 | 完成 | ID | 任务 | 依赖 | 状态 |
 | --- | --- | --- | --- | --- |
 | [x] | PRICE-01 | target 价格配置与校验 | 无 | 完成 |
-| [ ] | PRICE-02 | 规则匹配与整数金额计算 | PRICE-01 | 未开始 |
+| [x] | PRICE-02 | 规则匹配与整数金额计算 | PRICE-01 | 完成 |
 | [ ] | PRICE-03 | JSON usage 标准化 | PRICE-02 | 未开始 |
 | [ ] | PRICE-04 | 流式 usage 采集与完整性 | PRICE-03 | 未开始 |
 | [ ] | PRICE-05 | 请求定价快照与状态计算 | PRICE-01～04 | 未开始 |
@@ -281,6 +281,22 @@
 UI 基线：不涉及。
 设计偏差与迁移影响：无；存量配置缺失 `model_prices` 时规范化为 `[]`。
 提交定位：`feat(pricing): [PRICE-01] add target price configuration`。
+补充修复提交：无。
+遗留问题：无。
+
+### PRICE-02
+
+任务 ID：PRICE-02
+状态：完成
+完成日期：2026-09-11
+实现内容与实际文件：新增 `src/pricing/model-price-matcher.ts` 与 `money.ts`；规则选择复用路由的 `*` 匹配语法，精确规则优先、通配规则按数组顺序。金额以价格微元与 token 的 BigInt 乘积计算，单次总额四舍五入为纳元并检查 SQLite 有符号 64 位范围。
+测试映射：P02-01 → `test-node/pricing/model-price-matcher.test.ts` 的精确/通配、大小写与字面字符用例；P02-02 → 同文件的 target 规则集隔离用例与 `test-node/proxy/routing.test.ts` 路由回归；P02-03 → `test-node/pricing/money.test.ts` 的四桶固定金额用例；P02-04 → 同文件的零值、舍入、大于 Number 安全整数及溢出用例。
+验证命令与结果：`npm run typecheck` 通过；`npx vitest run test-node/pricing/model-price-matcher.test.ts test-node/pricing/money.test.ts test-node/proxy/routing.test.ts` 通过（3 个测试文件、43 个测试）。
+验收结论：通过；匹配和金额期望均为独立固定值，不通过被测函数生成。
+文档更新：TODO 执行记录；金额精度和匹配规则的产品说明沿用设计文档。
+UI 基线：不涉及。
+设计偏差与迁移影响：无。
+提交定位：`feat(pricing): [PRICE-02] add price matching and integer money`。
 补充修复提交：无。
 遗留问题：无。
 

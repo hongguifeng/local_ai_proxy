@@ -6,4 +6,5 @@ export * as logging from "./logging/index.js";
 export * as maintenance from "./maintenance/index.js";
 export * as persistence from "./persistence/index.js";
 export * as proxy from "./proxy/index.js";
+export * as pricing from "./pricing/index.js";
 export * as shared from "./shared/index.js";
