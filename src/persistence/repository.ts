@@ -1,5 +1,6 @@
 import type Database from "better-sqlite3";
 
+import { calculateCost, productToCnyDecimal } from "../pricing/index.js";
 import { formatLocalTimestamp, localNowIso } from "../shared/index.js";
 import { loadRecordBody, replaceRecordBody } from "./body-storage.js";
 import { connectLogDatabase } from "./database.js";
@@ -17,6 +18,45 @@ export interface RepositoryPage<T> {
   readonly offset: number;
   readonly nextOffset: number;
   readonly hasMore: boolean;
+}
+
+export interface TaskPricingAggregate {
+  readonly breakdown: TaskPricingBreakdown;
+  readonly cost_nano_cny: string | null;
+  readonly groups: readonly TaskPricingGroup[];
+  readonly pending_request_count: number;
+  readonly priced_request_count: number;
+  readonly target: string | null;
+  readonly unpriced_reasons: Readonly<Record<string, number>>;
+  readonly unpriced_request_count: number;
+}
+
+export interface TaskPricingBreakdown {
+  readonly cache_read: PricingBucket;
+  readonly cache_write: PricingBucket;
+  readonly input_uncached: PricingBucket;
+  readonly output: PricingBucket;
+}
+
+export interface PricingBucket {
+  readonly amount: string;
+  readonly tokens: string;
+}
+
+export interface TaskPricingGroup {
+  readonly algorithm_version: number | null;
+  readonly billing_model: string | null;
+  readonly breakdown: TaskPricingBreakdown;
+  readonly cost_nano_cny: string;
+  readonly price: PricingPrice;
+  readonly request_count: number;
+}
+
+export interface PricingPrice {
+  readonly cache_read_per_million: string;
+  readonly cache_write_per_million: string;
+  readonly input_per_million: string;
+  readonly output_per_million: string;
 }
 
 export class TrafficRepository {
@@ -401,6 +441,36 @@ export class TrafficRepository {
       .pluck()
       .get(taskId);
     return typeof value === "number" ? value : 0;
+  }
+
+  taskPricing(taskId: string): TaskPricingAggregate | undefined {
+    const task = this.getTask(taskId);
+    if (task === undefined) return undefined;
+    const aggregate = this.taskPricingForTasks([taskId]).get(taskId);
+    return aggregate === undefined
+      ? undefined
+      : { ...aggregate, target: optionalString(task["target"]) };
+  }
+
+  taskPricingForTasks(taskIds: readonly string[]): Map<string, TaskPricingAggregate> {
+    const ids = [...new Set(taskIds.filter((id) => id !== ""))];
+    if (ids.length === 0) return new Map();
+    const aggregates = new Map<string, MutableTaskPricingAggregate>();
+    for (const id of ids) aggregates.set(id, newTaskPricingAggregate(null));
+    const rows = this.#database
+      .prepare(
+        `SELECT task_id, pricing_status, pricing_reason, billing_model, pricing_snapshot_json,
+          billing_usage_json, CAST(cost_nano_cny AS TEXT) AS cost_nano_cny
+         FROM records WHERE task_id IN (${ids.map(() => "?").join(",")})`,
+      )
+      .all(...ids) as RepositoryRecord[];
+    for (const row of rows) {
+      const aggregate = aggregates.get(stringValue(row["task_id"]));
+      if (aggregate !== undefined) addPricingRow(aggregate, row);
+    }
+    return new Map(
+      [...aggregates].map(([id, aggregate]) => [id, finalizeTaskPricingAggregate(aggregate)]),
+    );
   }
 
   listTaskRecords(
@@ -882,6 +952,195 @@ function recordValue(value: unknown): Readonly<Record<string, unknown>> {
   return typeof value === "object" && value !== null && !Array.isArray(value)
     ? (value as Readonly<Record<string, unknown>>)
     : {};
+}
+
+interface MutablePricingBucket {
+  amountProduct: bigint;
+  tokens: bigint;
+}
+
+interface MutablePricingGroup {
+  algorithmVersion: number | null;
+  billingModel: string | null;
+  breakdown: Record<
+    "cache_read" | "cache_write" | "input_uncached" | "output",
+    MutablePricingBucket
+  >;
+  costNanoCny: bigint;
+  price: PricingPrice;
+  requestCount: number;
+}
+
+interface MutableTaskPricingAggregate {
+  breakdown: Record<
+    "cache_read" | "cache_write" | "input_uncached" | "output",
+    MutablePricingBucket
+  >;
+  costNanoCny: bigint;
+  groups: Map<string, MutablePricingGroup>;
+  pendingRequestCount: number;
+  pricedRequestCount: number;
+  target: string | null;
+  unpricedReasons: Record<string, number>;
+  unpricedRequestCount: number;
+}
+
+function newTaskPricingAggregate(target: string | null): MutableTaskPricingAggregate {
+  return {
+    target,
+    costNanoCny: 0n,
+    pricedRequestCount: 0,
+    unpricedRequestCount: 0,
+    pendingRequestCount: 0,
+    unpricedReasons: {},
+    groups: new Map(),
+    breakdown: pricingBreakdownMutable(),
+  };
+}
+
+function addPricingRow(
+  aggregate: MutableTaskPricingAggregate,
+  row: Readonly<RepositoryRecord>,
+): void {
+  const status = pricingStatus(row["pricing_status"]);
+  if (status === "pending") {
+    aggregate.pendingRequestCount += 1;
+    return;
+  }
+  if (status !== "priced") {
+    aggregate.unpricedRequestCount += 1;
+    const reason = optionalString(row["pricing_reason"]) ?? "unknown";
+    aggregate.unpricedReasons[reason] = (aggregate.unpricedReasons[reason] ?? 0) + 1;
+    return;
+  }
+  const cost = optionalBigInt(row["cost_nano_cny"]);
+  const usage = recordValue(jsonValue(row["billing_usage_json"], {}));
+  const snapshot = recordValue(jsonValue(row["pricing_snapshot_json"], {}));
+  const price = pricingPrice(snapshot);
+  if (cost === null || price === undefined || !usageBuckets(usage)) {
+    aggregate.unpricedRequestCount += 1;
+    aggregate.unpricedReasons["invalid_pricing_record"] =
+      (aggregate.unpricedReasons["invalid_pricing_record"] ?? 0) + 1;
+    return;
+  }
+  const buckets = usageBuckets(usage);
+  if (buckets === undefined) return;
+  const calculated = calculateCost(buckets, price);
+  aggregate.pricedRequestCount += 1;
+  aggregate.costNanoCny += cost;
+  const billingModel = optionalString(row["billing_model"]);
+  const algorithmVersion = optionalInteger(snapshot["algorithm_version"]);
+  const groupKey = JSON.stringify({ billingModel, algorithmVersion, ...price });
+  let group = aggregate.groups.get(groupKey);
+  if (group === undefined) {
+    group = {
+      billingModel,
+      algorithmVersion,
+      price,
+      requestCount: 0,
+      costNanoCny: 0n,
+      breakdown: pricingBreakdownMutable(),
+    };
+    aggregate.groups.set(groupKey, group);
+  }
+  group.requestCount += 1;
+  group.costNanoCny += cost;
+  addBuckets(aggregate.breakdown, buckets, calculated.breakdown);
+  addBuckets(group.breakdown, buckets, calculated.breakdown);
+}
+
+function usageBuckets(usage: Readonly<Record<string, unknown>>) {
+  const read = optionalBigInt(usage["cacheReadTokens"]);
+  const write = optionalBigInt(usage["cacheWriteTokens"]);
+  const input = optionalBigInt(usage["inputUncachedTokens"]);
+  const output = optionalBigInt(usage["outputTokens"]);
+  if (read === null || write === null || input === null || output === null) return undefined;
+  return {
+    cacheReadTokens: read,
+    cacheWriteTokens: write,
+    inputUncachedTokens: input,
+    outputTokens: output,
+  };
+}
+
+function pricingPrice(snapshot: Readonly<Record<string, unknown>>): PricingPrice | undefined {
+  const input = snapshot["input_per_million"];
+  const output = snapshot["output_per_million"];
+  const cacheRead = snapshot["cache_read_per_million"];
+  const cacheWrite = snapshot["cache_write_per_million"];
+  return typeof input === "string" &&
+    typeof output === "string" &&
+    typeof cacheRead === "string" &&
+    typeof cacheWrite === "string"
+    ? {
+        input_per_million: input,
+        output_per_million: output,
+        cache_read_per_million: cacheRead,
+        cache_write_per_million: cacheWrite,
+      }
+    : undefined;
+}
+
+function pricingBreakdownMutable(): Record<
+  "cache_read" | "cache_write" | "input_uncached" | "output",
+  MutablePricingBucket
+> {
+  return {
+    input_uncached: { tokens: 0n, amountProduct: 0n },
+    output: { tokens: 0n, amountProduct: 0n },
+    cache_read: { tokens: 0n, amountProduct: 0n },
+    cache_write: { tokens: 0n, amountProduct: 0n },
+  };
+}
+
+function addBuckets(
+  target: MutableTaskPricingAggregate["breakdown"],
+  usage: NonNullable<ReturnType<typeof usageBuckets>>,
+  calculated: ReturnType<typeof calculateCost>["breakdown"],
+): void {
+  target.input_uncached.tokens += usage.inputUncachedTokens;
+  target.input_uncached.amountProduct += calculated.inputUncachedProduct;
+  target.output.tokens += usage.outputTokens;
+  target.output.amountProduct += calculated.outputProduct;
+  target.cache_read.tokens += usage.cacheReadTokens;
+  target.cache_read.amountProduct += calculated.cacheReadProduct;
+  target.cache_write.tokens += usage.cacheWriteTokens;
+  target.cache_write.amountProduct += calculated.cacheWriteProduct;
+}
+
+function finalizeTaskPricingAggregate(
+  aggregate: MutableTaskPricingAggregate,
+): TaskPricingAggregate {
+  return {
+    target: aggregate.target,
+    cost_nano_cny: aggregate.pricedRequestCount === 0 ? null : aggregate.costNanoCny.toString(),
+    priced_request_count: aggregate.pricedRequestCount,
+    unpriced_request_count: aggregate.unpricedRequestCount,
+    pending_request_count: aggregate.pendingRequestCount,
+    unpriced_reasons: aggregate.unpricedReasons,
+    breakdown: pricingBreakdown(aggregate.breakdown),
+    groups: [...aggregate.groups.values()].map((group) => ({
+      billing_model: group.billingModel,
+      algorithm_version: group.algorithmVersion,
+      price: group.price,
+      request_count: group.requestCount,
+      cost_nano_cny: group.costNanoCny.toString(),
+      breakdown: pricingBreakdown(group.breakdown),
+    })),
+  };
+}
+
+function pricingBreakdown(mutable: MutableTaskPricingAggregate["breakdown"]): TaskPricingBreakdown {
+  const bucket = (value: MutablePricingBucket): PricingBucket => ({
+    tokens: value.tokens.toString(),
+    amount: productToCnyDecimal(value.amountProduct),
+  });
+  return {
+    input_uncached: bucket(mutable.input_uncached),
+    output: bucket(mutable.output),
+    cache_read: bucket(mutable.cache_read),
+    cache_write: bucket(mutable.cache_write),
+  };
 }
 
 function integerValue(value: unknown, fallback: number): number {

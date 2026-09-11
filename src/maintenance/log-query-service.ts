@@ -1,4 +1,8 @@
-import { TrafficRepository, type RepositoryRecord } from "../persistence/index.js";
+import {
+  TrafficRepository,
+  type RepositoryRecord,
+  type TaskPricingAggregate,
+} from "../persistence/index.js";
 import { formatLocalTimestamp } from "../shared/index.js";
 import { createLogExportStream } from "./log-export.js";
 import {
@@ -10,6 +14,7 @@ import {
 import type { Readable } from "node:stream";
 
 export interface LogGroupSummary {
+  readonly cost?: LogTaskCost;
   readonly preview?: LogGroupLogs;
   readonly id: string;
   readonly last_activity_at: string;
@@ -17,6 +22,14 @@ export interface LogGroupSummary {
   readonly request_count: number;
   readonly started_at: string;
   readonly target: string | null;
+}
+
+export interface LogTaskCost {
+  readonly currency: "CNY";
+  readonly known_amount: string | null;
+  readonly pending_request_count: number;
+  readonly priced_request_count: number;
+  readonly unpriced_request_count: number;
 }
 
 export interface LogGroupPage {
@@ -85,8 +98,9 @@ export class LogQueryService {
     const repository = new TrafficRepository(root);
     try {
       const page = repository.listTaskSummaries(query, boundedLimit, boundedOffset);
+      const pricing = repository.taskPricingForTasks(page.items.map((item) => string(item["id"])));
       return {
-        groups: groupsWithPreviews(repository, page.items, query),
+        groups: groupsWithPreviews(repository, page.items, query, pricing),
         total: page.total,
         limit: page.limit,
         offset: page.offset,
@@ -142,6 +156,19 @@ export class LogQueryService {
         if (record !== undefined) {
           return recordDetail(record);
         }
+      } finally {
+        repository.close();
+      }
+    }
+    return undefined;
+  }
+
+  getGroupPricing(groupId: string): TaskPricingAggregate | undefined {
+    for (const root of [...new Set(this.#logRoots().filter((value) => value !== ""))]) {
+      const repository = new TrafficRepository(root);
+      try {
+        const pricing = repository.taskPricing(groupId);
+        if (pricing !== undefined) return pricing;
       } finally {
         repository.close();
       }
@@ -229,13 +256,14 @@ function groupsWithPreviews(
   repository: TrafficRepository,
   tasks: readonly RepositoryRecord[],
   query: string,
+  pricing = new Map<string, TaskPricingAggregate>(),
 ): LogGroupSummary[] {
   const previews = repository.listTaskSearchPreviews(
     tasks.map((task) => string(task["id"])),
     query,
   );
   return tasks.map((task) => {
-    const group = taskGroupSummary(task);
+    const group = taskGroupSummary(task, pricing.get(string(task["id"])));
     const page = previews.get(group.id);
     return page === undefined
       ? group
@@ -335,12 +363,16 @@ function taskSortTime(task: Readonly<RepositoryRecord>): number {
   return Number.isNaN(timestamp) ? 0 : timestamp;
 }
 
-function taskGroupSummary(task: Readonly<RepositoryRecord>): LogGroupSummary {
+function taskGroupSummary(
+  task: Readonly<RepositoryRecord>,
+  pricing?: TaskPricingAggregate,
+): LogGroupSummary {
   const requestCount = integer(task["request_count"], 0);
   const rawModel = optionalString(task["model"]);
   const model = rawModel === null ? null : basename(rawModel);
   const target = optionalString(task["target"]);
   return {
+    cost: taskCost(pricing),
     id: string(task["id"]),
     last_activity_at: displayTimestamp(task["last_seen_at"] ?? task["last_response_at"]),
     model,
@@ -348,6 +380,26 @@ function taskGroupSummary(task: Readonly<RepositoryRecord>): LogGroupSummary {
     started_at: displayTimestamp(task["started_at"]),
     target,
   };
+}
+
+function taskCost(pricing: TaskPricingAggregate | undefined): LogTaskCost {
+  return {
+    currency: "CNY",
+    known_amount:
+      pricing?.cost_nano_cny === null || pricing === undefined
+        ? null
+        : nanoToCny(pricing.cost_nano_cny),
+    priced_request_count: pricing?.priced_request_count ?? 0,
+    unpriced_request_count: pricing?.unpriced_request_count ?? 0,
+    pending_request_count: pricing?.pending_request_count ?? 0,
+  };
+}
+
+function nanoToCny(nano: string): string {
+  const value = BigInt(nano);
+  const integer = value / 1_000_000_000n;
+  const fraction = (value % 1_000_000_000n).toString().padStart(9, "0").replace(/0+$/u, "");
+  return fraction === "" ? integer.toString() : `${integer}.${fraction}`;
 }
 
 function displayTimestamp(value: unknown): string {

@@ -4,6 +4,7 @@ export {
   type LogGroupLogs,
   type LogGroupPage,
   type LogGroupSummary,
+  type LogTaskCost,
   type LogListItem,
   type LogRecordDetail,
 } from "./log-query-service.js";

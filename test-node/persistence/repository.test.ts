@@ -112,6 +112,77 @@ describe("TrafficRepository pricing persistence", () => {
     });
     reopened.close();
   });
+
+  it("aggregates all task records, status counts, and frozen-price groups without bodies", async () => {
+    const root = await mkdtemp(path.join(os.tmpdir(), "llm-proxy-repository-pricing-summary-"));
+    temporaryDirectories.push(root);
+    const repository = new TrafficRepository(root);
+    repository.upsertTask({
+      id: "pricing-summary",
+      target: "https://upstream.example/v1",
+      match_strategy_version: 4,
+    });
+    const write = (id: string, pricing: Record<string, unknown>) =>
+      repository.upsertRecord({
+        id,
+        task_id: "pricing-summary",
+        sequence: Number(id.at(-1)),
+        method: "POST",
+        path: "/v1/chat/completions",
+        pricing,
+      });
+    const snapshot = {
+      input_per_million: "5",
+      output_per_million: "30",
+      cache_read_per_million: "0.5",
+      cache_write_per_million: "6.25",
+      algorithm_version: 1,
+    };
+    write("record-1", {
+      pricing_status: "priced",
+      billing_model: "gpt-5",
+      pricing_snapshot: snapshot,
+      usage: {
+        inputUncachedTokens: 1500,
+        outputTokens: 1000,
+        cacheReadTokens: 1000,
+        cacheWriteTokens: 500,
+      },
+      cost_nano_cny: "41125000",
+    });
+    write("record-2", {
+      pricing_status: "priced",
+      billing_model: "gpt-5",
+      pricing_snapshot: { ...snapshot, output_per_million: "31" },
+      usage: {
+        inputUncachedTokens: 100,
+        outputTokens: 10,
+        cacheReadTokens: 0,
+        cacheWriteTokens: 0,
+      },
+      cost_nano_cny: "810000",
+    });
+    write("record-3", { pricing_status: "unpriced", pricing_reason: "missing_usage" });
+    write("record-4", { pricing_status: "pending" });
+
+    expect(repository.taskPricing("pricing-summary")).toMatchObject({
+      target: "https://upstream.example/v1",
+      cost_nano_cny: "41935000",
+      priced_request_count: 2,
+      unpriced_request_count: 1,
+      pending_request_count: 1,
+      unpriced_reasons: { missing_usage: 1 },
+      breakdown: {
+        input_uncached: { tokens: "1600" },
+        output: { tokens: "1010" },
+        cache_read: { tokens: "1000" },
+        cache_write: { tokens: "500" },
+      },
+      groups: [{ cost_nano_cny: "41125000" }, { cost_nano_cny: "810000" }],
+    });
+    expect(repository.taskPricing("missing")).toBeUndefined();
+    repository.close();
+  });
 });
 
 describe("TrafficRepository.transaction", () => {

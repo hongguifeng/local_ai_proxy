@@ -40,4 +40,9 @@ export {
   type RepositoryRecord,
   type RepositoryPage,
   type TrafficRepositoryOptions,
+  type PricingBucket,
+  type PricingPrice,
+  type TaskPricingAggregate,
+  type TaskPricingBreakdown,
+  type TaskPricingGroup,
 } from "./repository.js";
