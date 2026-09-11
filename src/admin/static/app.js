@@ -69,11 +69,12 @@ const translations = {
     modelPrices: "模型价格",
     addModelPrice: "添加模型价格",
     pricePattern: "模型名称 / 通配符",
+    priceMultiplier: "价格倍率",
     normalInputPrice: "普通输入",
     outputPrice: "输出",
     cacheReadPrice: "缓存读取",
     cacheWritePrice: "缓存写入",
-    priceUnit: "单位：元 / M token（100 万 token）",
+    priceUnit: "单位：元 / M token（100 万 token）；历史费用和单价均按价格 × 倍率展示",
     priceRule: "规则",
     movePriceUp: "上移规则",
     movePriceDown: "下移规则",
@@ -88,6 +89,8 @@ const translations = {
     taskPricing: "任务费用明细",
     viewTaskPricing: "查看任务费用明细",
     costEstimate: "费用估算",
+    showCostDetails: "显示费用明细",
+    hideCostDetails: "隐藏费用明细",
     billingModel: "计价模型",
     matchedRule: "命中规则",
     priceSource: "价格来源",
@@ -101,6 +104,7 @@ const translations = {
     tokensBilled: "已计价 token 数",
     pricePerMillion: "单价（元/M token）",
     amountCny: "金额（元）",
+    costShare: "占比",
     total: "合计",
     priceGroups: "按模型 / 单价分组",
     priced: "已计价",
@@ -199,11 +203,12 @@ const translations = {
     modelPrices: "Model pricing",
     addModelPrice: "Add model price",
     pricePattern: "Model / wildcard",
+    priceMultiplier: "Price multiplier",
     normalInputPrice: "Input",
     outputPrice: "Output",
     cacheReadPrice: "Cache read",
     cacheWritePrice: "Cache write",
-    priceUnit: "Unit: CNY / M tokens (1,000,000 tokens)",
+    priceUnit: "Unit: CNY / M tokens (1,000,000 tokens); history shows price × multiplier",
     priceRule: "Rule",
     movePriceUp: "Move rule up",
     movePriceDown: "Move rule down",
@@ -218,6 +223,8 @@ const translations = {
     taskPricing: "Task pricing details",
     viewTaskPricing: "View task pricing details",
     costEstimate: "Cost estimate",
+    showCostDetails: "Show cost details",
+    hideCostDetails: "Hide cost details",
     billingModel: "Billing model",
     matchedRule: "Matched rule",
     priceSource: "Price source",
@@ -231,6 +238,7 @@ const translations = {
     tokensBilled: "Billed tokens",
     pricePerMillion: "Price (CNY/M tokens)",
     amountCny: "Amount (CNY)",
+    costShare: "Share",
     total: "Total",
     priceGroups: "Model / price groups",
     priced: "Priced",
@@ -284,6 +292,7 @@ const state = {
   selectedLogLoading: false,
   selectedLogRefreshLoading: false,
   requestPricing: null,
+  requestPricingOpen: false,
   activeTaskPricing: null,
   taskPricing: null,
   taskPricingAbort: null,
@@ -521,16 +530,24 @@ function mappingsText(mappings) {
 }
 function modelPriceRuleHtml(target, index) {
   const rule = (target.model_prices || [])[index] || {};
-  const priceFields = [
+  const numberFields = [
+    ["price_multiplier", "priceMultiplier"],
     ["input_per_million", "normalInputPrice"],
     ["output_per_million", "outputPrice"],
     ["cache_read_per_million", "cacheReadPrice"],
     ["cache_write_per_million", "cacheWritePrice"],
   ];
+  const patternCell = `<label><span>${escapeHtml(t("pricePattern"))}</span><input data-price-field="model_pattern" value="${escapeHtml(rule.model_pattern ?? "")}" placeholder="gpt-*"></label>`;
+  const gridCells = [
+    patternCell,
+    ...numberFields.map(
+      ([field, label]) =>
+        `<label><span>${escapeHtml(t(label))}</span><input data-price-field="${field}" inputmode="decimal" value="${escapeHtml(field === "price_multiplier" ? (rule[field] ?? "1") : (rule[field] ?? ""))}"></label>`,
+    ),
+  ];
   return `<section class="model-price-rule" data-price-index="${index}" aria-label="${escapeHtml(`${t("priceRule")} ${index + 1}`)}">
     <div class="price-rule-head"><strong>${escapeHtml(`${t("priceRule")} ${index + 1}`)}</strong><div class="price-actions"><button type="button" data-price-up title="${escapeHtml(t("movePriceUp"))}" aria-label="${escapeHtml(t("movePriceUp"))}" ${index === 0 ? "disabled" : ""}>↑</button><button type="button" data-price-down title="${escapeHtml(t("movePriceDown"))}" aria-label="${escapeHtml(t("movePriceDown"))}" ${index === (target.model_prices || []).length - 1 ? "disabled" : ""}>↓</button><button type="button" data-price-remove>${escapeHtml(t("delete"))}</button></div></div>
-    <label class="price-pattern"><span>${escapeHtml(t("pricePattern"))}</span><input data-price-field="model_pattern" value="${escapeHtml(rule.model_pattern ?? "")}" placeholder="gpt-*"></label>
-    <div class="price-field-grid">${priceFields.map(([field, label]) => `<label><span>${escapeHtml(t(label))}</span><input data-price-field="${field}" inputmode="decimal" value="${escapeHtml(rule[field] ?? "")}"></label>`).join("")}</div>
+    <div class="price-field-grid">${gridCells.join("")}</div>
   </section>`;
 }
 function localPriceMatch(target) {
@@ -1060,12 +1077,33 @@ function pricingAmount(value) {
 function pricingBucketAmount(tokens, price) {
   if (tokens === null || tokens === undefined || price === null || price === undefined) return "—";
   const [whole = "0", fraction = ""] = String(price).split(".");
-  if (!/^\d+$/.test(whole) || !/^\d*$/.test(fraction)) return "—";
-  const priceMicros = BigInt(whole) * 1_000_000n + BigInt((fraction + "000000").slice(0, 6));
-  const product = BigInt(String(tokens)) * priceMicros;
-  const integer = product / 1_000_000_000_000n;
-  const decimal = (product % 1_000_000_000_000n).toString().padStart(12, "0").replace(/0+$/, "");
+  if (!/^\d+$/.test(whole) || !/^\d{0,12}$/.test(fraction)) return "—";
+  const priceUnits =
+    BigInt(whole) * 1_000_000_000_000n + BigInt((fraction + "000000000000").slice(0, 12));
+  const product = BigInt(String(tokens)) * priceUnits;
+  const integer = product / 1_000_000_000_000_000_000n;
+  const decimal = (product % 1_000_000_000_000_000_000n)
+    .toString()
+    .padStart(18, "0")
+    .replace(/0+$/, "");
   return decimal ? `${integer}.${decimal}` : integer.toString();
+}
+function pricingPercentage(amount, totalAmount) {
+  const decimalParts = (value) => {
+    const match = /^(\d+)(?:\.(\d+))?$/.exec(String(value ?? ""));
+    return match ? { whole: match[1], fraction: match[2] || "" } : null;
+  };
+  const numerator = decimalParts(amount);
+  const denominator = decimalParts(totalAmount);
+  if (!numerator || !denominator) return "—";
+  const scale = Math.max(numerator.fraction.length, denominator.fraction.length);
+  const toScaledInteger = ({ whole, fraction }) => BigInt(whole + fraction.padEnd(scale, "0"));
+  const total = toScaledInteger(denominator);
+  if (total === 0n) return "—";
+  const ratio = (toScaledInteger(numerator) * 10_000n + total / 2n) / total;
+  const whole = ratio / 100n;
+  const fraction = (ratio % 100n).toString().padStart(2, "0").replace(/0+$/, "");
+  return `${whole}${fraction ? `.${fraction}` : ""}%`;
 }
 function pricingStatusValue(pricing) {
   if (!pricing || pricing.pricing_status === "unpriced") return "—";
@@ -1088,22 +1126,24 @@ const pricingBuckets = [
   ["cacheReadTokens", "cache_read_per_million", "cacheRead"],
   ["cacheWriteTokens", "cache_write_per_million", "cacheWrite"],
 ];
-function pricingTableHtml(breakdown, price = null) {
+function pricingTableHtml(breakdown, price = null, totalAmount = null) {
   const rows = pricingBuckets
     .map(([usageKey, priceKey, label]) => {
       const bucket = breakdown?.[usageKey] || breakdown?.[usageKey.replace("Tokens", "")] || {};
       const tokens = bucket.tokens ?? breakdown?.[usageKey] ?? "—";
       const amount = bucket.amount ?? "—";
-      return `<tr><th>${escapeHtml(t(label))}</th><td>${escapeHtml(String(tokens))}</td><td>${escapeHtml(price?.[priceKey] ?? "—")}</td><td>${escapeHtml(typeof amount === "string" ? formatCurrencyAmount(amount) : String(amount))}</td></tr>`;
+      return `<tr><th>${escapeHtml(t(label))}</th><td>${escapeHtml(String(tokens))}</td><td>${escapeHtml(price?.[priceKey] ?? "—")}</td><td>${escapeHtml(typeof amount === "string" ? formatCurrencyAmount(amount) : String(amount))}</td><td>${escapeHtml(pricingPercentage(amount, totalAmount))}</td></tr>`;
     })
     .join("");
-  return `<table class="pricing-table"><thead><tr><th></th><th>${escapeHtml(t("tokensBilled"))}</th><th>${escapeHtml(t("pricePerMillion"))}</th><th>${escapeHtml(t("amountCny"))}</th></tr></thead><tbody>${rows}</tbody></table>`;
+  return `<table class="pricing-table"><thead><tr><th></th><th>${escapeHtml(t("tokensBilled"))}</th><th>${escapeHtml(t("pricePerMillion"))}</th><th>${escapeHtml(t("amountCny"))}</th><th>${escapeHtml(t("costShare"))}</th></tr></thead><tbody>${rows}</tbody></table>`;
 }
 function renderRequestPricing() {
   const el = $("responsePricing");
   const pricing = state.requestPricing;
-  if (!pricing) {
-    el.hidden = true;
+  const open = Boolean(pricing && state.requestPricingOpen);
+  el.hidden = !open;
+  updateRequestPricingButton();
+  if (!open) {
     el.innerHTML = "";
     return;
   }
@@ -1123,9 +1163,9 @@ function renderRequestPricing() {
   el.hidden = false;
   el.innerHTML = `<section class="pricing-card"><div class="pricing-card-head"><strong>${escapeHtml(t("costEstimate"))}</strong><strong>${escapeHtml(pricingStatusValue(pricing))}</strong></div>
     <dl class="pricing-facts"><dt>${escapeHtml(t("billingModel"))}</dt><dd>${escapeHtml(pricing.billing_model || "—")}</dd><dt>${escapeHtml(t("matchedRule"))}</dt><dd>${escapeHtml(snapshot.model_pattern || "—")}</dd><dt>${escapeHtml(t("priceSource"))}</dt><dd>${escapeHtml(snapshot.target_name || "—")}</dd><dt>${escapeHtml(t("pricingUsage"))}</dt><dd>${escapeHtml(usage.source || "—")}</dd>${reason ? `<dt>${escapeHtml(t("pricingReason"))}</dt><dd>${escapeHtml(reason)}</dd>` : ""}</dl>
-    ${pricing.pricing_status === "priced" ? pricingTableHtml(breakdown, snapshot) : ""}</section>`;
+    ${pricing.pricing_status === "priced" ? pricingTableHtml(breakdown, snapshot, pricingDecimalFromNano(pricing.cost_nano_cny)) : ""}</section>`;
 }
-function taskBreakdownTableHtml(breakdown) {
+function taskBreakdownTableHtml(breakdown, totalAmount) {
   const rows = [
     ["input_uncached", "inputUncached"],
     ["output", "output"],
@@ -1134,10 +1174,10 @@ function taskBreakdownTableHtml(breakdown) {
   ]
     .map(([key, label]) => {
       const bucket = breakdown?.[key] || {};
-      return `<tr><th>${escapeHtml(t(label))}</th><td>${escapeHtml(String(bucket.tokens ?? "0"))}</td><td>${escapeHtml(formatCurrencyAmount(bucket.amount ?? null))}</td></tr>`;
+      return `<tr><th>${escapeHtml(t(label))}</th><td>${escapeHtml(String(bucket.tokens ?? "0"))}</td><td>${escapeHtml(formatCurrencyAmount(bucket.amount ?? null))}</td><td>${escapeHtml(pricingPercentage(bucket.amount, totalAmount))}</td></tr>`;
     })
     .join("");
-  return `<table class="pricing-table task-breakdown"><thead><tr><th></th><th>${escapeHtml(t("tokensBilled"))}</th><th>${escapeHtml(t("amountCny"))}</th></tr></thead><tbody>${rows}</tbody></table>`;
+  return `<table class="pricing-table task-breakdown"><thead><tr><th></th><th>${escapeHtml(t("tokensBilled"))}</th><th>${escapeHtml(t("amountCny"))}</th><th>${escapeHtml(t("costShare"))}</th></tr></thead><tbody>${rows}</tbody><tfoot><tr><th>${escapeHtml(t("total"))}</th><td></td><td>${escapeHtml(formatCurrencyAmount(totalAmount))}</td><td>${escapeHtml(pricingPercentage(totalAmount, totalAmount))}</td></tr></tfoot></table>`;
 }
 function renderTaskPricingPanel() {
   const panel = $("pricingPanel");
@@ -1163,7 +1203,7 @@ function renderTaskPricingPanel() {
   const groups = (data.groups || [])
     .map(
       (group) =>
-        `<details><summary>${escapeHtml(group.billing_model || "—")} · ${escapeHtml(String(group.request_count))} ${escapeHtml(t("requests"))} · ${escapeHtml(pricingAmount(group.cost_nano_cny))}</summary><p>${escapeHtml(t("pricePerMillion"))}: ${escapeHtml(group.price?.input_per_million ?? "—")} / ${escapeHtml(group.price?.output_per_million ?? "—")} / ${escapeHtml(group.price?.cache_read_per_million ?? "—")} / ${escapeHtml(group.price?.cache_write_per_million ?? "—")}</p>${taskBreakdownTableHtml(group.breakdown)}</details>`,
+        `<details><summary>${escapeHtml(group.billing_model || "—")} · ${escapeHtml(String(group.request_count))} ${escapeHtml(t("requests"))} · ${escapeHtml(pricingAmount(group.cost_nano_cny))}</summary><p>${escapeHtml(t("pricePerMillion"))}: ${escapeHtml(group.price?.input_per_million ?? "—")} / ${escapeHtml(group.price?.output_per_million ?? "—")} / ${escapeHtml(group.price?.cache_read_per_million ?? "—")} / ${escapeHtml(group.price?.cache_write_per_million ?? "—")}</p>${taskBreakdownTableHtml(group.breakdown, pricingDecimalFromNano(group.cost_nano_cny))}</details>`,
     )
     .join("");
   const reasons = Object.entries(data.unpriced_reasons || {})
@@ -1175,7 +1215,7 @@ function renderTaskPricingPanel() {
     unpriced_request_count: data.unpriced_request_count,
     pending_request_count: data.pending_request_count,
   };
-  panel.innerHTML = `<div class="pricing-panel-head"><strong>${escapeHtml(t("taskPricing"))}</strong><button type="button" data-close-pricing>${escapeHtml(t("close"))}</button></div><div class="pricing-card-head"><strong>${escapeHtml(formatGroupCost(cost))}</strong><span>${escapeHtml(`${t("priced")} ${data.priced_request_count} / ${t("unpriced")} ${data.unpriced_request_count} / ${t("pending")} ${data.pending_request_count}`)}</span></div><p class="pricing-target"><strong>${escapeHtml(t("target"))}:</strong> ${escapeHtml(data.target || "—")}</p>${data.priced_request_count ? taskBreakdownTableHtml(data.breakdown) : `<p>${escapeHtml(reasons || t("unpriced"))}</p>`}<p class="pricing-note">${escapeHtml(t("taskWholeScope"))}</p><h3>${escapeHtml(t("priceGroups"))}</h3>${groups || `<p>${escapeHtml(t("unpriced"))}</p>`}`;
+  panel.innerHTML = `<div class="pricing-panel-head"><strong>${escapeHtml(t("taskPricing"))}</strong><button type="button" data-close-pricing>${escapeHtml(t("close"))}</button></div><div class="pricing-card-head"><strong>${escapeHtml(formatGroupCost(cost))}</strong><span>${escapeHtml(`${t("priced")} ${data.priced_request_count} / ${t("unpriced")} ${data.unpriced_request_count} / ${t("pending")} ${data.pending_request_count}`)}</span></div><p class="pricing-target"><strong>${escapeHtml(t("target"))}:</strong> ${escapeHtml(data.target || "—")}</p>${data.priced_request_count ? taskBreakdownTableHtml(data.breakdown, pricingDecimalFromNano(data.cost_nano_cny)) : `<p>${escapeHtml(reasons || t("unpriced"))}</p>`}<p class="pricing-note">${escapeHtml(t("taskWholeScope"))}</p><h3>${escapeHtml(t("priceGroups"))}</h3>${groups || `<p>${escapeHtml(t("unpriced"))}</p>`}`;
 }
 async function showTaskPricing(groupId) {
   state.taskPricingAbort?.abort();
@@ -1508,6 +1548,16 @@ function updateMetaButton(key) {
   button.classList.toggle("active", available && state.metaOpen[key]);
   button.title = available && state.metaOpen[key] ? t("hideMetadata") : t("showMetadata");
 }
+function updateRequestPricingButton() {
+  const button = document.querySelector('[data-pricing="response"]');
+  if (!button) return;
+  const available = Boolean(state.requestPricing);
+  button.disabled = !available;
+  button.classList.toggle("active", available && state.requestPricingOpen);
+  button.title =
+    available && state.requestPricingOpen ? t("hideCostDetails") : t("showCostDetails");
+  button.setAttribute("aria-expanded", String(available && state.requestPricingOpen));
+}
 function updatePaneButtons(key) {
   document.querySelector(`[data-wrap="${key}"]`).classList.toggle("active", state.wrap[key]);
   document
@@ -1550,6 +1600,7 @@ function applySelectedLogDetail(data, options = {}) {
     state.tree.response = true;
     state.formatStrings.request = true;
     state.formatStrings.response = true;
+    state.requestPricingOpen = false;
   }
   renderMetaPane("request");
   renderMetaPane("response");
@@ -1620,6 +1671,7 @@ $("proxyGrid").addEventListener("click", (event) => {
     if (event.target.matches("[data-add-price]")) {
       rules.push({
         model_pattern: "",
+        price_multiplier: "1",
         input_per_million: "",
         output_per_million: "",
         cache_read_per_million: "",
@@ -1870,6 +1922,13 @@ document.querySelectorAll("[data-meta]").forEach((button) =>
     if (!key || !hasMetadata(state.meta[key])) return;
     state.metaOpen[key] = !state.metaOpen[key];
     renderMetaPane(key);
+  }),
+);
+document.querySelectorAll("[data-pricing]").forEach((button) =>
+  button.addEventListener("click", () => {
+    if (!state.requestPricing) return;
+    state.requestPricingOpen = !state.requestPricingOpen;
+    renderRequestPricing();
   }),
 );
 document.querySelectorAll("[data-expand]").forEach((button) =>

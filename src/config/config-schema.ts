@@ -34,6 +34,7 @@ const pricePerMillionSchema = z.string().refine(isValidPricePerMillion, {
 
 export const modelPriceSchema = z.object({
   model_pattern: z.string().trim().min(1, "model pattern is required"),
+  price_multiplier: pricePerMillionSchema.optional(),
   input_per_million: pricePerMillionSchema,
   output_per_million: pricePerMillionSchema,
   cache_read_per_million: pricePerMillionSchema,

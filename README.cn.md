@@ -178,15 +178,15 @@ fallback-model
 
 ### 模型 token 定价与费用历史
 
-每个转发地址可在 **模型价格** 中配置有序规则：模型名或 `*` 通配符，加上普通输入、输出、缓存读取、缓存写入四项“元 / M token”单价。精确模型名始终优先；否则按顺序使用第一条命中的通配规则。
+每个转发地址可在 **模型价格** 中配置有序规则：模型名或 `*` 通配符、价格倍率，以及普通输入、输出、缓存读取、缓存写入四项“元 / M token”单价。实际单价等于各项配置单价乘以倍率；精确模型名始终优先，否则按顺序使用第一条命中的通配规则。
 
 ```json
-{"model_prices":[{"model_pattern":"gpt-5.6-sol","input_per_million":"5","output_per_million":"30","cache_read_per_million":"0.5","cache_write_per_million":"6.25"}]}
+{"model_prices":[{"model_pattern":"gpt-5.6-sol","price_multiplier":"1.2","input_per_million":"5","output_per_million":"30","cache_read_per_million":"0.5","cache_write_per_million":"6.25"}]}
 ```
 
-定价读取模型映射和 request 字段改写完成后实际发往上游的模型。命中规则和价格会在转发时冻结，之后的改价只影响新请求。Responses、Chat Completions、legacy Completions 和 Messages usage 被标准化为四个桶；缺少价格或可信 usage 会显示未计价，而不是免费。
+定价读取模型映射和 request 字段改写完成后实际发往上游的模型。命中规则的倍率和乘后的实际价格会在转发时冻结，之后的改价只影响新请求。Responses、Chat Completions、legacy Completions 和 Messages usage 被标准化为四个桶；缺少价格或可信 usage 会显示未计价，而不是免费。
 
-在 **历史日志** 中，每个 task 显示整个 task 的已知费用，不受搜索结果或已加载页影响。点击费用可查看总额、原因和冻结价格分组；选择请求可查看其冻结模型、usage、单价和分项。人民币费用最多显示四位小数。定价功能上线前的日志保留 `legacy_record`，不会按当前价格回算。
+在 **历史日志** 中，每个 task 显示整个 task 的已知费用，不受搜索结果或已加载页影响。点击费用可查看总额、原因和冻结后的实际价格分组；task 汇总明细在表尾显示总计。每项费用明细均显示其占总费用的比例。选择请求后，可通过响应栏的 **¥** 按钮按需展开费用明细，查看其冻结模型、usage、实际单价和分项。所有单价和总价均为应用倍率后的实际价格。人民币费用最多显示四位小数。定价功能上线前的日志保留 `legacy_record`，不会按当前价格回算。
 
 ### 测试转发地址
 

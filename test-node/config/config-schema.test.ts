@@ -45,6 +45,13 @@ describe("modelPriceSchema", () => {
     ).toMatchObject({ input_per_million: "1000000", output_per_million: "0.000001" });
   });
 
+  it("accepts an optional price multiplier using the same exact decimal validation", () => {
+    expect(modelPriceSchema.parse({ ...validPrice, price_multiplier: "1.25" })).toMatchObject({
+      price_multiplier: "1.25",
+    });
+    expect(() => modelPriceSchema.parse({ ...validPrice, price_multiplier: "1e3" })).toThrow();
+  });
+
   it.each([
     ["empty", ""],
     ["negative", "-1"],

@@ -1,6 +1,6 @@
 import type { ModelPrice } from "../config/index.js";
 
-import { calculateCost, AmountOverflowError } from "./money.js";
+import { calculateCost, AmountOverflowError, effectivePricingUnitPrice } from "./money.js";
 import { matchModelPrice } from "./model-price-matcher.js";
 import { normalizeUsage, type PricingEndpointKind } from "./usage-normalizer.js";
 import type { UsageCaptureResult } from "./usage-accumulator.js";
@@ -85,7 +85,7 @@ export function completeRequestPricing(
         cacheReadTokens: BigInt(normalized.usage.cacheReadTokens),
         cacheWriteTokens: BigInt(normalized.usage.cacheWriteTokens),
       },
-      context.matchedRule,
+      effectivePricingUnitPrice(context.matchedRule),
     );
     return {
       ...pending,
@@ -105,9 +105,10 @@ export function completeRequestPricing(
 function snapshot(context: RequestPricingContext): Record<string, unknown> | null {
   if (context.matchedRule === undefined) return null;
   return {
-    ...context.matchedRule,
+    model_pattern: context.matchedRule.model_pattern,
+    ...effectivePricingUnitPrice(context.matchedRule),
     currency: "CNY",
-    algorithm_version: 1,
+    algorithm_version: 2,
     frozen_at: context.frozenAt ?? null,
     target_id: context.targetId ?? null,
     target_name: context.targetName ?? null,

@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest";
 import {
   AmountOverflowError,
   calculateCost,
+  effectivePricingUnitPrice,
   nanoCnyToDecimal,
   productToCnyDecimal,
 } from "../../src/pricing/index.js";
@@ -15,6 +16,26 @@ const userPrices = {
 };
 
 describe("calculateCost", () => {
+  it("retains twelve decimal places in effective prices after multiplying", () => {
+    const effective = effectivePricingUnitPrice({
+      ...userPrices,
+      price_multiplier: "0.000001",
+      input_per_million: "0.000001",
+    });
+    expect(effective.input_per_million).toBe("0.000000000001");
+    expect(
+      calculateCost(
+        {
+          inputUncachedTokens: 1_000_000_000_000n,
+          outputTokens: 0n,
+          cacheReadTokens: 0n,
+          cacheWriteTokens: 0n,
+        },
+        effective,
+      ).costNanoCny,
+    ).toBe(1_000n);
+  });
+
   it("calculates all four token buckets as exact integer nanoyuan", () => {
     const result = calculateCost(
       {

@@ -964,7 +964,8 @@ label span {
   white-space: nowrap;
 }
 .pricing-table {
-  width: 100%;
+  width: max-content;
+  max-width: 100%;
   border-collapse: collapse;
   font-size: 12px;
   font-variant-numeric: tabular-nums;
@@ -983,6 +984,10 @@ label span {
   color: var(--muted);
   font-size: 10px;
   font-weight: 600;
+}
+.pricing-table tfoot th,
+.pricing-table tfoot td {
+  font-weight: 700;
 }
 .json-pane {
   min-height: 0;

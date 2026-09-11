@@ -1,11 +1,11 @@
-import type { ModelPrice } from "../config/index.js";
-
 export const NANO_CNY_PER_CNY = 1_000_000_000n;
 export const PRICE_MICROS_PER_CNY = 1_000_000n;
-export const PRICE_TOKEN_PRODUCT_PER_CNY = 1_000_000_000_000n;
+export const PRICE_UNITS_PER_CNY = 1_000_000_000_000n;
+export const PRICE_TOKEN_PRODUCT_PER_CNY = 1_000_000_000_000_000_000n;
 export const MAX_SQLITE_INTEGER = 9_223_372_036_854_775_807n;
 
 const pricePattern = /^(?:0|[1-9]\d*)(?:\.\d{1,6})?$/u;
+const effectivePricePattern = /^(?:0|[1-9]\d*)(?:\.\d{1,12})?$/u;
 
 export interface BillingTokenBuckets {
   readonly cacheReadTokens: bigint;
@@ -25,6 +25,13 @@ export interface CostCalculation {
   readonly breakdown: CostBreakdown;
   readonly costNanoCny: bigint;
   readonly totalProduct: bigint;
+}
+
+export interface PricingUnitPrice {
+  readonly cache_read_per_million: string;
+  readonly cache_write_per_million: string;
+  readonly input_per_million: string;
+  readonly output_per_million: string;
 }
 
 export class AmountOverflowError extends RangeError {
@@ -50,32 +57,64 @@ export function pricePerMillionToMicros(value: string): bigint {
   return BigInt(integer) * PRICE_MICROS_PER_CNY + BigInt(fraction.padEnd(6, "0"));
 }
 
+/** Converts a final yuan-per-million-token price to 10^-12 CNY units. */
+export function pricePerMillionToUnits(value: string): bigint {
+  if (!effectivePricePattern.test(value)) {
+    throw new TypeError(
+      "Price must be a non-negative decimal string with at most 12 decimal places.",
+    );
+  }
+  const [integer, fraction = ""] = value.split(".");
+  if (integer === undefined) {
+    throw new TypeError("Price is missing its integer component.");
+  }
+  return BigInt(integer) * PRICE_UNITS_PER_CNY + BigInt(fraction.padEnd(12, "0"));
+}
+
+/** Multiplies a configured unit price by its multiplier without floating-point rounding. */
+export function effectivePricePerMillion(price: string, multiplier: string | undefined): string {
+  const priceMicros = pricePerMillionToMicros(price);
+  const multiplierMicros = pricePerMillionToMicros(multiplier ?? "1");
+  return decimalString(priceMicros * multiplierMicros, PRICE_UNITS_PER_CNY);
+}
+
+export function effectivePricingUnitPrice(
+  price: PricingUnitPrice & { readonly price_multiplier?: string | undefined },
+): PricingUnitPrice {
+  return {
+    input_per_million: effectivePricePerMillion(price.input_per_million, price.price_multiplier),
+    output_per_million: effectivePricePerMillion(price.output_per_million, price.price_multiplier),
+    cache_read_per_million: effectivePricePerMillion(
+      price.cache_read_per_million,
+      price.price_multiplier,
+    ),
+    cache_write_per_million: effectivePricePerMillion(
+      price.cache_write_per_million,
+      price.price_multiplier,
+    ),
+  };
+}
+
 /** Calculates one request cost, rounding only the final total to nanoyuan. */
 export function calculateCost(
   usage: BillingTokenBuckets,
-  price: Pick<
-    ModelPrice,
-    | "input_per_million"
-    | "output_per_million"
-    | "cache_read_per_million"
-    | "cache_write_per_million"
-  >,
+  price: PricingUnitPrice,
 ): CostCalculation {
   assertNonNegativeBuckets(usage);
   const breakdown: CostBreakdown = {
     inputUncachedProduct:
-      usage.inputUncachedTokens * pricePerMillionToMicros(price.input_per_million),
-    outputProduct: usage.outputTokens * pricePerMillionToMicros(price.output_per_million),
-    cacheReadProduct: usage.cacheReadTokens * pricePerMillionToMicros(price.cache_read_per_million),
+      usage.inputUncachedTokens * pricePerMillionToUnits(price.input_per_million),
+    outputProduct: usage.outputTokens * pricePerMillionToUnits(price.output_per_million),
+    cacheReadProduct: usage.cacheReadTokens * pricePerMillionToUnits(price.cache_read_per_million),
     cacheWriteProduct:
-      usage.cacheWriteTokens * pricePerMillionToMicros(price.cache_write_per_million),
+      usage.cacheWriteTokens * pricePerMillionToUnits(price.cache_write_per_million),
   };
   const totalProduct =
     breakdown.inputUncachedProduct +
     breakdown.outputProduct +
     breakdown.cacheReadProduct +
     breakdown.cacheWriteProduct;
-  const costNanoCny = (totalProduct + 500n) / 1_000n;
+  const costNanoCny = (totalProduct + 500_000_000n) / 1_000_000_000n;
   if (costNanoCny > MAX_SQLITE_INTEGER) {
     throw new AmountOverflowError();
   }

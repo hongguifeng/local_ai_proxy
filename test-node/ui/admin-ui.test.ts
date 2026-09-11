@@ -659,7 +659,8 @@ describe("admin UI proxy page", { timeout: UI_TEST_TIMEOUT_MS }, () => {
     const rule = prices.locator(".model-price-rule");
     await expectPage(rule).toHaveCount(1);
     await expectPage(rule.locator(".price-rule-head")).toContainText("Rule 1");
-    await expectPage(rule.locator(".price-field-grid label")).toHaveCount(4);
+    await expectPage(rule.locator(".price-field-grid label")).toHaveCount(6);
+    await expectPage(rule.locator('[data-price-field="price_multiplier"]')).toHaveValue("1");
     await rule.locator('[data-price-field="model_pattern"]').fill("gpt-*");
     await rule.locator('[data-price-field="input_per_million"]').fill("2");
     await prices.locator("[data-price-test]").fill("gpt-5");
@@ -1108,6 +1109,11 @@ describe("admin UI history page", { timeout: UI_TEST_TIMEOUT_MS }, () => {
     await expectPage(panel).toContainText("Known ¥0.0428 · 1 Unpriced");
     await expectPage(panel).toContainText("fixture-target");
     await expectPage(panel).toContainText("gpt-5 · 3 requests · ¥0.0428");
+    const taskBreakdown = panel.locator(".task-breakdown").first();
+    await expectPage(taskBreakdown.locator("thead")).toContainText("Share");
+    await expectPage(taskBreakdown.locator("tbody tr").first()).toContainText("17.54%");
+    await expectPage(taskBreakdown.locator("tfoot")).toContainText("Total");
+    await expectPage(taskBreakdown.locator("tfoot")).toContainText("100%");
     await expectPage(group.locator(".log-group-body")).toHaveCount(0);
     await expectPage(group.locator('[data-select-group="task-one"]')).not.toBeChecked();
     await panel.locator("[data-close-pricing]").click();
@@ -1122,12 +1128,22 @@ describe("admin UI history page", { timeout: UI_TEST_TIMEOUT_MS }, () => {
       page.locator('[data-log-id="record-two"]').click(),
     ]);
     const requestPricing = page.locator("#responsePricing");
+    const pricingButton = page.locator('[data-pricing="response"]');
+    await expectPage(pricingButton).toBeEnabled();
+    await expectPage(requestPricing).toBeHidden();
+    await pricingButton.click();
     await expectPage(requestPricing).toBeVisible();
     await expectPage(requestPricing).toContainText("Cost estimate");
     await expectPage(requestPricing).toContainText("¥0.0411");
     await expectPage(requestPricing).toContainText("Billing model");
     await expectPage(requestPricing).toContainText("gpt-5");
     await expectPage(requestPricing).toContainText("1500");
+    await expectPage(requestPricing.locator(".pricing-table thead")).toContainText("Share");
+    await expectPage(requestPricing.locator(".pricing-table tbody tr").first()).toContainText(
+      "18.24%",
+    );
+    await pricingButton.click();
+    await expectPage(requestPricing).toBeHidden();
   });
 
   it("expands search previews without a second request and replaces them on query changes", async () => {

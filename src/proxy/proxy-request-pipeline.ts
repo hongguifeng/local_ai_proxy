@@ -44,6 +44,7 @@ export interface ProxyPipelineTarget {
   readonly modelMappings: readonly { readonly listen: string; readonly upstream: string }[];
   readonly modelPrices?: readonly {
     readonly model_pattern: string;
+    readonly price_multiplier?: string | undefined;
     readonly input_per_million: string;
     readonly output_per_million: string;
     readonly cache_read_per_million: string;
