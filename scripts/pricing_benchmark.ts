@@ -100,5 +100,10 @@ function median(values: readonly number[]): number {
 }
 
 if (import.meta.main) {
-  runPricingBenchmark().then((result) => console.log(JSON.stringify(result, null, 2)));
+  void runPricingBenchmark()
+    .then((result) => console.log(JSON.stringify(result, null, 2)))
+    .catch((error: unknown) => {
+      console.error(error);
+      process.exitCode = 1;
+    });
 }

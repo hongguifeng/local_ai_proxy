@@ -7,15 +7,17 @@ import { ProxyManager, ProxyRuntimeRegistry } from "../../src/proxy/index.js";
 import type { ProxyConfigurationApplyError } from "../../src/proxy/index.js";
 
 describe("ProxyManager configuration apply", () => {
-  it("rejects invalid price configuration without changing the active pair", async () => {
+  it("rejects invalid price configuration without changing the active pair", () => {
     const pair = pairFixture(12_345, "Current pair");
     const manager = new ProxyManager({ pairs: [pair] }, { save: () => Promise.resolve() });
-    const invalid = {
+    const firstTarget = pair.targets[0];
+    if (firstTarget === undefined) throw new Error("Pair fixture needs a target.");
+    const invalid: ProxyPair = {
       ...pair,
       name: "Invalid pair",
       targets: [
         {
-          ...pair.targets[0]!,
+          ...firstTarget,
           model_prices: [
             {
               model_pattern: "gpt-*",
@@ -27,7 +29,7 @@ describe("ProxyManager configuration apply", () => {
           ],
         },
       ],
-    } as unknown as ProxyPair;
+    };
 
     expect(() => manager.applyConfiguration({ pairs: [invalid] })).toThrow(
       expect.objectContaining({

@@ -108,7 +108,8 @@ describe("normalizeModelPrices", () => {
 describe("price configuration normalization", () => {
   it("adds an empty list to older targets and retains order across targets", () => {
     const first = createDefaultTarget("logs");
-    const { model_prices: _removed, ...legacyTarget } = first;
+    const legacyTarget = { ...first };
+    Reflect.deleteProperty(legacyTarget, "model_prices");
     const second = {
       ...createDefaultTarget("logs"),
       id: "target-2",

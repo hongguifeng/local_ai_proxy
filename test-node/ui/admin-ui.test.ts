@@ -176,16 +176,16 @@ beforeAll(async () => {
                 id: "task-one",
                 started_at: "2026-07-18 12:00:00",
                 last_activity_at: "2026-07-18 12:00:05",
-              model: "gpt-5",
-              request_count: 5,
-              target: "fixture-target",
-              cost: {
-                currency: "CNY" as const,
-                known_amount: "0.042750000",
-                priced_request_count: 3,
-                unpriced_request_count: 1,
-                pending_request_count: 1,
-              },
+                model: "gpt-5",
+                request_count: 5,
+                target: "fixture-target",
+                cost: {
+                  currency: "CNY" as const,
+                  known_amount: "0.042750000",
+                  priced_request_count: 3,
+                  unpriced_request_count: 1,
+                  pending_request_count: 1,
+                },
               },
               {
                 id: "task-needle",
@@ -968,7 +968,7 @@ describe("admin UI history page", { timeout: UI_TEST_TIMEOUT_MS }, () => {
     ]);
     await page.route("**/api/logs?**", async (route) => {
       const response = await route.fetch();
-      const data = (await response.json()) as { groups: Array<{ id: string; cost?: unknown }> };
+      const data = (await response.json()) as { groups: { id: string; cost?: unknown }[] };
       data.groups = data.groups.map((group) =>
         group.id === "task-one"
           ? {
@@ -1020,27 +1020,26 @@ describe("admin UI history page", { timeout: UI_TEST_TIMEOUT_MS }, () => {
     ]);
 
     await expect(
-      page.evaluate((amounts) => {
-        const formatter = (window as unknown as Window & {
-          formatCurrencyAmount: (amount: string | null) => string;
-        }).formatCurrencyAmount;
-        return amounts.map((amount) => formatter(amount));
-      }, ["5", "0.03", "0.041125", "0.042750", "0.00001", "0", null]),
+      page.evaluate(
+        (amounts) => {
+          const formatter = (
+            window as unknown as Window & {
+              formatCurrencyAmount: (amount: string | null) => string;
+            }
+          ).formatCurrencyAmount;
+          return amounts.map((amount) => formatter(amount));
+        },
+        ["5", "0.03", "0.041125", "0.042750", "0.00001", "0", null],
+      ),
     ).resolves.toEqual(["¥5", "¥0.03", "¥0.0411", "¥0.0428", "< ¥0.0001", "¥0", "—"]);
 
     const group = page.locator(".log-group").first();
     const summary = group.locator(".log-group-summary");
     await expectPage(summary.locator(".log-group-time")).toHaveCount(1);
     await expectPage(summary.locator(".log-group-fact-line")).toHaveCount(2);
-    await expectPage(summary.locator(".log-group-fact-line").first()).toContainText(
-      "gpt-5",
-    );
-    await expectPage(summary.locator(".log-group-fact-line").first()).toContainText(
-      "5 requests",
-    );
-    await expectPage(summary.locator("[data-group-cost]")).toHaveText(
-      "Known ¥0.0428 · 1 Unpriced",
-    );
+    await expectPage(summary.locator(".log-group-fact-line").first()).toContainText("gpt-5");
+    await expectPage(summary.locator(".log-group-fact-line").first()).toContainText("5 requests");
+    await expectPage(summary.locator("[data-group-cost]")).toHaveText("Known ¥0.0428 · 1 Unpriced");
     await expectPage(summary.locator(".log-target")).toHaveText("fixture-target");
     await expectPage(group.locator("button button")).toHaveCount(0);
 
@@ -1057,9 +1056,9 @@ describe("admin UI history page", { timeout: UI_TEST_TIMEOUT_MS }, () => {
     await expectPage(page.locator('[data-log-id="record-one"] .cost .log-metric-value')).toHaveText(
       "Calculating…",
     );
-    await expectPage(page.locator('[data-log-id="record-four"] .cost .log-metric-value')).toHaveText(
-      "—",
-    );
+    await expectPage(
+      page.locator('[data-log-id="record-four"] .cost .log-metric-value'),
+    ).toHaveText("—");
   });
 
   it("opens task and request pricing details without changing task selection or expansion", async () => {
@@ -1072,7 +1071,9 @@ describe("admin UI history page", { timeout: UI_TEST_TIMEOUT_MS }, () => {
     await expectPage(group.locator(".log-group-body")).toHaveCount(0);
     await expectPage(group.locator('[data-select-group="task-one"]')).not.toBeChecked();
     await Promise.all([
-      page.waitForResponse((response) => response.url().endsWith("/api/log-groups/task-one/pricing")),
+      page.waitForResponse((response) =>
+        response.url().endsWith("/api/log-groups/task-one/pricing"),
+      ),
       group.locator("[data-group-cost]").press("Enter"),
     ]);
     const panel = page.locator("#pricingPanel");

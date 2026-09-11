@@ -51,6 +51,7 @@ Each upstream target keeps its own log directory, upstream headers, and request-
 - Inspect request and response JSON side by side, with wrapping, expansion, formatting, and copy controls.
 - Optionally remove or inject top-level JSON request fields before forwarding.
 - Optionally redact sensitive headers and common JSON secret fields in stored logs.
+- Set per-target model-token prices and retain frozen request-time price snapshots in cost history.
 - Export task logs as a ZIP archive and clean selected task groups.
 - Persist proxy configuration in `logs/proxies.json` by default.
 
@@ -175,6 +176,18 @@ fallback-model
 ```
 
 The first line matches model names such as `hyper-gpt-5.5` and `hyper-gpt-5.5-test`. Matching is case-sensitive, and the first matching mapping wins in configuration order. In the last line, `fallback-model` is forwarded with the same model name.
+
+### Model Token Pricing And Cost History
+
+Each target can define ordered rules in **Model pricing**. A rule has a model name or `*` wildcard and CNY-per-million-token prices for uncached input, output, cache read, and cache write. Exact names always win; otherwise the first matching wildcard wins.
+
+```json
+{"model_prices":[{"model_pattern":"gpt-5.6-sol","input_per_million":"5","output_per_million":"30","cache_read_per_million":"0.5","cache_write_per_million":"6.25"}]}
+```
+
+Pricing uses the final model sent upstream after mappings and request-field transforms. The matched rule and prices are frozen at forwarding time, so later changes affect only new requests. Responses, Chat Completions, legacy Completions, and Messages usage are normalized into four buckets. Missing price or trustworthy usage is unpriced, never free.
+
+In **History**, each task shows its whole-task known cost regardless of search results or loaded pages. Click its cost for totals, reasons, and frozen price groups; select a request for its frozen model, usage, prices, and breakdown. CNY values show at most four decimals. Pre-pricing logs remain `legacy_record` and are not recalculated.
 
 ### Target Check
 

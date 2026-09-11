@@ -41,13 +41,15 @@ describe("GET /api/pairs", () => {
 
   it("replaces the complete pair list and returns committed runtime state", async () => {
     const template = createDefaultProxyPair("");
+    const firstTarget = template.targets[0];
+    if (firstTarget === undefined) throw new Error("Default proxy fixture needs a target.");
     const submitted = {
       ...template,
       id: "submitted",
       name: "Submitted",
       targets: [
         {
-          ...template.targets[0]!,
+          ...firstTarget,
           model_prices: [
             {
               model_pattern: "gpt-*",

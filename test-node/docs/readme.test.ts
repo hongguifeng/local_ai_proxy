@@ -1,6 +1,8 @@
 import { readFile } from "node:fs/promises";
 import { describe, expect, it } from "vitest";
 
+import { modelPriceSchema } from "../../src/config/index.js";
+
 describe("README runtime instructions", () => {
   it("uses the Node CLI in the English quick start", async () => {
     const readme = await readFile(new URL("../../README.md", import.meta.url), "utf8");
@@ -61,6 +63,21 @@ describe("README runtime instructions", () => {
     for (const name of ["README.md", "README.cn.md"]) {
       const readme = await readFile(new URL(`../../${name}`, import.meta.url), "utf8");
       expect(readme).toContain("docs/troubleshooting.md");
+    }
+  });
+
+  it("documents a schema-valid model pricing example and final screenshots", async () => {
+    for (const name of ["README.md", "README.cn.md"]) {
+      const readme = await readFile(new URL(`../../${name}`, import.meta.url), "utf8");
+      const match = /\{"model_prices":\[(\{[^\n]+\})\]\}/u.exec(readme);
+      const example = match?.[1];
+      expect(example).toBeDefined();
+      expect(modelPriceSchema.parse(JSON.parse(example ?? "{}"))).toMatchObject({
+        model_pattern: "gpt-5.6-sol",
+        cache_write_per_million: "6.25",
+      });
+      expect(readme).toContain("doc/ui_proxy_");
+      expect(readme).toContain("doc/ui_logs_");
     }
   });
 });

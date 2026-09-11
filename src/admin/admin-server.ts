@@ -42,7 +42,7 @@ export interface LogAdminService {
     offset: number,
   ) => LogGroupLogs | undefined;
   readonly getRecordDetail?: (recordId: string) => LogRecordDetail | undefined;
-  readonly getGroupPricing?: (groupId: string) => unknown | undefined;
+  readonly getGroupPricing?: (groupId: string) => unknown;
   listGroups(query: string, limit: number, offset: number): LogGroupPage;
 }
 

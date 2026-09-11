@@ -890,11 +890,20 @@ label span {
   border-radius: 6px;
   background: white;
 }
-.pricing-panel summary { cursor: pointer; }
+.pricing-panel summary {
+  cursor: pointer;
+}
 .pricing-target,
-.pricing-note { overflow-wrap: anywhere; }
-.pricing-note { color: var(--muted); font-size: 12px; }
-.request-pricing { padding: 0 10px 8px; }
+.pricing-note {
+  overflow-wrap: anywhere;
+}
+.pricing-note {
+  color: var(--muted);
+  font-size: 12px;
+}
+.request-pricing {
+  padding: 0 10px 8px;
+}
 .pricing-card {
   padding: 8px;
   border: 1px solid #d7e2ea;
@@ -908,8 +917,16 @@ label span {
   margin: 8px 0;
   font-size: 12px;
 }
-.pricing-facts dt { color: var(--muted); }
-.pricing-facts dd { min-width: 0; margin: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.pricing-facts dt {
+  color: var(--muted);
+}
+.pricing-facts dd {
+  min-width: 0;
+  margin: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
 .pricing-table {
   width: 100%;
   border-collapse: collapse;
@@ -917,9 +934,20 @@ label span {
   font-variant-numeric: tabular-nums;
 }
 .pricing-table th,
-.pricing-table td { padding: 4px 6px; border-top: 1px solid #dfe7ed; text-align: right; white-space: nowrap; }
-.pricing-table th:first-child { text-align: left; }
-.pricing-table thead th { color: var(--muted); font-size: 10px; font-weight: 600; }
+.pricing-table td {
+  padding: 4px 6px;
+  border-top: 1px solid #dfe7ed;
+  text-align: right;
+  white-space: nowrap;
+}
+.pricing-table th:first-child {
+  text-align: left;
+}
+.pricing-table thead th {
+  color: var(--muted);
+  font-size: 10px;
+  font-weight: 600;
+}
 .json-pane {
   min-height: 0;
   display: grid;

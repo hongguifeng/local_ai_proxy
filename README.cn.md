@@ -51,6 +51,7 @@ flowchart LR
 - 以左右分栏查看 request/response JSON，支持换行、展开折叠、字符串格式化和复制。
 - 可在转发前移除或注入顶层 JSON request 字段。
 - 可选对保存日志中的敏感 headers 和常见 JSON 密钥字段脱敏。
+- 每个转发地址可配置模型 token 定价，并保留请求发生时的价格快照和费用历史。
 - 可将任务日志导出为 ZIP，并清理用户选中的任务组。
 - 默认将代理配置持久化到 `logs/proxies.json`。
 
@@ -174,6 +175,18 @@ fallback-model
 ```
 
 第一行可匹配 `hyper-gpt-5.5`、`hyper-gpt-5.5-test` 等模型名。匹配区分大小写，并按配置顺序使用第一个命中的映射。最后一行表示监听并转发同名模型 `fallback-model`。
+
+### 模型 token 定价与费用历史
+
+每个转发地址可在 **模型价格** 中配置有序规则：模型名或 `*` 通配符，加上普通输入、输出、缓存读取、缓存写入四项“元 / M token”单价。精确模型名始终优先；否则按顺序使用第一条命中的通配规则。
+
+```json
+{"model_prices":[{"model_pattern":"gpt-5.6-sol","input_per_million":"5","output_per_million":"30","cache_read_per_million":"0.5","cache_write_per_million":"6.25"}]}
+```
+
+定价读取模型映射和 request 字段改写完成后实际发往上游的模型。命中规则和价格会在转发时冻结，之后的改价只影响新请求。Responses、Chat Completions、legacy Completions 和 Messages usage 被标准化为四个桶；缺少价格或可信 usage 会显示未计价，而不是免费。
+
+在 **历史日志** 中，每个 task 显示整个 task 的已知费用，不受搜索结果或已加载页影响。点击费用可查看总额、原因和冻结价格分组；选择请求可查看其冻结模型、usage、单价和分项。人民币费用最多显示四位小数。定价功能上线前的日志保留 `legacy_record`，不会按当前价格回算。
 
 ### 测试转发地址
 

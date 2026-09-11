@@ -396,6 +396,9 @@ describe("TrafficRepository history summaries", () => {
       request_token_count: null,
       response_token_count: null,
       target_url: null,
+      pricing_status: "unpriced",
+      pricing_reason: null,
+      cost_nano_cny: null,
     });
     repository.close();
   });

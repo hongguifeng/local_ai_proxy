@@ -848,7 +848,12 @@ async function loadLogs(options = {}) {
     if (state.activeTaskPricing) {
       if (!state.logGroups.some((group) => group.id === state.activeTaskPricing)) {
         state.taskPricingAbort?.abort();
-        state.taskPricing = { id: state.activeTaskPricing, loading: false, error: "deleted", data: null };
+        state.taskPricing = {
+          id: state.activeTaskPricing,
+          loading: false,
+          error: "deleted",
+          data: null,
+        };
         renderTaskPricingPanel();
       } else {
         refreshTaskPricingPanel().catch(() => {});
@@ -1050,7 +1055,8 @@ function logRequestCost(pricing) {
     currency: "CNY",
     status: pricing.pricing_status,
     reason: pricing.pricing_reason ?? null,
-    amount: pricing.pricing_status === "priced" ? pricingDecimalFromNano(pricing.cost_nano_cny) : null,
+    amount:
+      pricing.pricing_status === "priced" ? pricingDecimalFromNano(pricing.cost_nano_cny) : null,
   };
 }
 const pricingBuckets = [
@@ -1097,11 +1103,17 @@ function renderRequestPricing() {
     ${pricing.pricing_status === "priced" ? pricingTableHtml(breakdown, snapshot) : ""}</section>`;
 }
 function taskBreakdownTableHtml(breakdown) {
-  const rows = [["input_uncached", "inputUncached"], ["output", "output"], ["cache_read", "cacheRead"], ["cache_write", "cacheWrite"]]
+  const rows = [
+    ["input_uncached", "inputUncached"],
+    ["output", "output"],
+    ["cache_read", "cacheRead"],
+    ["cache_write", "cacheWrite"],
+  ]
     .map(([key, label]) => {
       const bucket = breakdown?.[key] || {};
       return `<tr><th>${escapeHtml(t(label))}</th><td>${escapeHtml(String(bucket.tokens ?? "0"))}</td><td>${escapeHtml(formatCurrencyAmount(bucket.amount ?? null))}</td></tr>`;
-    }).join("");
+    })
+    .join("");
   return `<table class="pricing-table task-breakdown"><thead><tr><th></th><th>${escapeHtml(t("tokensBilled"))}</th><th>${escapeHtml(t("amountCny"))}</th></tr></thead><tbody>${rows}</tbody></table>`;
 }
 function renderTaskPricingPanel() {
@@ -1125,8 +1137,15 @@ function renderTaskPricingPanel() {
     return;
   }
   const data = pricing.data;
-  const groups = (data.groups || []).map((group) => `<details><summary>${escapeHtml(group.billing_model || "—")} · ${escapeHtml(String(group.request_count))} ${escapeHtml(t("requests"))} · ${escapeHtml(pricingAmount(group.cost_nano_cny))}</summary><p>${escapeHtml(t("pricePerMillion"))}: ${escapeHtml(group.price?.input_per_million ?? "—")} / ${escapeHtml(group.price?.output_per_million ?? "—")} / ${escapeHtml(group.price?.cache_read_per_million ?? "—")} / ${escapeHtml(group.price?.cache_write_per_million ?? "—")}</p>${taskBreakdownTableHtml(group.breakdown)}</details>`).join("");
-  const reasons = Object.entries(data.unpriced_reasons || {}).map(([reason, count]) => `${reason}: ${count}`).join(" · ");
+  const groups = (data.groups || [])
+    .map(
+      (group) =>
+        `<details><summary>${escapeHtml(group.billing_model || "—")} · ${escapeHtml(String(group.request_count))} ${escapeHtml(t("requests"))} · ${escapeHtml(pricingAmount(group.cost_nano_cny))}</summary><p>${escapeHtml(t("pricePerMillion"))}: ${escapeHtml(group.price?.input_per_million ?? "—")} / ${escapeHtml(group.price?.output_per_million ?? "—")} / ${escapeHtml(group.price?.cache_read_per_million ?? "—")} / ${escapeHtml(group.price?.cache_write_per_million ?? "—")}</p>${taskBreakdownTableHtml(group.breakdown)}</details>`,
+    )
+    .join("");
+  const reasons = Object.entries(data.unpriced_reasons || {})
+    .map(([reason, count]) => `${reason}: ${count}`)
+    .join(" · ");
   const cost = {
     known_amount: pricingDecimalFromNano(data.cost_nano_cny),
     priced_request_count: data.priced_request_count,

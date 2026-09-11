@@ -74,6 +74,9 @@ export function completeRequestPricing(
   if (normalized.status !== "complete") {
     return { ...pending, pricing_status: "unpriced", pricing_reason: normalized.reason };
   }
+  if (context.matchedRule === undefined) {
+    return { ...pending, pricing_status: "unpriced", pricing_reason: "no_matching_price" };
+  }
   try {
     const calculated = calculateCost(
       {
@@ -82,7 +85,7 @@ export function completeRequestPricing(
         cacheReadTokens: BigInt(normalized.usage.cacheReadTokens),
         cacheWriteTokens: BigInt(normalized.usage.cacheWriteTokens),
       },
-      context.matchedRule!,
+      context.matchedRule,
     );
     return {
       ...pending,

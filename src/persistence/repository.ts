@@ -451,7 +451,7 @@ export class TrafficRepository {
          WHERE pricing_status = 'pending'`,
       )
       .run(now);
-    return Number(result.changes);
+    return result.changes;
   }
 
   taskPricing(taskId: string): TaskPricingAggregate | undefined {
