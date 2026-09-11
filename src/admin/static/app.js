@@ -66,6 +66,17 @@ const translations = {
     defaultTarget: "默认",
     targetEnabled: "启用",
     modelMappings: "模型映射，每行一个 监听模型 => 转发模型；监听模型支持 * 通配符",
+    modelPrices: "模型价格",
+    addModelPrice: "添加模型价格",
+    pricePattern: "模型名称 / 通配符",
+    normalInputPrice: "普通输入",
+    outputPrice: "输出",
+    cacheReadPrice: "缓存读取",
+    cacheWritePrice: "缓存写入",
+    priceUnit: "单位：元 / M token（100 万 token）",
+    noModelPrices: "尚未配置模型价格，请求费用将显示为未计价",
+    testPriceModel: "测试模型名",
+    priceNoMatch: "未命中价格规则",
     moreTargetOptions: "更多配置",
     lessTargetOptions: "收起配置",
     delete: "删除",
@@ -153,6 +164,17 @@ const translations = {
     checkFail: "Failed: no response was received",
     defaultTarget: "Default",
     targetEnabled: "Enabled",
+    modelPrices: "Model pricing",
+    addModelPrice: "Add model price",
+    pricePattern: "Model / wildcard",
+    normalInputPrice: "Input",
+    outputPrice: "Output",
+    cacheReadPrice: "Cache read",
+    cacheWritePrice: "Cache write",
+    priceUnit: "Unit: CNY / M tokens (1,000,000 tokens)",
+    noModelPrices: "No model prices configured; request cost will be unpriced",
+    testPriceModel: "Test model",
+    priceNoMatch: "No price rule matched",
     modelMappings:
       "Model mapping, one per line: listened model => upstream model; * is supported as a wildcard",
     moreTargetOptions: "More settings",
@@ -361,6 +383,7 @@ const newTarget = () => ({
   log_root: "logs",
   redact_logs: false,
   model_mappings: [],
+  model_prices: [],
   expanded: false,
 });
 const newPair = () => {
@@ -393,6 +416,37 @@ function mappingsText(mappings) {
     )
     .join("\n");
 }
+function modelPriceRuleHtml(target, index) {
+  const rule = (target.model_prices || [])[index] || {};
+  const fields = [
+    ["model_pattern", "pricePattern"],
+    ["input_per_million", "normalInputPrice"],
+    ["output_per_million", "outputPrice"],
+    ["cache_read_per_million", "cacheReadPrice"],
+    ["cache_write_per_million", "cacheWritePrice"],
+  ];
+  return `<div class="model-price-rule" data-price-index="${index}">${fields.map(([field, label]) => `<label><span>${escapeHtml(t(label))}</span><input data-price-field="${field}" inputmode="decimal" value="${escapeHtml(rule[field] ?? "")}"></label>`).join("")}<div class="price-actions"><button type="button" data-price-up ${index === 0 ? "disabled" : ""}>↑</button><button type="button" data-price-down ${index === (target.model_prices || []).length - 1 ? "disabled" : ""}>↓</button><button type="button" data-price-remove>${escapeHtml(t("delete"))}</button></div></div>`;
+}
+function localPriceMatch(target) {
+  const model = target.price_test_model || "";
+  const rules = target.model_prices || [];
+  if (!model) return "";
+  const exact = rules.findIndex(
+    (rule) => !rule.model_pattern?.includes("*") && rule.model_pattern === model,
+  );
+  const wildcard = rules.findIndex(
+    (rule) => rule.model_pattern?.includes("*") && wildcardPriceMatch(rule.model_pattern, model),
+  );
+  const index = exact >= 0 ? exact : wildcard;
+  return index < 0 ? t("priceNoMatch") : `#${index + 1}: ${rules[index].model_pattern}`;
+}
+function wildcardPriceMatch(pattern, model) {
+  const escaped = pattern
+    .split("*")
+    .map((part) => part.replace(/[\\^$.*+?()[\]{}|]/g, "\\$&"))
+    .join(".*");
+  return new RegExp(`^${escaped}$`).test(model);
+}
 function renderTarget(target, pair, pairIndex, targetIndex) {
   const expanded = Boolean(target.expanded);
   const isDefault = pair.default_target_id === target.id;
@@ -421,6 +475,13 @@ function renderTarget(target, pair, pairIndex, targetIndex) {
         </div>
       </label>
       <label><span>${escapeHtml(t("modelMappings"))}</span><textarea data-target-field="model_mappings" placeholder="*gpt-5.5* => gpt-5.5">${escapeHtml(mappingsText(target.model_mappings))}</textarea></label>
+      <details class="model-prices" ${target.prices_expanded ? "open" : ""}>
+        <summary>${escapeHtml(t("modelPrices"))} · ${(target.model_prices || []).length}</summary>
+        <p class="price-help">${escapeHtml(t("priceUnit"))}</p>
+        <div class="model-price-rules">${(target.model_prices || []).map((_, index) => modelPriceRuleHtml(target, index)).join("") || `<p class="price-empty">${escapeHtml(t("noModelPrices"))}</p>`}</div>
+        <button type="button" data-add-price>${escapeHtml(t("addModelPrice"))}</button>
+        <label class="price-test"><span>${escapeHtml(t("testPriceModel"))}</span><input data-price-test value="${escapeHtml(target.price_test_model || "")}"><output>${escapeHtml(localPriceMatch(target))}</output></label>
+      </details>
       <div class="target-controls">
         ${isDefault ? `<span class="target-enabled">${escapeHtml(t("defaultTarget"))}</span>` : `<label class="target-enabled"><input type="checkbox" data-target-enabled ${target.enabled !== false ? "checked" : ""}> <span>${escapeHtml(t("targetEnabled"))}</span></label>`}
         <button data-toggle-target-options>${escapeHtml(t(expanded ? "lessTargetOptions" : "moreTargetOptions"))}</button>
@@ -505,6 +566,15 @@ function collectPairs() {
         if (field === "inject_request_fields" && value === "") value = "";
         target[field] = value;
       });
+      target.model_prices = [...targetCard.querySelectorAll("[data-price-index]")].map((rule) => {
+        const value = {};
+        rule.querySelectorAll("[data-price-field]").forEach((input) => {
+          value[input.dataset.priceField] = input.value;
+        });
+        return value;
+      });
+      target.price_test_model = targetCard.querySelector("[data-price-test]")?.value || "";
+      target.prices_expanded = targetCard.querySelector(".model-prices")?.open || false;
       if (targetCard.querySelector("[data-default-target]")?.checked)
         pair.default_target_id = target.id;
       const enabledInput = targetCard.querySelector("[data-target-enabled]");
@@ -1216,6 +1286,35 @@ $("proxyGrid").addEventListener("click", (event) => {
   const card = event.target.closest(".proxy-card");
   if (!card) return;
   const pair = state.pairs[Number(card.dataset.index)];
+  if (
+    event.target.matches(
+      "[data-add-price], [data-price-remove], [data-price-up], [data-price-down]",
+    )
+  ) {
+    collectPairs();
+    const targetCard = event.target.closest(".target-card");
+    const target = pairTargets(pair)[Number(targetCard.dataset.targetIndex)];
+    const rules = target.model_prices || (target.model_prices = []);
+    const index = Number(event.target.closest("[data-price-index]")?.dataset.priceIndex);
+    if (event.target.matches("[data-add-price]")) {
+      rules.push({
+        model_pattern: "",
+        input_per_million: "",
+        output_per_million: "",
+        cache_read_per_million: "",
+        cache_write_per_million: "",
+      });
+    } else if (event.target.matches("[data-price-remove]")) {
+      rules.splice(index, 1);
+    } else if (event.target.matches("[data-price-up]") && index > 0) {
+      [rules[index - 1], rules[index]] = [rules[index], rules[index - 1]];
+    } else if (event.target.matches("[data-price-down]") && index < rules.length - 1) {
+      [rules[index], rules[index + 1]] = [rules[index + 1], rules[index]];
+    }
+    target.prices_expanded = true;
+    renderPairs();
+    return;
+  }
   if (event.target.matches("[data-add-target]")) {
     collectPairs();
     const target = newTarget();

@@ -228,6 +228,63 @@ main {
 .target-card button:hover {
   background: #d2deea;
 }
+.model-prices {
+  border-top: 1px solid #b8c5d3;
+  padding-top: 6px;
+}
+.model-prices summary {
+  cursor: pointer;
+  font-weight: 600;
+}
+.price-help,
+.price-empty {
+  margin: 5px 0;
+  font-size: 12px;
+  color: #46586a;
+}
+.model-price-rule {
+  display: grid;
+  grid-template-columns: repeat(5, minmax(0, 1fr)) auto;
+  gap: 5px;
+  margin: 6px 0;
+  align-items: end;
+}
+.model-price-rule label,
+.price-test {
+  display: grid;
+  gap: 2px;
+  min-width: 0;
+  font-size: 12px;
+}
+.model-price-rule input {
+  min-width: 0;
+  width: 100%;
+}
+.price-actions {
+  display: flex;
+  gap: 2px;
+}
+.price-test {
+  grid-template-columns: auto minmax(8rem, 1fr) minmax(0, 1fr);
+  align-items: center;
+  margin-top: 7px;
+}
+.price-test output {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+@media (max-width: 700px) {
+  .model-price-rule {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+  .price-actions {
+    grid-column: 1 / -1;
+  }
+  .price-test {
+    grid-template-columns: 1fr;
+  }
+}
 .target-head {
   display: flex;
   gap: 8px;

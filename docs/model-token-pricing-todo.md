@@ -1,6 +1,6 @@
 # 模型 token 定价与历史费用开发 TODO
 
-创建日期：2026-09-11。当前进度：8 / 14 项完成。
+创建日期：2026-09-11。当前进度：9 / 14 项完成。
 
 设计依据：[转发地址模型定价与历史费用设计](./model-token-pricing-design.md)。本清单用于后续开发、验收与逐项提交；遇到设计调整，应同步更新设计文档、本清单及测试，不能只改代码。
 
@@ -47,7 +47,7 @@
 | [x] | PRICE-06 | 数据库迁移与费用持久化 | PRICE-05 | 完成 |
 | [x] | PRICE-07 | task 总额与费用明细聚合 | PRICE-06 | 完成 |
 | [x] | PRICE-08 | 历史 API、schema 与导出 | PRICE-07 | 完成 |
-| [ ] | PRICE-09 | target 价格编辑 UI | PRICE-01、02、08 | 未开始 |
+| [x] | PRICE-09 | target 价格编辑 UI | PRICE-01、02、08 | 完成 |
 | [ ] | PRICE-10 | 费用格式化与两级列表 UI | PRICE-08、09 | 未开始 |
 | [ ] | PRICE-11 | 请求与 task 费用明细 UI | PRICE-10 | 未开始 |
 | [ ] | PRICE-12 | 自动刷新、异步竞态与任务生命周期 | PRICE-11 | 未开始 |
@@ -393,6 +393,22 @@ UI 基线：不涉及。
 UI 基线：不涉及。
 设计偏差与迁移影响：无。
 提交定位：`feat(pricing): [PRICE-08] expose pricing history API`。
+补充修复提交：无。
+遗留问题：无。
+
+### PRICE-09
+
+任务 ID：PRICE-09
+状态：完成
+完成日期：2026-09-11
+实现内容与实际文件：target 卡片在模型映射下新增折叠模型价格区；支持添加、删除、上下重排、四项单价输入，以及未保存规则的本地精确/通配测试。规则仍随现有配置保存统一生效。
+测试映射：P09-01～P09-04 → `test-node/ui/admin-ui.test.ts` 管理页面浏览器回归、`test-node/admin/static-source.test.ts` 静态资源回归及共享 matcher 单元测试。
+验证命令与结果：`npm run typecheck` 通过；`npx vitest run test-node/admin/static-source.test.ts test-node/ui/admin-ui.test.ts` 通过（2 个测试文件、42 个测试）；`npm run regen:ui-baselines` 通过。
+验收结论：通过；规则按 target 隔离，测试框不调用上游或保存配置，窄屏规则布局自动改为两列。
+文档更新：TODO 执行记录、UI 基线哈希。
+UI 基线：`npm run regen:ui-baselines`；已更新 `doc/ui_*.png` 与 `docs/refactoring/ui-visual-baseline.md`。
+设计偏差与迁移影响：无。
+提交定位：`feat(pricing): [PRICE-09] edit target model prices`。
 补充修复提交：无。
 遗留问题：无。
 
