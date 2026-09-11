@@ -35,34 +35,39 @@ export async function runPricingBenchmark(
         request_count: taskRecords,
         match_strategy_version: 4,
       });
-      for (let index = 0; index < taskRecords; index += 1) {
-        repository.upsertRecord({
-          id: `${taskId}-record-${index}`,
-          task_id: taskId,
-          sequence: index + 1,
-          method: "POST",
-          path: "/v1/responses",
-          pricing: {
-            pricing_status: "priced",
-            billing_model: "gpt-benchmark",
-            pricing_snapshot: {
-              model_pattern: "gpt-benchmark",
-              input_per_million: "5",
-              output_per_million: "30",
-              cache_read_per_million: "0.5",
-              cache_write_per_million: "6.25",
-              algorithm_version: 1,
+      // One transaction per root so the fixture pays a single WAL fsync
+      // instead of one per record; per-record commits made CI runners blow
+      // past the test timeout.
+      repository.transaction(() => {
+        for (let index = 0; index < taskRecords; index += 1) {
+          repository.upsertRecord({
+            id: `${taskId}-record-${index}`,
+            task_id: taskId,
+            sequence: index + 1,
+            method: "POST",
+            path: "/v1/responses",
+            pricing: {
+              pricing_status: "priced",
+              billing_model: "gpt-benchmark",
+              pricing_snapshot: {
+                model_pattern: "gpt-benchmark",
+                input_per_million: "5",
+                output_per_million: "30",
+                cache_read_per_million: "0.5",
+                cache_write_per_million: "6.25",
+                algorithm_version: 1,
+              },
+              usage: {
+                inputUncachedTokens: 1500,
+                outputTokens: 1000,
+                cacheReadTokens: 1000,
+                cacheWriteTokens: 500,
+              },
+              cost_nano_cny: "41125000",
             },
-            usage: {
-              inputUncachedTokens: 1500,
-              outputTokens: 1000,
-              cacheReadTokens: 1000,
-              cacheWriteTokens: 500,
-            },
-            cost_nano_cny: "41125000",
-          },
-        });
-      }
+          });
+        }
+      });
       repository.close();
     }
     const service = new LogQueryService(logRoots);

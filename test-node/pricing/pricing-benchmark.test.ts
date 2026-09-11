@@ -12,5 +12,5 @@ describe("pricing benchmark fixture", () => {
     expect(result.medianListMs).toBeGreaterThanOrEqual(0);
     expect(result.medianSearchMs).toBeGreaterThanOrEqual(0);
     expect(result.medianDetailMs).toBeGreaterThanOrEqual(0);
-  }, 60_000);
+  }, 120_000);
 });
