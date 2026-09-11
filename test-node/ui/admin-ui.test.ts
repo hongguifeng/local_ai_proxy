@@ -947,6 +947,7 @@ describe("admin UI history page", { timeout: UI_TEST_TIMEOUT_MS }, () => {
 
     await expectPage(pendingItem.locator(".request-tokens .log-metric-value")).toHaveText("8");
     await expectPage(pendingItem.locator(".response-tokens .log-metric-value")).toHaveText("4");
+    await expectPage(pendingItem.locator(".cost .log-metric-value")).toHaveText("¥0.0411");
     await expectPage(pendingItem.locator(".log-status")).toHaveText("200");
     await expectPage(pendingItem).not.toContainText("pending");
     await autoRefresh.uncheck();
@@ -957,6 +958,36 @@ describe("admin UI history page", { timeout: UI_TEST_TIMEOUT_MS }, () => {
       page.locator("#refreshLogs").click(),
     ]);
     expect(detailReads.get("record-one")).toBe(completedReads);
+  });
+
+  it("refreshes a visible task total when only its pricing summary changes", async () => {
+    await loadAdminPage();
+    await Promise.all([
+      page.waitForResponse((response) => response.url().includes("/api/logs?")),
+      page.locator('[data-tab="logs"]').click(),
+    ]);
+    await page.route("**/api/logs?**", async (route) => {
+      const response = await route.fetch();
+      const data = (await response.json()) as { groups: Array<{ id: string; cost?: unknown }> };
+      data.groups = data.groups.map((group) =>
+        group.id === "task-one"
+          ? {
+              ...group,
+              cost: {
+                currency: "CNY",
+                known_amount: "5",
+                priced_request_count: 5,
+                unpriced_request_count: 0,
+                pending_request_count: 0,
+              },
+            }
+          : group,
+      );
+      await route.fulfill({ response, json: data });
+    });
+    await page.locator("#refreshLogs").click();
+    await expectPage(page.locator('[data-group-cost="task-one"]')).toHaveText("Total cost ¥5");
+    await page.unroute("**/api/logs?**");
   });
 
   it("loads task records only when a group is expanded", async () => {

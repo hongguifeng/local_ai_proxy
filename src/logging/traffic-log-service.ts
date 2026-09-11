@@ -31,6 +31,9 @@ export class TrafficLogService {
     this.#logger = options.logger ?? new StructuredLogger({ service: "llm-proxy-traffic-log" });
     this.#repository =
       logRoot === null || logRoot === undefined ? undefined : new TrafficRepository(logRoot);
+    // A newly constructed service has no inherited in-flight proxy requests.  Pending
+    // rows therefore came from a prior process and must not remain "calculating" forever.
+    this.#repository?.markPendingPricingInterrupted();
     this.#taskMatcher =
       this.#repository === undefined ? undefined : new TaskMatcher(this.#repository);
     this.#writeQueue =

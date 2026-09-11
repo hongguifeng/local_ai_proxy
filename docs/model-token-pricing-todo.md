@@ -1,6 +1,6 @@
 # 模型 token 定价与历史费用开发 TODO
 
-创建日期：2026-09-11。当前进度：11 / 14 项完成。
+创建日期：2026-09-11。当前进度：12 / 14 项完成。
 
 设计依据：[转发地址模型定价与历史费用设计](./model-token-pricing-design.md)。本清单用于后续开发、验收与逐项提交；遇到设计调整，应同步更新设计文档、本清单及测试，不能只改代码。
 
@@ -50,7 +50,7 @@
 | [x] | PRICE-09 | target 价格编辑 UI | PRICE-01、02、08 | 完成 |
 | [x] | PRICE-10 | 费用格式化与两级列表 UI | PRICE-08、09 | 完成 |
 | [x] | PRICE-11 | 请求与 task 费用明细 UI | PRICE-10 | 完成 |
-| [ ] | PRICE-12 | 自动刷新、异步竞态与任务生命周期 | PRICE-11 | 未开始 |
+| [x] | PRICE-12 | 自动刷新、异步竞态与任务生命周期 | PRICE-11 | 完成 |
 | [ ] | PRICE-13 | 端到端、迁移与性能回归 | PRICE-12 | 未开始 |
 | [ ] | PRICE-14 | 使用文档与最终交付检查 | PRICE-13 | 未开始 |
 
@@ -441,6 +441,22 @@ UI 基线：`npm run regen:ui-baselines`；已更新 `doc/ui_logs_cn.png`、`doc
 UI 基线：`npm run regen:ui-baselines`；已更新 `doc/ui_logs_cn.png`、`doc/ui_logs_en.png` 与 `docs/refactoring/ui-visual-baseline.md`。
 设计偏差与迁移影响：无。
 提交定位：`feat(pricing): [PRICE-11] add pricing detail panels`。
+补充修复提交：无。
+遗留问题：无。
+
+### PRICE-12
+
+任务 ID：PRICE-12
+状态：完成
+完成日期：2026-09-11
+实现内容与实际文件：task 摘要刷新签名纳入费用金额和三种状态计数；运行中请求完成时更新二级费用。打开的 task 面板随列表刷新重新获取聚合，任务清理后保留明确的“任务已删除”提示而不保留旧金额。task 明细请求使用 AbortController 并以当前 task ID 校验响应，切换或关闭后不会被过期响应覆盖。新的流量日志服务启动时将遗留 pending 定价转换为 `incomplete_usage`，不会永久显示为计算中。
+测试映射：P12-01 → `test-node/ui/admin-ui.test.ts` 的 pending 费用完成与仅费用摘要变更刷新用例；P12-02 → task 明细请求的中止/ID 守卫实现及 UI API 回归；P12-03 → 面板删除状态实现；P12-04 → `test-node/persistence/repository.test.ts` 的遗留 pending 中断转换用例。
+验证命令与结果：`npm run typecheck` 通过；`npx vitest run test-node/persistence/repository.test.ts -t "marks pending pricing" --reporter=dot` 通过（1 个测试）；`npx vitest run test-node/ui/admin-ui.test.ts -t "refreshes a visible task total|refreshes a pending list item" --reporter=dot` 通过（2 个测试）；`npm run regen:ui-baselines` 通过（4 个中英文基线测试）。
+验收结论：通过；自动刷新在费用或状态单独变化时重绘，历史遗留的未完成记录不会被误报为活动计费。
+文档更新：TODO 执行记录；已复核 UI 基线。
+UI 基线：`npm run regen:ui-baselines` 通过；输出哈希未变化。
+设计偏差与迁移影响：无；仅运行时启动时标记未完成记录，不重算已有金额。
+提交定位：`feat(pricing): [PRICE-12] refresh pricing lifecycle state`。
 补充修复提交：无。
 遗留问题：无。
 

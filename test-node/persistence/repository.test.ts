@@ -113,6 +113,28 @@ describe("TrafficRepository pricing persistence", () => {
     reopened.close();
   });
 
+  it("marks pending pricing as interrupted when a new runtime opens the log", async () => {
+    const root = await mkdtemp(path.join(os.tmpdir(), "llm-proxy-repository-pricing-pending-"));
+    temporaryDirectories.push(root);
+    const repository = new TrafficRepository(root);
+    repository.upsertTask({ id: "pending-pricing-task", match_strategy_version: 4 });
+    repository.upsertRecord({
+      id: "pending-pricing-record",
+      task_id: "pending-pricing-task",
+      sequence: 1,
+      method: "POST",
+      path: "/v1/responses",
+      pricing: { pricing_status: "pending", billing_model: "gpt-5" },
+    });
+    expect(repository.markPendingPricingInterrupted("2026-09-11T12:00:00.000Z")).toBe(1);
+    expect(repository.getRecord("pending-pricing-record")).toMatchObject({
+      pricing: { pricing_status: "unpriced", pricing_reason: "incomplete_usage" },
+      updated_at: "2026-09-11T12:00:00.000Z",
+    });
+    expect(repository.markPendingPricingInterrupted()).toBe(0);
+    repository.close();
+  });
+
   it("aggregates all task records, status counts, and frozen-price groups without bodies", async () => {
     const root = await mkdtemp(path.join(os.tmpdir(), "llm-proxy-repository-pricing-summary-"));
     temporaryDirectories.push(root);

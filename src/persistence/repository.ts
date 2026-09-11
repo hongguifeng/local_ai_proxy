@@ -443,6 +443,17 @@ export class TrafficRepository {
     return typeof value === "number" ? value : 0;
   }
 
+  markPendingPricingInterrupted(now = new Date().toISOString()): number {
+    const result = this.#database
+      .prepare(
+        `UPDATE records
+         SET pricing_status = 'unpriced', pricing_reason = 'incomplete_usage', updated_at = ?
+         WHERE pricing_status = 'pending'`,
+      )
+      .run(now);
+    return Number(result.changes);
+  }
+
   taskPricing(taskId: string): TaskPricingAggregate | undefined {
     const task = this.getTask(taskId);
     if (task === undefined) return undefined;

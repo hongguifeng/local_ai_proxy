@@ -104,6 +104,7 @@ const translations = {
     retry: "重试",
     close: "关闭",
     pricingUnavailable: "无法加载任务费用明细",
+    taskDeleted: "任务已删除",
     taskWholeScope: "整个任务费用，包含未匹配请求。",
     moreTargetOptions: "更多配置",
     lessTargetOptions: "收起配置",
@@ -230,6 +231,7 @@ const translations = {
     retry: "Retry",
     close: "Close",
     pricingUnavailable: "Could not load task pricing details",
+    taskDeleted: "Task was deleted",
     taskWholeScope: "Whole-task cost, including requests outside this list.",
     modelMappings:
       "Model mapping, one per line: listened model => upstream model; * is supported as a wildcard",
@@ -278,6 +280,7 @@ const state = {
   requestPricing: null,
   activeTaskPricing: null,
   taskPricing: null,
+  taskPricingAbort: null,
   logsLoadedAt: 0,
   logLimit: 100,
   logOffset: 0,
@@ -768,6 +771,10 @@ function logGroupSummarySignature(group) {
     group.model,
     group.request_count,
     group.target,
+    group.cost?.known_amount,
+    group.cost?.priced_request_count,
+    group.cost?.unpriced_request_count,
+    group.cost?.pending_request_count,
   ].join("|");
 }
 function sameLogGroups(nextGroups) {
@@ -838,6 +845,15 @@ async function loadLogs(options = {}) {
         .forEach((group) => loadLogGroup(group.id).catch((e) => toast(e.message)));
     }
     if (!rendered) renderLogs();
+    if (state.activeTaskPricing) {
+      if (!state.logGroups.some((group) => group.id === state.activeTaskPricing)) {
+        state.taskPricingAbort?.abort();
+        state.taskPricing = { id: state.activeTaskPricing, loading: false, error: "deleted", data: null };
+        renderTaskPricingPanel();
+      } else {
+        refreshTaskPricingPanel().catch(() => {});
+      }
+    }
     state.logsLoadedAt = Date.now();
     state.lastLogQuery = state.logQuery;
     try {
@@ -871,6 +887,7 @@ async function refreshPendingLogItems() {
       item.status = responseMeta.status ?? item.status;
       item.request_token_count = responseMeta.request_token_count ?? item.request_token_count;
       item.response_token_count = responseMeta.response_token_count ?? item.response_token_count;
+      item.cost = logRequestCost(data.pricing);
       listChanged = true;
     }),
   );
@@ -1027,6 +1044,15 @@ function pricingStatusValue(pricing) {
   if (pricing.pricing_status === "pending") return t("calculating");
   return pricingAmount(pricing.cost_nano_cny);
 }
+function logRequestCost(pricing) {
+  if (!pricing) return undefined;
+  return {
+    currency: "CNY",
+    status: pricing.pricing_status,
+    reason: pricing.pricing_reason ?? null,
+    amount: pricing.pricing_status === "priced" ? pricingDecimalFromNano(pricing.cost_nano_cny) : null,
+  };
+}
 const pricingBuckets = [
   ["inputUncachedTokens", "input_per_million", "inputUncached"],
   ["outputTokens", "output_per_million", "output"],
@@ -1094,7 +1120,8 @@ function renderTaskPricingPanel() {
     return;
   }
   if (pricing.error) {
-    panel.innerHTML = `<div class="pricing-panel-head"><strong>${escapeHtml(t("taskPricing"))}</strong><button type="button" data-close-pricing>${escapeHtml(t("close"))}</button></div><p>${escapeHtml(t("pricingUnavailable"))}</p><button type="button" data-retry-pricing>${escapeHtml(t("retry"))}</button>`;
+    const deleted = pricing.error === "deleted";
+    panel.innerHTML = `<div class="pricing-panel-head"><strong>${escapeHtml(t("taskPricing"))}</strong><button type="button" data-close-pricing>${escapeHtml(t("close"))}</button></div><p>${escapeHtml(deleted ? t("taskDeleted") : t("pricingUnavailable"))}</p>${deleted ? "" : `<button type="button" data-retry-pricing>${escapeHtml(t("retry"))}</button>`}`;
     return;
   }
   const data = pricing.data;
@@ -1109,22 +1136,49 @@ function renderTaskPricingPanel() {
   panel.innerHTML = `<div class="pricing-panel-head"><strong>${escapeHtml(t("taskPricing"))}</strong><button type="button" data-close-pricing>${escapeHtml(t("close"))}</button></div><div class="pricing-card-head"><strong>${escapeHtml(formatGroupCost(cost))}</strong><span>${escapeHtml(`${t("priced")} ${data.priced_request_count} / ${t("unpriced")} ${data.unpriced_request_count} / ${t("pending")} ${data.pending_request_count}`)}</span></div><p class="pricing-target"><strong>${escapeHtml(t("target"))}:</strong> ${escapeHtml(data.target || "—")}</p>${data.priced_request_count ? taskBreakdownTableHtml(data.breakdown) : `<p>${escapeHtml(reasons || t("unpriced"))}</p>`}<p class="pricing-note">${escapeHtml(t("taskWholeScope"))}</p><h3>${escapeHtml(t("priceGroups"))}</h3>${groups || `<p>${escapeHtml(t("unpriced"))}</p>`}`;
 }
 async function showTaskPricing(groupId) {
+  state.taskPricingAbort?.abort();
+  const controller = new AbortController();
+  state.taskPricingAbort = controller;
   state.activeTaskPricing = groupId;
   state.taskPricing = { id: groupId, loading: true, error: false, data: null };
   renderTaskPricingPanel();
   try {
-    const data = await api(`/api/log-groups/${encodeURIComponent(groupId)}/pricing`);
+    const data = await api(`/api/log-groups/${encodeURIComponent(groupId)}/pricing`, {
+      signal: controller.signal,
+    });
     if (state.activeTaskPricing !== groupId) return;
     state.taskPricing = { id: groupId, loading: false, error: false, data };
-  } catch {
+  } catch (error) {
+    if (error?.name === "AbortError") return;
     if (state.activeTaskPricing !== groupId) return;
     state.taskPricing = { id: groupId, loading: false, error: true, data: null };
   }
   renderTaskPricingPanel();
 }
 function closeTaskPricing() {
+  state.taskPricingAbort?.abort();
+  state.taskPricingAbort = null;
   state.activeTaskPricing = null;
   renderTaskPricingPanel();
+}
+async function refreshTaskPricingPanel() {
+  const groupId = state.activeTaskPricing;
+  if (!groupId || state.taskPricing?.loading) return;
+  const controller = new AbortController();
+  state.taskPricingAbort?.abort();
+  state.taskPricingAbort = controller;
+  try {
+    const data = await api(`/api/log-groups/${encodeURIComponent(groupId)}/pricing`, {
+      signal: controller.signal,
+    });
+    if (state.activeTaskPricing !== groupId || controller.signal.aborted) return;
+    state.taskPricing = { id: groupId, loading: false, error: false, data };
+    renderTaskPricingPanel();
+  } catch (error) {
+    if (error?.name === "AbortError" || state.activeTaskPricing !== groupId) return;
+    state.taskPricing = { id: groupId, loading: false, error: true, data: null };
+    renderTaskPricingPanel();
+  }
 }
 function jsonType(value) {
   if (value === null) return "null";
