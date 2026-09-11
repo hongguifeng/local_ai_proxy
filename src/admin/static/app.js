@@ -74,6 +74,9 @@ const translations = {
     cacheReadPrice: "缓存读取",
     cacheWritePrice: "缓存写入",
     priceUnit: "单位：元 / M token（100 万 token）",
+    priceRule: "规则",
+    movePriceUp: "上移规则",
+    movePriceDown: "下移规则",
     noModelPrices: "尚未配置模型价格，请求费用将显示为未计价",
     testPriceModel: "测试模型名",
     priceNoMatch: "未命中价格规则",
@@ -201,6 +204,9 @@ const translations = {
     cacheReadPrice: "Cache read",
     cacheWritePrice: "Cache write",
     priceUnit: "Unit: CNY / M tokens (1,000,000 tokens)",
+    priceRule: "Rule",
+    movePriceUp: "Move rule up",
+    movePriceDown: "Move rule down",
     noModelPrices: "No model prices configured; request cost will be unpriced",
     testPriceModel: "Test model",
     priceNoMatch: "No price rule matched",
@@ -515,14 +521,17 @@ function mappingsText(mappings) {
 }
 function modelPriceRuleHtml(target, index) {
   const rule = (target.model_prices || [])[index] || {};
-  const fields = [
-    ["model_pattern", "pricePattern"],
+  const priceFields = [
     ["input_per_million", "normalInputPrice"],
     ["output_per_million", "outputPrice"],
     ["cache_read_per_million", "cacheReadPrice"],
     ["cache_write_per_million", "cacheWritePrice"],
   ];
-  return `<div class="model-price-rule" data-price-index="${index}">${fields.map(([field, label]) => `<label><span>${escapeHtml(t(label))}</span><input data-price-field="${field}" inputmode="decimal" value="${escapeHtml(rule[field] ?? "")}"></label>`).join("")}<div class="price-actions"><button type="button" data-price-up ${index === 0 ? "disabled" : ""}>↑</button><button type="button" data-price-down ${index === (target.model_prices || []).length - 1 ? "disabled" : ""}>↓</button><button type="button" data-price-remove>${escapeHtml(t("delete"))}</button></div></div>`;
+  return `<section class="model-price-rule" data-price-index="${index}" aria-label="${escapeHtml(`${t("priceRule")} ${index + 1}`)}">
+    <div class="price-rule-head"><strong>${escapeHtml(`${t("priceRule")} ${index + 1}`)}</strong><div class="price-actions"><button type="button" data-price-up title="${escapeHtml(t("movePriceUp"))}" aria-label="${escapeHtml(t("movePriceUp"))}" ${index === 0 ? "disabled" : ""}>↑</button><button type="button" data-price-down title="${escapeHtml(t("movePriceDown"))}" aria-label="${escapeHtml(t("movePriceDown"))}" ${index === (target.model_prices || []).length - 1 ? "disabled" : ""}>↓</button><button type="button" data-price-remove>${escapeHtml(t("delete"))}</button></div></div>
+    <label class="price-pattern"><span>${escapeHtml(t("pricePattern"))}</span><input data-price-field="model_pattern" value="${escapeHtml(rule.model_pattern ?? "")}" placeholder="gpt-*"></label>
+    <div class="price-field-grid">${priceFields.map(([field, label]) => `<label><span>${escapeHtml(t(label))}</span><input data-price-field="${field}" inputmode="decimal" value="${escapeHtml(rule[field] ?? "")}"></label>`).join("")}</div>
+  </section>`;
 }
 function localPriceMatch(target) {
   const model = target.price_test_model || "";
@@ -536,6 +545,21 @@ function localPriceMatch(target) {
   );
   const index = exact >= 0 ? exact : wildcard;
   return index < 0 ? t("priceNoMatch") : `#${index + 1}: ${rules[index].model_pattern}`;
+}
+function updateLocalPriceMatch(targetCard) {
+  const target = {
+    price_test_model: targetCard.querySelector("[data-price-test]")?.value || "",
+    model_prices: [...targetCard.querySelectorAll("[data-price-index]")].map((rule) =>
+      Object.fromEntries(
+        [...rule.querySelectorAll("[data-price-field]")].map((input) => [
+          input.dataset.priceField,
+          input.value,
+        ]),
+      ),
+    ),
+  };
+  const output = targetCard.querySelector(".price-test output");
+  if (output) output.textContent = localPriceMatch(target);
 }
 function wildcardPriceMatch(pattern, model) {
   const escaped = pattern
@@ -576,8 +600,7 @@ function renderTarget(target, pair, pairIndex, targetIndex) {
         <summary>${escapeHtml(t("modelPrices"))} · ${(target.model_prices || []).length}</summary>
         <p class="price-help">${escapeHtml(t("priceUnit"))}</p>
         <div class="model-price-rules">${(target.model_prices || []).map((_, index) => modelPriceRuleHtml(target, index)).join("") || `<p class="price-empty">${escapeHtml(t("noModelPrices"))}</p>`}</div>
-        <button type="button" data-add-price>${escapeHtml(t("addModelPrice"))}</button>
-        <label class="price-test"><span>${escapeHtml(t("testPriceModel"))}</span><input data-price-test value="${escapeHtml(target.price_test_model || "")}"><output>${escapeHtml(localPriceMatch(target))}</output></label>
+        <div class="price-tools"><button type="button" data-add-price>${escapeHtml(t("addModelPrice"))}</button><label class="price-test"><span>${escapeHtml(t("testPriceModel"))}</span><input data-price-test value="${escapeHtml(target.price_test_model || "")}"><output aria-live="polite">${escapeHtml(localPriceMatch(target))}</output></label></div>
       </details>
       <div class="target-controls">
         ${isDefault ? `<span class="target-enabled">${escapeHtml(t("defaultTarget"))}</span>` : `<label class="target-enabled"><input type="checkbox" data-target-enabled ${target.enabled !== false ? "checked" : ""}> <span>${escapeHtml(t("targetEnabled"))}</span></label>`}
@@ -975,11 +998,11 @@ function renderLogs() {
       .map(
         (group) => `
     <section class="log-group">
-      <div class="log-group-head">
-        <input class="log-group-select" type="checkbox" data-select-group="${escapeHtml(group.id || "")}" title="${escapeHtml(t("selectLogGroup"))}" ${state.selectedLogGroups[group.id] ? "checked" : ""}>
-        <button type="button" class="log-group-toggle" data-group-id="${escapeHtml(group.id || "")}" aria-expanded="${state.collapsedGroups[group.id] ? "true" : "false"}" aria-label="${escapeHtml(t("task"))}">
+      <div class="log-group-head" data-group-id="${escapeHtml(group.id || "")}" role="button" tabindex="0" aria-expanded="${state.collapsedGroups[group.id] ? "true" : "false"}" aria-label="${escapeHtml(t("task"))}">
+        <div class="log-group-controls">
+          <input class="log-group-select" type="checkbox" data-select-group="${escapeHtml(group.id || "")}" title="${escapeHtml(t("selectLogGroup"))}" ${state.selectedLogGroups[group.id] ? "checked" : ""}>
           <span class="log-group-caret" aria-hidden="true">${!state.collapsedGroups[group.id] ? "▸" : "▾"}</span>
-        </button>
+        </div>
         <div class="log-group-summary">
           ${logGroupTimeHtml(group)}
           ${logGroupFactsHtml(group)}
@@ -1750,6 +1773,11 @@ $("proxyGrid").addEventListener("change", async (event) => {
   Object.assign(pair, data.pair);
   renderPairs();
 });
+$("proxyGrid").addEventListener("input", (event) => {
+  if (!event.target.matches("[data-price-field], [data-price-test]")) return;
+  const targetCard = event.target.closest(".target-card");
+  if (targetCard) updateLocalPriceMatch(targetCard);
+});
 function runLogSearch() {
   state.logQuery = $("logSearch").value.trim();
   $("autoRefreshLogs").disabled = state.logQuery !== "";
@@ -1799,6 +1827,16 @@ $("logItems").addEventListener("click", (event) => {
   if (event.target.matches("[data-load-more]"))
     loadLogs({ append: true }).catch((e) => toast(e.message));
 });
+$("logItems").addEventListener("keydown", (event) => {
+  if (event.key !== "Enter" && event.key !== " ") return;
+  if (event.target.closest("input, button, a, select, textarea")) return;
+  const group = event.target.closest(".log-group-head[data-group-id]");
+  if (!group) return;
+  event.preventDefault();
+  const groupId = group.dataset.groupId;
+  state.collapsedGroups[groupId] = !state.collapsedGroups[groupId];
+  renderLogs();
+});
 $("pricingPanel").addEventListener("click", (event) => {
   if (event.target.closest("[data-close-pricing]")) {
     closeTaskPricing();
@@ -1810,7 +1848,12 @@ $("pricingPanel").addEventListener("click", (event) => {
 });
 $("logItems").addEventListener("click", (event) => {
   const group = event.target.closest("[data-group-id]");
-  if (!group || event.target.matches("[data-select-group]")) return;
+  if (
+    !group ||
+    event.target.matches("[data-select-group]") ||
+    event.target.closest("[data-group-cost]")
+  )
+    return;
   const groupId = group.dataset.groupId;
   if (state.collapsedGroups[groupId]) loadLogGroup(groupId).catch((e) => toast(e.message));
 });

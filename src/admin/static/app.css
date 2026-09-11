@@ -230,7 +230,7 @@ main {
 }
 .model-prices {
   border-top: 1px solid #b8c5d3;
-  padding-top: 6px;
+  padding-top: 10px;
 }
 .model-prices summary {
   cursor: pointer;
@@ -238,51 +238,94 @@ main {
 }
 .price-help,
 .price-empty {
-  margin: 5px 0;
+  margin: 6px 0 8px;
   font-size: 12px;
   color: #46586a;
 }
+.model-price-rules {
+  display: grid;
+  gap: 8px;
+}
 .model-price-rule {
   display: grid;
-  grid-template-columns: repeat(5, minmax(0, 1fr)) auto;
-  gap: 5px;
-  margin: 6px 0;
-  align-items: end;
+  gap: 8px;
+  padding: 9px;
+  border: 1px solid #91aabd;
+  border-radius: 7px;
+  background: rgb(255 255 255 / 45%);
 }
 .model-price-rule label,
-.price-test {
+.price-test,
+.price-field-grid label {
   display: grid;
-  gap: 2px;
+  gap: 3px;
   min-width: 0;
   font-size: 12px;
 }
-.model-price-rule input {
+.price-rule-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  color: #23435e;
+  font-size: 12px;
+}
+.model-price-rule input,
+.price-test input {
   min-width: 0;
   width: 100%;
 }
+.price-field-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 7px 8px;
+}
 .price-actions {
   display: flex;
-  gap: 2px;
+  gap: 4px;
+}
+.price-actions button {
+  min-width: 30px;
+  padding: 4px 7px;
+}
+.price-tools {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  gap: 8px;
+  align-items: end;
+  margin-top: 9px;
 }
 .price-test {
-  grid-template-columns: auto minmax(8rem, 1fr) minmax(0, 1fr);
+  grid-template-columns: auto minmax(7rem, 1fr) minmax(0, 1fr);
+  gap: 4px 6px;
   align-items: center;
-  margin-top: 7px;
+  grid-auto-flow: column;
+}
+.price-test > span {
+  grid-row: 1;
+}
+.price-test > input {
+  grid-row: 1;
+}
+.price-test output {
+  grid-row: 1;
 }
 .price-test output {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
-@media (max-width: 700px) {
-  .model-price-rule {
-    grid-template-columns: repeat(2, minmax(0, 1fr));
-  }
-  .price-actions {
-    grid-column: 1 / -1;
+@media (max-width: 520px) {
+  .price-tools {
+    grid-template-columns: 1fr;
   }
   .price-test {
-    grid-template-columns: 1fr;
+    grid-template-columns: auto minmax(0, 1fr);
+    grid-auto-flow: row;
+  }
+  .price-test output {
+    grid-column: 1 / -1;
+    grid-row: 2;
   }
 }
 .target-head {
@@ -561,41 +604,34 @@ label span {
   background: #dfe9f1;
   display: grid;
   grid-template-columns: auto minmax(0, 1fr);
-  gap: 3px 7px;
+  gap: 7px;
   text-align: left;
   box-shadow: inset 4px 0 #6b87a1;
+  cursor: pointer;
 }
+.log-group-head:focus,
 .log-group-head:focus-within {
   background: #d3e0ea;
 }
 .log-group-select {
-  grid-column: 1;
-  grid-row: 1;
-  justify-self: center;
-  align-self: center;
   width: 14px;
   height: 14px;
-  margin: 0;
-}
-.log-group-toggle {
-  grid-column: 1;
-  grid-row: 2;
-  justify-self: center;
-  align-self: center;
-  border: 0;
-  border-radius: 4px;
   padding: 0;
-  background: transparent;
-  color: var(--muted);
+  margin: 3px 0 0;
 }
-.log-group-toggle:hover {
-  color: var(--ink);
-  background: #c9d8e3;
+.log-group-controls {
+  display: grid;
+  grid-template-columns: 1fr;
+  grid-auto-flow: row;
+  justify-items: center;
+  align-content: start;
+  gap: 11px;
 }
 .log-group-caret {
   display: block;
   font-size: 20px;
   line-height: 1;
+  color: var(--muted);
 }
 .log-group-summary {
   grid-column: 2;
