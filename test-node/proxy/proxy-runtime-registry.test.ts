@@ -260,6 +260,7 @@ function pairFixture(upstreamPort: number, pairId = "runtime-pair"): ProxyPair {
         log_root: "",
         redact_logs: false,
         model_mappings: [],
+        model_prices: [],
       },
     ],
   };

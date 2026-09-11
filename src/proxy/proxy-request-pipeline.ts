@@ -36,6 +36,13 @@ export interface ProxyPipelineTarget {
   readonly enabled: boolean;
   readonly id: string;
   readonly modelMappings: readonly { readonly listen: string; readonly upstream: string }[];
+  readonly modelPrices?: readonly {
+    readonly model_pattern: string;
+    readonly input_per_million: string;
+    readonly output_per_million: string;
+    readonly cache_read_per_million: string;
+    readonly cache_write_per_million: string;
+  }[];
   readonly name: string;
   readonly rejectUnauthorized?: boolean;
   readonly injectRequestFields?: Readonly<Record<string, unknown>>;

@@ -6,6 +6,8 @@ import {
   normalizeInjectRequestFields,
   normalizeLogRoot,
   normalizeModelMappings,
+  normalizeModelPrices,
+  normalizeProxyConfigFile,
   runtimeLogRoot,
 } from "../../src/config/config-normalizer.js";
 import { createDefaultTarget } from "../../src/config/defaults.js";
@@ -83,6 +85,70 @@ describe("normalizeModelMappings", () => {
       ]),
     ).toEqual([{ listen: "123", upstream: "123" }]);
     expect(normalizeModelMappings("not-an-array")).toEqual([]);
+  });
+});
+
+describe("normalizeModelPrices", () => {
+  it("defaults only a missing field and retains supplied rules for validation", () => {
+    const rules = [
+      {
+        model_pattern: "gpt-*",
+        input_per_million: "0",
+        output_per_million: "30",
+        cache_read_per_million: "0.5",
+        cache_write_per_million: "6.25",
+      },
+    ];
+
+    expect(normalizeModelPrices(undefined)).toEqual([]);
+    expect(normalizeModelPrices(rules)).toBe(rules);
+  });
+});
+
+describe("price configuration normalization", () => {
+  it("adds an empty list to older targets and retains order across targets", () => {
+    const first = createDefaultTarget("logs");
+    const { model_prices: _removed, ...legacyTarget } = first;
+    const second = {
+      ...createDefaultTarget("logs"),
+      id: "target-2",
+      model_prices: [
+        {
+          model_pattern: "gpt-5.6-sol",
+          input_per_million: "5",
+          output_per_million: "30",
+          cache_read_per_million: "0.5",
+          cache_write_per_million: "6.25",
+        },
+        {
+          model_pattern: "gpt-5.6-*",
+          input_per_million: "6",
+          output_per_million: "31",
+          cache_read_per_million: "0.6",
+          cache_write_per_million: "6.5",
+        },
+      ],
+    };
+
+    const normalized = normalizeProxyConfigFile({
+      pairs: [
+        {
+          id: "proxy-1",
+          name: "Proxy",
+          enabled: false,
+          listen_host: "127.0.0.1",
+          listen_port: 1234,
+          access_log: false,
+          targets: [legacyTarget, second],
+          default_target_id: legacyTarget.id,
+        },
+      ],
+    });
+
+    expect(normalized.pairs[0]?.targets.map((target) => target.model_prices)).toEqual([
+      [],
+      second.model_prices,
+    ]);
   });
 });
 

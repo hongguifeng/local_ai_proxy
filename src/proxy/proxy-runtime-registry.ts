@@ -199,6 +199,7 @@ function runtimeTarget(target: TargetConfig, trafficLog: TrafficLogService): Pro
     id: target.id,
     injectRequestFields: parseInjectRequestFields(target.inject_request_fields),
     modelMappings: target.model_mappings,
+    modelPrices: target.model_prices,
     name: target.name,
     stripRequestFields: parseStripRequestFields(target.strip_request_fields),
     targetScheme: parsed.scheme,

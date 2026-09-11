@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 
 import {
   modelMappingSchema,
+  modelPriceSchema,
   proxyConfigFileSchema,
   proxyPairSchema,
   targetConfigSchema,
@@ -21,6 +22,41 @@ describe("modelMappingSchema", () => {
   });
 });
 
+describe("modelPriceSchema", () => {
+  const validPrice = {
+    model_pattern: " gpt-5.6-* ",
+    input_per_million: "0",
+    output_per_million: "30",
+    cache_read_per_million: "0.5",
+    cache_write_per_million: "6.25",
+  };
+
+  it("accepts exact decimal prices, including zero, six decimal places, and the upper limit", () => {
+    expect(modelPriceSchema.parse(validPrice)).toEqual({
+      ...validPrice,
+      model_pattern: "gpt-5.6-*",
+    });
+    expect(
+      modelPriceSchema.parse({
+        ...validPrice,
+        input_per_million: "1000000",
+        output_per_million: "0.000001",
+      }),
+    ).toMatchObject({ input_per_million: "1000000", output_per_million: "0.000001" });
+  });
+
+  it.each([
+    ["empty", ""],
+    ["negative", "-1"],
+    ["scientific notation", "1e3"],
+    ["too many decimal places", "0.0000001"],
+    ["above maximum", "1000000.000001"],
+    ["surrounding whitespace", " 5 "],
+  ])("rejects %s price text", (_name, value) => {
+    expect(() => modelPriceSchema.parse({ ...validPrice, input_per_million: value })).toThrow();
+  });
+});
+
 describe("targetConfigSchema", () => {
   it("accepts the persisted target shape", () => {
     const target = {
@@ -35,6 +71,15 @@ describe("targetConfigSchema", () => {
       log_root: "logs",
       redact_logs: true,
       model_mappings: [{ listen: "local", upstream: "remote" }],
+      model_prices: [
+        {
+          model_pattern: "remote",
+          input_per_million: "5",
+          output_per_million: "30",
+          cache_read_per_million: "0.5",
+          cache_write_per_million: "6.25",
+        },
+      ],
     };
 
     expect(targetConfigSchema.parse(target)).toEqual(target);
@@ -42,6 +87,56 @@ describe("targetConfigSchema", () => {
 
   it("rejects missing required persisted fields", () => {
     expect(() => targetConfigSchema.parse({ id: "target-1" })).toThrow();
+  });
+
+  it("defaults a missing model price list for older configuration", () => {
+    const target = targetConfigSchema.parse({
+      id: "target-1",
+      name: "Target",
+      enabled: true,
+      target_url: "https://provider.example/v1",
+      target_api_key: "",
+      target_headers: [],
+      strip_request_fields: "",
+      inject_request_fields: "",
+      log_root: "logs",
+      redact_logs: false,
+      model_mappings: [],
+    });
+    expect(target.model_prices).toEqual([]);
+  });
+
+  it("rejects duplicate price patterns within one target", () => {
+    const valid = {
+      id: "target-1",
+      name: "Target",
+      enabled: true,
+      target_url: "https://provider.example/v1",
+      target_api_key: "",
+      target_headers: [],
+      strip_request_fields: "",
+      inject_request_fields: "",
+      log_root: "logs",
+      redact_logs: false,
+      model_mappings: [],
+      model_prices: [
+        {
+          model_pattern: "gpt-*",
+          input_per_million: "1",
+          output_per_million: "1",
+          cache_read_per_million: "1",
+          cache_write_per_million: "1",
+        },
+        {
+          model_pattern: " gpt-* ",
+          input_per_million: "2",
+          output_per_million: "2",
+          cache_read_per_million: "2",
+          cache_write_per_million: "2",
+        },
+      ],
+    };
+    expect(() => targetConfigSchema.parse(valid)).toThrow(/duplicate model price pattern/u);
   });
 
   it.each([

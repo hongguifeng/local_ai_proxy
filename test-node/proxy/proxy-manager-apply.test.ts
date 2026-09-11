@@ -7,6 +7,36 @@ import { ProxyManager, ProxyRuntimeRegistry } from "../../src/proxy/index.js";
 import type { ProxyConfigurationApplyError } from "../../src/proxy/index.js";
 
 describe("ProxyManager configuration apply", () => {
+  it("rejects invalid price configuration without changing the active pair", async () => {
+    const pair = pairFixture(12_345, "Current pair");
+    const manager = new ProxyManager({ pairs: [pair] }, { save: () => Promise.resolve() });
+    const invalid = {
+      ...pair,
+      name: "Invalid pair",
+      targets: [
+        {
+          ...pair.targets[0]!,
+          model_prices: [
+            {
+              model_pattern: "gpt-*",
+              input_per_million: "",
+              output_per_million: "1",
+              cache_read_per_million: "1",
+              cache_write_per_million: "1",
+            },
+          ],
+        },
+      ],
+    } as unknown as ProxyPair;
+
+    expect(() => manager.applyConfiguration({ pairs: [invalid] })).toThrow(
+      expect.objectContaining({
+        code: "invalid_config",
+      }),
+    );
+    expect(manager.listPairs()).toMatchObject([{ name: "Current pair" }]);
+  });
+
   it("restores old config and runtime when saving the replacement fails", async () => {
     const firstUpstream = http.createServer((_request, response) => response.end("old"));
     const secondUpstream = http.createServer((_request, response) => response.end("new"));
@@ -66,6 +96,7 @@ function pairFixture(upstreamPort: number, name: string): ProxyPair {
         log_root: "",
         redact_logs: false,
         model_mappings: [],
+        model_prices: [],
       },
     ],
   };

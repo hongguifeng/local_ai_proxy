@@ -1,6 +1,12 @@
 import { isRecord } from "../shared/index.js";
 
-import type { ModelMapping, ProxyConfigFile, ProxyPair, TargetConfig } from "./config-schema.js";
+import type {
+  ModelMapping,
+  ModelPrice,
+  ProxyConfigFile,
+  ProxyPair,
+  TargetConfig,
+} from "./config-schema.js";
 import { validateProxyConfigFile } from "./config-validation.js";
 import { createDefaultTarget, DEFAULT_LOG_ROOT } from "./defaults.js";
 
@@ -127,7 +133,20 @@ export function normalizeTargetConfig(
     log_root: normalizeLogRoot(raw["log_root"], defaultLogRoot),
     redact_logs: Boolean(raw["redact_logs"] ?? false),
     model_mappings: normalizeModelMappings(raw["model_mappings"] ?? raw["models"]),
+    model_prices: normalizeModelPrices(raw["model_prices"]),
   };
+}
+
+/**
+ * Retain supplied values for schema validation. Unlike legacy model mappings,
+ * pricing rules must never be silently discarded because an omitted price is
+ * materially different from a zero price.
+ */
+export function normalizeModelPrices(value: unknown): ModelPrice[] {
+  if (value === undefined) {
+    return [];
+  }
+  return value as ModelPrice[];
 }
 
 function primitiveText(value: unknown): string {

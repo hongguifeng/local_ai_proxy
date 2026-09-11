@@ -31,6 +31,7 @@ export function createDefaultTarget(logRoot = DEFAULT_LOG_ROOT): TargetConfig {
     log_root: logRoot,
     redact_logs: false,
     model_mappings: [],
+    model_prices: [],
   };
 }
 

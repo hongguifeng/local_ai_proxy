@@ -1,4 +1,4 @@
-import type { ModelMapping, ProxyPair } from "./config-schema.js";
+import type { ModelMapping, ModelPrice, ProxyPair } from "./config-schema.js";
 
 export type HeaderPair = readonly [name: string, value: string];
 export type TargetScheme = "http" | "https";
@@ -14,6 +14,7 @@ export interface RuntimeTarget {
   readonly injectRequestFields: Readonly<Record<string, unknown>>;
   readonly logRoot: string | undefined;
   readonly modelMappings: readonly ModelMapping[];
+  readonly modelPrices: readonly ModelPrice[];
   readonly name: string;
   readonly redactLogs: boolean;
   readonly stripRequestFields: ReadonlySet<string>;

@@ -70,6 +70,7 @@ function fixturePair(): PublicProxyPair {
         log_root: "logs",
         redact_logs: false,
         model_mappings: [],
+        model_prices: [],
       },
     ],
   };
@@ -1507,6 +1508,7 @@ function visualPairs(): PublicProxyPair[] {
         upstream: mapping.split(" => ")[1] ?? mapping,
       },
     ],
+    model_prices: [],
   });
   return [
     {

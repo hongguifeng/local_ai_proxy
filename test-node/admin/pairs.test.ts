@@ -2,7 +2,11 @@ import { afterEach, describe, expect, it } from "vitest";
 
 import { applicationHealth, createAdminServer } from "../../src/admin/index.js";
 import { createDefaultProxyPair } from "../../src/config/index.js";
-import { ProxyListenConflictError, ProxyPairNotFoundError } from "../../src/proxy/index.js";
+import {
+  ProxyListenConflictError,
+  ProxyManager,
+  ProxyPairNotFoundError,
+} from "../../src/proxy/index.js";
 
 const servers: ReturnType<typeof createAdminServer>[] = [];
 
@@ -36,7 +40,26 @@ describe("GET /api/pairs", () => {
   });
 
   it("replaces the complete pair list and returns committed runtime state", async () => {
-    const submitted = { ...createDefaultProxyPair(""), id: "submitted", name: "Submitted" };
+    const template = createDefaultProxyPair("");
+    const submitted = {
+      ...template,
+      id: "submitted",
+      name: "Submitted",
+      targets: [
+        {
+          ...template.targets[0]!,
+          model_prices: [
+            {
+              model_pattern: "gpt-*",
+              input_per_million: "5",
+              output_per_million: "30",
+              cache_read_per_million: "0.5",
+              cache_write_per_million: "6.25",
+            },
+          ],
+        },
+      ],
+    };
     const committed = { ...submitted, running: false, actual_listen_port: null };
     const pairService = {
       replacements: [] as unknown[],
@@ -60,6 +83,45 @@ describe("GET /api/pairs", () => {
     expect(response.statusCode).toBe(200);
     expect(response.json()).toEqual({ pairs: [committed] });
     expect(pairService.replacements).toEqual([[submitted]]);
+  });
+
+  it("rejects invalid model prices before replacing the running configuration", async () => {
+    const invalid = createDefaultProxyPair("");
+    const manager = new ProxyManager({ pairs: [invalid] }, { save: () => Promise.resolve() });
+    const server = createAdminServer({
+      getHealth: () => applicationHealth("running"),
+      pairService: manager,
+    });
+    servers.push(server);
+
+    const response = await server.inject({
+      method: "PUT",
+      url: "/api/pairs",
+      payload: {
+        pairs: [
+          {
+            ...invalid,
+            targets: [
+              {
+                ...invalid.targets[0],
+                model_prices: [
+                  {
+                    model_pattern: "gpt-*",
+                    input_per_million: "1e3",
+                    output_per_million: "1",
+                    cache_read_per_million: "1",
+                    cache_write_per_million: "1",
+                  },
+                ],
+              },
+            ],
+          },
+        ],
+      },
+    });
+    expect(response.statusCode).toBe(400);
+    expect(response.json()).toMatchObject({ error: { code: "invalid_config" } });
+    expect(manager.listPairs()).toMatchObject([{ id: invalid.id }]);
   });
 
   it("enables or disables one pair by ID", async () => {

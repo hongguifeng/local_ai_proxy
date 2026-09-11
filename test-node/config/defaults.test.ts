@@ -20,6 +20,7 @@ describe("configuration defaults", () => {
       log_root: "custom-logs",
       redact_logs: false,
       model_mappings: [],
+      model_prices: [],
     });
   });
 

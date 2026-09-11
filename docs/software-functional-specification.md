@@ -106,6 +106,7 @@ LLM Proxy 是面向本地开发和调试场景的 LLM HTTP 代理与流量审查
 | `log_root` | string | `logs` | 该目标的 SQLite 日志根目录；空字符串表示不记录 |
 | `redact_logs` | boolean | `false` | 是否在写入存储前脱敏 |
 | `model_mappings` | array | 空 | `{listen, upstream}` 模型映射列表 |
+| `model_prices` | array | 空 | 模型价格规则；每项包含 `model_pattern` 与四个元 / 100 万 token 的十进制字符串单价：`input_per_million`、`output_per_million`、`cache_read_per_million`、`cache_write_per_million`。单价必须为 0 至 1,000,000、最多 6 位小数；同一 target 内 pattern 不可重复。 |
 
 默认目标在 UI 中始终视为启用。非默认目标关闭后不参与模型匹配，但配置仍保留。
 

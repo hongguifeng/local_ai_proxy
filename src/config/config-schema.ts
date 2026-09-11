@@ -24,19 +24,52 @@ export const modelMappingSchema = z.object({
 
 export type ModelMapping = z.infer<typeof modelMappingSchema>;
 
-export const targetConfigSchema = z.object({
-  id: z.string().trim().min(1),
-  name: z.string(),
-  enabled: z.boolean(),
-  target_url: targetUrlSchema,
-  target_api_key: z.string(),
-  target_headers: z.array(headerOverrideSchema),
-  strip_request_fields: z.string(),
-  inject_request_fields: injectRequestFieldsSchema,
-  log_root: z.string(),
-  redact_logs: z.boolean(),
-  model_mappings: z.array(modelMappingSchema),
+const MAX_PRICE_PER_MILLION_MICROS = 1_000_000_000_000n;
+const decimalPricePattern = /^(?:0|[1-9]\d*)(?:\.\d{1,6})?$/u;
+
+const pricePerMillionSchema = z.string().refine(isValidPricePerMillion, {
+  message:
+    "price must be a non-negative decimal string with at most 6 decimal places and no more than 1000000",
 });
+
+export const modelPriceSchema = z.object({
+  model_pattern: z.string().trim().min(1, "model pattern is required"),
+  input_per_million: pricePerMillionSchema,
+  output_per_million: pricePerMillionSchema,
+  cache_read_per_million: pricePerMillionSchema,
+  cache_write_per_million: pricePerMillionSchema,
+});
+
+export type ModelPrice = z.infer<typeof modelPriceSchema>;
+
+export const targetConfigSchema = z
+  .object({
+    id: z.string().trim().min(1),
+    name: z.string(),
+    enabled: z.boolean(),
+    target_url: targetUrlSchema,
+    target_api_key: z.string(),
+    target_headers: z.array(headerOverrideSchema),
+    strip_request_fields: z.string(),
+    inject_request_fields: injectRequestFieldsSchema,
+    log_root: z.string(),
+    redact_logs: z.boolean(),
+    model_mappings: z.array(modelMappingSchema),
+    model_prices: z.array(modelPriceSchema).default([]),
+  })
+  .superRefine(({ model_prices: modelPrices }, context) => {
+    const patterns = new Set<string>();
+    for (const [index, price] of modelPrices.entries()) {
+      if (patterns.has(price.model_pattern)) {
+        context.addIssue({
+          code: "custom",
+          message: `duplicate model price pattern: ${price.model_pattern}`,
+          path: ["model_prices", index, "model_pattern"],
+        });
+      }
+      patterns.add(price.model_pattern);
+    }
+  });
 
 export type TargetConfig = z.infer<typeof targetConfigSchema>;
 
@@ -110,4 +143,16 @@ function isJsonObjectText(value: string): boolean {
   } catch {
     return false;
   }
+}
+
+function isValidPricePerMillion(value: string): boolean {
+  if (!decimalPricePattern.test(value)) {
+    return false;
+  }
+  const [integer, fraction = ""] = value.split(".");
+  if (integer === undefined) {
+    return false;
+  }
+  const micros = BigInt(integer) * 1_000_000n + BigInt(fraction.padEnd(6, "0"));
+  return micros <= MAX_PRICE_PER_MILLION_MICROS;
 }
