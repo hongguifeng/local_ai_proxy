@@ -68,6 +68,52 @@ describe("TrafficRepository.upsertTask", () => {
   });
 });
 
+describe("TrafficRepository pricing persistence", () => {
+  it("keeps immutable pricing snapshots and exact large integer amounts across reopen", async () => {
+    const root = await mkdtemp(path.join(os.tmpdir(), "llm-proxy-repository-pricing-"));
+    temporaryDirectories.push(root);
+    const repository = new TrafficRepository(root);
+    repository.upsertTask({ id: "pricing-task", match_strategy_version: 4 });
+    repository.upsertRecord({
+      id: "pricing-record",
+      task_id: "pricing-task",
+      sequence: 1,
+      method: "POST",
+      path: "/v1/chat/completions",
+      pricing: {
+        pricing_status: "priced",
+        billing_model: "gpt-5",
+        pricing_snapshot: { input_per_million: "5" },
+        usage: { inputUncachedTokens: 2, outputTokens: 1, cacheReadTokens: 0, cacheWriteTokens: 0 },
+        cost_nano_cny: "9007199254740993",
+      },
+    });
+    repository.upsertRecord({
+      id: "pricing-record",
+      task_id: "pricing-task",
+      sequence: 1,
+      method: "POST",
+      path: "/v1/chat/completions",
+      pricing: { pricing_status: "unpriced", pricing_reason: "missing_usage" },
+    });
+    expect(repository.getRecord("pricing-record")).toMatchObject({
+      pricing: {
+        pricing_status: "priced",
+        billing_model: "gpt-5",
+        cost_nano_cny: "9007199254740993",
+        pricing_snapshot: { input_per_million: "5" },
+      },
+    });
+    repository.close();
+
+    const reopened = new TrafficRepository(root);
+    expect(reopened.getRecord("pricing-record")).toMatchObject({
+      pricing: { pricing_status: "priced", cost_nano_cny: "9007199254740993" },
+    });
+    reopened.close();
+  });
+});
+
 describe("TrafficRepository.transaction", () => {
   it("rolls back task, record, and link writes as one unit", async () => {
     const root = await mkdtemp(path.join(os.tmpdir(), "llm-proxy-repository-transaction-"));

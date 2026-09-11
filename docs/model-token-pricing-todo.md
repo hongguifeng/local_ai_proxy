@@ -1,6 +1,6 @@
 # 模型 token 定价与历史费用开发 TODO
 
-创建日期：2026-09-11。当前进度：5 / 14 项完成。
+创建日期：2026-09-11。当前进度：6 / 14 项完成。
 
 设计依据：[转发地址模型定价与历史费用设计](./model-token-pricing-design.md)。本清单用于后续开发、验收与逐项提交；遇到设计调整，应同步更新设计文档、本清单及测试，不能只改代码。
 
@@ -44,7 +44,7 @@
 | [x] | PRICE-03 | JSON usage 标准化 | PRICE-02 | 完成 |
 | [x] | PRICE-04 | 流式 usage 采集与完整性 | PRICE-03 | 完成 |
 | [x] | PRICE-05 | 请求定价快照与状态计算 | PRICE-01～04 | 完成 |
-| [ ] | PRICE-06 | 数据库迁移与费用持久化 | PRICE-05 | 未开始 |
+| [x] | PRICE-06 | 数据库迁移与费用持久化 | PRICE-05 | 完成 |
 | [ ] | PRICE-07 | task 总额与费用明细聚合 | PRICE-06 | 未开始 |
 | [ ] | PRICE-08 | 历史 API、schema 与导出 | PRICE-07 | 未开始 |
 | [ ] | PRICE-09 | target 价格编辑 UI | PRICE-01、02、08 | 未开始 |
@@ -345,6 +345,22 @@ UI 基线：不涉及。
 UI 基线：不涉及。
 设计偏差与迁移影响：无。
 提交定位：`feat(pricing): [PRICE-05] freeze request pricing snapshots`。
+补充修复提交：无。
+遗留问题：无。
+
+### PRICE-06
+
+任务 ID：PRICE-06
+状态：完成
+完成日期：2026-09-11
+实现内容与实际文件：注册 schema v8，为 records 增加状态、原因、计价模型、规则快照、四桶 usage 及纳元金额；repository 和日志服务持久化/读取定价对象。旧记录仅标记 `legacy_record`，不读取或补算历史正文。
+测试映射：P06-01 → `test-node/persistence/database.test.ts` 的完整 schema 与既有迁移排演；P06-02、P06-03、P06-04 → `test-node/persistence/repository.test.ts` 的重复 upsert、精确大整数及重开快照用例和 `traffic-log-service.test.ts` 回归。
+验证命令与结果：`npm run typecheck` 通过；`npx vitest run test-node/persistence/database.test.ts test-node/persistence/repository.test.ts test-node/logging/traffic-log-service.test.ts` 通过（3 个测试文件、48 个测试）。
+验收结论：通过；零与 null 保持可区分，已完成 priced 记录不被后续未知事件覆盖，SQLite 金额以整数文本无损读回。
+文档更新：TODO 执行记录及 schema 迁移说明。
+UI 基线：不涉及。
+设计偏差与迁移影响：无；升级不扫描请求或响应正文。
+提交定位：`feat(pricing): [PRICE-06] persist request pricing`。
 补充修复提交：无。
 遗留问题：无。
 

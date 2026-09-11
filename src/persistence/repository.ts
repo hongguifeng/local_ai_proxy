@@ -248,6 +248,7 @@ export class TrafficRepository {
 
   upsertRecord(record: Readonly<RepositoryRecord>): RepositoryRecord {
     const now = this.#now();
+    const pricing = recordValue(record["pricing"]);
     const values = {
       id: String(requiredValue(record, "id")),
       task_id: String(requiredValue(record, "task_id")),
@@ -275,6 +276,12 @@ export class TrafficRepository {
       token_count: optionalInteger(record["token_count"]),
       request_token_count: optionalInteger(record["request_token_count"]),
       response_token_count: optionalInteger(record["response_token_count"]),
+      pricing_status: pricingStatus(pricing["pricing_status"]),
+      pricing_reason: optionalString(pricing["pricing_reason"]),
+      billing_model: optionalString(pricing["billing_model"]),
+      pricing_snapshot_json: optionalJsonText(pricing["pricing_snapshot"]),
+      billing_usage_json: optionalJsonText(pricing["usage"]),
+      cost_nano_cny: optionalBigInt(pricing["cost_nano_cny"]),
       request_headers_json: jsonText(record["request_headers"], {}),
       response_headers_json: jsonText(record["response_headers"], {}),
       request_body_json: optionalJsonText(record["request_body"]),
@@ -296,6 +303,7 @@ export class TrafficRepository {
         proxy_id, proxy_name, client_host, client_port, target_id, target_name, target_url,
         method, path, endpoint, status, error, message_count, token_count,
         request_token_count, response_token_count,
+        pricing_status, pricing_reason, billing_model, pricing_snapshot_json, billing_usage_json, cost_nano_cny,
         request_headers_json, response_headers_json, request_body_json, original_request_body_json,
         response_body_json,
         model_route_json, stripped_fields_json, injected_fields_json, added_upstream_headers_json,
@@ -305,6 +313,7 @@ export class TrafficRepository {
         @proxy_id, @proxy_name, @client_host, @client_port, @target_id, @target_name, @target_url,
         @method, @path, @endpoint, @status, @error, @message_count, @token_count,
         @request_token_count, @response_token_count,
+        @pricing_status, @pricing_reason, @billing_model, @pricing_snapshot_json, @billing_usage_json, @cost_nano_cny,
         @request_headers_json, @response_headers_json, NULL,
         NULL, NULL,
         @model_route_json, @stripped_fields_json, @injected_fields_json, @added_upstream_headers_json,
@@ -321,6 +330,16 @@ export class TrafficRepository {
         message_count=excluded.message_count, token_count=excluded.token_count,
         request_token_count=excluded.request_token_count,
         response_token_count=excluded.response_token_count,
+        pricing_status=CASE WHEN records.pricing_status = 'priced' AND excluded.pricing_status != 'priced'
+          THEN records.pricing_status ELSE excluded.pricing_status END,
+        pricing_reason=CASE WHEN records.pricing_status = 'priced' AND excluded.pricing_status != 'priced'
+          THEN records.pricing_reason ELSE excluded.pricing_reason END,
+        billing_model=COALESCE(records.billing_model, excluded.billing_model),
+        pricing_snapshot_json=COALESCE(records.pricing_snapshot_json, excluded.pricing_snapshot_json),
+        billing_usage_json=CASE WHEN records.pricing_status = 'priced' AND excluded.pricing_status != 'priced'
+          THEN records.billing_usage_json ELSE excluded.billing_usage_json END,
+        cost_nano_cny=CASE WHEN records.pricing_status = 'priced' AND excluded.pricing_status != 'priced'
+          THEN records.cost_nano_cny ELSE excluded.cost_nano_cny END,
         request_headers_json=excluded.request_headers_json,
         response_headers_json=excluded.response_headers_json,
         request_body_json=NULL,
@@ -352,7 +371,11 @@ export class TrafficRepository {
   }
 
   getRecord(recordId: string): RepositoryRecord | undefined {
-    const row = this.#database.prepare("SELECT * FROM records WHERE id = ?").get(recordId);
+    const row = this.#database
+      .prepare(
+        "SELECT records.*, CAST(cost_nano_cny AS TEXT) AS cost_nano_cny FROM records WHERE id = ?",
+      )
+      .get(recordId);
     return row === undefined ? undefined : this.#decodeRecordRow(row as RepositoryRecord);
   }
 
@@ -785,6 +808,24 @@ export function decodeRecordRow(row: Readonly<RepositoryRecord>): RepositoryReco
     decoded["original_request_body"] = originalRequestBody;
   }
   Reflect.deleteProperty(decoded, "original_request_body_json");
+  decoded["pricing"] = {
+    pricing_status: decoded["pricing_status"],
+    pricing_reason: decoded["pricing_reason"],
+    billing_model: decoded["billing_model"],
+    pricing_snapshot: jsonValue(decoded["pricing_snapshot_json"], null),
+    usage: jsonValue(decoded["billing_usage_json"], null),
+    cost_nano_cny: decoded["cost_nano_cny"],
+  };
+  for (const key of [
+    "pricing_status",
+    "pricing_reason",
+    "billing_model",
+    "pricing_snapshot_json",
+    "billing_usage_json",
+    "cost_nano_cny",
+  ]) {
+    Reflect.deleteProperty(decoded, key);
+  }
   return decoded;
 }
 
@@ -819,6 +860,28 @@ function optionalInteger(value: unknown): number | null {
   }
   const parsed = Number(text);
   return Number.isInteger(parsed) ? parsed : null;
+}
+
+function optionalBigInt(value: unknown): bigint | null {
+  if (value === null || value === undefined || value === "") return null;
+  try {
+    const parsed = BigInt(stringValue(value));
+    return parsed >= -9_223_372_036_854_775_808n && parsed <= 9_223_372_036_854_775_807n
+      ? parsed
+      : null;
+  } catch {
+    return null;
+  }
+}
+
+function pricingStatus(value: unknown): "pending" | "priced" | "unpriced" {
+  return value === "pending" || value === "priced" || value === "unpriced" ? value : "unpriced";
+}
+
+function recordValue(value: unknown): Readonly<Record<string, unknown>> {
+  return typeof value === "object" && value !== null && !Array.isArray(value)
+    ? (value as Readonly<Record<string, unknown>>)
+    : {};
 }
 
 function integerValue(value: unknown, fallback: number): number {

@@ -91,6 +91,7 @@ export class TrafficLogService {
     const resolvedTargetUrl = targetUrl(target);
     const client = mapping(recordToWrite["client"]);
     const proxy = mapping(recordToWrite["proxy"]);
+    const pricing = mapping(recordToWrite["pricing"]);
     const endpoint = displayEndpoint(stringValue(request["path"]));
     const kind = endpointKind(endpoint);
     const originalRequestBody = bodyValue(request["body"]);
@@ -134,6 +135,7 @@ export class TrafficLogService {
         token_count: responseTokenCount(assignment.responsePayload),
         request_token_count: tokenCounts.request,
         response_token_count: tokenCounts.response,
+        pricing,
         request_headers: mapping(request["headers"]),
         response_headers: mapping(response["headers"]),
         request_body: requestBody,
