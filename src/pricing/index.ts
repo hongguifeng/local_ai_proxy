@@ -14,3 +14,10 @@ export {
   type CostBreakdown,
   type CostCalculation,
 } from "./money.js";
+export {
+  normalizeUsage,
+  type NormalizedUsage,
+  type PricingEndpointKind,
+  type UsageNormalization,
+  type UsageNormalizationReason,
+} from "./usage-normalizer.js";

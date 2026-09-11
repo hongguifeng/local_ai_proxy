@@ -1,5 +1,6 @@
 import { createHash } from "node:crypto";
 
+import { normalizeUsage } from "../pricing/usage-normalizer.js";
 import { isRecord, stableJsonStringify } from "../shared/index.js";
 
 export type EndpointKind = "responses" | "messages" | "chat" | "completions" | "other";
@@ -94,7 +95,16 @@ export interface ResponseTokenCounts {
   readonly response: number | undefined;
 }
 
-export function responseTokenCounts(payload: unknown): ResponseTokenCounts {
+export function responseTokenCounts(payload: unknown, kind?: EndpointKind): ResponseTokenCounts {
+  if (kind !== undefined) {
+    const normalized = normalizeUsage(kind, payload);
+    if (normalized.status === "complete") {
+      return {
+        request: normalized.usage.totalInputTokens,
+        response: normalized.usage.outputTokens,
+      };
+    }
+  }
   const usage = responseUsage(payload);
   if (!isRecord(usage)) {
     return { request: undefined, response: undefined };

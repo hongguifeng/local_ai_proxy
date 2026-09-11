@@ -141,6 +141,21 @@ describe("responseTokenCount", () => {
   ])("returns undefined for unsupported usage %#", (payload) => {
     expect(responseTokenCount(payload)).toBeUndefined();
   });
+
+  it("derives display input from the same disjoint buckets used for pricing", () => {
+    expect(
+      responseTokenCounts(
+        {
+          usage: {
+            prompt_tokens: 12,
+            completion_tokens: 3,
+            prompt_tokens_details: { cached_tokens: 4 },
+          },
+        },
+        "chat",
+      ),
+    ).toEqual({ request: 12, response: 3 });
+  });
 });
 
 describe("responseTokenCounts", () => {

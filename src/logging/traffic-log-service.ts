@@ -96,7 +96,7 @@ export class TrafficLogService {
     const originalRequestBody = bodyValue(request["body"]);
     const hasUpstreamBody = isRecord(request["upstream_body"]);
     const requestBody = hasUpstreamBody ? bodyValue(request["upstream_body"]) : originalRequestBody;
-    const tokenCounts = responseTokenCounts(assignment.responsePayload);
+    const tokenCounts = responseTokenCounts(assignment.responsePayload, kind);
     const distinctOriginalBody =
       hasUpstreamBody &&
       stableJsonStringify(originalRequestBody) !== stableJsonStringify(requestBody)

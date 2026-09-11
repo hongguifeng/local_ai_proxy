@@ -1,6 +1,6 @@
 # 模型 token 定价与历史费用开发 TODO
 
-创建日期：2026-09-11。当前进度：2 / 14 项完成。
+创建日期：2026-09-11。当前进度：3 / 14 项完成。
 
 设计依据：[转发地址模型定价与历史费用设计](./model-token-pricing-design.md)。本清单用于后续开发、验收与逐项提交；遇到设计调整，应同步更新设计文档、本清单及测试，不能只改代码。
 
@@ -41,7 +41,7 @@
 | --- | --- | --- | --- | --- |
 | [x] | PRICE-01 | target 价格配置与校验 | 无 | 完成 |
 | [x] | PRICE-02 | 规则匹配与整数金额计算 | PRICE-01 | 完成 |
-| [ ] | PRICE-03 | JSON usage 标准化 | PRICE-02 | 未开始 |
+| [x] | PRICE-03 | JSON usage 标准化 | PRICE-02 | 完成 |
 | [ ] | PRICE-04 | 流式 usage 采集与完整性 | PRICE-03 | 未开始 |
 | [ ] | PRICE-05 | 请求定价快照与状态计算 | PRICE-01～04 | 未开始 |
 | [ ] | PRICE-06 | 数据库迁移与费用持久化 | PRICE-05 | 未开始 |
@@ -297,6 +297,22 @@ UI 基线：不涉及。
 UI 基线：不涉及。
 设计偏差与迁移影响：无。
 提交定位：`feat(pricing): [PRICE-02] add price matching and integer money`。
+补充修复提交：无。
+遗留问题：无。
+
+### PRICE-03
+
+任务 ID：PRICE-03
+状态：完成
+完成日期：2026-09-11
+实现内容与实际文件：新增 `src/pricing/usage-normalizer.ts`，将 Responses、Chat、legacy Completions 与 Anthropic Messages 的 usage 标准化为普通输入、输出、缓存读、缓存写四个互斥桶；`responseTokenCounts` 在已知 endpoint 时复用标准化结果派生展示输入。
+测试映射：P03-01 → `test-node/pricing/usage-normalizer.test.ts` 四协议缓存/非缓存用例；P03-02 → 同文件缺失、负数、小数、字符串、非安全整数与 cached 超限用例；P03-03 → 同文件 Anthropic 总缓存写入与 TTL 子项用例；P03-04 → 同文件混合协议/未知 endpoint 用例及 `test-node/proxy/records.test.ts` 展示回归。
+验证命令与结果：`npm run typecheck` 通过；`npm run rebuild:node` 通过；`npx vitest run test-node/pricing/usage-normalizer.test.ts test-node/proxy/records.test.ts test-node/logging/traffic-log-service.test.ts` 通过（3 个测试文件、93 个测试）。
+验收结论：通过；可选缓存缺失按零，必需字段与异常 usage 保持明确不可计价状态，不猜测混合协议字段。
+文档更新：TODO 执行记录；四桶口径与协议约束已在设计文档中定义。
+UI 基线：不涉及。
+设计偏差与迁移影响：无。
+提交定位：`feat(pricing): [PRICE-03] normalize protocol usage`。
 补充修复提交：无。
 遗留问题：无。
 
