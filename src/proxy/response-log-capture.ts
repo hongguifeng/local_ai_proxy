@@ -3,6 +3,11 @@ import { mkdir, open, readFile, rm, type FileHandle } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 
+import {
+  UsageAccumulator,
+  type PricingEndpointKind,
+  type UsageCaptureResult,
+} from "../pricing/index.js";
 import { bytesPayload, type BytePayload } from "./payload.js";
 import { IncrementalSseAccumulator } from "./streams.js";
 
@@ -13,7 +18,9 @@ export const DEFAULT_MAX_SSE_SUMMARY_INPUT_BYTES = 8 * 1024 * 1024;
 export interface ResponseLogCaptureOptions {
   readonly maxBytes?: number;
   readonly maxSseSummaryInputBytes?: number;
+  readonly maxSseUsageEventBytes?: number;
   readonly memoryThresholdBytes?: number;
+  readonly pricingEndpoint?: PricingEndpointKind;
   readonly spoolDirectory?: string;
 }
 
@@ -37,6 +44,7 @@ export class ResponseLogCapture {
   readonly #memoryThresholdBytes: number;
   readonly #spoolDirectory: string;
   readonly #sseAccumulator: IncrementalSseAccumulator | undefined;
+  readonly #usageAccumulator: UsageAccumulator | undefined;
   #capturedBytes = 0;
   #file: FileHandle | undefined;
   #finalized = false;
@@ -45,6 +53,7 @@ export class ResponseLogCapture {
   #spoolQueue: Promise<void> = Promise.resolve();
   #sseSummaryInputBytes = 0;
   #sseSummaryTruncated = false;
+  #usageCapture: UsageCaptureResult | undefined;
 
   constructor(sse: boolean, options?: ResponseLogCaptureOptions) {
     this.#memoryThresholdBytes =
@@ -64,6 +73,10 @@ export class ResponseLogCapture {
       );
     }
     this.#sseAccumulator = sse ? new IncrementalSseAccumulator() : undefined;
+    this.#usageAccumulator =
+      sse && options?.pricingEndpoint !== undefined
+        ? new UsageAccumulator(options.pricingEndpoint, options.maxSseUsageEventBytes)
+        : undefined;
   }
 
   addChunk(chunk: Uint8Array): void {
@@ -74,6 +87,7 @@ export class ResponseLogCapture {
     this.#sizeBytes += copy.byteLength;
     this.#hash.update(copy);
     this.#captureSseSummary(copy);
+    this.#usageAccumulator?.addChunk(copy);
 
     const remaining = this.#maxBytes - this.#capturedBytes;
     if (remaining <= 0) {
@@ -95,11 +109,16 @@ export class ResponseLogCapture {
     return this.#sseAccumulator?.hasSeenTextToken() ?? false;
   }
 
+  get usageCapture(): UsageCaptureResult | undefined {
+    return this.#usageCapture;
+  }
+
   async finalize(): Promise<ResponseLogPayload> {
     if (this.#finalized) {
       throw new Error("Response log capture has already been finalized.");
     }
     this.#finalized = true;
+    this.#usageCapture = this.#usageAccumulator?.finalize();
     const sha256 = this.#hash.digest("hex");
     const streamSummary = this.#finalizeSseSummary();
     let captured: Buffer;

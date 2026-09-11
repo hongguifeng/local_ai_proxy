@@ -21,3 +21,8 @@ export {
   type UsageNormalization,
   type UsageNormalizationReason,
 } from "./usage-normalizer.js";
+export {
+  UsageAccumulator,
+  DEFAULT_MAX_SSE_USAGE_EVENT_BYTES,
+  type UsageCaptureResult,
+} from "./usage-accumulator.js";

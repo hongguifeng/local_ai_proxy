@@ -84,6 +84,27 @@ describe("ResponseLogCapture", () => {
     });
   });
 
+  it("continues observing final billing usage after the display summary is truncated", async () => {
+    const ignored = 'data: {"type":"response.output_text.delta","delta":"first"}\n\n';
+    const final =
+      'data: {"type":"response.completed","response":{"usage":{"input_tokens":3,"output_tokens":2}}}\n\n';
+    const capture = new ResponseLogCapture(true, {
+      maxBytes: 1_024,
+      memoryThresholdBytes: 1_024,
+      maxSseSummaryInputBytes: Buffer.byteLength(ignored),
+      pricingEndpoint: "responses",
+    });
+
+    capture.addChunk(Buffer.from(ignored));
+    capture.addChunk(Buffer.from(final));
+    await capture.finalize();
+
+    expect(capture.usageCapture).toMatchObject({
+      status: "complete",
+      usage: { inputUncachedTokens: 3, outputTokens: 2 },
+    });
+  });
+
   it("validates configured limits", () => {
     expect(() => new ResponseLogCapture(false, { memoryThresholdBytes: 2, maxBytes: 1 })).toThrow(
       RangeError,

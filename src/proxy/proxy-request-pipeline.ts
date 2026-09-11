@@ -23,6 +23,7 @@ import {
   type ResponseLogCaptureOptions,
   type ResponseLogPayload,
 } from "./response-log-capture.js";
+import { endpointKind } from "./records.js";
 import { rewriteRequestModel, selectTargetByModel } from "./routing.js";
 import { joinTargetPath } from "./target.js";
 import { openUpstreamResponse } from "./upstream-forwarder.js";
@@ -168,10 +169,10 @@ export class ProxyRequestPipeline {
       });
       responseStatus = upstream.statusCode ?? 502;
       responseHeaders = incomingHeaders(upstream);
-      responseCapture = new ResponseLogCapture(
-        isSseResponse(upstream),
-        this.#options.responseCapture,
-      );
+      responseCapture = new ResponseLogCapture(isSseResponse(upstream), {
+        ...this.#options.responseCapture,
+        pricingEndpoint: endpointKind(request.url ?? "/"),
+      });
       response.writeHead(
         responseStatus,
         upstream.statusMessage ?? undefined,
