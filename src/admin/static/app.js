@@ -77,6 +77,11 @@ const translations = {
     noModelPrices: "尚未配置模型价格，请求费用将显示为未计价",
     testPriceModel: "测试模型名",
     priceNoMatch: "未命中价格规则",
+    cost: "费用",
+    totalCost: "总费用",
+    knownCost: "已知",
+    calculating: "计算中…",
+    unpriced: "未计价",
     moreTargetOptions: "更多配置",
     lessTargetOptions: "收起配置",
     delete: "删除",
@@ -175,6 +180,11 @@ const translations = {
     noModelPrices: "No model prices configured; request cost will be unpriced",
     testPriceModel: "Test model",
     priceNoMatch: "No price rule matched",
+    cost: "Cost",
+    totalCost: "Total cost",
+    knownCost: "Known",
+    calculating: "Calculating…",
+    unpriced: "Unpriced",
     modelMappings:
       "Model mapping, one per line: listened model => upstream model; * is supported as a wildcard",
     moreTargetOptions: "More settings",
@@ -325,10 +335,42 @@ function logGroupTimeHtml(group) {
 }
 function logGroupFactsHtml(group) {
   return `<span class="log-group-facts">
-    ${group.model ? `<span class="log-model">${escapeHtml(group.model)}</span>` : ""}
-    <span class="log-request-count"><strong>${escapeHtml(group.request_count ?? 0)}</strong> ${escapeHtml(t("requests"))}</span>
-    ${group.target ? `<span class="log-target" title="${escapeHtml(group.target)}">${escapeHtml(group.target)}</span>` : ""}
+    <span class="log-group-fact-line">${group.model ? `<span class="log-model">${escapeHtml(group.model)}</span>` : ""}<span class="log-request-count"><strong>${escapeHtml(group.request_count ?? 0)}</strong> ${escapeHtml(t("requests"))}</span><button type="button" class="log-cost" data-group-cost="${escapeHtml(group.id || "")}">${escapeHtml(formatGroupCost(group.cost))}</button></span>
+    <span class="log-group-fact-line log-target" title="${escapeHtml(group.target || "")}">${escapeHtml(group.target || "—")}</span>
   </span>`;
+}
+function formatCurrencyAmount(amount) {
+  if (amount === null || amount === undefined || amount === "") return "—";
+  const text = String(amount);
+  const [wholeRaw, fractionRaw = ""] = text.split(".");
+  const whole = wholeRaw || "0";
+  const next = (fractionRaw.slice(0, 5) + "00000").slice(0, 5);
+  let rounded = BigInt(whole + next.slice(0, 4)) + BigInt(next[4] >= "5" ? 1 : 0);
+  const scale = 10_000n;
+  const integer = rounded / scale;
+  const fraction = (rounded % scale).toString().padStart(4, "0").replace(/0+$/, "");
+  if (integer === 0n && fraction === "" && !/^0+(?:\.0+)?$/.test(text)) return "< ¥0.0001";
+  return `¥${integer}${fraction ? `.${fraction}` : ""}`;
+}
+function formatRequestCost(cost) {
+  if (!cost || cost.status === "unpriced") return "—";
+  if (cost.status === "pending") return t("calculating");
+  return formatCurrencyAmount(cost.amount);
+}
+function formatGroupCost(cost) {
+  if (!cost) return `— · ${t("unpriced")}`;
+  if (cost.priced_request_count === 0 && cost.pending_request_count > 0) return t("calculating");
+  if (cost.priced_request_count === 0) return `— · ${t("unpriced")}`;
+  const prefix =
+    cost.unpriced_request_count || cost.pending_request_count
+      ? `${t("knownCost")} `
+      : `${t("totalCost")} `;
+  const suffix = cost.unpriced_request_count
+    ? ` · ${cost.unpriced_request_count} ${t("unpriced")}`
+    : cost.pending_request_count
+      ? ` · ${cost.pending_request_count} ${t("pending")}`
+      : "";
+  return `${prefix}${formatCurrencyAmount(cost.known_amount)}${suffix}`;
 }
 function logMetricHtml(className, label, value, title = label) {
   return `<span class="log-metric ${className}" title="${escapeHtml(title)}">
@@ -360,6 +402,7 @@ function logItemMetricsHtml(item) {
       ),
     );
   }
+  metrics.push(logMetricHtml("cost", t("cost"), formatRequestCost(item.cost), t("cost")));
   return (
     metrics.join("") ||
     `<span class="log-item-empty">${escapeHtml(formatStatus(item.status))}</span>`
@@ -859,12 +902,16 @@ function renderLogs() {
       .map(
         (group) => `
     <section class="log-group">
-      <button class="log-group-head" data-group-id="${escapeHtml(group.id || "")}">
+      <div class="log-group-head">
         <input class="log-group-select" type="checkbox" data-select-group="${escapeHtml(group.id || "")}" title="${escapeHtml(t("selectLogGroup"))}" ${state.selectedLogGroups[group.id] ? "checked" : ""}>
-        <span class="log-group-caret">${!state.collapsedGroups[group.id] ? "▸" : "▾"}</span>
-        ${logGroupTimeHtml(group)}
-        ${logGroupFactsHtml(group)}
-      </button>
+        <button type="button" class="log-group-toggle" data-group-id="${escapeHtml(group.id || "")}" aria-expanded="${state.collapsedGroups[group.id] ? "true" : "false"}" aria-label="${escapeHtml(t("task"))}">
+          <span class="log-group-caret" aria-hidden="true">${!state.collapsedGroups[group.id] ? "▸" : "▾"}</span>
+        </button>
+        <div class="log-group-summary">
+          ${logGroupTimeHtml(group)}
+          ${logGroupFactsHtml(group)}
+        </div>
+      </div>
       ${
         !state.collapsedGroups[group.id]
           ? ""

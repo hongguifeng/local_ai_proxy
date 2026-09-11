@@ -557,8 +557,6 @@ label span {
 }
 .log-group-head {
   width: 100%;
-  border: 0;
-  border-radius: 0;
   padding: 11px 12px;
   background: #dfe9f1;
   display: grid;
@@ -567,7 +565,7 @@ label span {
   text-align: left;
   box-shadow: inset 4px 0 #6b87a1;
 }
-.log-group-head:hover {
+.log-group-head:focus-within {
   background: #d3e0ea;
 }
 .log-group-select {
@@ -579,18 +577,34 @@ label span {
   height: 14px;
   margin: 0;
 }
-.log-group-caret {
+.log-group-toggle {
   grid-column: 1;
   grid-row: 2;
   justify-self: center;
   align-self: center;
+  border: 0;
+  border-radius: 4px;
+  padding: 0;
+  background: transparent;
   color: var(--muted);
+}
+.log-group-toggle:hover {
+  color: var(--ink);
+  background: #c9d8e3;
+}
+.log-group-caret {
+  display: block;
   font-size: 20px;
   line-height: 1;
 }
+.log-group-summary {
+  grid-column: 2;
+  min-width: 0;
+  display: grid;
+  gap: 3px;
+}
 .log-group-time,
 .log-group-facts {
-  grid-column: 2;
   min-width: 0;
 }
 .log-group-time {
@@ -632,13 +646,36 @@ label span {
 }
 .log-group-facts {
   grid-row: 2;
-  display: flex;
-  align-items: baseline;
-  gap: 6px;
+  display: grid;
+  gap: 3px;
   color: var(--muted);
   font-size: 11px;
   white-space: nowrap;
   overflow: hidden;
+}
+.log-group-fact-line {
+  min-width: 0;
+  display: flex;
+  gap: 6px;
+  align-items: baseline;
+  overflow: hidden;
+  white-space: nowrap;
+}
+.log-group-fact-line.log-target {
+  grid-row: 2;
+  display: block;
+}
+.log-cost {
+  min-width: 0;
+  border: 0;
+  background: transparent;
+  padding: 0;
+  color: #315a82;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font: inherit;
+  font-weight: 700;
 }
 .log-model {
   color: #7a4308;
@@ -657,7 +694,7 @@ label span {
   text-overflow: ellipsis;
 }
 .log-target::before {
-  content: "·";
+  content: none;
   margin-right: 6px;
   color: #9ba6b2;
 }

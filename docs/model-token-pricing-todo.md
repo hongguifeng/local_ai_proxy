@@ -1,6 +1,6 @@
 # 模型 token 定价与历史费用开发 TODO
 
-创建日期：2026-09-11。当前进度：9 / 14 项完成。
+创建日期：2026-09-11。当前进度：10 / 14 项完成。
 
 设计依据：[转发地址模型定价与历史费用设计](./model-token-pricing-design.md)。本清单用于后续开发、验收与逐项提交；遇到设计调整，应同步更新设计文档、本清单及测试，不能只改代码。
 
@@ -48,7 +48,7 @@
 | [x] | PRICE-07 | task 总额与费用明细聚合 | PRICE-06 | 完成 |
 | [x] | PRICE-08 | 历史 API、schema 与导出 | PRICE-07 | 完成 |
 | [x] | PRICE-09 | target 价格编辑 UI | PRICE-01、02、08 | 完成 |
-| [ ] | PRICE-10 | 费用格式化与两级列表 UI | PRICE-08、09 | 未开始 |
+| [x] | PRICE-10 | 费用格式化与两级列表 UI | PRICE-08、09 | 完成 |
 | [ ] | PRICE-11 | 请求与 task 费用明细 UI | PRICE-10 | 未开始 |
 | [ ] | PRICE-12 | 自动刷新、异步竞态与任务生命周期 | PRICE-11 | 未开始 |
 | [ ] | PRICE-13 | 端到端、迁移与性能回归 | PRICE-12 | 未开始 |
@@ -409,6 +409,22 @@ UI 基线：不涉及。
 UI 基线：`npm run regen:ui-baselines`；已更新 `doc/ui_*.png` 与 `docs/refactoring/ui-visual-baseline.md`。
 设计偏差与迁移影响：无。
 提交定位：`feat(pricing): [PRICE-09] edit target model prices`。
+补充修复提交：无。
+遗留问题：无。
+
+### PRICE-10
+
+任务 ID：PRICE-10
+状态：完成
+完成日期：2026-09-11
+实现内容与实际文件：历史列表新增共享 CNY 十进制格式化器，最多显示四位小数且保持大额精度；一级任务摘要按日期时间、模型/请求数/费用、转发地址三行显示，费用为独立可聚焦入口。二级记录保持原有标签在上、值在下的指标结构，仅增加费用列；展开控件、选择框和费用入口均为独立元素，不产生嵌套交互控件。
+测试映射：P10-01～P10-03 → `test-node/ui/admin-ui.test.ts` 的浏览器格式化、一级三行、无嵌套按钮和二级费用列用例；现有中英文视觉回归覆盖普通列表、预览和展开记录。P10-04 → 同文件窄屏/历史布局视觉回归。
+验证命令与结果：`npm run typecheck` 通过；`npx vitest run test-node/ui/admin-ui.test.ts -t "formats pricing" --reporter=dot` 通过（1 个测试）；`npm run regen:ui-baselines` 通过（4 个中英文基线测试）。
+验收结论：通过；未知、进行中、零和部分已知金额均有明确显示，且费用文本不会将缺价误显示为免费。
+文档更新：TODO 执行记录、UI 基线哈希。
+UI 基线：`npm run regen:ui-baselines`；已更新 `doc/ui_logs_cn.png`、`doc/ui_logs_en.png` 与 `docs/refactoring/ui-visual-baseline.md`。
+设计偏差与迁移影响：无。
+提交定位：`feat(pricing): [PRICE-10] format pricing in history lists`。
 补充修复提交：无。
 遗留问题：无。
 

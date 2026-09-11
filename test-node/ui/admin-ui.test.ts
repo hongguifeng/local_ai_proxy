@@ -149,9 +149,16 @@ beforeAll(async () => {
                 id: "task-one",
                 started_at: "2026-07-18 12:00:00",
                 last_activity_at: "2026-07-18 12:00:05",
-                model: "gpt-5",
-                request_count: 5,
-                target: "fixture-target",
+              model: "gpt-5",
+              request_count: 5,
+              target: "fixture-target",
+              cost: {
+                currency: "CNY" as const,
+                known_amount: "0.042750000",
+                priced_request_count: 3,
+                unpriced_request_count: 1,
+                pending_request_count: 1,
+              },
               },
               {
                 id: "task-needle",
@@ -262,6 +269,7 @@ beforeAll(async () => {
               request_token_count: 46,
               response_token_count: 212,
               target: "fixture-target",
+              cost: { currency: "CNY", amount: "5", status: "priced", reason: null },
             },
             {
               id: "record-four",
@@ -275,6 +283,7 @@ beforeAll(async () => {
               request_token_count: 12,
               response_token_count: 0,
               target: "fixture-target",
+              cost: { currency: "CNY", amount: null, status: "unpriced", reason: "missing_usage" },
             },
             {
               id: "record-three",
@@ -288,6 +297,7 @@ beforeAll(async () => {
               request_token_count: 24,
               response_token_count: 96,
               target: "fixture-target",
+              cost: { currency: "CNY", amount: "0.041125", status: "priced", reason: null },
             },
             {
               id: "record-two",
@@ -301,6 +311,7 @@ beforeAll(async () => {
               request_token_count: 8,
               response_token_count: 4,
               target: "fixture-target",
+              cost: { currency: "CNY", amount: "0.00001", status: "priced", reason: null },
             },
             {
               id: "record-one",
@@ -314,6 +325,7 @@ beforeAll(async () => {
               request_token_count: null,
               response_token_count: null,
               target: "fixture-target",
+              cost: { currency: "CNY", amount: null, status: "pending", reason: null },
             },
           ],
         };
@@ -902,6 +914,56 @@ describe("admin UI history page", { timeout: UI_TEST_TIMEOUT_MS }, () => {
     await expectPage(
       page.locator('[data-log-id="record-one"] .messages .log-metric-value'),
     ).toHaveText("1");
+  });
+
+  it("formats pricing precisely and keeps the two-level history layout compact", async () => {
+    await loadAdminPage();
+    await Promise.all([
+      page.waitForResponse((response) => response.url().includes("/api/logs?")),
+      page.locator('[data-tab="logs"]').click(),
+    ]);
+
+    await expect(
+      page.evaluate((amounts) => {
+        const formatter = (window as unknown as Window & {
+          formatCurrencyAmount: (amount: string | null) => string;
+        }).formatCurrencyAmount;
+        return amounts.map((amount) => formatter(amount));
+      }, ["5", "0.03", "0.041125", "0.042750", "0.00001", "0", null]),
+    ).resolves.toEqual(["¥5", "¥0.03", "¥0.0411", "¥0.0428", "< ¥0.0001", "¥0", "—"]);
+
+    const group = page.locator(".log-group").first();
+    const summary = group.locator(".log-group-summary");
+    await expectPage(summary.locator(".log-group-time")).toHaveCount(1);
+    await expectPage(summary.locator(".log-group-fact-line")).toHaveCount(2);
+    await expectPage(summary.locator(".log-group-fact-line").first()).toContainText(
+      "gpt-5",
+    );
+    await expectPage(summary.locator(".log-group-fact-line").first()).toContainText(
+      "5 requests",
+    );
+    await expectPage(summary.locator("[data-group-cost]")).toHaveText(
+      "Known ¥0.0428 · 1 Unpriced",
+    );
+    await expectPage(summary.locator(".log-target")).toHaveText("fixture-target");
+    await expectPage(group.locator("button button")).toHaveCount(0);
+
+    await Promise.all([
+      page.waitForResponse((response) => response.url().includes("/api/log-groups/task-one/logs")),
+      group.locator('[data-group-id="task-one"]').click(),
+    ]);
+    const priced = page.locator('[data-log-id="record-three"]');
+    await expectPage(priced.locator(".cost .log-metric-label")).toHaveText("Cost");
+    await expectPage(priced.locator(".cost .log-metric-value")).toHaveText("¥0.0411");
+    await expectPage(page.locator('[data-log-id="record-two"] .cost .log-metric-value')).toHaveText(
+      "< ¥0.0001",
+    );
+    await expectPage(page.locator('[data-log-id="record-one"] .cost .log-metric-value')).toHaveText(
+      "Calculating…",
+    );
+    await expectPage(page.locator('[data-log-id="record-four"] .cost .log-metric-value')).toHaveText(
+      "—",
+    );
   });
 
   it("expands search previews without a second request and replaces them on query changes", async () => {
