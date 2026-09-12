@@ -911,7 +911,7 @@ label span {
   inset: 0;
   z-index: 2;
   overflow: auto;
-  padding: 14px;
+  padding: 14px 16px 22px;
   background: #fbfcfd;
 }
 .pricing-panel-head,
@@ -925,25 +925,50 @@ label span {
   padding-bottom: 10px;
   border-bottom: 1px solid var(--line);
 }
+.pricing-panel > .pricing-card-head {
+  margin-top: 12px;
+  padding: 11px 14px;
+  border: 1px solid #cfe3db;
+  border-left: 3px solid var(--accent);
+  border-radius: 8px;
+  background: var(--accent-soft);
+}
+.pricing-panel > .pricing-card-head > strong {
+  font-size: 20px;
+  letter-spacing: 0.2px;
+}
+.pricing-panel > .pricing-card-head > span {
+  color: var(--muted);
+  font-size: 12px;
+}
 .pricing-panel h3 {
   margin: 18px 0 8px;
   font-size: 14px;
 }
 .pricing-panel details {
-  margin: 7px 0;
-  padding: 7px 9px;
+  margin: 8px 0;
+  padding: 0;
   border: 1px solid var(--line);
-  border-radius: 6px;
+  border-radius: 8px;
   background: white;
+  overflow: hidden;
 }
 .pricing-panel summary {
+  padding: 8px 12px;
+  background: #f5f8fb;
+  border-bottom: 1px solid var(--line);
+  font-weight: 600;
   cursor: pointer;
 }
 .pricing-target,
 .pricing-note {
   overflow-wrap: anywhere;
 }
+.pricing-target {
+  margin: 10px 0 0;
+}
 .pricing-note {
+  margin: 10px 0 0;
   color: var(--muted);
   font-size: 12px;
 }
@@ -973,17 +998,33 @@ label span {
   text-overflow: ellipsis;
   white-space: nowrap;
 }
+/* Cap the pricing content at a comfortable reading width so wide monitors don't
+   stretch the table columns (loose spacing hurts readability); narrow viewports
+   still fill 100% and scroll. The header row (title + close) stays full-width. */
+.pricing-panel > .pricing-card-head,
+.pricing-panel > .pricing-target,
+.pricing-panel > .table-scroll,
+.pricing-panel > .pricing-note,
+.pricing-panel > h3,
+.pricing-panel > details {
+  max-width: 760px;
+}
 .pricing-table {
-  width: max-content;
-  max-width: 100%;
-  border-collapse: collapse;
+  width: 100%;
+  border-collapse: separate;
+  border-spacing: 0;
   font-size: 12px;
   font-variant-numeric: tabular-nums;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  overflow: hidden;
+  background: var(--panel);
+  margin: 12px 0;
 }
 .pricing-table th,
 .pricing-table td {
-  padding: 4px 6px;
-  border-top: 1px solid #dfe7ed;
+  padding: 7px 12px;
+  border-top: 1px solid #e9eef4;
   text-align: right;
   white-space: nowrap;
 }
@@ -991,13 +1032,70 @@ label span {
   text-align: left;
 }
 .pricing-table thead th {
+  border-top: none;
+  border-bottom: 1px solid var(--line);
+  background: #edf2f7;
   color: var(--muted);
-  font-size: 10px;
+  font-size: 11px;
   font-weight: 600;
+  letter-spacing: 0.2px;
+}
+.pricing-table tbody th {
+  color: var(--ink);
+  font-weight: 500;
+}
+.pricing-table tbody tr:nth-child(even) th,
+.pricing-table tbody tr:nth-child(even) td {
+  background: #f8fafc;
+}
+.pricing-table tbody tr:hover th,
+.pricing-table tbody tr:hover td {
+  background: #eef5fb;
 }
 .pricing-table tfoot th,
 .pricing-table tfoot td {
+  padding-top: 8px;
+  padding-bottom: 8px;
+  border-top: 1px solid var(--line);
+  background: var(--accent-soft);
   font-weight: 700;
+}
+/* Group tables live inside the <details> card; let the card provide the frame. */
+.pricing-panel details .pricing-table {
+  margin: 0;
+  border: none;
+  border-radius: 0;
+  overflow: visible;
+}
+.pricing-panel details .pricing-table thead th {
+  border-top: none;
+}
+/* Share column: value + proportional mini bar. */
+.pricing-table td.share-cell {
+  min-width: 112px;
+  padding-right: 16px;
+}
+.share-bar {
+  display: block;
+  height: 4px;
+  margin-top: 4px;
+  background: #d9e1ea;
+  border-radius: 999px;
+  overflow: hidden;
+}
+.share-bar-fill {
+  display: block;
+  height: 100%;
+  background: var(--accent);
+  border-radius: 999px;
+}
+.pricing-table tfoot .share-bar {
+  background: #bce0d2;
+}
+/* Wrap each pricing table so wide (5-column / English) tables scroll horizontally
+   right beneath themselves instead of overflowing the panel. */
+.table-scroll {
+  overflow-x: auto;
 }
 .json-pane {
   min-height: 0;

@@ -1159,6 +1159,33 @@ function pricingPercentage(amount, totalAmount) {
   const fraction = (ratio % 100n).toString().padStart(2, "0").replace(/0+$/, "");
   return `${whole}${fraction ? `.${fraction}` : ""}%`;
 }
+function pricingPercentNumber(amount, totalAmount) {
+  const decimalParts = (value) => {
+    const match = /^(\d+)(?:\.(\d+))?$/.exec(String(value ?? ""));
+    return match ? { whole: match[1], fraction: match[2] || "" } : null;
+  };
+  const n = decimalParts(amount);
+  const d = decimalParts(totalAmount);
+  if (!n || !d) return null;
+  const scale = Math.max(n.fraction.length, d.fraction.length);
+  const toScaled = ({ whole, fraction }) => BigInt(whole + fraction.padEnd(scale, "0"));
+  const den = toScaled(d);
+  if (den === 0n) return null;
+  return (Number(toScaled(n)) / Number(den)) * 100;
+}
+function shareCellHtml(amount, totalAmount) {
+  const pct = pricingPercentNumber(amount, totalAmount);
+  const bar =
+    pct === null
+      ? ""
+      : `<span class="share-bar"><span class="share-bar-fill" style="width:${Math.max(
+          0,
+          Math.min(100, pct),
+        ).toFixed(2)}%"></span></span>`;
+  return `<td class="share-cell"><span class="share-value">${escapeHtml(
+    pricingPercentage(amount, totalAmount),
+  )}</span>${bar}</td>`;
+}
 function pricingStatusValue(pricing) {
   if (!pricing || pricing.pricing_status === "unpriced") return "—";
   if (pricing.pricing_status === "pending") return t("calculating");
@@ -1186,10 +1213,10 @@ function pricingTableHtml(breakdown, price = null, totalAmount = null) {
       const bucket = breakdown?.[usageKey] || breakdown?.[usageKey.replace("Tokens", "")] || {};
       const tokens = bucket.tokens ?? breakdown?.[usageKey] ?? "—";
       const amount = bucket.amount ?? "—";
-      return `<tr><th>${escapeHtml(t(label))}</th><td>${escapeHtml(String(tokens))}</td><td>${escapeHtml(price?.[priceKey] ?? "—")}</td><td>${escapeHtml(typeof amount === "string" ? formatCurrencyAmount(amount) : String(amount))}</td><td>${escapeHtml(pricingPercentage(amount, totalAmount))}</td></tr>`;
+      return `<tr><th>${escapeHtml(t(label))}</th><td>${escapeHtml(String(tokens))}</td><td>${escapeHtml(price?.[priceKey] ?? "—")}</td><td>${escapeHtml(typeof amount === "string" ? formatCurrencyAmount(amount) : String(amount))}</td>${shareCellHtml(amount, totalAmount)}</tr>`;
     })
     .join("");
-  return `<table class="pricing-table"><thead><tr><th></th><th>${escapeHtml(t("tokensBilled"))}</th><th>${escapeHtml(t("pricePerMillion"))}</th><th>${escapeHtml(t("amountCny"))}</th><th>${escapeHtml(t("costShare"))}</th></tr></thead><tbody>${rows}</tbody><tfoot><tr><th>${escapeHtml(t("total"))}</th><td></td><td></td><td>${escapeHtml(formatCurrencyAmount(totalAmount))}</td><td>${escapeHtml(pricingPercentage(totalAmount, totalAmount))}</td></tr></tfoot></table>`;
+  return `<div class="table-scroll"><table class="pricing-table"><thead><tr><th></th><th>${escapeHtml(t("tokensBilled"))}</th><th>${escapeHtml(t("pricePerMillion"))}</th><th>${escapeHtml(t("amountCny"))}</th><th>${escapeHtml(t("costShare"))}</th></tr></thead><tbody>${rows}</tbody><tfoot><tr><th>${escapeHtml(t("total"))}</th><td></td><td></td><td>${escapeHtml(formatCurrencyAmount(totalAmount))}</td>${shareCellHtml(totalAmount, totalAmount)}</tr></tfoot></table></div>`;
 }
 function renderRequestPricing() {
   const el = $("responsePricing");
@@ -1233,10 +1260,10 @@ function taskBreakdownTableHtml(breakdown, totalAmount, price = null) {
   ]
     .map(([key, label, priceKey]) => {
       const bucket = breakdown?.[key] || {};
-      return `<tr><th>${escapeHtml(t(label))}</th><td>${escapeHtml(String(bucket.tokens ?? "0"))}</td>${priceCell(price?.[priceKey])}<td>${escapeHtml(formatCurrencyAmount(bucket.amount ?? null))}</td><td>${escapeHtml(pricingPercentage(bucket.amount, totalAmount))}</td></tr>`;
+      return `<tr><th>${escapeHtml(t(label))}</th><td>${escapeHtml(String(bucket.tokens ?? "0"))}</td>${priceCell(price?.[priceKey])}<td>${escapeHtml(formatCurrencyAmount(bucket.amount ?? null))}</td>${shareCellHtml(bucket.amount, totalAmount)}</tr>`;
     })
     .join("");
-  return `<table class="pricing-table task-breakdown"><thead><tr><th></th><th>${escapeHtml(t("tokensBilled"))}</th>${priceHeader}<th>${escapeHtml(t("amountCny"))}</th><th>${escapeHtml(t("costShare"))}</th></tr></thead><tbody>${rows}</tbody><tfoot><tr><th>${escapeHtml(t("total"))}</th><td></td>${price ? "<td></td>" : ""}<td>${escapeHtml(formatCurrencyAmount(totalAmount))}</td><td>${escapeHtml(pricingPercentage(totalAmount, totalAmount))}</td></tr></tfoot></table>`;
+  return `<div class="table-scroll"><table class="pricing-table task-breakdown"><thead><tr><th></th><th>${escapeHtml(t("tokensBilled"))}</th>${priceHeader}<th>${escapeHtml(t("amountCny"))}</th><th>${escapeHtml(t("costShare"))}</th></tr></thead><tbody>${rows}</tbody><tfoot><tr><th>${escapeHtml(t("total"))}</th><td></td>${price ? "<td></td>" : ""}<td>${escapeHtml(formatCurrencyAmount(totalAmount))}</td>${shareCellHtml(totalAmount, totalAmount)}</tr></tfoot></table></div>`;
 }
 function renderTaskPricingPanel() {
   const panel = $("pricingPanel");

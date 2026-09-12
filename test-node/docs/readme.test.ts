@@ -35,7 +35,8 @@ describe("README runtime instructions", () => {
     for (const name of READMES) {
       const readme = await read(name);
       for (const match of readme.matchAll(/\]\(([^)#]+)(?:#[^)]*)?\)/g)) {
-        const target = match[1].trim();
+        const target = match[1]?.trim();
+        if (!target) continue;
         if (/^[\w+.-]+:/.test(target) || target.startsWith("/")) {
           continue; // external or absolute URL, not a repo file
         }
