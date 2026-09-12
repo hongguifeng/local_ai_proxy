@@ -902,6 +902,7 @@ async function loadLogs(options = {}) {
         ? Math.max(state.logLimit, state.logOffset || state.logGroups.length)
         : state.logLimit;
     const data = await api(`/api/logs?q=${q}&limit=${limit}&offset=${offset}`);
+    if (q !== encodeURIComponent(state.logQuery)) return;
     const nextGroups = (data.groups || []).map(({ preview, ...group }) =>
       preview
         ? {
@@ -960,7 +961,11 @@ async function loadLogs(options = {}) {
   } finally {
     if (showSearchProgress) $("logSearchProgress").hidden = true;
     state.logsLoading = false;
-    scheduleLogRefresh();
+    if (q !== encodeURIComponent(state.logQuery)) {
+      loadLogs({ search: showSearchProgress }).catch((e) => toast(e.message));
+    } else {
+      scheduleLogRefresh();
+    }
   }
 }
 async function refreshPendingLogItems() {

@@ -889,6 +889,9 @@ describe("admin UI history page", { timeout: UI_TEST_TIMEOUT_MS }, () => {
       page.locator('[data-tab="logs"]').click(),
     ]);
     logQueries.splice(0);
+    await expectPage(page.locator(".log-model")).toHaveCount(4, {
+      timeout: UI_TEST_TIMEOUT_MS,
+    });
 
     const response = page.waitForResponse((candidate) => candidate.url().includes("q=needle"));
     await page.locator("#logSearch").fill("needle");
