@@ -409,4 +409,4 @@ with Node.js 24, run `npm ci --omit=dev` once and then use `npm start`.
 
 ### Intelligent history summaries
 
-History can summarize an individual request with a configured model, grouping consecutive messages into cached phases.
+History can summarize an individual request with a configured model, grouping consecutive messages into cached phases. Records that already have a generated summary show a gold star in the per-task request list.

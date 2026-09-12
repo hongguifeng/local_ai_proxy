@@ -119,6 +119,7 @@ const translations = {
     pending: "等待中",
     noLogs: "暂无日志",
     noMatchedLogs: "该组下没有匹配的记录",
+    summaryStar: "已生成智能总结",
     loadMore: "加载更多",
     requests: "个请求",
     messages: "条消息",
@@ -253,6 +254,7 @@ const translations = {
     pending: "pending",
     noLogs: "No logs",
     noMatchedLogs: "No matching records in this group",
+    summaryStar: "Smart summary generated",
     loadMore: "Load more",
     requests: "requests",
     messages: "messages",
@@ -1040,8 +1042,7 @@ function renderLogs() {
           <span class="log-item-content">
             <span class="log-item-metrics">${logItemMetricsHtml(item)}</span>
             <span class="log-item-subline">
-              <span class="log-timestamp">${escapeHtml(item.timestamp || "")}</span>
-              <span class="log-status ${logStatusClass(item.status)}"><span class="log-status-dot" aria-hidden="true"></span>${escapeHtml(formatStatus(item.status))}</span>
+              <span class="log-timestamp">${escapeHtml(item.timestamp || "")}</span>${item.has_summary ? `<span class="log-summary-star" title="${escapeHtml(t("summaryStar"))}" aria-label="${escapeHtml(t("summaryStar"))}">★</span>` : ""}<span class="log-status ${logStatusClass(item.status)}"><span class="log-status-dot" aria-hidden="true"></span>${escapeHtml(formatStatus(item.status))}</span>
             </span>
           </span>
         </button>`,
@@ -1630,12 +1631,14 @@ $("summarizeRecord")?.addEventListener("click", async () => {
         return;
       }
       renderSummary(existing, { open: true });
+      markLogSummarized(state.selected);
       return;
     }
     const result = await api(`/api/logs/${encodeURIComponent(state.selected)}/summary`, {
       method: "POST",
     });
     renderSummary(result, { open: true });
+    markLogSummarized(state.selected);
     toast("智能总结已生成");
   } catch (e) {
     if (
@@ -1665,11 +1668,22 @@ async function selectLog(id) {
     if (state.selected === id) state.selectedLogLoading = false;
   }
 }
+function markLogSummarized(id) {
+  let changed = false;
+  for (const item of state.logs) {
+    if (item.id === id && !item.has_summary) {
+      item.has_summary = true;
+      changed = true;
+    }
+  }
+  if (changed) renderLogs();
+}
 async function loadSummary(id) {
   try {
     const data = await api(`/api/logs/${encodeURIComponent(id)}/summary`);
     if (state.selected !== id) return;
     renderSummary(data);
+    if (data) markLogSummarized(id);
   } catch {}
 }
 function renderSummary(data, options = {}) {

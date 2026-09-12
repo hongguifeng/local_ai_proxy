@@ -399,6 +399,16 @@ describe("TrafficRepository history summaries", () => {
       pricing_status: "unpriced",
       pricing_reason: null,
       cost_nano_cny: null,
+      has_summary: 0,
+    });
+    repository.database
+      .prepare(
+        "INSERT INTO history_summaries(record_id,status,prompt_version,created_at,updated_at) VALUES(?,?,?,?,?)",
+      )
+      .run("summary-record", "ready", "v1", "2026-07-18T02:00:00.000Z", "2026-07-18T02:00:00.000Z");
+    expect(repository.listTaskRecordSummaries("summary-task").items[0]).toMatchObject({
+      id: "summary-record",
+      has_summary: 1,
     });
     repository.close();
   });

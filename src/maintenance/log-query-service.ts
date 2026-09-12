@@ -46,6 +46,7 @@ export interface LogGroupPage {
 export interface LogListItem {
   readonly cost?: LogRequestCost;
   readonly endpoint: string;
+  readonly has_summary: boolean;
   readonly id: string;
   readonly message_count: number | null;
   readonly method: string;
@@ -511,6 +512,7 @@ function emptyMetaValue(value: unknown): boolean {
 function logListItem(record: Readonly<RepositoryRecord>): LogListItem {
   return {
     cost: requestCost(record),
+    has_summary: Number(record["has_summary"]) === 1,
     id: string(record["id"]),
     timestamp: displayTimestamp(record["timestamp"]) || string(record["timestamp"]),
     sequence: string(record["sequence"]),

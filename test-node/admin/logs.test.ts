@@ -194,6 +194,7 @@ describe("GET /api/logs", () => {
                     request_token_count: null,
                     response_token_count: null,
                     target: "",
+                    has_summary: false,
                   },
                 ],
               }

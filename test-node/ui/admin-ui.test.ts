@@ -27,6 +27,7 @@ const logQueries: string[] = [];
 const groupLogQueries: string[] = [];
 let useLargeLogFixture = false;
 let useLargeGroupLogFixture = false;
+let useSummarizedLogFixture = false;
 const deletedLogGroups = new Set<string>();
 const detailReads = new Map<string, number>();
 const UI_TEST_TIMEOUT_MS = 30_000;
@@ -262,6 +263,7 @@ beforeAll(async () => {
               request_token_count: sequence * 2,
               response_token_count: sequence,
               target: "fixture-target",
+              has_summary: false,
             };
           });
           const pageLogs = logs.slice(offset, offset + limit);
@@ -296,6 +298,7 @@ beforeAll(async () => {
               request_token_count: 46,
               response_token_count: 212,
               target: "fixture-target",
+              has_summary: useSummarizedLogFixture,
               cost: { currency: "CNY", amount: "5", status: "priced", reason: null },
             },
             {
@@ -310,6 +313,7 @@ beforeAll(async () => {
               request_token_count: 12,
               response_token_count: 0,
               target: "fixture-target",
+              has_summary: false,
               cost: { currency: "CNY", amount: null, status: "unpriced", reason: "missing_usage" },
             },
             {
@@ -324,6 +328,7 @@ beforeAll(async () => {
               request_token_count: 24,
               response_token_count: 96,
               target: "fixture-target",
+              has_summary: false,
               cost: { currency: "CNY", amount: "0.041125", status: "priced", reason: null },
             },
             {
@@ -338,6 +343,7 @@ beforeAll(async () => {
               request_token_count: 8,
               response_token_count: 4,
               target: "fixture-target",
+              has_summary: false,
               cost: { currency: "CNY", amount: "0.00001", status: "priced", reason: null },
             },
             {
@@ -352,6 +358,7 @@ beforeAll(async () => {
               request_token_count: null,
               response_token_count: null,
               target: "fixture-target",
+              has_summary: false,
               cost: { currency: "CNY", amount: null, status: "pending", reason: null },
             },
           ],
@@ -501,6 +508,7 @@ beforeEach(async () => {
   groupLogQueries.splice(0);
   useLargeLogFixture = false;
   useLargeGroupLogFixture = false;
+  useSummarizedLogFixture = false;
   deletedLogGroups.clear();
   detailReads.clear();
   targetCheckCalls.length = 0;
@@ -1086,6 +1094,23 @@ describe("admin UI history page", { timeout: UI_TEST_TIMEOUT_MS }, () => {
     await expectPage(group.locator(".log-group-body")).toHaveCount(0);
     await group.locator(".log-group-head").press(" ");
     await expectPage(group.locator(".log-group-body")).toHaveCount(1);
+  });
+
+  it("marks records with a generated intelligent summary with a star", async () => {
+    useSummarizedLogFixture = true;
+    await loadAdminPage();
+    await Promise.all([
+      page.waitForResponse((response) => response.url().includes("/api/logs?")),
+      page.locator('[data-tab="logs"]').click(),
+    ]);
+    await Promise.all([
+      page.waitForResponse((response) => response.url().includes("/api/log-groups/task-one/logs")),
+      page.locator('[data-group-id="task-one"] .log-target').click(),
+    ]);
+    const starred = page.locator('[data-log-id="record-five"] .log-summary-star');
+    await expectPage(starred).toHaveCount(1);
+    await expectPage(starred).toHaveText("★");
+    await expectPage(page.locator(".log-summary-star")).toHaveCount(1);
   });
 
   it("opens task and request pricing details without changing task selection or expansion", async () => {

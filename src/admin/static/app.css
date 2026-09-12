@@ -842,7 +842,7 @@ label span {
   min-width: 0;
   display: flex;
   align-items: center;
-  justify-content: space-between;
+  justify-content: flex-start;
   gap: 8px;
   color: var(--muted);
   font-size: 11px;
@@ -872,6 +872,16 @@ label span {
 }
 .log-status.success {
   color: #176b52;
+}
+.log-summary-star {
+  flex: 0 0 auto;
+  color: #d4a017;
+  font-size: 14px;
+  line-height: 1;
+  filter: drop-shadow(0 0 2px rgba(212, 160, 23, 0.4));
+}
+.log-item.active .log-summary-star {
+  color: #b8860b;
 }
 .log-status.success .log-status-dot {
   background: #24936f;
