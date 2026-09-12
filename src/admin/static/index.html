@@ -48,7 +48,7 @@
                 <button id="selectAllLogs" data-i18n="selectAllLogs">全选</button>
                 <button id="cleanupLogs" data-i18n="cleanupSelectedLogs">清理选中</button>
                 <button id="exportLogs" data-i18n="exportLogs">导出</button>
-                <button id="summaryModelSettings">总结模型配置</button>
+                <button id="summaryModelSettings" data-i18n="summaryModelSettings">总结模型配置</button>
                 <button id="refreshLogs" data-i18n="refresh">刷新</button>
                 <label class="auto-refresh" data-i18n-title="autoRefresh">
                   <input id="autoRefreshLogs" type="checkbox" checked />
@@ -64,7 +64,7 @@
               <div class="pane-head">
                 <strong data-i18n="request">Request</strong
                 ><span class="pane-actions"
-                  ><button id="summarizeRecord" class="icon" title="智能总结">✨</button
+                  ><button id="summarizeRecord" class="icon" data-i18n-title="summarize" title="智能总结">✨</button
                   ><button class="icon" data-meta="request" title="显示元信息">ⓘ</button
                   ><button
                     class="icon"
@@ -146,11 +146,11 @@
     <dialog id="summaryPanel" class="summary-dialog">
       <section>
         <header class="summary-dialog-head">
-          <h2>智能摘要</h2>
+          <h2 data-i18n="summaryDialogTitle">智能摘要</h2>
           <div>
-            <button id="summaryRegenerate" type="button">重新生成</button>
-            <button id="summaryCopy" type="button">复制</button>
-            <button id="summaryClose" type="button">关闭</button>
+            <button id="summaryRegenerate" type="button" data-i18n="regenerate">重新生成</button>
+            <button id="summaryCopy" type="button" data-i18n="copy">复制</button>
+            <button id="summaryClose" type="button" data-i18n="close">关闭</button>
           </div>
         </header>
         <div id="summaryContent"></div>
@@ -205,28 +205,28 @@
     </dialog>
     <dialog id="summaryModelDialog" class="target-check-dialog">
       <form id="summaryModelForm" class="target-check-form">
-        <h2>总结模型配置</h2>
+        <h2 data-i18n="summaryModelSettings">总结模型配置</h2>
         <label class="summary-enabled"
-          ><input id="summaryDisableReasoning" type="checkbox" checked /> 关闭模型思考</label
+          ><input id="summaryDisableReasoning" type="checkbox" checked /> <span data-i18n="disableReasoning">关闭模型思考</span></label
         >
         <label
-          >API 类型<select id="summaryApiType">
+          ><span data-i18n="checkApiType">API 类型</span><select id="summaryApiType">
             <option value="openai_chat">OpenAI Chat Completions</option>
             <option value="openai_responses">OpenAI Responses</option>
             <option value="anthropic_messages">Anthropic Messages</option>
           </select></label
         ><label>Base URL<input id="summaryUrl" required /></label
-        ><label>模型<input id="summaryModel" required /></label
+        ><label><span data-i18n="model">模型</span><input id="summaryModel" required /></label
         ><label>API Key<input id="summaryKey" /></label
-        ><label>Headers<input id="summaryHeaders" placeholder="Name: value" /></label
+        ><label><span data-i18n="headers">Headers</span><input id="summaryHeaders" placeholder="Name: value" /></label
         ><label
-          >超时（秒）<input id="summaryTimeout" type="number" min="1" max="604800" value="180"
+          ><span data-i18n="timeoutSeconds">超时（秒）</span><input id="summaryTimeout" type="number" min="1" max="604800" value="180"
         /></label>
         <div id="summaryTestResult" class="target-check-result" hidden></div>
         <menu>
-          <button type="button" id="summaryTest">连接测试</button
-          ><button type="button" id="summaryCancel">取消</button
-          ><button type="submit" id="summarySave" class="primary">保存</button>
+          <button type="button" id="summaryTest" data-i18n="testConnection">连接测试</button
+          ><button type="button" id="summaryCancel" data-i18n="cancel">取消</button
+          ><button type="submit" id="summarySave" class="primary" data-i18n="save">保存</button>
         </menu>
       </form>
     </dialog>

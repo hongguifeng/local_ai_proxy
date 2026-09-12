@@ -121,6 +121,29 @@ const translations = {
     noLogs: "暂无日志",
     noMatchedLogs: "该组下没有匹配的记录",
     summaryStar: "已生成智能总结",
+    summaryModelSettings: "总结模型配置",
+    summarize: "智能总结",
+    summaryDialogTitle: "智能摘要",
+    regenerate: "重新生成",
+    copy: "复制",
+    disableReasoning: "关闭模型思考",
+    model: "模型",
+    headers: "Headers",
+    timeoutSeconds: "超时（秒）",
+    testConnection: "连接测试",
+    cancel: "取消",
+    save: "保存",
+    summaryGenerated: "智能总结已生成",
+    summaryModelRequired: "请先配置总结模型",
+    summaryConfigSaved: "总结模型配置已保存",
+    testTesting: "测试中…",
+    testSuccess: "连接成功",
+    testFailed: "连接失败",
+    testFailedGeneric: "连接测试失败",
+    decisions: "决策",
+    issues: "问题",
+    evidence: "证据：",
+    stage: "阶段",
     loadMore: "加载更多",
     requests: "个请求",
     messages: "条消息",
@@ -257,6 +280,29 @@ const translations = {
     noLogs: "No logs",
     noMatchedLogs: "No matching records in this group",
     summaryStar: "Smart summary generated",
+    summaryModelSettings: "Summary model settings",
+    summarize: "Smart summary",
+    summaryDialogTitle: "Smart summary",
+    regenerate: "Regenerate",
+    copy: "Copy",
+    disableReasoning: "Disable model thinking",
+    model: "Model",
+    headers: "Headers",
+    timeoutSeconds: "Timeout (seconds)",
+    testConnection: "Test connection",
+    cancel: "Cancel",
+    save: "Save",
+    summaryGenerated: "Smart summary generated",
+    summaryModelRequired: "Configure a summary model first",
+    summaryConfigSaved: "Summary model settings saved",
+    testTesting: "Testing…",
+    testSuccess: "Connection OK",
+    testFailed: "Connection failed",
+    testFailedGeneric: "Connection test failed",
+    decisions: "Decisions",
+    issues: "Issues",
+    evidence: "Evidence: ",
+    stage: "Stage",
     loadMore: "Load more",
     requests: "requests",
     messages: "messages",
@@ -1642,14 +1688,14 @@ $("summarizeRecord")?.addEventListener("click", async () => {
     });
     renderSummary(result, { open: true });
     markLogSummarized(state.selected);
-    toast("智能总结已生成");
+    toast(t("summaryGenerated"));
   } catch (e) {
     if (
       String(e.message || "")
         .toLowerCase()
         .includes("not configured")
     ) {
-      toast("请先配置总结模型");
+      toast(t("summaryModelRequired"));
       document.getElementById("summaryModelSettings")?.click();
     } else toast(e.message);
   } finally {
@@ -1704,7 +1750,7 @@ function renderSummary(data, options = {}) {
     .map((segment) => {
       const points = list(segment.key_points);
       const evidence = list(segment.evidence);
-      return `<article class="summary-segment"><div class="summary-segment-head"><strong>${escapeHtml(String(segment.range || "阶段"))}</strong><span>${escapeHtml(String(segment.summary || ""))}</span></div>${points.length ? `<ul>${points.map((point) => `<li>${escapeHtml(point)}</li>`).join("")}</ul>` : ""}${evidence.length ? `<div class="summary-evidence">证据：${evidence.map((item) => `<code>${escapeHtml(item)}</code>`).join(" ")}</div>` : ""}</article>`;
+      return `<article class="summary-segment"><div class="summary-segment-head"><strong>${escapeHtml(String(segment.range || t("stage")))}</strong><span>${escapeHtml(String(segment.summary || ""))}</span></div>${points.length ? `<ul>${points.map((point) => `<li>${escapeHtml(point)}</li>`).join("")}</ul>` : ""}${evidence.length ? `<div class="summary-evidence">${escapeHtml(t("evidence"))}${evidence.map((item) => `<code>${escapeHtml(item)}</code>`).join(" ")}</div>` : ""}</article>`;
     })
     .join("");
   const section = (title, values, className) =>
@@ -1712,7 +1758,7 @@ function renderSummary(data, options = {}) {
       ? `<section class="summary-list ${className}"><h4>${title}</h4><ul>${values.map((item) => `<li>${escapeHtml(item)}</li>`).join("")}</ul></section>`
       : "";
   $("summaryContent").innerHTML =
-    `<div class="summary-title">${escapeHtml(String(data.title || "智能摘要"))}</div><p class="summary-overview">${escapeHtml(String(data.overview || ""))}</p><div class="summary-segments">${segmentHtml}</div>${section("决策", list(data.decisions), "summary-decisions")}${section("问题", list(data.issues), "summary-issues")}`;
+    `<div class="summary-title">${escapeHtml(String(data.title || t("summaryDialogTitle")))}</div><p class="summary-overview">${escapeHtml(String(data.overview || ""))}</p><div class="summary-segments">${segmentHtml}</div>${section(t("decisions"), list(data.decisions), "summary-decisions")}${section(t("issues"), list(data.issues), "summary-issues")}`;
   if (options.open && !$("summaryPanel").open) $("summaryPanel").showModal();
 }
 async function refreshSelectedLogDetail() {
@@ -1979,7 +2025,7 @@ $("summaryModelForm").addEventListener("submit", async (e) => {
     }),
   });
   $("summaryModelDialog").close();
-  toast("总结模型配置已保存");
+  toast(t("summaryConfigSaved"));
 });
 $("summaryCancel").addEventListener("click", () => $("summaryModelDialog").close());
 $("selectAllLogs").addEventListener("click", () => toggleSelectAllLogs());
@@ -2264,7 +2310,7 @@ $("summaryTest").addEventListener("click", async () => {
   const result = $("summaryTestResult");
   result.hidden = false;
   result.className = "target-check-result testing";
-  result.textContent = "测试中…";
+  result.textContent = t("testTesting");
   try {
     const r = await api("/api/settings/summary-model/test", {
       method: "POST",
@@ -2279,10 +2325,10 @@ $("summaryTest").addEventListener("click", async () => {
       }),
     });
     result.className = `target-check-result ${r.ok ? "success" : "failure"}`;
-    result.textContent = r.ok ? "连接成功" : r.detail || "连接失败";
+    result.textContent = r.ok ? t("testSuccess") : r.detail || t("testFailed");
   } catch (e) {
     result.className = "target-check-result failure";
-    result.textContent = e.message || "连接测试失败";
+    result.textContent = e.message || t("testFailedGeneric");
   }
 });
 $("summaryClose").addEventListener("click", () => {

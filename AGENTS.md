@@ -5,6 +5,8 @@
 - Whenever implementing a new feature, add or update the corresponding documentation.
 - When the UI is changed, the README screenshots (`doc/ui_*.png`, referenced by README.md and README.cn.md) must be updated before committing: run `npm run regen:ui-baselines` to re-capture them and refresh the baseline hashes in `docs/refactoring/ui-visual-baseline.md`.
 - When visually verifying regenerated baseline screenshots, view the FULL image first instead of cropping sub-regions based on where you assume the content is. The layout shifts after UI changes (e.g. an expanded log group sits at the top of the list, not the bottom), so a wrong crop looks like a blank area and can mislead you into suspecting the code change didn't take effect. Only crop to zoom in after locating the relevant area in the full image.
+- On this machine, vitest must be launched from the uppercase drive letter (`cd /D/...`); from lowercase `d:` the runtime fails with "Vitest failed to find the current suite" (duplicate vitest runtime via path-case mismatch). `npm run regen:ui-baselines` is affected the same way.
+- `src/admin/static/app.js` has pre-existing formatting debt (fails `prettier --check` even on a clean tree). Do not run `prettier --write` on the whole file; hand-format your own edits instead, or unrelated lines get reformatted and pollute the diff.
 - The recent execution history logs are located in the D:\Portable Program\llm_proxy\logs directory. Check them when needed. 
 - UI-related modifications must be tested in practice by taking screenshots to verify that the interface meets expectations and is aesthetically pleasing and reasonable.
 - After development is complete, the temporarily created files and processes must be cleaned up.
