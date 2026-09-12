@@ -1,83 +1,80 @@
+import { existsSync } from "node:fs";
 import { readFile } from "node:fs/promises";
+import path from "node:path";
+import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
 
-import { modelPriceSchema } from "../../src/config/index.js";
+const root = fileURLToPath(new URL("../../", import.meta.url));
+const read = (name: string) => readFile(path.resolve(root, name), "utf8");
+const READMES = ["README.md", "README.cn.md"];
 
 describe("README runtime instructions", () => {
-  it("uses the Node CLI in the English quick start", async () => {
-    const readme = await readFile(new URL("../../README.md", import.meta.url), "utf8");
-    const quickStart = readme.slice(readme.indexOf("## Quick Start"), readme.indexOf("## Web Console"));
-    expect(quickStart).toContain("npm start");
-    expect(quickStart).toContain("npm run package:electron");
-    expect(quickStart).not.toContain("python -m llm_proxy");
+  it("documents the Node quick start in both languages", async () => {
+    for (const name of READMES) {
+      const readme = await read(name);
+      expect(readme).toContain("Node.js 24");
+      expect(readme).toContain("npm ci");
+      expect(readme).toContain("npm run build");
+      expect(readme).toContain("npm start");
+      expect(readme).toContain("127.0.0.1:18080");
+      expect(readme).not.toContain("python -m llm_proxy");
+    }
   });
 
-  it("uses the Node CLI in the Chinese quick start", async () => {
-    const readme = await readFile(new URL("../../README.cn.md", import.meta.url), "utf8");
-    const quickStart = readme.slice(readme.indexOf("## 快速开始"), readme.indexOf("## Web 控制台"));
-    expect(quickStart).toContain("npm start");
-    expect(quickStart).toContain("npm run package:electron");
-    expect(quickStart).not.toContain("python -m llm_proxy");
-  });
-
-  it("documents current install, test, development, and packaging commands", async () => {
-    const readmes = await Promise.all(
-      ["README.md", "README.cn.md"].map((name) =>
-        readFile(new URL(`../../${name}`, import.meta.url), "utf8"),
-      ),
-    );
-    for (const readme of readmes) {
-      for (const command of ["npm ci", "npm run check", "npm run dev", "npm run package:electron"]) {
-        expect(readme).toContain(command);
+  it("only documents `npm run` scripts that exist in package.json", async () => {
+    const scripts = new Set(Object.keys(JSON.parse(await read("package.json")).scripts));
+    for (const name of READMES) {
+      const readme = await read(name);
+      for (const match of readme.matchAll(/npm run ([\w:-]+)/g)) {
+        expect(scripts, `${name} documents npm run ${match[1]}`).toContain(match[1]);
       }
     }
   });
 
-  it("documents the Node and Electron project structure", async () => {
-    for (const name of ["README.md", "README.cn.md"]) {
-      const readme = await readFile(new URL(`../../${name}`, import.meta.url), "utf8");
-      expect(readme).toContain("src/");
-      expect(readme).toContain("electron/");
-      expect(readme).toContain("test-node/");
-      expect(readme).not.toContain("tray_launcher.py");
+  it("links only to files that exist in the repository", async () => {
+    for (const name of READMES) {
+      const readme = await read(name);
+      for (const match of readme.matchAll(/\]\(([^)#]+)(?:#[^)]*)?\)/g)) {
+        const target = match[1].trim();
+        if (/^[\w+.-]+:/.test(target) || target.startsWith("/")) {
+          continue; // external or absolute URL, not a repo file
+        }
+        expect(existsSync(path.resolve(root, target)), `link ${target} in ${name}`).toBe(true);
+      }
     }
   });
 
-  it("links the migration rehearsal and rollback procedures", async () => {
-    for (const name of ["README.md", "README.cn.md"]) {
-      const readme = await readFile(new URL(`../../${name}`, import.meta.url), "utf8");
-      expect(readme).toContain("docs/migration-rehearsal-report.md");
-      expect(readme).toContain("docs/migration-rollback.md");
-      expect(readme).toContain("validate:migration");
-    }
-  });
-
-  it("links troubleshooting for Node, Electron, SQLite, and ports", async () => {
-    const troubleshooting = await readFile(
-      new URL("../../docs/troubleshooting.md", import.meta.url),
-      "utf8",
-    );
-    for (const phrase of ["Node 24", "EADDRINUSE", "better-sqlite3", "SmartScreen"]) {
-      expect(troubleshooting).toContain(phrase);
-    }
-    for (const name of ["README.md", "README.cn.md"]) {
-      const readme = await readFile(new URL(`../../${name}`, import.meta.url), "utf8");
-      expect(readme).toContain("docs/troubleshooting.md");
-    }
-  });
-
-  it("documents a schema-valid model pricing example and final screenshots", async () => {
-    for (const name of ["README.md", "README.cn.md"]) {
-      const readme = await readFile(new URL(`../../${name}`, import.meta.url), "utf8");
-      const match = /\{"model_prices":\[(\{[^\n]+\})\]\}/u.exec(readme);
-      const example = match?.[1];
-      expect(example).toBeDefined();
-      expect(modelPriceSchema.parse(JSON.parse(example ?? "{}"))).toMatchObject({
-        model_pattern: "gpt-5.6-sol",
-        cache_write_per_million: "6.25",
-      });
+  it("references the UI baseline screenshots that ship in doc/", async () => {
+    for (const name of READMES) {
+      const readme = await read(name);
       expect(readme).toContain("doc/ui_proxy_");
       expect(readme).toContain("doc/ui_logs_");
     }
+    for (const file of [
+      "doc/ui_proxy_en.png",
+      "doc/ui_proxy_cn.png",
+      "doc/ui_logs_en.png",
+      "doc/ui_logs_cn.png",
+    ]) {
+      expect(existsSync(path.resolve(root, file)), file).toBe(true);
+    }
+  });
+
+  it("documents where the app stores its data", async () => {
+    for (const name of READMES) {
+      const readme = await read(name);
+      expect(readme).toContain("logs/proxies.json");
+      expect(readme).toContain("llm-proxy.json");
+      expect(readme).toContain("traffic.db");
+    }
+  });
+
+  it("keeps the English README free of Chinese text", async () => {
+    const readme = await read("README.md");
+    const body = readme
+      .split("\n")
+      .filter((line) => !line.includes("README.cn.md"))
+      .join("\n");
+    expect(body).not.toMatch(/[\u4e00-\u9fff]/u);
   });
 });

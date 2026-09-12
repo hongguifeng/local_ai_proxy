@@ -1,63 +1,29 @@
 # LLM Proxy
 
-English | [中文](README.cn.md)
+[中文](README.cn.md) | English
 
-LLM Proxy is a local web console for managing OpenAI-compatible and Claude Messages-style LLM proxy traffic. Create one or more local proxy endpoints, route each endpoint to one or more upstream APIs by request model, and inspect complete request/response history from the browser.
-
-The command line is mainly the launcher. Day-to-day use happens in the built-in UI: enable proxy pairs, edit upstream settings, search logs, export captured traffic, and review complete interaction payloads without digging through terminal output.
+LLM Proxy is a local LLM gateway and visual console. It exposes OpenAI-compatible and Claude Messages APIs through local addresses, so you can choose upstreams by model and inspect complete request history in a browser.
 
 ![Proxy Management UI](doc/ui_proxy_en.png)
 
 ![History Logs UI](doc/ui_logs_en.png)
 
-## How Routing Works
+## How It Works
 
-One UI can manage multiple local proxy listeners. Each listener can either behave like a simple one-to-one proxy or route different request models to different upstreams.
-
-```mermaid
-flowchart LR
-  UI["Web Console<br/>http://127.0.0.1:18080"] --> P1["Proxy A<br/>listen 127.0.0.1:1234"]
-  UI --> P2["Proxy B<br/>listen 127.0.0.1:2234"]
-  P1 --> A1["Provider A<br/>https://provider-a.example/v1"]
-  P2 --> B1["Local model server<br/>http://127.0.0.1:1235"]
-```
-
-Inside one proxy listener, routing is based on the top-level JSON `model` field. Matching targets may rewrite the model name before forwarding; unmatched requests go to the configured default target.
+Clients connect only to the local proxy address. The proxy reads the top-level `model` field, checks routing rules in order, and forwards the request to the first matching upstream. It can rewrite the model name; unmatched requests use the default upstream.
 
 ```mermaid
 flowchart LR
-  Client["Agent / SDK<br/>base_url=http://127.0.0.1:1234"] --> MatchA{"model = A-gpt-5.5?"}
-  MatchA -- yes --> RewriteA["rewrite model<br/>A-gpt-5.5 -> gpt-5.5"]
-  RewriteA --> UpstreamA["Target A<br/>https://provider-a.example/v1"]
-  MatchA -- no --> MatchB{"model = qwen3.6?"}
-  MatchB -- yes --> UpstreamB["Target B<br/>https://provider-b.example/v1"]
-  MatchB -- no --> Default["Default target<br/>fallback upstream"]
+  C[Client / SDK\nhttp://127.0.0.1:1234] --> P[LLM Proxy]
+  P --> M{Model matches?}
+  M -->|A-gpt-5.5| A[Upstream A\nforward as gpt-5.5]
+  M -->|qwen-local| B[Upstream B\nforward as qwen3]
+  M -->|No match| D[Default upstream]
 ```
 
-Each upstream target keeps its own log directory, upstream headers, and request-field rewrite rules. Non-default targets can be disabled temporarily; disabled targets are skipped during model matching.
+## Get Started in 5 Minutes
 
-## What It Does
-
-- Manage multiple local proxy pairs from one web interface.
-- Give each local proxy pair one listen address and one or more upstream targets.
-- Route requests to different upstream targets by matching the top-level JSON `model` field.
-- Rewrite model names per upstream, for example receive `A-gpt-5.5` locally and forward it as `gpt-5.5`.
-- Configure a default upstream target for unmatched models.
-- Enable or disable non-default upstream targets without deleting their settings.
-- Forward OpenAI-compatible requests and Anthropic/Claude-style `/v1/messages` requests to local or remote upstreams such as `llama.cpp`, OpenRouter, or another compatible gateway.
-- Record complete request and response data, including headers, bodies, status codes, durations, client addresses, target addresses, and streaming summaries.
-- Browse logs in the UI with search across path, method, status, target, record id, and task grouping.
-- Group related multi-turn Agent requests into task folders for easier review, including Claude Messages conversations.
-- Inspect request and response JSON side by side, with wrapping, expansion, formatting, and copy controls.
-- Optionally remove or inject top-level JSON request fields before forwarding.
-- Optionally redact sensitive headers and common JSON secret fields in stored logs.
-- Set per-target model-token prices and retain frozen request-time price snapshots in cost history.
-- Export task logs as a ZIP archive and clean selected task groups.
-- Persist proxy configuration in `logs/proxies.json` by default.
-
-## Quick Start
-
-Start the web console:
+Node.js 24 is required:
 
 ```powershell
 npm ci
@@ -65,348 +31,65 @@ npm run build
 npm start
 ```
 
-Node.js 24 is required. The browser opens automatically at `http://127.0.0.1:18080`; use
-`npm start -- --no-browser` for a headless launch.
+The console opens at <http://127.0.0.1:18080>. Use `npm start -- --no-browser` to skip automatic browser launch. Windows users can download an installer or portable version from GitHub Releases; the app runs in the system tray.
 
-### Windows Tray application
+In **Proxy**, create a proxy, set a listen address such as `127.0.0.1:1234`, add an upstream such as `http://127.0.0.1:1235` or `https://openrouter.ai/api/v1`, enter an API key if required, and enable it. Point your client base URL to `http://127.0.0.1:1234`.
 
-Download either the installer or portable executable from a GitHub Release. To build both locally on
-Windows:
+See [examples/responses_client.mjs](examples/responses_client.mjs) for a minimal Node.js example.
 
-```powershell
-npm ci
-npm run package:electron
-```
+## Model Routing
 
-After launch, LLM Proxy appears as a system tray icon. Left-click the icon to open the admin UI, or right-click for **Open Admin UI** and **Exit**. To open the browser immediately on startup, run:
+| Feature | What it does |
+| --- | --- |
+| Multiple proxy ports | Create multiple local listeners from one console, each connected to different upstreams. |
+| Multiple upstreams | Configure several upstreams for one proxy and choose a default fallback. |
+| Model-based routing | Select an upstream from the top-level `model` field; the first matching rule wins and matching is case-sensitive. |
+| Model rewriting | Use `local-model => upstream-model` to rename the model sent upstream. |
+| Wildcard matching | Use patterns such as `*gpt-5.5* => gpt-5.5` to match any prefix or suffix. |
+| Upstream connectivity test | **Test** sends a minimal ping directly to OpenAI Chat, Responses, or Anthropic Messages. It does not pass through the proxy or enter History. |
+| Request field transforms | Remove or inject top-level JSON fields in **More settings** to adapt requests for different upstreams. |
+| Authentication and headers | Set an API key and custom headers separately for each upstream. |
+| Log privacy | **Redact logs** masks common API keys, tokens, and passwords when saving logs; forwarded requests are unchanged. |
+| Model pricing | Set per-million-token prices and a multiplier for input, output, and cache read/write. Prices are frozen when a request is forwarded; later edits affect new requests only. |
 
-```powershell
-.\release\LLM Proxy-0.1.0-x64-portable.exe --open-on-start
-```
-
-The portable build stores `llm-proxy.json`, proxy configuration, and logs beside the original EXE,
-not in Electron's temporary extraction directory. The installed build uses Electron's persistent
-per-user data directory. Set `LLM_PROXY_DATA_DIR` to choose another persistent location.
-
-The project also includes GitHub Actions automation for packaging and releases:
-
-- Regular pushes and pull requests build the Windows installer, portable executable, CLI ZIP, and
-  `SHA256SUMS.txt` as workflow artifacts.
-- Pushing a `v*` tag creates or updates a GitHub Release with those artifacts.
-
-Publish a release:
-
-```powershell
-git tag v0.1.0
-git push origin v0.1.0
-```
-
-In the UI:
-
-1. Open the **Proxy** tab.
-2. Add or edit a proxy pair.
-3. Set the local listen address, for example `127.0.0.1:1234`.
-4. Add one or more upstream targets, for example `http://127.0.0.1:1235` or `https://openrouter.ai/api/v1`.
-5. For each upstream target, optionally add model mappings such as `A-gpt-5.5 => gpt-5.5`.
-6. Choose the default target used when no model mapping matches.
-7. Enable the proxy pair.
-8. Point your Agent or SDK base URL to the local proxy address.
-
-For the default proxy pair, client requests should go to:
+Example mappings:
 
 ```text
-http://127.0.0.1:1234
-```
-
-See [the Node.js OpenAI SDK Responses example](examples/responses_client.mjs) for a minimal client.
-
-## Web Console
-
-The UI is served at `http://127.0.0.1:18080` by default. Its address is configured in
-`llm-proxy.json` and can still be overridden with `--host` and `--port`:
-
-```json
-{
-  "admin": {
-    "host": "127.0.0.1",
-    "port": 18080
-  }
-}
-```
-
-### Proxy Management
-
-The **Proxy** tab is the main control surface. Each proxy pair includes:
-
-- Name and enabled/running status.
-- Listen host and port.
-- One or more upstream targets, arranged in rows that wrap to the available width.
-- A default target for unmatched request models.
-
-Each upstream target includes:
-
-- Enabled state. The default target is always available as fallback; non-default targets can be disabled.
-- Upstream target URL.
-- API Key. If set, it adds or replaces `Authorization: Bearer ...` on forwarded requests.
-- Model mappings, one per line. Use `local-model => upstream-model`; the listened model supports `*` as a wildcard matching any number of characters. Omit `=> upstream-model` to preserve the requested model name.
-- Log directory, default `logs`.
-- Upstream headers, one `Name: value` entry per line.
-- Request fields to strip before forwarding.
-- Request fields to inject before forwarding as a JSON object.
-- stored log redaction.
-
-The target URL, API Key, and model mappings are shown by default. Use **More settings** on a target card to reveal the log directory, headers, and request-field rewriting options.
-
-The proxy does not impose an upstream response timeout. Clients control request deadlines and disconnecting a client request aborts its upstream request.
-
-Proxy pairs are saved to `logs/proxies.json` unless `--config-file` is provided.
-
-### Model Routing
-
-When the proxy receives a request, it reads the top-level JSON `model` field and checks the enabled upstream targets in order. If a target has a matching model mapping, the request is forwarded to that target. If the mapping specifies a different upstream model name, the proxy rewrites `model` before forwarding.
-
-If no enabled non-default target matches, the request goes to the configured default target. The default target also handles requests without a parseable JSON `model` field.
-
-Example target mappings:
-
-```text
-*gpt-5.5* => gpt-5.5
+A-gpt-5.5 => gpt-5.5
 qwen-local => qwen3
-fallback-model
 ```
 
-The first line matches model names such as `hyper-gpt-5.5` and `hyper-gpt-5.5-test`. Matching is case-sensitive, and the first matching mapping wins in configuration order. In the last line, `fallback-model` is forwarded with the same model name.
+## History
 
-### Model Token Pricing And Cost History
+| Feature | What it does |
+| --- | --- |
+| Automatic capture | Stores request and response headers and bodies, status, duration, target, routing details, and streaming summaries. |
+| Task grouping | Groups consecutive Agent requests into tasks for reviewing one workflow. |
+| Full-text search | Search by path, method, status, target URL, task ID, or record ID; space-separated terms all apply. |
+| Request details | View request and response JSON side by side with expand, collapse, wrapping, formatting, and copy controls. |
+| Cost tracking | Shows task totals, priced/unpriced requests, pricing rules, and token details; each request shows its share. Missing reliable usage or pricing is marked unpriced, never free. |
+| Intelligent summaries | Use a configured summary model to summarize individual requests and split consecutive messages into reusable cached phases; summarized requests show a gold star. |
+| Export and cleanup | Export selected tasks as ZIP files or delete tasks and their request records. |
+| Paging and refresh | Browse large log directories with paged loading and automatic refresh. |
 
-Each target can define ordered rules in **Model pricing**. A rule has a model name or `*` wildcard, a price multiplier, and per-million-token prices for uncached input, output, cache read, and cache write. Each effective price is its configured price multiplied by the multiplier. Exact names always win; otherwise the first matching wildcard wins.
+History data is stored by default in a `traffic.db` SQLite database under each log directory; proxy settings are stored in `logs/proxies.json`. Exported ZIP files contain readable Markdown, `request.json`, and `response.json`.
 
-```json
-{"model_prices":[{"model_pattern":"gpt-5.6-sol","price_multiplier":"1.2","input_per_million":"5","output_per_million":"30","cache_read_per_million":"0.5","cache_write_per_million":"6.25"}]}
-```
+## Common Workflows
 
-Pricing uses the final model sent upstream after mappings and request-field transforms. The matched rule, multiplier, and resulting effective prices are frozen at forwarding time, so later changes affect only new requests. Responses, Chat Completions, legacy Completions, and Messages usage are normalized into four buckets. Missing price or trustworthy usage is unpriced, never free.
+### Connect a local model
 
-In **History**, each task shows only its whole-task known amount regardless of search results or loaded pages. Click its cost for the totals, known/unpriced/pending counts, reasons, and frozen effective-price groups; the task summary table ends with a total row. Each line item also shows its share of the total cost. After selecting a request, use the **$** button in the response toolbar to expand its cost details on demand, including its frozen model, usage, effective prices, and breakdown. Every displayed unit and total price already includes the multiplier. The English UI displays amounts in USD ($); amounts show at most four decimals. Pre-pricing logs remain `legacy_record` and are not recalculated.
+Start a local service such as llama.cpp at `http://127.0.0.1:1235`, create a proxy from `127.0.0.1:1234` to that address, and point your client at the local proxy.
 
-### Target Check
+### Serve multiple models from one port
 
-Each target card has a **Test** button for verifying an upstream without sending real application traffic. It opens a dialog prefilled from the target: the target URL (read-only), the target's API Key, the upstream model name from the last model mapping, and the API type (OpenAI Chat Completions by default). The model field accepts free input and offers common presets as suggestions.
+Add multiple upstreams with mappings such as `A-gpt-5.5 => gpt-5.5` and `B-qwen => qwen3`. The client keeps one base URL while the proxy handles routing.
 
-On submit, the admin server sends a minimal ping request directly to the target:
+### Normalize request parameters
 
-- **OpenAI Chat Completions**: `POST {base}/chat/completions` with `Authorization: Bearer <key>` and body `{ "model": ..., "messages": [{ "role": "user", "content": "ping" }] }`.
-- **OpenAI Responses**: `POST {base}/responses` with the same Bearer header and body `{ "model": ..., "input": "ping" }`.
-- **Anthropic Messages**: `POST {base}/messages` with `x-api-key` and `anthropic-version: 2023-06-01`, and body `{ "model": ..., "messages": [...], "max_tokens": 1, "stream": false }`.
+Enter fields such as `temperature, top_p, top_k` under **Request fields to remove**, or inject JSON such as `{"stream":true}`. The transformed request is recorded in History.
 
-The request has a 30-second timeout, and the response body is read up to 8 KiB for error details. The dialog then shows:
+## Configuration and Security
 
-- **Success** (green): the server answered with HTTP < 400; displays the status code and round-trip duration.
-- **Warning** (orange): the server answered with HTTP >= 400, for example an invalid API key or unknown model; displays the status, duration, and the server's error body when available.
-- **Failure** (red): the connection failed or timed out; displays the network error and elapsed time.
+Proxy settings are saved in `logs/proxies.json`; console settings are saved in `llm-proxy.json`. You usually do not need to edit these files manually.
 
-The check runs directly from the admin server, not through the proxy listener, so it does not appear in the traffic history. It is also exposed as the admin API `POST /api/target-check`, which accepts `{ "targetUrl", "model", "apiType"?, "apiKey"? }` and returns `{ "ok", "status"?, "durationMs", "error"?, "detail"? }`.
-
-### Supported Request Shapes
-
-The proxy forwards arbitrary HTTP paths, but it understands the common LLM request shapes below for log summaries, stream summaries, and task grouping:
-
-- OpenAI Responses API: `/v1/responses`
-- OpenAI Chat Completions API: `/v1/chat/completions`
-- OpenAI Completions API: `/v1/completions`
-- Anthropic/Claude Messages API: `/v1/messages`
-
-For Claude Messages requests, the logger extracts the top-level `system` field and the `messages` array. Task grouping uses the stable first non-context user message as the task boundary and then requires later Claude requests to preserve the previous user-message sequence. If a client drops the first user message from a later request, that request is treated as a new task instead of being merged by loose overlap.
-
-### History And Logs
-
-The **History** tab lets you review captured traffic without opening log files manually. It supports:
-
-- Automatic refresh.
-- Enter keywords and press Enter (or click Search) to search by method, path, status, target URL, task id, and record id. Search matching is full-text (token based): space-separated keywords are combined with AND, and each keyword matches a whole token or its prefix. While a search is running, an animated progress bar appears below the search box and hides when the search finishes. Every listed group contains at least one matching record.
-- Paged loading for large log directories.
-- Task grouping for related Agent workflows.
-- Side-by-side request and response detail panes.
-- JSON expansion/collapse, line wrapping, string formatting, and copy actions.
-- ZIP export and selected-task cleanup.
-
-Traffic history is stored in `traffic.db` under each configured log root. The database stores task metadata, request/response details, response-id links, context links, and searchable fields in SQLite, so the History tab does not need to scan Markdown or JSON files for normal browsing.
-
-## Typical Workflows
-
-### Inspect A Local Model Server
-
-1. Start your local upstream server, for example `llama.cpp`, on `http://127.0.0.1:1235`.
-2. Start LLM Proxy with `npm start` after `npm run build`.
-3. In the UI, enable a proxy pair from `127.0.0.1:1234` to `http://127.0.0.1:1235`.
-4. Configure your client base URL as `http://127.0.0.1:1234`.
-5. Open **History** to inspect the captured interaction.
-
-### Route Multiple Models From One Local Endpoint
-
-1. Create one proxy pair listening on `127.0.0.1:1234`.
-2. Add target A, for example `https://provider-a.example/v1`, and map `A-gpt-5.5 => gpt-5.5`.
-3. Add target B, for example `https://provider-b.example/v1`, and map `B-qwen => qwen3`.
-4. Set one target as the default fallback.
-5. Point your client at `http://127.0.0.1:1234`; requests are routed by their `model` field.
-
-### Inspect A Remote Gateway
-
-1. Create a proxy pair with target URL `https://openrouter.ai/api/v1` or another OpenAI-compatible endpoint.
-2. Add the upstream key in the target card's **API Key** field, for example `sk-or-...`.
-3. Enable the proxy pair.
-4. Point your local client at the proxy listen address.
-
-### Normalize Request Parameters
-
-Some upstreams reject or ignore sampling fields from another client. In a target's **More settings** section, use **Request fields to remove before forwarding** to strip top-level JSON fields such as:
-
-```text
-temperature, top_p, top_k, min_p, typical_p, repeat_penalty,
-presence_penalty, frequency_penalty, seed
-```
-
-Use **Request fields to inject before forwarding** to add or override top-level JSON fields with a JSON object, for example:
-
-```json
-{"metadata":{"source":"llm-proxy"},"stream":true}
-```
-
-When a request is changed, the logs record `request.stripped_fields`, `request.injected_fields`, and `request.upstream_body`.
-
-### Redact Stored Logs
-
-Enable **Redact logs** in a target's **More settings** section to mask common sensitive values in stored logs. Redaction covers headers such as `Authorization` and `X-API-Key`, plus JSON fields such as `api_key`, `access_token`, `token`, `password`, and `secret`.
-
-Redaction affects stored logs only. Requests are still forwarded to the upstream with their original values.
-
-## Logs On Disk
-
-Default paths:
-
-- Proxy configuration: `logs/proxies.json`
-- Traffic log database: `logs/traffic.db` by default, configurable per upstream target by setting the log root.
-
-Each captured interaction is stored as a SQLite record with:
-
-- Task grouping metadata.
-- Request and response headers.
-- Parsed request and response bodies.
-- Status, duration, message count, token count, target URL, and routing metadata.
-
-For OpenAI-compatible and Claude Messages SSE responses, the stored response body includes an aggregated `stream_summary` while preserving the useful stream content. The summary can include `content`, `reasoning`, `tool_calls`, `response_tool_calls`, compact `web_search_calls`, `claude_tool_calls`, `finish_reasons`, `usage`, and compact response metadata.
-
-SSE responses are forwarded to the client line by line as they arrive from the upstream. Non-SSE responses are still forwarded in regular binary chunks.
-
-The History tab can export task logs as `llm-proxy-logs.zip`. The ZIP is generated from SQLite on demand and contains human-readable Markdown plus `request.json` and `response.json` files. Select one or more task groups in the log list (use the Select all button to select every listed group, which toggles to Deselect all), then use cleanup to delete those tasks and their request records from the database.
-
-## Backup, Migration, and Rollback
-
-Before the first Node/Electron launch, stop all existing writers and back up `proxies.json` plus the
-entire log root. Keep `traffic.db`, `traffic.db-wal`, and `traffic.db-shm` together when present. Plan
-for free space of at least 2.4 times the current database size.
-
-- [Migration rehearsal results](docs/migration-rehearsal-report.md)
-- [Operator backup and rollback procedure](docs/migration-rollback.md)
-- [Node and Electron troubleshooting](docs/troubleshooting.md)
-
-After migration, run `npm run validate:migration -- <log-root>` from a built checkout and retain the
-JSON count/sample report with the release record.
-
-Schema v3 stores request and response bodies as deduplicated 64 KiB chunks compressed with fast
-raw DEFLATE. To compact an existing database without modifying the source log root, run:
-
-```text
-npm run compact:traffic -- <source-log-root> <empty-destination-log-root>
-```
-
-The command creates an online SQLite backup, migrates only the copy, verifies a SHA-256 digest of
-every body plus task/record counts, runs integrity and foreign-key checks, and vacuums the result.
-Stop the proxy before replacing the active database, and keep the original database until the
-compacted copy has been opened and inspected successfully.
-
-## Security Notes
-
-LLM Proxy is designed for local development and traffic inspection. Keep the admin UI bound to `127.0.0.1` unless you have added your own network controls.
-
-- Request and response logs may contain prompts, documents, API keys, tool outputs, and other sensitive data.
-- Upstream API keys are stored in the proxy config file. Keep `logs/proxies.json` and custom config paths out of source control.
-- The proxy can forward arbitrary request bodies to configured upstreams. Only expose local listen ports to clients you trust.
-- Use request-field stripping for fields you know an upstream should not receive, but do not treat it as a complete data-loss-prevention system.
-- Rotate, export, or delete log databases when they are no longer needed.
-
-## Configuration Reference
-
-Common launcher options and environment variables:
-
-- `--host` / `LLM_PROXY_UI_HOST`, default `127.0.0.1`
-- `--port` / `LLM_PROXY_UI_PORT`, default `18080`
-- `--application-config` / `LLM_PROXY_APPLICATION_CONFIG_FILE`, default `llm-proxy.json`
-- `--config-file` / `LLM_PROXY_CONFIG_FILE`, default `logs/proxies.json`
-- `--log-root` / `LLM_PROXY_LOG_ROOT`, default `logs`
-- `--no-browser` / `LLM_PROXY_NO_BROWSER=1`
-
-Proxy listen addresses, upstream targets, API keys, headers, model mappings, and request-field rewriting are configured in the web console and saved to `logs/proxies.json`.
-
-## Project Structure
-
-```text
-src/
-  main.ts           # Node CLI entry point
-  app/              # application assembly and shutdown lifecycle
-  cli/              # options, browser launch, signals, and output
-  admin/            # Fastify admin API and static web console
-  config/           # schema, normalization, defaults, and atomic repository
-  proxy/            # listeners, routing, upstream forwarding, and SSE
-  logging/          # task matching and durable traffic writes
-  persistence/      # SQLite schema, migrations, backup, and repositories
-  maintenance/      # history query, ZIP export, and cleanup
-electron/           # headless tray application entry and controllers
-test-node/          # Vitest unit, integration, browser E2E, and visual tests
-scripts/            # build, smoke, migration, checksum, and benchmark tools
-fixtures/parity/    # deterministic config and database fixtures
-.github/workflows/
-  ci.yml             # Node checks on Linux and Windows
-  release.yml        # Electron artifacts and v-tag GitHub Releases
-doc/
-  ui_proxy_en.png
-  ui_logs_en.png
-electron-builder.yml
-package.json
-package-lock.json
-```
-
-## Tests
-
-```powershell
-npm ci
-npm run check
-```
-
-Development checks:
-
-```powershell
-npm run format:check
-npm run lint
-npm run typecheck
-npm test
-npm run regen:ui-baselines  # recapture UI visual baselines and sync SHA-256 in docs
-npm run build
-```
-
-Development and packaging commands:
-
-```powershell
-npm run dev                 # watch and restart the Node CLI
-npm run package:electron    # Windows installer and portable app
-npm run package:cli         # compiled CLI ZIP
-npm run smoke:artifact      # Windows packaged startup smoke test
-npm run checksums           # release/SHA256SUMS.txt
-```
-
-The lightweight CLI ZIP does not bundle Node.js or `node_modules`. After extracting it on a machine
-with Node.js 24, run `npm ci --omit=dev` once and then use `npm start`.
-
-### Intelligent history summaries
-
-History can summarize an individual request with a configured model, grouping consecutive messages into cached phases. Records that already have a generated summary show a gold star in the per-task request list.
+Keep the console and proxy listeners bound to `127.0.0.1` where possible. Logs may contain prompts, documents, API keys, and tool output; do not commit configuration files or log directories. Stop the proxy and back up the entire log directory before migration or upgrades, including `traffic.db-wal` and `traffic.db-shm`. See [docs/migration-rollback.md](docs/migration-rollback.md) for details.
