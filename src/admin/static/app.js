@@ -2295,7 +2295,8 @@ $("summaryRegenerate").addEventListener("click", async () => {
     const result = await api(`/api/logs/${encodeURIComponent(state.selected)}/summary`, {
       method: "POST",
     });
-    renderSummary(result, { open: true });
+    // Do not force-reopen a dialog the user closed while the request was in flight.
+    renderSummary(result, { open: $("summaryPanel").open });
     toast("智能摘要已重新生成");
   } catch (e) {
     toast(e.message || "重新生成失败");
