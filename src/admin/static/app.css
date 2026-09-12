@@ -706,7 +706,7 @@ label span {
   border: 0;
   background: transparent;
   padding: 0;
-  color: #315a82;
+  color: #176b52;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -832,6 +832,9 @@ label span {
   color: #8a4b08;
 }
 .log-metric.response-tokens .log-metric-value {
+  color: #315a82;
+}
+.log-metric.cost .log-metric-value {
   color: #176b52;
 }
 .log-item-empty {
