@@ -71,6 +71,55 @@ describe("createNodeApplication", () => {
     await expect(fetch(`http://127.0.0.1:${proxyPort}/v1/models`)).rejects.toThrow();
   });
 
+  it("exposes the log listing, export, and cleanup admin routes on the assembled application", async () => {
+    const root = await mkdtemp(path.join(tmpdir(), "llm-proxy-app-"));
+    temporaryRoots.push(root);
+    const configFile = path.join(root, "proxies.json");
+    await writeFile(configFile, JSON.stringify({ pairs: [] }));
+    const runtime = createNodeApplication({
+      applicationConfigFile: path.join(root, "llm-proxy.json"),
+      configFile,
+      logRoot: path.join(root, "logs"),
+      host: "127.0.0.1",
+      port: 0,
+    });
+    await runtime.application.start();
+    try {
+      const adminPort = runtime.address()?.port;
+      expect(adminPort).toBeTypeOf("number");
+
+      // Guard against the assembled app silently dropping these routes (404
+      // "Route not found."): the admin server only registers cleanup/export
+      // when the wired log service actually provides those methods.
+      const list = await fetch(`http://127.0.0.1:${adminPort}/api/logs`);
+      expect(list.status).toBe(200);
+
+      const exportResponse = await fetch(`http://127.0.0.1:${adminPort}/api/logs/export`);
+      expect(exportResponse.status).toBe(200);
+      expect(exportResponse.headers.get("content-type")).toBe("application/zip");
+      const zipBytes = new Uint8Array(await exportResponse.arrayBuffer());
+      expect([zipBytes[0], zipBytes[1]]).toEqual([0x50, 0x4b]);
+
+      const cleanupPayloads = [
+        { group_ids: ["missing-group"] },
+        { keep_latest: 1 },
+        { older_than_days: 30 },
+      ];
+      for (const payload of cleanupPayloads) {
+        const response = await fetch(`http://127.0.0.1:${adminPort}/api/logs/cleanup`, {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify(payload),
+        });
+        expect(response.status).toBe(200);
+        const body = (await response.json()) as { deleted_count: number };
+        expect(body.deleted_count).toBe(0);
+      }
+    } finally {
+      await runtime.application.stop();
+    }
+  });
+
   it("fails cleanly when the admin port is already occupied", async () => {
     const occupied = createServer();
     await new Promise<void>((resolve, reject) => {

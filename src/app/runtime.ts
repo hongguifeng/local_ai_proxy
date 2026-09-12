@@ -69,6 +69,10 @@ export function createNodeApplication(options: NodeApplicationOptions): NodeAppl
               getRecordDetail: logs.getRecordDetail.bind(logs),
               getGroupPricing: logs.getGroupPricing.bind(logs),
               getSummary: logs.getSummary.bind(logs),
+              exportLogs: logs.exportLogs.bind(logs),
+              cleanupSelectedGroups: logs.cleanupSelectedGroups.bind(logs),
+              cleanupOlderThan: logs.cleanupOlderThan.bind(logs),
+              cleanupKeepLatest: logs.cleanupKeepLatest.bind(logs),
               summarizeRecord: (id: string) => {
                 const model = config.summary_model;
                 if (!model) return Promise.reject(new Error("Summary model is not configured."));
