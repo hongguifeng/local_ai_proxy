@@ -22,7 +22,8 @@ describe("README runtime instructions", () => {
   });
 
   it("only documents `npm run` scripts that exist in package.json", async () => {
-    const scripts = new Set(Object.keys(JSON.parse(await read("package.json")).scripts));
+    const pkg = JSON.parse(await read("package.json")) as { scripts?: Record<string, string> };
+    const scripts = new Set(Object.keys(pkg.scripts ?? {}));
     for (const name of READMES) {
       const readme = await read(name);
       for (const match of readme.matchAll(/npm run ([\w:-]+)/g)) {
