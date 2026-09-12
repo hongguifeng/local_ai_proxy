@@ -82,6 +82,7 @@ const translations = {
     testPriceModel: "测试模型名",
     priceNoMatch: "未命中价格规则",
     cost: "费用",
+    currencySymbol: "¥",
     calculating: "计算中…",
     unpriced: "未计价",
     taskPricing: "任务费用明细",
@@ -207,7 +208,7 @@ const translations = {
     outputPrice: "Output",
     cacheReadPrice: "Cache read",
     cacheWritePrice: "Cache write",
-    priceUnit: "Unit: CNY / M tokens (1,000,000 tokens); history shows price × multiplier",
+    priceUnit: "Unit: $ / M tokens (1,000,000 tokens); history shows price × multiplier",
     priceRule: "Rule",
     movePriceUp: "Move rule up",
     movePriceDown: "Move rule down",
@@ -215,6 +216,7 @@ const translations = {
     testPriceModel: "Test model",
     priceNoMatch: "No price rule matched",
     cost: "Cost",
+    currencySymbol: "$",
     calculating: "Calculating…",
     unpriced: "Unpriced",
     taskPricing: "Task pricing details",
@@ -233,8 +235,8 @@ const translations = {
     cacheRead: "Cache read",
     cacheWrite: "Cache write",
     tokensBilled: "Billed tokens",
-    pricePerMillion: "Price (CNY/M tokens)",
-    amountCny: "Amount (CNY)",
+    pricePerMillion: "Price ($/M tokens)",
+    amountCny: "Amount (USD)",
     costShare: "Share",
     total: "Total",
     priceGroups: "Model / price groups",
@@ -431,8 +433,9 @@ function formatCurrencyAmount(amount) {
   const scale = 10_000n;
   const integer = rounded / scale;
   const fraction = (rounded % scale).toString().padStart(4, "0").replace(/0+$/, "");
-  if (integer === 0n && fraction === "" && !/^0+(?:\.0+)?$/.test(text)) return "< ¥0.0001";
-  return `¥${integer}${fraction ? `.${fraction}` : ""}`;
+  if (integer === 0n && fraction === "" && !/^0+(?:\.0+)?$/.test(text))
+    return `< ${t("currencySymbol")}0.0001`;
+  return `${t("currencySymbol")}${integer}${fraction ? `.${fraction}` : ""}`;
 }
 function formatRequestCost(cost) {
   if (!cost || cost.status === "unpriced") return "—";

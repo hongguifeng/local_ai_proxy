@@ -179,7 +179,7 @@ The first line matches model names such as `hyper-gpt-5.5` and `hyper-gpt-5.5-te
 
 ### Model Token Pricing And Cost History
 
-Each target can define ordered rules in **Model pricing**. A rule has a model name or `*` wildcard, a price multiplier, and CNY-per-million-token prices for uncached input, output, cache read, and cache write. Each effective price is its configured price multiplied by the multiplier. Exact names always win; otherwise the first matching wildcard wins.
+Each target can define ordered rules in **Model pricing**. A rule has a model name or `*` wildcard, a price multiplier, and per-million-token prices for uncached input, output, cache read, and cache write. Each effective price is its configured price multiplied by the multiplier. Exact names always win; otherwise the first matching wildcard wins.
 
 ```json
 {"model_prices":[{"model_pattern":"gpt-5.6-sol","price_multiplier":"1.2","input_per_million":"5","output_per_million":"30","cache_read_per_million":"0.5","cache_write_per_million":"6.25"}]}
@@ -187,7 +187,7 @@ Each target can define ordered rules in **Model pricing**. A rule has a model na
 
 Pricing uses the final model sent upstream after mappings and request-field transforms. The matched rule, multiplier, and resulting effective prices are frozen at forwarding time, so later changes affect only new requests. Responses, Chat Completions, legacy Completions, and Messages usage are normalized into four buckets. Missing price or trustworthy usage is unpriced, never free.
 
-In **History**, each task shows only its whole-task known amount regardless of search results or loaded pages. Click its cost for the totals, known/unpriced/pending counts, reasons, and frozen effective-price groups; the task summary table ends with a total row. Each line item also shows its share of the total cost. After selecting a request, use the **¥** button in the response toolbar to expand its cost details on demand, including its frozen model, usage, effective prices, and breakdown. Every displayed unit and total price already includes the multiplier. CNY values show at most four decimals. Pre-pricing logs remain `legacy_record` and are not recalculated.
+In **History**, each task shows only its whole-task known amount regardless of search results or loaded pages. Click its cost for the totals, known/unpriced/pending counts, reasons, and frozen effective-price groups; the task summary table ends with a total row. Each line item also shows its share of the total cost. After selecting a request, use the **$** button in the response toolbar to expand its cost details on demand, including its frozen model, usage, effective prices, and breakdown. Every displayed unit and total price already includes the multiplier. The English UI displays amounts in USD ($); amounts show at most four decimals. Pre-pricing logs remain `legacy_record` and are not recalculated.
 
 ### Target Check
 
