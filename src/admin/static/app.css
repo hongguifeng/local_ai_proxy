@@ -873,9 +873,6 @@ label span {
   border-radius: 50%;
   background: #8d99a5;
 }
-.log-status.success {
-  color: #176b52;
-}
 .log-summary-star {
   flex: 0 0 auto;
   color: #d4a017;
@@ -885,9 +882,6 @@ label span {
 }
 .log-item.active .log-summary-star {
   color: #b8860b;
-}
-.log-status.success .log-status-dot {
-  background: #24936f;
 }
 .log-status.pending {
   color: #93651c;

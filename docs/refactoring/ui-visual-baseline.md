@@ -12,8 +12,8 @@
 | --- | --- | --- | --- | --- |
 | Proxy | 中文 | `doc/ui_proxy_cn.png` | 1278 x 1215 | `e85ca523ae98b57d6acea765fb09581e54f833b4f52617252a898a65bd979a66` |
 | Proxy | 英文 | `doc/ui_proxy_en.png` | 1278 x 1208 | `dd33c6e215f58a25be7abd10c4d2749b053958e67e2212e159e09de8e62ca250` |
-| History | 中文 | `doc/ui_logs_cn.png` | 1384 x 1212 | `b85064f67a288a521b395b0349e6244ae0a46ca1c1fd5418ffb7a3e0134a9dc7` |
-| History | 英文 | `doc/ui_logs_en.png` | 1384 x 1224 | `36e1f9bffc9c2daaa7d016ce115c2d4ba251819b42cc72bdca74f12d01fbae06` |
+| History | 中文 | `doc/ui_logs_cn.png` | 1384 x 1212 | `53aa0ac9829477ae2343577b84a1a082effdfb8cb0fabc0610652586498ee14b` |
+| History | 英文 | `doc/ui_logs_en.png` | 1384 x 1224 | `00c5067ef9734e26b08a74d31985b136bc9c03287e45896f168f6ac2db8dbbb2` |
 
 哈希复现命令：
 
@@ -46,7 +46,7 @@ sha256sum doc/ui_proxy_cn.png doc/ui_proxy_en.png doc/ui_logs_cn.png doc/ui_logs
 - 每个 task 是浅灰列表区内一张独立的白色圆角卡片，卡片之间用留白分隔。
 - task header 是卡片顶部的蓝灰色块，带加粗左侧色条；左侧控制列中复选框（上）与折叠箭头（下）上下排列，右侧为时间范围和 model/request/target 摘要。header 与请求项列表之间有一条分隔线。
 - 展开的 task 下按 sequence 倒序显示 5 条请求项，白底、相对 header 缩进，仅用浅色细线分隔，视觉层级从属于 task header。
-- 请求项状态圆点覆盖三种状态：绿色 200 成功（仅显示圆点，悬停 title 提示 200）、红色 4xx 错误（响应 tokens 为 0，保留状态码文字）、琥珀色 pending（tokens 未返回，保留"等待中"文字）。
+- 请求项状态圆点覆盖两种非成功状态：红色 4xx 错误（保留状态码文字）、琥珀色 pending（保留"等待中"文字）；200 成功不再显示任何状态标记。
 - 指标颜色两级统一：费用为青绿色（#176b52），数量类指标（一级请求数、二级响应 tokens）为蓝色（#315a82），模型名与请求 tokens 为琥珀色（#7a4308 / #8a4b08），消息数为中性深灰。
 - 右侧 JSON 使用等宽字体、语法颜色和 `details/summary` 折叠树。
 - Request/Response 标题栏右侧包含 meta、wrap、expand、format、copy 按钮。
