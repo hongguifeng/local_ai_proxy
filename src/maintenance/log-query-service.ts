@@ -12,6 +12,8 @@ import {
   type LogCleanupResult,
 } from "./log-cleanup.js";
 import type { Readable } from "node:stream";
+import type { SummaryModelConfig } from "../config/index.js";
+import { joinTargetPath } from "../proxy/target.js";
 
 export interface LogGroupSummary {
   readonly cost?: LogTaskCost;
@@ -85,6 +87,7 @@ export interface LogRecordDetail {
 
 export class LogQueryService {
   readonly #logRoots: () => readonly string[];
+  readonly #summarizing = new Set<string>();
 
   constructor(logRoots: readonly string[] | (() => readonly string[])) {
     this.#logRoots = typeof logRoots === "function" ? logRoots : () => logRoots;
@@ -170,6 +173,159 @@ export class LogQueryService {
       }
     }
     return undefined;
+  }
+
+  async summarizeRecord(recordId: string, config: SummaryModelConfig): Promise<unknown> {
+    if (this.#summarizing.has(recordId)) throw new Error("summary already in progress");
+    this.#summarizing.add(recordId);
+    try {
+      const detail = this.getRecordDetail(recordId);
+      if (!detail) return undefined;
+      const input = JSON.stringify(prepareSummaryRequest(detail.request));
+      const endpoint =
+        config.api_type === "openai_responses"
+          ? "/responses"
+          : config.api_type === "anthropic_messages"
+            ? "/messages"
+            : "/chat/completions";
+      const headers: Record<string, string> = {
+        "content-type": "application/json",
+        ...(config.api_type === "anthropic_messages"
+          ? { "x-api-key": config.api_key, "anthropic-version": "2023-06-01" }
+          : { authorization: `Bearer ${config.api_key}` }),
+      };
+      const instruction =
+        "请将输入按连续编号区间归纳为阶段摘要，不要逐条复述。严格输出 JSON：{title,overview,segments:[{range,summary,key_points,evidence}],decisions,issues}。每个 segment 的 range 使用如 1-6、7-12 的连续区间，evidence 填引用的消息编号。";
+      const body =
+        config.api_type === "openai_responses"
+          ? {
+              model: config.model,
+              input: `${instruction}\n\n${input}`,
+              stream: false,
+              ...(config.disable_reasoning ? { reasoning_effort: "none" } : {}),
+            }
+          : config.api_type === "anthropic_messages"
+            ? {
+                model: config.model,
+                max_tokens: 2000,
+                system: instruction,
+                messages: [{ role: "user", content: input }],
+                stream: false,
+                ...(config.disable_reasoning ? { reasoning_effort: "none" } : {}),
+              }
+            : {
+                model: config.model,
+                temperature: 0,
+                messages: [
+                  {
+                    role: "system",
+                    content: instruction,
+                  },
+                  { role: "user", content: input },
+                ],
+                stream: false,
+                ...(config.disable_reasoning ? { reasoning_effort: "none" } : {}),
+              };
+      const target = new URL(config.target_url);
+      const basePath = target.pathname.replace(/\/$/u, "");
+      target.pathname = basePath.endsWith(endpoint) ? basePath : joinTargetPath(basePath, endpoint);
+      const response = await fetch(target, {
+        method: "POST",
+        headers: {
+          ...headers,
+          ...Object.fromEntries(
+            config.target_headers.map((h) => {
+              const i = h.indexOf(":");
+              return [h.slice(0, i).trim(), h.slice(i + 1).trim()];
+            }),
+          ),
+        },
+        body: JSON.stringify(body),
+        signal: AbortSignal.timeout(config.timeout_ms),
+      });
+      if (!response.ok) throw new Error(`summary model returned HTTP ${response.status}`);
+      const rawResponse = await response.text();
+      if (rawResponse.length > 2_000_000) throw new Error("summary model response is too large");
+      const payload: Record<string, unknown> = JSON.parse(rawResponse) as Record<string, unknown>;
+      const choices = Array.isArray(payload["choices"]) ? payload["choices"] : [];
+      const firstChoice = isRecord(choices[0]) ? choices[0] : undefined;
+      const message =
+        firstChoice && isRecord(firstChoice["message"]) ? firstChoice["message"] : undefined;
+      const content =
+        (message && typeof message["content"] === "string" ? message["content"] : undefined) ??
+        (typeof payload["output_text"] === "string" ? payload["output_text"] : undefined) ??
+        extractResponsesOutput(payload["output"]) ??
+        (Array.isArray(payload["content"]) &&
+        isRecord(payload["content"][0]) &&
+        typeof payload["content"][0]["text"] === "string"
+          ? payload["content"][0]["text"]
+          : undefined);
+      if (!content) throw new Error("summary model returned an empty response");
+      let result: unknown;
+      try {
+        result = JSON.parse(content);
+      } catch {
+        const match = /```json\s*([\s\S]*?)```/u.exec(content);
+        const jsonText = match?.[1];
+        if (jsonText === undefined) throw new Error("summary model returned invalid JSON");
+        result = JSON.parse(jsonText);
+      }
+      if (
+        !result ||
+        typeof result !== "object" ||
+        !Array.isArray((result as { segments?: unknown }).segments)
+      )
+        throw new Error("summary model returned invalid JSON shape");
+      this.saveSummary(recordId, result, config.model);
+      return result;
+    } finally {
+      this.#summarizing.delete(recordId);
+    }
+  }
+
+  getSummary(recordId: string): unknown {
+    for (const root of this.#logRoots()) {
+      const db = new TrafficRepository(root);
+      try {
+        const row = db.database
+          .prepare(
+            "SELECT summary_json FROM history_summaries WHERE record_id = ? AND status = 'ready'",
+          )
+          .get(recordId) as { summary_json?: string } | undefined;
+        if (row?.summary_json) return JSON.parse(row.summary_json);
+      } catch {
+        /* unavailable */
+      } finally {
+        db.close();
+      }
+    }
+    return undefined;
+  }
+
+  private saveSummary(recordId: string, result: unknown, model: string): void {
+    for (const root of this.#logRoots()) {
+      const db = new TrafficRepository(root);
+      try {
+        db.database
+          .prepare(
+            "INSERT INTO history_summaries(record_id,status,summary_json,model,prompt_version,created_at,updated_at) VALUES(?,?,?,?,?,?,?) ON CONFLICT(record_id) DO UPDATE SET status='ready',summary_json=excluded.summary_json,model=excluded.model,updated_at=excluded.updated_at",
+          )
+          .run(
+            recordId,
+            "ready",
+            JSON.stringify(result),
+            model,
+            "v1",
+            new Date().toISOString(),
+            new Date().toISOString(),
+          );
+        return;
+      } catch {
+        /* try next root */
+      } finally {
+        db.close();
+      }
+    }
   }
 
   getGroupPricing(groupId: string): TaskPricingAggregate | undefined {
@@ -462,4 +618,105 @@ function optionalInteger(value: unknown): number | null {
 
 function emptyPage(limit: number, offset: number): LogGroupPage {
   return { groups: [], total: 0, limit, offset, next_offset: offset, has_more: false };
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+function extractResponsesOutput(value: unknown): string | undefined {
+  if (!Array.isArray(value)) return undefined;
+  const parts: string[] = [];
+  for (const item of value) {
+    if (!isRecord(item) || !Array.isArray(item["content"])) continue;
+    for (const content of item["content"]) {
+      if (!isRecord(content)) continue;
+      const text = content["text"];
+      if (typeof text === "string") parts.push(text);
+    }
+  }
+  return parts.length ? parts.join("") : undefined;
+}
+
+function prepareSummaryRequest(request: unknown): unknown {
+  if (!isRecord(request)) return request;
+  const result: Record<string, unknown> = {};
+  for (const key of ["model", "messages", "input", "instructions"]) {
+    if (request[key] !== undefined)
+      result[key] =
+        key === "input"
+          ? summarizeField("messages", request[key])
+          : summarizeField(key, request[key]);
+  }
+  if (result["messages"] === undefined && result["input"] === undefined) {
+    return summarizeValue(request, 0, 4000);
+  }
+  return result;
+}
+
+function summarizeField(key: string, value: unknown): unknown {
+  if (key !== "messages" || !Array.isArray(value)) return summarizeValue(value, 0, 6000);
+  return value.map((message) => {
+    if (!isRecord(message)) return summarizeValue(message, 0, 500);
+    const role = typeof message["role"] === "string" ? message["role"] : "unknown";
+    const item: Record<string, unknown> = { role };
+    // Responses API represents tool interactions as input items rather than
+    // chat messages. Keep their identity and linkage intact; only truncate
+    // potentially huge arguments/results.
+    if (typeof message["type"] === "string") item["type"] = message["type"];
+    for (const key of ["id", "call_id", "tool_call_id", "name"] as const) {
+      if (message[key] !== undefined) item[key] = message[key];
+    }
+    for (const key of ["arguments", "output"] as const) {
+      if (message[key] !== undefined) item[key] = truncateToolPayload(message[key]);
+    }
+    if (typeof message["name"] === "string") item["name"] = message["name"];
+    if (role === "tool") {
+      item["content"] = truncateToolPayload(message["content"]);
+    } else if (message["content"] !== undefined) {
+      item["content"] = summarizeValue(message["content"], 0, 4000);
+    }
+    if (Array.isArray(message["tool_calls"])) {
+      item["tool_calls"] = message["tool_calls"].map((call) => {
+        if (!isRecord(call)) return { type: "tool_call" };
+        const fn = isRecord(call["function"]) ? call["function"] : {};
+        return {
+          id: call["id"],
+          type: call["type"] ?? "function",
+          function: {
+            name: fn["name"] ?? "工具",
+            arguments: truncateToolPayload(fn["arguments"]),
+          },
+        };
+      });
+    }
+    return item;
+  });
+}
+
+function truncateToolPayload(value: unknown): unknown {
+  if (typeof value === "string") return truncateText(value, 2000);
+  return summarizeValue(value, 0, 2000);
+}
+
+function summarizeValue(value: unknown, depth: number, limit: number): unknown {
+  if (typeof value === "string") return truncateText(value, limit);
+  if (typeof value !== "object" || value === null) return value;
+  if (depth >= 3) return "[内容已省略]";
+  if (Array.isArray(value))
+    return value.slice(0, 30).map((item) => summarizeValue(item, depth + 1, limit));
+  const result: Record<string, unknown> = {};
+  for (const [key, item] of Object.entries(value)) {
+    if (["image", "image_url", "audio", "file", "data", "bytes"].includes(key)) continue;
+    result[key] = summarizeValue(item, depth + 1, limit);
+  }
+  return result;
+}
+
+function truncateText(value: unknown, limit: number): string {
+  if (value === null || value === undefined) return "";
+  if (typeof value === "string") return value.length <= limit ? value : `${value.slice(0, limit)}…`;
+  const serialized = JSON.stringify(value);
+  const text = typeof serialized === "string" ? serialized : "";
+  return text.length <= limit ? text : `${text.slice(0, limit)}…`;
 }

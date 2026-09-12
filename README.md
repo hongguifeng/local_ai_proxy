@@ -406,3 +406,7 @@ npm run checksums           # release/SHA256SUMS.txt
 
 The lightweight CLI ZIP does not bundle Node.js or `node_modules`. After extracting it on a machine
 with Node.js 24, run `npm ci --omit=dev` once and then use `npm start`.
+
+### Intelligent history summaries
+
+History can summarize an individual request with a configured model, grouping consecutive messages into cached phases.

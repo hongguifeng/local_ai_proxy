@@ -60,6 +60,9 @@ export interface PricingPrice {
 }
 
 export class TrafficRepository {
+  get database(): Database.Database {
+    return this.#database;
+  }
   readonly #database: Database.Database;
   readonly #now: () => string;
 

@@ -314,9 +314,24 @@ const toast = (text) => {
   setTimeout(() => el.classList.remove("show"), 2400);
 };
 const api = async (url, options = {}) => {
-  const res = await fetch(url, { headers: { "Content-Type": "application/json" }, ...options });
+  const requestOptions = {
+    ...options,
+    headers: {
+      ...(options.body === undefined ? {} : { "Content-Type": "application/json" }),
+      ...(options.headers || {}),
+    },
+  };
+  const res = await fetch(url, requestOptions);
   const data = await res.json().catch(() => ({}));
-  if (!res.ok) throw new Error(data.error || res.statusText);
+  if (!res.ok) {
+    const message =
+      typeof data.error === "string"
+        ? data.error
+        : data.error && typeof data.error.message === "string"
+          ? data.error.message
+          : res.statusText;
+    throw new Error(message);
+  }
   return data;
 };
 function applyLanguage() {
@@ -1598,6 +1613,44 @@ function applySelectedLogDetail(data, options = {}) {
   renderJsonPane("request", { preserveView: !options.resetView });
   renderJsonPane("response", { preserveView: !options.resetView });
 }
+$("summarizeRecord")?.addEventListener("click", async () => {
+  const button = $("summarizeRecord");
+  if (!state.selected) {
+    toast("请先选择一条请求");
+    return;
+  }
+  if (button.disabled) return;
+  button.disabled = true;
+  button.textContent = "…";
+  try {
+    const existing = await api(`/api/logs/${encodeURIComponent(state.selected)}/summary`);
+    if (existing) {
+      if ($("summaryPanel").open) {
+        $("summaryPanel").close();
+        return;
+      }
+      renderSummary(existing, { open: true });
+      return;
+    }
+    const result = await api(`/api/logs/${encodeURIComponent(state.selected)}/summary`, {
+      method: "POST",
+    });
+    renderSummary(result, { open: true });
+    toast("智能总结已生成");
+  } catch (e) {
+    if (
+      String(e.message || "")
+        .toLowerCase()
+        .includes("not configured")
+    ) {
+      toast("请先配置总结模型");
+      document.getElementById("summaryModelSettings")?.click();
+    } else toast(e.message);
+  } finally {
+    button.disabled = false;
+    button.textContent = "✨";
+  }
+});
 async function selectLog(id) {
   closeTaskPricing();
   state.selected = id;
@@ -1607,9 +1660,43 @@ async function selectLog(id) {
     const data = await api(`/api/logs/${encodeURIComponent(id)}`);
     if (state.selected !== id) return;
     applySelectedLogDetail(data, { resetView: true });
+    loadSummary(id);
   } finally {
     if (state.selected === id) state.selectedLogLoading = false;
   }
+}
+async function loadSummary(id) {
+  try {
+    const data = await api(`/api/logs/${encodeURIComponent(id)}/summary`);
+    if (state.selected !== id) return;
+    renderSummary(data);
+  } catch {}
+}
+function renderSummary(data, options = {}) {
+  if (!data) return;
+  const list = (value) =>
+    Array.isArray(value)
+      ? value
+          .filter(
+            (item) => (typeof item === "string" && item.trim() !== "") || typeof item === "number",
+          )
+          .map((item) => String(item))
+      : [];
+  const segments = Array.isArray(data.segments) ? data.segments : [];
+  const segmentHtml = segments
+    .map((segment) => {
+      const points = list(segment.key_points);
+      const evidence = list(segment.evidence);
+      return `<article class="summary-segment"><div class="summary-segment-head"><strong>${escapeHtml(String(segment.range || "阶段"))}</strong><span>${escapeHtml(String(segment.summary || ""))}</span></div>${points.length ? `<ul>${points.map((point) => `<li>${escapeHtml(point)}</li>`).join("")}</ul>` : ""}${evidence.length ? `<div class="summary-evidence">证据：${evidence.map((item) => `<code>${escapeHtml(item)}</code>`).join(" ")}</div>` : ""}</article>`;
+    })
+    .join("");
+  const section = (title, values, className) =>
+    values.length
+      ? `<section class="summary-list ${className}"><h4>${title}</h4><ul>${values.map((item) => `<li>${escapeHtml(item)}</li>`).join("")}</ul></section>`
+      : "";
+  $("summaryContent").innerHTML =
+    `<div class="summary-title">${escapeHtml(String(data.title || "智能摘要"))}</div><p class="summary-overview">${escapeHtml(String(data.overview || ""))}</p><div class="summary-segments">${segmentHtml}</div>${section("决策", list(data.decisions), "summary-decisions")}${section("问题", list(data.issues), "summary-issues")}`;
+  if (options.open && !$("summaryPanel").open) $("summaryPanel").showModal();
 }
 async function refreshSelectedLogDetail() {
   const id = state.selected;
@@ -1837,6 +1924,47 @@ $("logSearch").addEventListener("keydown", (event) => {
 });
 $("exportLogs").addEventListener("click", () => exportLogs().catch((e) => toast(e.message)));
 $("cleanupLogs").addEventListener("click", () => cleanupLogs().catch((e) => toast(e.message)));
+$("summaryModelSettings").addEventListener("click", async () => {
+  const current = await api("/api/settings/summary-model").catch(() => null);
+  const base = current || {
+    api_type: "openai_chat",
+    target_url: "",
+    api_key: "",
+    model: "",
+    target_headers: [],
+    timeout_ms: 180000,
+  };
+  $("summaryApiType").value = base.api_type;
+  $("summaryDisableReasoning").checked = base.disable_reasoning !== false;
+  $("summaryUrl").value = base.target_url;
+  $("summaryModel").value = base.model;
+  $("summaryKey").value = base.api_key;
+  $("summaryHeaders").value = (base.target_headers || []).join("\n");
+  $("summaryTimeout").value = Math.max(1, Math.round(Number(base.timeout_ms || 180000) / 1000));
+  $("summaryTestResult").hidden = true;
+  $("summaryTestResult").textContent = "";
+  $("summaryModelDialog").showModal();
+});
+$("summaryModelForm").addEventListener("submit", async (e) => {
+  e.preventDefault();
+  const base = await api("/api/settings/summary-model").catch(() => ({}));
+  await api("/api/settings/summary-model", {
+    method: "PUT",
+    body: JSON.stringify({
+      ...base,
+      disable_reasoning: $("summaryDisableReasoning").checked,
+      api_type: $("summaryApiType").value,
+      target_url: $("summaryUrl").value,
+      model: $("summaryModel").value,
+      api_key: $("summaryKey").value,
+      target_headers: $("summaryHeaders").value.split("\n").filter(Boolean),
+      timeout_ms: Number($("summaryTimeout").value) * 1000,
+    }),
+  });
+  $("summaryModelDialog").close();
+  toast("总结模型配置已保存");
+});
+$("summaryCancel").addEventListener("click", () => $("summaryModelDialog").close());
 $("selectAllLogs").addEventListener("click", () => toggleSelectAllLogs());
 $("autoRefreshLogs").addEventListener("change", () => scheduleLogRefresh(250));
 $("logItems").addEventListener("click", (event) => {
@@ -2115,3 +2243,53 @@ document.querySelectorAll("[data-copy]").forEach((button) =>
 })();
 applyLanguage();
 loadPairs().catch((e) => toast(e.message));
+$("summaryTest").addEventListener("click", async () => {
+  const result = $("summaryTestResult");
+  result.hidden = false;
+  result.className = "target-check-result testing";
+  result.textContent = "测试中…";
+  try {
+    const r = await api("/api/settings/summary-model/test", {
+      method: "POST",
+      body: JSON.stringify({
+        disable_reasoning: $("summaryDisableReasoning").checked,
+        api_type: $("summaryApiType").value,
+        target_url: $("summaryUrl").value,
+        model: $("summaryModel").value,
+        api_key: $("summaryKey").value,
+        target_headers: $("summaryHeaders").value.split("\n").filter(Boolean),
+        timeout_ms: Number($("summaryTimeout").value) * 1000,
+      }),
+    });
+    result.className = `target-check-result ${r.ok ? "success" : "failure"}`;
+    result.textContent = r.ok ? "连接成功" : r.detail || "连接失败";
+  } catch (e) {
+    result.className = "target-check-result failure";
+    result.textContent = e.message || "连接测试失败";
+  }
+});
+$("summaryClose").addEventListener("click", () => {
+  $("summaryPanel").close();
+});
+$("summaryRegenerate").addEventListener("click", async () => {
+  if (!state.selected) return;
+  const button = $("summaryRegenerate");
+  if (button.disabled) return;
+  button.disabled = true;
+  button.textContent = "生成中…";
+  try {
+    const result = await api(`/api/logs/${encodeURIComponent(state.selected)}/summary`, {
+      method: "POST",
+    });
+    renderSummary(result, { open: true });
+    toast("智能摘要已重新生成");
+  } catch (e) {
+    toast(e.message || "重新生成失败");
+  } finally {
+    button.disabled = false;
+    button.textContent = "重新生成";
+  }
+});
+$("summaryCopy").addEventListener("click", () =>
+  navigator.clipboard.writeText($("summaryContent").textContent || ""),
+);

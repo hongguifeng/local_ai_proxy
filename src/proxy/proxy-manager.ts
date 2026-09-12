@@ -108,7 +108,12 @@ export class ProxyManager {
   }
 
   replacePairs(pairs: readonly ProxyPair[]): Promise<readonly PublicProxyPair[]> {
-    return this.applyConfiguration({ pairs: [...pairs] });
+    return this.applyConfiguration({ ...this.#config, pairs: [...pairs] });
+  }
+
+  /** Apply the complete configuration, including non-proxy settings. */
+  replaceConfig(config: ProxyConfigFile): Promise<readonly PublicProxyPair[]> {
+    return this.applyConfiguration(config);
   }
 
   async setPairEnabled(pairId: string, enabled: boolean): Promise<PublicProxyPair> {

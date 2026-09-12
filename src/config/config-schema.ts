@@ -74,6 +74,17 @@ export const targetConfigSchema = z
 
 export type TargetConfig = z.infer<typeof targetConfigSchema>;
 
+export const summaryModelConfigSchema = z.object({
+  disable_reasoning: z.boolean().default(true),
+  api_type: z.enum(["openai_chat", "openai_responses", "anthropic_messages"]),
+  target_url: targetUrlSchema,
+  api_key: z.string(),
+  model: z.string().trim().min(1),
+  target_headers: z.array(headerOverrideSchema).default([]),
+  timeout_ms: z.number().int().min(1000).max(604800000).default(180000),
+});
+export type SummaryModelConfig = z.infer<typeof summaryModelConfigSchema>;
+
 export const proxyPairSchema = z.object({
   id: z.string().trim().min(1),
   name: z.string(),
@@ -88,6 +99,7 @@ export const proxyPairSchema = z.object({
 export const proxyConfigFileSchema = z
   .object({
     pairs: z.array(proxyPairSchema),
+    summary_model: summaryModelConfigSchema.optional(),
   })
   .superRefine(({ pairs }, context) => {
     const pairIds = new Set<string>();

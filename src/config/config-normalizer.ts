@@ -83,7 +83,10 @@ export function normalizeProxyConfigFile(
   const pairs = value["pairs"]
     .filter((pair) => isRecord(pair))
     .map((pair, index) => normalizeProxyPair(pair, index, defaultLogRoot));
-  return validateProxyConfigFile({ pairs });
+  return validateProxyConfigFile({
+    pairs,
+    ...(value["summary_model"] === undefined ? {} : { summary_model: value["summary_model"] }),
+  });
 }
 
 export function normalizeProxyPair(

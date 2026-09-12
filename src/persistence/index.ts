@@ -22,6 +22,7 @@ export { SCHEMA_V5_MIGRATION, SCHEMA_V5_VERSION } from "./schema-v5.js";
 export { SCHEMA_V6_MIGRATION, SCHEMA_V6_VERSION } from "./schema-v6.js";
 export { SCHEMA_V7_MIGRATION, SCHEMA_V7_VERSION } from "./schema-v7.js";
 export { SCHEMA_VERSION, SCHEMA_V8_MIGRATION, SCHEMA_V8_VERSION } from "./schema-v8.js";
+export { SCHEMA_V9_MIGRATION, SCHEMA_V9_VERSION } from "./schema-v9.js";
 export {
   BODY_CHUNK_BYTES,
   BODY_CHUNK_CODEC,

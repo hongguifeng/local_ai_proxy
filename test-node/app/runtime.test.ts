@@ -1,4 +1,4 @@
-import { access, mkdtemp, rm, writeFile } from "node:fs/promises";
+import { access, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { createServer } from "node:net";
@@ -94,6 +94,41 @@ describe("createNodeApplication", () => {
     await new Promise<void>((resolve, reject) =>
       occupied.close((error) => (error ? reject(error) : resolve())),
     );
+  });
+
+  it("persists summary model settings when applying the configuration", async () => {
+    const root = await mkdtemp(path.join(tmpdir(), "llm-proxy-app-"));
+    temporaryRoots.push(root);
+    const configFile = path.join(root, "proxies.json");
+    await writeFile(configFile, JSON.stringify({ pairs: [] }));
+    const runtime = createNodeApplication({
+      applicationConfigFile: path.join(root, "llm-proxy.json"),
+      configFile,
+      logRoot: path.join(root, "logs"),
+      host: "127.0.0.1",
+      port: 0,
+    });
+    await runtime.application.start();
+    const adminPort = runtime.address()?.port;
+    const summary = {
+      disable_reasoning: true,
+      api_type: "openai_chat",
+      target_url: "http://127.0.0.1:1235",
+      api_key: "secret",
+      model: "summarizer",
+      target_headers: [],
+      timeout_ms: 180000,
+    };
+    await fetch(`http://127.0.0.1:${adminPort}/api/settings/summary-model`, {
+      method: "PUT",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify(summary),
+    });
+    const persisted = JSON.parse(await readFile(configFile, "utf8")) as {
+      summary_model?: Record<string, unknown>;
+    };
+    expect(persisted.summary_model).toMatchObject(summary);
+    await runtime.application.stop();
   });
 });
 

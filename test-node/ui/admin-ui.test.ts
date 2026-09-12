@@ -1577,6 +1577,7 @@ describe("admin UI history page", { timeout: UI_TEST_TIMEOUT_MS }, () => {
       "selectAllLogs",
       "cleanupLogs",
       "exportLogs",
+      "summaryModelSettings",
       "refreshLogs",
       "auto-refresh",
     ]);

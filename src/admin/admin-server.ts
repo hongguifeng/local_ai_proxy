@@ -4,7 +4,7 @@ import { performance } from "node:perf_hooks";
 import type { Readable } from "node:stream";
 
 import type { ApplicationState } from "../app/index.js";
-import type { ProxyPair, PublicProxyPair } from "../config/index.js";
+import type { ProxyPair, PublicProxyPair, SummaryModelConfig } from "../config/index.js";
 import type {
   LogCleanupResult,
   LogGroupLogs,
@@ -28,6 +28,12 @@ export interface AdminServerOptions {
   readonly pairService?: PairAdminService;
   readonly staticAssets?: AdminStaticAssets | (() => Promise<AdminStaticAssets>);
   readonly targetCheckService?: TargetCheckAdminService;
+  readonly summaryModelService?: SummaryModelAdminService;
+}
+export interface SummaryModelAdminService {
+  getConfig(): SummaryModelConfig | undefined;
+  setConfig(config: SummaryModelConfig): Promise<SummaryModelConfig>;
+  testConfig?(config: SummaryModelConfig): Promise<{ ok: boolean; detail?: string }>;
 }
 
 export interface LogAdminService {
@@ -42,6 +48,8 @@ export interface LogAdminService {
     offset: number,
   ) => LogGroupLogs | undefined;
   readonly getRecordDetail?: (recordId: string) => LogRecordDetail | undefined;
+  readonly summarizeRecord?: (recordId: string) => Promise<unknown>;
+  readonly getSummary?: (recordId: string) => unknown;
   readonly getGroupPricing?: (groupId: string) => unknown;
   listGroups(query: string, limit: number, offset: number): LogGroupPage;
 }
@@ -279,6 +287,18 @@ export function createAdminServer(options: AdminServerOptions): FastifyInstance 
   server.setNotFoundHandler((_request, reply) =>
     reply.code(404).send(adminError("not_found", "Route not found.")),
   );
+  if (options.summaryModelService !== undefined) {
+    const summary = options.summaryModelService;
+    server.get("/api/settings/summary-model", () => summary.getConfig() ?? null);
+    server.put<{ Body: SummaryModelConfig }>("/api/settings/summary-model", async (request) =>
+      summary.setConfig(request.body),
+    );
+    if (summary.testConfig)
+      server.post<{ Body: SummaryModelConfig }>(
+        "/api/settings/summary-model/test",
+        async (request) => summary.testConfig?.(request.body),
+      );
+  }
   server.get(
     "/api/health",
     {
@@ -466,6 +486,8 @@ export function createAdminServer(options: AdminServerOptions): FastifyInstance 
       );
     }
     const getRecordDetail = logService.getRecordDetail?.bind(logService);
+    const summarizeRecord = logService.summarizeRecord?.bind(logService);
+    const getSummary = logService.getSummary?.bind(logService);
     if (getRecordDetail !== undefined) {
       server.get<{ Params: { id: string } }>(
         "/api/logs/:id",
@@ -483,6 +505,31 @@ export function createAdminServer(options: AdminServerOptions): FastifyInstance 
           getRecordDetail(request.params.id) ??
           reply.code(404).send(adminError("log_record_not_found", "Log record not found.")),
       );
+    }
+    if (summarizeRecord !== undefined) {
+      if (getSummary !== undefined)
+        server.get<{ Params: { id: string } }>(
+          "/api/logs/:id/summary",
+          (request) => getSummary(request.params.id) ?? null,
+        );
+      server.post<{ Params: { id: string } }>("/api/logs/:id/summary", async (request, reply) => {
+        try {
+          const result = await summarizeRecord(request.params.id);
+          return (
+            result ?? reply.code(404).send(adminError("record_not_found", "Record not found."))
+          );
+        } catch (error) {
+          const message = error instanceof Error ? error.message : "Summary failed.";
+          return reply
+            .code(message.includes("already in progress") ? 409 : 502)
+            .send(
+              adminError(
+                message.includes("already in progress") ? "summary_in_progress" : "summary_failed",
+                message,
+              ),
+            );
+        }
+      });
     }
   }
   if (options.pairService !== undefined) {

@@ -2,6 +2,7 @@ export {
   modelMappingSchema,
   modelPriceSchema,
   proxyConfigFileSchema,
+  summaryModelConfigSchema,
   proxyPairSchema,
   targetConfigSchema,
   type ModelMapping,
@@ -9,6 +10,7 @@ export {
   type ProxyConfigFile,
   type ProxyPair,
   type TargetConfig,
+  type SummaryModelConfig,
 } from "./config-schema.js";
 export type {
   HeaderPair,

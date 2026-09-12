@@ -1034,9 +1034,119 @@ label span {
   max-height: min(220px, 34vh);
   border-bottom: 1px solid var(--line);
   background: #f4f8fb;
+  min-height: 0;
+  overflow: auto;
+  box-sizing: border-box;
 }
 .meta-panel[hidden] {
   display: none;
+}
+.summary-dialog {
+  width: min(780px, calc(100vw - 48px));
+  height: min(620px, calc(100vh - 80px));
+  min-width: min(420px, calc(100vw - 48px));
+  min-height: 260px;
+  max-width: calc(100vw - 32px);
+  max-height: calc(100vh - 32px);
+  padding: 0;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: var(--panel);
+  color: var(--ink);
+  box-shadow: 0 20px 50px rgba(23, 32, 42, 0.18);
+  overflow: auto;
+  resize: both;
+}
+.summary-dialog::backdrop {
+  background: rgba(23, 32, 42, 0.35);
+}
+.summary-dialog > section {
+  min-height: 100%;
+  padding: 14px;
+  box-sizing: border-box;
+}
+.summary-dialog-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 12px;
+  padding-bottom: 10px;
+  border-bottom: 1px solid var(--line);
+}
+.summary-dialog-head h2 {
+  margin: 0;
+  font-size: 16px;
+}
+.summary-dialog-head div {
+  display: flex;
+  gap: 8px;
+}
+#summaryContent {
+  clear: both;
+  margin: 0;
+  overflow-wrap: anywhere;
+  line-height: 1.55;
+  white-space: normal;
+}
+#summaryContent .summary-title {
+  margin-bottom: 5px;
+  font-size: 14px;
+  font-weight: 700;
+}
+#summaryContent .summary-overview {
+  margin: 0 0 8px;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+.summary-segments {
+  display: grid;
+  gap: 7px;
+}
+.summary-segment {
+  padding: 8px 10px;
+  border: 1px solid #d7e2ea;
+  border-radius: 6px;
+  background: #fff;
+}
+.summary-segment-head {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+.summary-segment-head strong {
+  color: var(--accent);
+  white-space: nowrap;
+}
+.summary-segment-head span {
+  overflow-wrap: anywhere;
+}
+.summary-segment ul,
+.summary-list ul {
+  margin: 5px 0 0;
+  padding-left: 20px;
+}
+.summary-segment li,
+.summary-list li {
+  overflow-wrap: anywhere;
+}
+.summary-evidence {
+  margin-top: 5px;
+  color: var(--muted);
+  font-size: 11px;
+}
+.summary-evidence code {
+  padding: 1px 4px;
+  border-radius: 3px;
+  background: #eef2f6;
+}
+.summary-list {
+  margin-top: 9px;
+}
+.summary-list h4 {
+  margin: 0;
+  font-size: 12px;
 }
 .json-string.format-mode {
   white-space: pre-wrap;
@@ -1255,7 +1365,8 @@ label span {
   }
 }
 
-#targetCheckDialog {
+#targetCheckDialog,
+#summaryModelDialog {
   width: min(560px, calc(100vw - 32px));
   margin: auto;
   padding: 16px;
@@ -1266,7 +1377,12 @@ label span {
   box-shadow: 0 20px 50px rgba(23, 32, 42, 0.18);
 }
 
-#targetCheckDialog::backdrop {
+#summaryModelDialog {
+  width: min(480px, calc(100vw - 48px));
+}
+
+#targetCheckDialog::backdrop,
+#summaryModelDialog::backdrop {
   background: rgba(23, 32, 42, 0.35);
 }
 
@@ -1293,6 +1409,17 @@ label span {
   font-size: 12px;
   font-weight: 600;
   color: var(--muted);
+}
+
+.target-check-form label.summary-enabled {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.target-check-form label.summary-enabled input {
+  width: auto;
+  height: auto;
 }
 
 .target-check-form input {
@@ -1331,6 +1458,14 @@ label span {
 .target-check-form select:focus {
   border-color: var(--accent);
   outline: 2px solid var(--accent-soft);
+}
+
+.target-check-form menu {
+  display: flex;
+  justify-content: flex-end;
+  gap: 10px;
+  margin: 6px 0 0;
+  padding: 0;
 }
 
 .target-check-result {

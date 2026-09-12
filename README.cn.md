@@ -404,3 +404,7 @@ npm run checksums           # release/SHA256SUMS.txt
 
 轻量 CLI ZIP 不包含 Node.js 和 `node_modules`。在已安装 Node.js 24 的机器上解压后，先执行一次
 `npm ci --omit=dev`，之后使用 `npm start`。
+
+### 历史请求智能摘要
+
+历史日志页面支持为单条请求调用配置的总结模型，按连续消息区间生成阶段摘要，并缓存结果。
