@@ -978,7 +978,7 @@ describe("admin UI history page", { timeout: UI_TEST_TIMEOUT_MS }, () => {
     await expectPage(pendingItem.locator(".request-tokens .log-metric-value")).toHaveText("8");
     await expectPage(pendingItem.locator(".response-tokens .log-metric-value")).toHaveText("4");
     await expectPage(pendingItem.locator(".cost .log-metric-value")).toHaveText("$0.0411");
-    await expectPage(pendingItem.locator(".log-status")).toHaveText("200");
+    await expectPage(pendingItem.locator(".log-status")).toHaveCount(0);
     await expectPage(pendingItem).not.toContainText("pending");
     await autoRefresh.uncheck();
 
@@ -1676,7 +1676,10 @@ describe("admin UI visual regression", { timeout: UI_TEST_TIMEOUT_MS }, () => {
     await page.setViewportSize({ width: 760, height: 1000 });
     await loadAdminPage();
     await page.locator("#languageSelect").selectOption("zh");
-    await expectPage(page.locator("header")).toHaveCSS("flex-direction", "column");
+    await expectPage(page.locator("header:not(.summary-dialog-head)")).toHaveCSS(
+      "flex-direction",
+      "column",
+    );
     await expectPage(page.locator(".proxy-head").first()).toHaveCSS(
       "grid-template-columns",
       "698px",

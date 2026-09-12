@@ -1091,7 +1091,12 @@ function renderLogs() {
           <span class="log-item-content">
             <span class="log-item-metrics">${logItemMetricsHtml(item)}</span>
             <span class="log-item-subline">
-              <span class="log-timestamp">${escapeHtml(item.timestamp || "")}</span>${item.has_summary ? `<span class="log-summary-star" title="${escapeHtml(t("summaryStar"))}" aria-label="${escapeHtml(t("summaryStar"))}">★</span>` : ""}${(() => { const statusClass = logStatusClass(item.status); const statusLabel = formatStatus(item.status); if (statusClass === "success") return ""; return `<span class="log-status ${statusClass}" title="${escapeHtml(statusLabel)}" aria-label="${escapeHtml(statusLabel)}"><span class="log-status-dot" aria-hidden="true"></span>${escapeHtml(statusLabel)}</span>`; })()}
+              <span class="log-timestamp">${escapeHtml(item.timestamp || "")}</span>${item.has_summary ? `<span class="log-summary-star" title="${escapeHtml(t("summaryStar"))}" aria-label="${escapeHtml(t("summaryStar"))}">★</span>` : ""}${(() => {
+                const statusClass = logStatusClass(item.status);
+                const statusLabel = formatStatus(item.status);
+                if (statusClass === "success") return "";
+                return `<span class="log-status ${statusClass}" title="${escapeHtml(statusLabel)}" aria-label="${escapeHtml(statusLabel)}"><span class="log-status-dot" aria-hidden="true"></span>${escapeHtml(statusLabel)}</span>`;
+              })()}
             </span>
           </span>
         </button>`,
