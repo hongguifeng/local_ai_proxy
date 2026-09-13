@@ -347,7 +347,7 @@ export function createAdminServer(options: AdminServerOptions): FastifyInstance 
         "bucket,requests,tasks,input,output,cache_read,cache_write,cost",
         ...trend.points.map((p) =>
           [
-            p["bucket"],
+            csvCell(p["bucket"]),
             p["requests"],
             p["tasks"],
             p["input"],
@@ -709,6 +709,12 @@ export function createAdminServer(options: AdminServerOptions): FastifyInstance 
     );
   }
   return server;
+}
+
+function csvCell(value: unknown): string {
+  const text = String(value ?? "");
+  const safe = /^[=+\-@]/.test(text) ? `'${text}` : text;
+  return /[",\n\r]/.test(safe) ? `"${safe.replace(/"/g, '""')}"` : safe;
 }
 
 export function adminError(code: string, message: string): AdminErrorDto {
