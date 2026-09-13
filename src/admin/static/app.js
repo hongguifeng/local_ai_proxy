@@ -20,7 +20,19 @@ const translations = {
     refresh: "刷新",
     exportLogs: "导出",
     statsToday: "今天",
-    statsFollowNow: "实时结束",
+    statsPresetRange: "快速范围",
+    statsFollowNow: "结束时间跟随当前时间",
+    statsTimeRange: "时间范围",
+    statsFrom: "开始时间",
+    statsTo: "结束时间",
+    statsDataFilters: "统计维度",
+    statsMetricLabel: "指标",
+    statsGranularityLabel: "时间粒度",
+    statsBreakdownLabel: "趋势分组",
+    statsTargetLabel: "转发地址",
+    statsModelLabel: "模型",
+    applyFilters: "应用筛选",
+    resetFilters: "重置",
     statsOverviewTitle: "总体使用量",
     statsOverviewHint: "按当前时间范围汇总",
     cleanupLogs: "清理",
@@ -182,7 +194,19 @@ const translations = {
     refresh: "Refresh",
     exportLogs: "Export",
     statsToday: "Today",
-    statsFollowNow: "Live end",
+    statsPresetRange: "Quick range",
+    statsFollowNow: "End time follows now",
+    statsTimeRange: "Time range",
+    statsFrom: "From",
+    statsTo: "To",
+    statsDataFilters: "Data dimensions",
+    statsMetricLabel: "Metric",
+    statsGranularityLabel: "Granularity",
+    statsBreakdownLabel: "Trend grouping",
+    statsTargetLabel: "Target",
+    statsModelLabel: "Model",
+    applyFilters: "Apply filters",
+    resetFilters: "Reset",
     statsOverviewTitle: "Total usage",
     statsOverviewHint: "Summary for the selected period",
     cleanupLogs: "Clean",
@@ -1203,6 +1227,13 @@ function shareCellHtml(amount, totalAmount) {
     pricingPercentage(amount, totalAmount),
   )}</span>${bar}</td>`;
 }
+function formatIntegerValue(value) {
+  if (value === null || value === undefined || value === "—") return "—";
+  const n = Number(value);
+  return Number.isFinite(n)
+    ? n.toLocaleString(state.language === "en" ? "en-US" : "zh-CN")
+    : String(value);
+}
 function pricingStatusValue(pricing) {
   if (!pricing || pricing.pricing_status === "unpriced") return "—";
   if (pricing.pricing_status === "pending") return t("calculating");
@@ -1230,7 +1261,7 @@ function pricingTableHtml(breakdown, price = null, totalAmount = null) {
       const bucket = breakdown?.[usageKey] || breakdown?.[usageKey.replace("Tokens", "")] || {};
       const tokens = bucket.tokens ?? breakdown?.[usageKey] ?? "—";
       const amount = bucket.amount ?? "—";
-      return `<tr><th>${escapeHtml(t(label))}</th><td>${escapeHtml(String(tokens))}</td><td>${escapeHtml(price?.[priceKey] ?? "—")}</td><td>${escapeHtml(typeof amount === "string" ? formatCurrencyAmount(amount) : String(amount))}</td>${shareCellHtml(amount, totalAmount)}</tr>`;
+      return `<tr><th>${escapeHtml(t(label))}</th><td>${escapeHtml(formatIntegerValue(tokens))}</td><td>${escapeHtml(price?.[priceKey] ?? "—")}</td><td>${escapeHtml(typeof amount === "string" ? formatCurrencyAmount(amount) : String(amount))}</td>${shareCellHtml(amount, totalAmount)}</tr>`;
     })
     .join("");
   return `<div class="table-scroll"><table class="pricing-table"><thead><tr><th></th><th>${escapeHtml(t("tokensBilled"))}</th><th>${escapeHtml(t("pricePerMillion"))}</th><th>${escapeHtml(t("amountCny"))}</th><th>${escapeHtml(t("costShare"))}</th></tr></thead><tbody>${rows}</tbody><tfoot><tr><th>${escapeHtml(t("total"))}</th><td></td><td></td><td>${escapeHtml(formatCurrencyAmount(totalAmount))}</td>${shareCellHtml(totalAmount, totalAmount)}</tr></tfoot></table></div>`;
@@ -1277,7 +1308,7 @@ function taskBreakdownTableHtml(breakdown, totalAmount, price = null) {
   ]
     .map(([key, label, priceKey]) => {
       const bucket = breakdown?.[key] || {};
-      return `<tr><th>${escapeHtml(t(label))}</th><td>${escapeHtml(String(bucket.tokens ?? "0"))}</td>${priceCell(price?.[priceKey])}<td>${escapeHtml(formatCurrencyAmount(bucket.amount ?? null))}</td>${shareCellHtml(bucket.amount, totalAmount)}</tr>`;
+      return `<tr><th>${escapeHtml(t(label))}</th><td>${escapeHtml(formatIntegerValue(bucket.tokens ?? 0))}</td>${priceCell(price?.[priceKey])}<td>${escapeHtml(formatCurrencyAmount(bucket.amount ?? null))}</td>${shareCellHtml(bucket.amount, totalAmount)}</tr>`;
     })
     .join("");
   return `<div class="table-scroll"><table class="pricing-table task-breakdown"><thead><tr><th></th><th>${escapeHtml(t("tokensBilled"))}</th>${priceHeader}<th>${escapeHtml(t("amountCny"))}</th><th>${escapeHtml(t("costShare"))}</th></tr></thead><tbody>${rows}</tbody><tfoot><tr><th>${escapeHtml(t("total"))}</th><td></td>${price ? "<td></td>" : ""}<td>${escapeHtml(formatCurrencyAmount(totalAmount))}</td>${shareCellHtml(totalAmount, totalAmount)}</tr></tfoot></table></div>`;
@@ -1839,6 +1870,7 @@ document.querySelectorAll(".tab").forEach((tab) =>
 );
 
 async function loadStatistics() {
+  const selectedBreakdown = $("statsBreakdown")?.value || "total";
   if (state.language === "en") {
     $("statsTarget")?.querySelector('option[value=""]')?.replaceChildren("All targets");
     $("statsModel")?.querySelector('option[value=""]')?.replaceChildren("All models");
@@ -1891,11 +1923,11 @@ async function loadStatistics() {
     const sideCount = Math.max(
       ...[-1, 1].map((side) => segments.filter((s) => s.side === side).length),
     );
-    const height = Math.max(300, sideCount * rowGap + 40);
+    const height = Math.max(260, sideCount * rowGap + 40);
     const cx = 300,
       cy = height / 2,
-      radius = 78,
-      outerRadius = 98;
+      radius = 96,
+      outerRadius = 116;
     for (const side of [-1, 1]) {
       const labels = segments
         .filter((s) => s.side === side)
@@ -1925,13 +1957,17 @@ async function loadStatistics() {
         const title = escapeHtml(`${name}: ${percentage} · ${value}`);
         const x1 = cx + Math.cos(angle) * outerRadius,
           y1 = cy + Math.sin(angle) * outerRadius;
-        const x2 = cx + side * 116,
+        const x2 = cx + side * 122,
           x3 = cx + side * 133,
           textX = cx + side * 140;
         return `<g class="pie-segment" tabindex="0" aria-label="${title}" style="--pie-color:${color}"><title>${title}</title><circle class="pie-slice" cx="${cx}" cy="${cy}" r="${radius}" pathLength="100" fill="none" stroke="${color}" stroke-width="40" stroke-dasharray="${fraction * 100} ${100 - fraction * 100}" stroke-dashoffset="${-segment.offset * 100}" transform="rotate(-90 ${cx} ${cy})"/><path class="pie-connector" d="M ${x1} ${y1} L ${x2} ${labelY} L ${x3} ${labelY}"/><text x="${textX}" y="${labelY - 3}" text-anchor="${side > 0 ? "start" : "end"}" class="pie-label">${escapeHtml(shortName)}</text><text x="${textX}" y="${labelY + 15}" text-anchor="${side > 0 ? "start" : "end"}" class="pie-value">${percentage} · ${escapeHtml(value)}</text></g>`;
       })
       .join("");
-    return `<div class="pie-chart"><svg viewBox="0 0 600 ${height}" role="img" aria-label="${english ? "Distribution" : "占比分布"}">${slices}</svg></div>`;
+    const centerValue =
+      metric === "cost"
+        ? formatCurrencyAmount(total)
+        : Number(total).toLocaleString(english ? "en-US" : "zh-CN");
+    return `<div class="pie-chart"><svg viewBox="0 0 600 ${height}" role="img" aria-label="${english ? "Distribution" : "占比分布"}">${slices}<text x="300" y="${cy - 4}" text-anchor="middle" class="pie-center-value">${escapeHtml(centerValue)}</text><text x="300" y="${cy + 16}" text-anchor="middle" class="pie-center-label">${metric === "cost" ? (english ? "Priced cost" : "已计价费用") : english ? "Tokens" : "Token"}</text></svg></div>`;
   };
   const english = state.language === "en";
   const statDisplay = (key, value) =>
@@ -1944,10 +1980,6 @@ async function loadStatistics() {
     (sum, key) => sum + BigInt(String(result.totals[key] || 0)),
     0n,
   );
-  const totalMetricValue =
-    metric === "cost"
-      ? formatCurrencyAmount(result.totals.cost)
-      : totalTokens.toLocaleString(english ? "en-US" : "zh-CN");
   const statLabels = english
     ? {
         requests: "Requests",
@@ -1967,25 +1999,52 @@ async function loadStatistics() {
         cache_write: "缓存写",
         cost: "费用",
       };
+  const compactNumber = (value) => {
+    const n = Number(value);
+    if (!Number.isFinite(n)) return String(value);
+    if (english)
+      return n.toLocaleString("en-US", { notation: "compact", maximumFractionDigits: 1 });
+    if (Math.abs(n) >= 100000000) return `${(n / 100000000).toFixed(1).replace(/\.0$/, "")} 亿`;
+    if (Math.abs(n) >= 10000) return `${(n / 10000).toFixed(1).replace(/\.0$/, "")} 万`;
+    return n.toLocaleString("zh-CN");
+  };
+  const fullNumber = (value) => Number(value).toLocaleString(english ? "en-US" : "zh-CN");
+  const tokenDetails = ["input", "output", "cache_read", "cache_write"];
+  const tokenTotalDisplay = compactNumber(totalTokens);
+  const tokenDetailHtml = tokenDetails
+    .map(
+      (key) =>
+        `<span><b>${statLabels[key]}</b><strong title="${fullNumber(result.totals[key] || 0)}">${compactNumber(result.totals[key] || 0)}</strong></span>`,
+    )
+    .join("");
+  const primaryStats = ["requests", "tasks"];
   $("statsOverview").innerHTML =
-    Object.entries(result.totals)
+    primaryStats
       .map(
-        ([k, v]) =>
-          `<div class="stat-card"><small>${statLabels[k] || k}</small><strong>${statDisplay(k, v)}</strong></div>`,
+        (k) =>
+          `<div class="stat-card stat-card-${k}" title="${escapeHtml(`${statLabels[k]}: ${statDisplay(k, result.totals[k])}`)}"><small>${statLabels[k]}</small><strong>${k === "cost" ? statDisplay(k, result.totals[k]) : compactNumber(result.totals[k])}</strong></div>`,
       )
       .join("") +
+    `<div class="stat-card stat-card-tokens"><small>${english ? "Token total" : "Token 总量"}</small><div class="stat-card-token-body"><strong title="${fullNumber(totalTokens)}">${tokenTotalDisplay}</strong><div class="token-details">${tokenDetailHtml}</div></div></div>` +
+    `<div class="stat-card stat-card-cost" title="${escapeHtml(`${statLabels.cost}: ${statDisplay("cost", result.totals.cost)}`)}"><small>${statLabels.cost}</small><strong>${statDisplay("cost", result.totals.cost)}</strong></div>` +
     (Object.values(result.unpriced || {}).reduce((a, b) => a + Number(b), 0)
-      ? `<div class="stats-unpriced">${english ? "Unpriced records are excluded from cost totals" : "存在未计价记录，费用合计未包含这些记录"}（${Object.values(result.unpriced || {}).reduce((a, b) => a + Number(b), 0)}）</div>`
+      ? `<div class="stats-unpriced"><span class="stats-alert-icon">!</span><span>${english ? "Unpriced records are excluded from cost totals" : "有未计价记录，费用合计不包含这些记录"}（${Object.values(
+          result.unpriced || {},
+        )
+          .reduce((a, b) => a + Number(b), 0)
+          .toLocaleString(
+            english ? "en-US" : "zh-CN",
+          )}）</span><button type="button" class="stats-alert-action" data-i18n="viewDetails">${english ? "查看明细" : "查看明细"}</button></div>`
       : "") +
-    `<div class="stat-groups"><section class="distribution-card"><h3>${targetTitle}<span class="distribution-total">${english ? "Total" : "总计"} · ${totalMetricValue}</span></h3>${pie(result.byTarget)}</section><section class="distribution-card"><h3>${modelTitle}<span class="distribution-total">${english ? "Total" : "总计"} · ${totalMetricValue}</span></h3>${pie(result.byModel)}</section></div>`;
+    `<div class="stat-groups"><section class="distribution-card"><h3>${targetTitle}</h3>${pie(result.byTarget)}</section><section class="distribution-card"><h3>${modelTitle}</h3>${pie(result.byModel)}</section></div>`;
   const trend = await fetch(
-    `/api/usage-statistics/trend?from=${encodeURIComponent(iso(from))}&to=${encodeURIComponent(iso(to))}&granularity=${$("statsGranularity")?.value || "day"}&timezoneOffset=${timezoneOffset}&breakdown=${$("statsBreakdown")?.value || "total"}${extra}`,
+    `/api/usage-statistics/trend?from=${encodeURIComponent(iso(from))}&to=${encodeURIComponent(to.toISOString())}&granularity=${$("statsGranularity")?.value || "day"}&timezoneOffset=${timezoneOffset}&breakdown=${selectedBreakdown}${extra}`,
   ).then(async (r) => {
     if (!r.ok) throw new Error(`趋势请求失败 (${r.status})`);
     return r.json();
   });
   const costMode = $("statsMetric").value === "cost";
-  const breakdown = $("statsBreakdown")?.value || "total";
+  const breakdown = selectedBreakdown;
   const groupKey = breakdown === "model" ? "by_model" : breakdown === "target" ? "by_target" : null;
   const groupsFor = (point) =>
     groupKey && Array.isArray(point[groupKey]) && point[groupKey].length
@@ -2010,41 +2069,84 @@ async function loadStatistics() {
     "#a16207",
     "#0369a1",
   ];
-  const groupColor = (id, index) => colors[index % colors.length];
+  const groupIds = [
+    ...new Set(
+      trend.points
+        .flatMap((point) => groupsFor(point).map((group) => String(group.id)))
+        .filter((id) => id !== "total"),
+    ),
+  ];
+  const groupColorMap = new Map(groupIds.map((id, index) => [id, colors[index % colors.length]]));
+  const groupColor = (id) => groupColorMap.get(String(id)) || colors[0];
+  const tokenColor = {
+    input: "#2f80ed",
+    output: "#27ae60",
+    cache_read: "#f2994a",
+    cache_write: "#9b51e0",
+  };
+  const valueOf = (g) =>
+    costMode
+      ? Number(g.cost)
+      : Number(g.input) + Number(g.output) + Number(g.cache_read) + Number(g.cache_write);
   const maxRequests = Math.max(
     1,
-    ...trend.points.map((point) =>
-      groupsFor(point).reduce(
-        (sum, g) =>
-          sum +
-          (costMode
-            ? Number(g.cost)
-            : Number(g.input) + Number(g.output) + Number(g.cache_read) + Number(g.cache_write)),
-        0,
-      ),
-    ),
+    ...trend.points.map((point) => groupsFor(point).reduce((sum, g) => sum + valueOf(g), 0)),
+  );
+  const niceCeil = (value) => {
+    const exp = 10 ** Math.floor(Math.log10(Math.max(1e-9, value)));
+    const f = value / exp;
+    return (f <= 1 ? 1 : f <= 2 ? 2 : f <= 5 ? 5 : 10) * exp;
+  };
+  const niceMax = niceCeil(maxRequests);
+  const formatTick = (v) => {
+    const abs = Math.abs(v);
+    const round = (n, digits) => Number(n.toFixed(digits));
+    return abs >= 1e9
+      ? `${round(v / 1e9, 2)}B`
+      : abs >= 1e6
+        ? `${round(v / 1e6, 2)}M`
+        : abs >= 1e3
+          ? `${round(v / 1e3, 2)}k`
+          : `${round(v, 2)}`;
+  };
+  const tokenNames = {
+    input: english ? "Input" : "输入",
+    output: english ? "Output" : "输出",
+    cache_read: english ? "Cache read" : "缓存读",
+    cache_write: english ? "Cache write" : "缓存写",
+  };
+  const summary = $("statsFilterSummary");
+  if (summary)
+    summary.textContent = `${english ? "Showing" : "当前范围"} ${from.toLocaleString(english ? "en-US" : "zh-CN")} ${english ? "to" : "至"} ${to.toLocaleString(english ? "en-US" : "zh-CN")}`;
+  const trendPoints = [...trend.points].sort((a, b) =>
+    String(b.bucket).localeCompare(String(a.bucket)),
   );
   const trendBars = trend.points
     .map((point) => {
       const groups = groupsFor(point);
-      const metricValue = groups.reduce(
-        (sum, g) =>
-          sum +
-          (costMode
-            ? Number(g.cost)
-            : Number(g.input) + Number(g.output) + Number(g.cache_read) + Number(g.cache_write)),
-        0,
-      );
-      const h = Math.max(2, ((metricValue || 0) / maxRequests) * 210);
-      const tokens = ["input", "output", "cache_read", "cache_write"];
+      const metricValue = groups.reduce((sum, g) => sum + valueOf(g), 0);
+      const h = Math.max(2, (metricValue / niceMax) * 200);
+      const parts =
+        breakdown === "total" && !costMode
+          ? ["input", "output", "cache_read", "cache_write"].map((t) => ({
+              key: t,
+              value: Number(point[t]) || 0,
+            }))
+          : groups.map((g) => ({ key: costMode ? "cost" : g.id, value: valueOf(g) }));
       const trendCost = formatCurrencyAmount(pricingDecimalFromNano(point.cost));
       const detail = `${point.bucket} | 请求 ${point.requests} | Task ${point.tasks} | 费用 ${trendCost}`;
-      const segments = groups
-        .map((g, i) => {
-          const value = costMode
-            ? Number(g.cost)
-            : Number(g.input) + Number(g.output) + Number(g.cache_read) + Number(g.cache_write);
-          return `<i class="trend-segment ${costMode ? "cost" : "input"}" style="height:${Math.max(1, (value / Math.max(1, metricValue)) * h)}px;background:${groupColor(g.id, i)}" title="${g.id}: ${costMode ? formatCurrencyAmount(pricingDecimalFromNano(g.cost)) : value.toLocaleString()}"></i>`;
+      const segments = parts
+        .map((p) => {
+          const color = costMode
+            ? "#1f7a5a"
+            : breakdown === "total"
+              ? tokenColor[p.key]
+              : groupColor(p.key);
+          const height = p.value > 0 ? Math.max(1, (p.value / Math.max(1, metricValue)) * h) : 0;
+          const label = costMode
+            ? `${p.key}: ${formatCurrencyAmount(Number(p.value))}`
+            : `${breakdown === "total" ? tokenNames[p.key] : p.key}: ${p.value.toLocaleString()}`;
+          return `<i class="trend-segment ${costMode ? "cost" : breakdown === "total" ? p.key : "group"}" style="height:${height}px;background:${color}" title="${label}"></i>`;
         })
         .join("");
       return `<div class="trend-item"><span class="trend-bar" style="height:${h}px" title="${detail}" aria-label="${detail}">${segments}</span><small>${point.bucket}</small></div>`;
@@ -2053,6 +2155,16 @@ async function loadStatistics() {
   const trendContent = trend.points.length
     ? trendBars
     : `<div class="stats-empty">${english ? "No trend data" : "暂无趋势数据"}</div>`;
+  const tickFractions = [0, 0.25, 0.5, 0.75, 1];
+  const trendGrid = tickFractions
+    .map(
+      (f) =>
+        `<i class="trend-gridline${f === 0 ? " base" : ""}" style="bottom:${22 + 200 * f}px"></i>`,
+    )
+    .join("");
+  const trendYaxis = `<div class="trend-yaxis" aria-hidden="true">${tickFractions
+    .map((f) => `<span style="bottom:${15 + 200 * f}px">${formatTick(niceMax * f)}</span>`)
+    .join("")}</div>`;
   const headers = english
     ? [
         "Time",
@@ -2067,7 +2179,7 @@ async function loadStatistics() {
       ]
     : ["时间", "请求", "Task", "输入", "输出", "缓存读", "缓存写", "费用", "未计价"];
   $("statsTrend").innerHTML =
-    `<section class="trend-card"><div class="trend-card-title"><h3>${english ? "Usage trend" : "使用趋势"}</h3><span>${trend.granularity} · ${breakdown === "model" ? "模型叠加" : breakdown === "target" ? "转发地址叠加" : "总量"} · ${costMode ? (english ? "CNY" : "元") : english ? "tokens" : "Token"}</span></div><div class="trend-legend">${
+    `<section class="trend-card"><div class="trend-card-title"><h3>${english ? "Usage trend" : "使用趋势"}</h3><div class="trend-controls"><select id="statsBreakdown" aria-label="${english ? "Trend grouping" : "趋势分组"}"><option value="total">${english ? "Total trend" : "总量趋势"}</option><option value="model">${english ? "By model" : "按模型叠加"}</option><option value="target">${english ? "By target" : "按转发地址叠加"}</option></select><span>${breakdown === "model" ? (english ? "By model" : "按模型叠加") : breakdown === "target" ? (english ? "By target" : "按转发地址叠加") : english ? "Total trend" : "总量趋势"} · ${trend.granularity} · ${costMode ? (english ? "CNY" : "元") : english ? "tokens" : "Token"}</span></div></div><div class="trend-legend">${
       breakdown === "total" && !costMode
         ? `<span><i class="input"></i>${english ? "Input" : "输入"}</span><span><i class="output"></i>${english ? "Output" : "输出"}</span><span><i class="cache_read"></i>${english ? "Cache read" : "缓存读"}</span><span><i class="cache_write"></i>${english ? "Cache write" : "缓存写"}</span>`
         : [
@@ -2079,9 +2191,13 @@ async function loadStatistics() {
               ),
             ).keys(),
           ]
-            .map((id, i) => `<span><i style="background:${groupColor(id, i)}"></i>${id}</span>`)
+            .map((id) => `<span><i style="background:${groupColor(id)}"></i>${id}</span>`)
             .join("")
-    }</div><div class="trend-bars">${trendContent}</div><table><thead><tr>${headers.map((h) => `<th>${h}</th>`).join("")}</tr></thead><tbody>${trend.points.map((p) => `<tr><td>${p.bucket}</td><td>${p.requests}</td><td>${p.tasks}</td><td>${p.input}</td><td>${p.output}</td><td>${p.cache_read}</td><td>${p.cache_write}</td><td>${formatCurrencyAmount(pricingDecimalFromNano(p.cost))}</td><td>${p.unpriced ?? 0}</td></tr>`).join("")}</tbody></table></section>`;
+    }</div><div class="trend-chart">${trendYaxis}<div class="trend-bars">${trendGrid}${trendContent}</div></div><table><thead><tr>${headers.map((h) => `<th>${h}</th>`).join("")}</tr></thead><tbody>${trendPoints.map((p) => `<tr><td>${p.bucket}</td><td>${p.requests}</td><td>${p.tasks}</td><td>${p.input}</td><td>${p.output}</td><td>${p.cache_read}</td><td>${p.cache_write}</td><td>${formatCurrencyAmount(pricingDecimalFromNano(p.cost))}</td><td>${p.unpriced ?? 0}</td></tr>`).join("")}</tbody></table></section>`;
+  $("statsBreakdown").value = breakdown;
+  $("statsBreakdown")?.addEventListener("change", () =>
+    loadStatistics().catch(showStatisticsError),
+  );
 }
 function showStatisticsError(error) {
   $("statsOverview").innerHTML =
@@ -2185,6 +2301,27 @@ $("statsGranularity")?.addEventListener("change", () =>
 $("statsBreakdown")?.addEventListener("change", () =>
   loadStatistics().catch((e) => toast(e.message)),
 );
+$("applyStatsFilters")?.addEventListener("click", () => {
+  loadStatisticsOptions()
+    .then(() => loadStatistics())
+    .catch(showStatisticsError);
+});
+$("resetStatsFilters")?.addEventListener("click", () => {
+  const now = new Date();
+  $("statsFrom").value = statsLocalInput(new Date(now.getTime() - 7 * 86400000));
+  $("statsTo").value = statsLocalInput(now);
+  $("statsMetric").value = "token";
+  $("statsGranularity").value = "auto";
+  $("statsBreakdown").value = "total";
+  $("statsTarget").value = "";
+  $("statsModel").value = "";
+  document
+    .querySelectorAll("[data-stats-range]")
+    .forEach((item) => item.classList.toggle("active", item.dataset.statsRange === "7"));
+  loadStatisticsOptions()
+    .then(() => loadStatistics())
+    .catch(showStatisticsError);
+});
 $("statsFrom")?.addEventListener("change", () => {
   loadStatisticsOptions().catch((e) => toast(e.message));
   loadStatistics().catch((e) => toast(e.message));

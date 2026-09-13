@@ -328,6 +328,420 @@ main {
     grid-row: 2;
   }
 }
+
+/* statistics third-pass compact layout */
+.statistics-view {
+  padding: 18px clamp(14px, 2vw, 28px);
+}
+.statistics-view .toolbar {
+  margin-bottom: 12px;
+}
+.statistics-view .toolbar > div > strong {
+  font-size: 19px;
+}
+.stats-filters {
+  gap: 10px;
+  margin-bottom: 10px;
+  padding: 12px;
+  border-radius: 10px;
+}
+.stats-filter-group {
+  gap: 6px;
+}
+.stats-filter-label,
+.stats-date-row label,
+.stats-select-grid label {
+  font-size: 11px;
+}
+.stats-presets {
+  gap: 2px;
+  padding: 2px;
+}
+.stats-presets button {
+  padding: 4px 8px;
+  font-size: 12px;
+}
+.stats-date-row {
+  grid-template-columns: minmax(180px, 250px) auto minmax(180px, 250px) auto;
+  gap: 7px;
+}
+.stats-date-row input,
+.stats-select-grid select {
+  min-height: 32px;
+  padding: 5px 8px;
+  font-size: 12px;
+}
+.stats-live {
+  min-height: 32px;
+  font-size: 11px;
+}
+.stats-select-grid {
+  grid-template-columns: repeat(4, minmax(130px, 1fr));
+  gap: 7px;
+}
+.stats-filter-actions {
+  gap: 6px;
+}
+.stats-filter-actions button {
+  min-height: 30px;
+  padding: 4px 10px;
+  font-size: 12px;
+}
+.stats-filter-summary {
+  margin: -2px 0 10px;
+  font-size: 11px;
+}
+.stats-overview {
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 8px;
+}
+.stat-card {
+  min-height: 86px;
+  padding: 11px;
+  gap: 3px 6px;
+}
+.stat-card-tokens {
+  grid-column: auto;
+}
+.stat-card small {
+  font-size: 11px;
+}
+.stat-card strong {
+  font-size: clamp(18px, 1.8vw, 24px);
+}
+.stat-card em {
+  font-size: 10px;
+}
+.token-details {
+  gap: 6px;
+  margin-top: 5px;
+  padding-top: 5px;
+}
+.token-details b {
+  font-size: 10px;
+}
+.token-details strong {
+  font-size: 13px;
+}
+.stats-unpriced {
+  min-height: 38px;
+  padding: 7px 10px;
+  font-size: 12px;
+}
+.stats-alert-action {
+  padding: 3px 7px;
+  font-size: 11px;
+}
+.stat-groups {
+  gap: 10px;
+}
+.distribution-card {
+  padding: 12px;
+}
+.distribution-card h3 {
+  font-size: 16px;
+}
+.pie-chart {
+  min-height: 190px;
+}
+.pie-center-value {
+  font-size: 16px;
+}
+.trend-card {
+  padding: 14px;
+}
+.trend-card-title {
+  margin-bottom: 9px;
+}
+.trend-card-title h3 {
+  font-size: 17px;
+}
+.trend-controls select {
+  min-height: 30px;
+  padding: 4px 8px;
+  font-size: 12px;
+}
+@media (max-width: 1100px) {
+  .stats-date-row {
+    grid-template-columns: minmax(160px, 1fr) auto minmax(160px, 1fr) auto;
+  }
+  .stats-select-grid {
+    grid-template-columns: repeat(2, minmax(130px, 1fr));
+  }
+  .stats-overview {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+@media (max-width: 700px) {
+  .stats-date-row,
+  .stats-select-grid,
+  .stats-overview {
+    grid-template-columns: 1fr;
+  }
+  .stats-date-separator {
+    display: none;
+  }
+}
+
+/* final statistics density correction */
+@media (min-width: 601px) {
+  .stats-filters {
+    display: grid;
+    gap: 8px;
+  }
+  .stats-filter-time {
+    display: flex;
+    flex-wrap: nowrap;
+    align-items: center;
+    gap: 8px;
+  }
+  .stats-filter-time .stats-filter-label,
+  .stats-filter-data .stats-filter-label {
+    align-self: center;
+    white-space: nowrap;
+  }
+  .stats-date-row {
+    flex: 1 1 auto;
+    min-width: 0;
+    grid-template-columns: minmax(150px, 1fr) auto minmax(150px, 1fr) auto;
+    gap: 6px;
+  }
+  .stats-select-grid {
+    grid-template-columns: repeat(4, minmax(120px, 1fr));
+    gap: 6px;
+  }
+  .stats-filter-data {
+    display: flex;
+    flex-wrap: nowrap;
+    align-items: end;
+    gap: 8px;
+  }
+  .stats-filter-data .stats-select-grid {
+    flex: 1 1 auto;
+    min-width: 0;
+  }
+  .stats-filter-actions {
+    align-self: end;
+  }
+  .stats-overview {
+    grid-template-columns: repeat(4, minmax(0, 1fr)) !important;
+    gap: 8px;
+  }
+  .stat-card {
+    min-height: 78px;
+    padding: 10px;
+  }
+  .stat-card strong {
+    font-size: 22px;
+  }
+  .stat-card-tokens {
+    grid-column: auto !important;
+  }
+  .token-details {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 4px 8px;
+  }
+  .token-details span {
+    justify-content: space-between;
+    min-width: 0;
+  }
+  .stat-card .token-details strong {
+    font-size: 13px;
+  }
+}
+
+/* hard size limits for statistics controls and cards */
+@media (min-width: 601px) {
+  .stats-date-row {
+    flex: 0 1 auto;
+    grid-template-columns: 180px auto 180px auto !important;
+  }
+  .stats-date-row label {
+    width: 180px;
+  }
+  .stats-date-row input {
+    width: 180px !important;
+    min-width: 180px;
+    max-width: 180px;
+  }
+  .stats-select-grid {
+    grid-template-columns: repeat(4, 150px) !important;
+    flex: 0 0 auto !important;
+  }
+  .stats-select-grid select {
+    width: 150px;
+  }
+  .stats-overview {
+    align-items: start;
+  }
+  .stats-overview .stat-card {
+    height: 92px;
+    min-height: 0;
+    align-self: start;
+  }
+  .stats-overview .stat-card-tokens {
+    height: 108px;
+  }
+}
+
+/* second-pass compact statistics layout */
+.stats-filters {
+  gap: 12px;
+  padding: 12px 14px;
+}
+.stats-filter-group {
+  gap: 6px;
+}
+.stats-filter-time {
+  grid-template-columns: auto 1fr;
+  align-items: center;
+}
+.stats-filter-time .stats-filter-label {
+  grid-row: 1;
+}
+.stats-presets {
+  padding: 2px;
+}
+.stats-presets button {
+  padding: 4px 8px;
+}
+.stats-date-row {
+  grid-column: 1 / -1;
+  grid-template-columns: minmax(170px, 1fr) auto minmax(170px, 1fr) auto;
+  gap: 7px;
+}
+.stats-date-row input,
+.stats-select-grid select {
+  min-height: 32px;
+  padding: 5px 7px;
+}
+.stats-select-grid {
+  grid-template-columns: repeat(4, minmax(120px, 1fr));
+  gap: 7px;
+}
+.stats-filter-data {
+  grid-template-columns: auto 1fr auto;
+  align-items: end;
+}
+.stats-filter-data .stats-filter-label {
+  align-self: center;
+}
+.stats-filter-actions {
+  align-self: end;
+}
+.stats-filter-actions button {
+  padding: 5px 9px;
+}
+.stats-filter-summary {
+  margin: -8px 0 10px;
+  font-size: 12px;
+}
+.stats-overview {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 8px;
+}
+.stat-card {
+  min-height: 78px;
+  padding: 11px 13px;
+}
+.stat-card strong {
+  font-size: clamp(18px, 1.8vw, 23px);
+}
+.stat-card em {
+  font-size: 10px;
+}
+.stat-card-tokens {
+  grid-column: span 2;
+  grid-template-columns: 1fr auto;
+}
+.token-details {
+  grid-column: 1 / -1;
+  display: flex;
+  gap: 12px;
+  padding-top: 4px;
+  border-top: 1px solid #eef1f4;
+  color: #667085;
+  font-size: 11px;
+}
+.token-details span {
+  display: inline-flex;
+  gap: 4px;
+}
+.token-details strong {
+  font-size: 11px;
+  color: #344054;
+  font-weight: 600;
+}
+.stat-groups {
+  gap: 12px;
+}
+.distribution-card {
+  padding: 14px;
+}
+.pie-layout {
+  display: block;
+}
+.pie-chart {
+  min-height: 190px;
+  padding: 0;
+}
+.pie-chart svg {
+  max-width: 600px;
+}
+.pie-center-value {
+  font-size: 15px;
+}
+.pie-center-label {
+  font-size: 10px;
+}
+.trend-card {
+  padding: 14px;
+}
+.trend-card-title {
+  align-items: center;
+}
+.trend-controls {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+.trend-controls select {
+  min-height: 30px;
+  padding: 4px 7px;
+  border-radius: 7px;
+}
+@media (max-width: 1100px) {
+  .stats-filter-time,
+  .stats-filter-data {
+    grid-template-columns: 1fr;
+  }
+  .stats-date-row {
+    grid-column: auto;
+  }
+  .stats-filter-data .stats-filter-label {
+    align-self: auto;
+  }
+}
+@media (max-width: 800px) {
+  .stats-overview {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+  .stat-card-tokens {
+    grid-column: span 2;
+  }
+}
+@media (max-width: 520px) {
+  .stats-overview {
+    grid-template-columns: 1fr;
+  }
+  .stat-card-tokens {
+    grid-column: auto;
+  }
+  .token-details {
+    flex-wrap: wrap;
+  }
+}
 .target-head {
   display: flex;
   gap: 8px;
@@ -1746,7 +2160,7 @@ label span {
 .stat-groups {
   grid-column: 1/-1;
   display: grid;
-  grid-template-columns: 1fr;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: 18px;
 }
 .distribution-card {
@@ -1843,8 +2257,8 @@ label span {
 .pie-chart {
   display: flex;
   justify-content: center;
-  padding: 10px 0;
-  min-height: 280px;
+  padding: 4px 0;
+  min-height: 220px;
   align-items: center;
 }
 .pie-chart svg {
@@ -1902,10 +2316,14 @@ label span {
   overflow: hidden;
   color: #667085;
   font-size: 11px;
+  line-height: 14px;
+  height: 14px;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 .trend-bar {
+  position: relative;
+  z-index: 1;
   display: flex;
   flex-direction: column-reverse;
   width: min(42px, 100%);
@@ -1931,6 +2349,38 @@ label span {
 .trend-segment.cache_write {
   background: #9b51e0;
 }
+.trend-chart {
+  display: flex;
+  align-items: stretch;
+}
+.trend-chart .trend-bars {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+.trend-yaxis {
+  position: relative;
+  flex: 0 0 46px;
+}
+.trend-yaxis span {
+  position: absolute;
+  right: 8px;
+  transform: translateY(50%);
+  color: #98a2b3;
+  font-size: 11px;
+  white-space: nowrap;
+}
+.trend-gridline {
+  position: absolute;
+  left: 0;
+  right: 0;
+  z-index: 0;
+  height: 1px;
+  background: #eef2f6;
+  pointer-events: none;
+}
+.trend-gridline.base {
+  background: #cfd6df;
+}
 
 /* statistics dashboard refinement */
 .stats-overview .stat-groups {
@@ -1946,13 +2396,700 @@ label span {
   min-height: 240px;
   height: 240px;
   padding: 12px 24px 0;
-  background:
-    repeating-linear-gradient(to top, transparent 0, transparent 37px, #eef1f5 38px),
-    linear-gradient(to top, #cfd6df 1px, transparent 1px);
 }
 .trend-card {
   overflow: auto;
 }
 .trend-card table {
   min-width: 860px;
+}
+
+/* Statistics dashboard polish */
+.statistics-view {
+  padding: 28px clamp(18px, 3vw, 42px);
+  background: #f6f8fb;
+}
+.statistics-view .toolbar {
+  margin-bottom: 20px;
+}
+.statistics-view .toolbar > div {
+  display: grid;
+  gap: 3px;
+}
+.statistics-view .toolbar > div > strong {
+  font-size: 22px;
+  letter-spacing: -0.02em;
+}
+.toolbar-subtitle {
+  color: #667085;
+  font-size: 13px;
+}
+.toolbar-actions {
+  display: inline-flex;
+  gap: 8px;
+}
+.stats-filters {
+  display: grid;
+  gap: 18px;
+  margin: 0 0 18px;
+  padding: 18px;
+  border: 1px solid #dfe5ed;
+  border-radius: 14px;
+  box-shadow: 0 5px 16px #1d29390d;
+}
+.stats-filter-group {
+  display: grid;
+  gap: 10px;
+}
+.stats-filter-label {
+  color: #344054;
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+.stats-presets {
+  flex-basis: auto;
+  width: fit-content;
+  max-width: 100%;
+}
+.stats-date-row {
+  display: grid;
+  grid-template-columns: minmax(220px, 1fr) auto minmax(220px, 1fr) auto;
+  gap: 10px;
+  align-items: end;
+}
+.stats-date-row label,
+.stats-select-grid label {
+  display: grid;
+  gap: 5px;
+  min-width: 0;
+  color: #667085;
+  font-size: 12px;
+  font-weight: 600;
+}
+.stats-date-separator {
+  padding-bottom: 9px;
+  color: #98a2b3;
+  font-size: 13px;
+}
+.stats-live {
+  align-self: end;
+  min-height: 36px;
+}
+.stats-select-grid {
+  display: grid;
+  grid-template-columns: repeat(5, minmax(130px, 1fr));
+  gap: 10px;
+}
+.stats-select-grid select,
+.stats-date-row input {
+  width: 100%;
+  min-height: 38px;
+  border-radius: 8px;
+  background: #fbfcfe;
+}
+.stats-filter-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+}
+.stats-filter-summary {
+  margin: -5px 0 16px;
+  color: #667085;
+  font-size: 13px;
+}
+.stats-overview {
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 12px;
+}
+.stat-card {
+  min-width: 0;
+  min-height: 108px;
+  padding: 16px;
+  display: grid;
+  grid-template-columns: 1fr auto;
+  align-content: center;
+  gap: 5px 8px;
+}
+.stat-card small {
+  color: #667085;
+  font-size: 13px;
+}
+.stat-card strong {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  font-size: clamp(20px, 2.2vw, 28px);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+.stat-card em {
+  grid-column: 2;
+  color: #98a2b3;
+  font-size: 11px;
+  font-style: normal;
+  align-self: end;
+}
+.stats-unpriced {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  min-height: 46px;
+}
+.stats-alert-icon {
+  display: inline-grid;
+  width: 22px;
+  height: 22px;
+  place-items: center;
+  border-radius: 50%;
+  background: #f79009;
+  color: #fff;
+  font-weight: 800;
+}
+.stats-alert-action {
+  margin-left: auto;
+  padding: 4px 8px;
+  border-color: #f3d08a;
+  background: transparent;
+  color: #8a5a00;
+}
+.stat-groups {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 16px;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  box-shadow: none;
+}
+.distribution-card {
+  padding: 18px;
+}
+.distribution-card h3 {
+  margin-bottom: 3px;
+}
+.pie-layout {
+  display: grid;
+  grid-template-columns: minmax(240px, 1fr) minmax(180px, 0.85fr);
+  gap: 12px;
+  align-items: center;
+}
+.pie-chart {
+  min-height: 220px;
+}
+.pie-chart svg {
+  max-width: 420px;
+}
+.pie-center-value {
+  fill: #101828;
+  font-size: 19px;
+  font-weight: 750;
+}
+.pie-center-label {
+  fill: #98a2b3;
+  font-size: 11px;
+}
+.pie-legend {
+  display: grid;
+  gap: 5px;
+  max-height: 230px;
+  overflow: auto;
+  padding-right: 3px;
+}
+.pie-legend-item {
+  display: grid;
+  grid-template-columns: 10px minmax(0, 1fr) auto;
+  gap: 7px;
+  align-items: center;
+  width: 100%;
+  padding: 7px 8px;
+  border: 1px solid transparent;
+  border-radius: 7px;
+  background: transparent;
+  text-align: left;
+}
+.pie-legend-item:hover,
+.pie-legend-item[aria-pressed="false"] {
+  border-color: #d0d5dd;
+  background: #f8fafc;
+}
+.pie-legend-item[aria-pressed="false"] {
+  opacity: 0.42;
+}
+.pie-legend-item i {
+  width: 9px;
+  height: 9px;
+  border-radius: 3px;
+}
+.pie-legend-name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.pie-legend-value {
+  color: #667085;
+  font-size: 11px;
+  white-space: nowrap;
+}
+.trend-card {
+  padding: 20px;
+  border-radius: 14px;
+}
+.trend-card-title {
+  margin-bottom: 14px;
+}
+.trend-bars {
+  position: relative;
+  min-height: 260px;
+  height: 260px;
+  padding: 12px 18px 0;
+}
+.trend-bar {
+  width: min(48px, 100%);
+  box-shadow: 0 0 0 1px #ffffff55;
+}
+.trend-segment {
+  min-height: 0;
+}
+.stats-trend table {
+  margin-top: 14px;
+}
+.stats-trend th {
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  background: #fff;
+  color: #344054;
+  font-size: 12px;
+}
+.stats-trend td {
+  font-variant-numeric: tabular-nums;
+}
+@media (max-width: 1100px) {
+  .stats-select-grid {
+    grid-template-columns: repeat(3, minmax(150px, 1fr));
+  }
+  .stats-overview {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+}
+@media (max-width: 800px) {
+  .stats-date-row {
+    grid-template-columns: 1fr;
+  }
+  .stats-date-separator {
+    display: none;
+  }
+  .stats-live {
+    justify-self: start;
+  }
+  .stats-select-grid,
+  .stats-overview {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+  .stat-groups,
+  .pie-layout {
+    grid-template-columns: 1fr;
+  }
+}
+@media (max-width: 520px) {
+  .statistics-view {
+    padding: 18px 12px;
+  }
+  .stats-overview,
+  .stats-select-grid {
+    grid-template-columns: 1fr;
+  }
+  .toolbar-actions {
+    gap: 5px;
+  }
+  .stats-filter-actions {
+    justify-content: stretch;
+  }
+  .stats-filter-actions button {
+    flex: 1;
+  }
+}
+
+/* final overrides for compact statistics */
+@media (min-width: 601px) {
+  .stats-filter-time {
+    display: flex;
+    flex-wrap: nowrap;
+    align-items: center;
+  }
+  .stats-filter-time .stats-filter-label {
+    white-space: nowrap;
+  }
+  .stats-date-row {
+    display: grid;
+    flex: 1 1 auto;
+    min-width: 0;
+    grid-template-columns: minmax(150px, 1fr) auto minmax(150px, 1fr) auto;
+  }
+  .stats-filter-data {
+    display: flex;
+    flex-wrap: nowrap;
+    align-items: end;
+  }
+  .stats-filter-data .stats-select-grid {
+    flex: 1 1 auto;
+    min-width: 0;
+    grid-template-columns: repeat(4, minmax(120px, 1fr));
+  }
+  .stats-overview {
+    grid-template-columns: repeat(4, minmax(0, 1fr)) !important;
+  }
+  .stat-card-tokens {
+    grid-column: auto !important;
+  }
+  .stat-card .token-details strong {
+    font-size: 13px;
+  }
+}
+
+/* hard size limits for statistics controls and cards */
+@media (min-width: 601px) {
+  .stats-date-row {
+    flex: 0 1 auto;
+    grid-template-columns: 180px auto 180px auto !important;
+  }
+  .stats-date-row label,
+  .stats-date-row input {
+    width: 180px !important;
+    min-width: 180px;
+    max-width: 180px;
+  }
+  .stats-select-grid {
+    grid-template-columns: repeat(4, 150px) !important;
+    flex: 0 0 auto !important;
+  }
+  .stats-select-grid select {
+    width: 150px;
+  }
+  .stats-overview {
+    align-items: start;
+  }
+  .stats-overview .stat-card {
+    height: 92px;
+    min-height: 0;
+    align-self: start;
+  }
+  .stats-overview .stat-card-tokens {
+    height: 108px;
+  }
+}
+
+@media (min-width: 601px) {
+  .stats-overview .stat-card-tokens > strong {
+    overflow: visible;
+    text-overflow: clip;
+    white-space: nowrap;
+  }
+}
+
+/* statistics layout reset: aligned compact controls and cards */
+@media (min-width: 601px) {
+  .stats-filter-time {
+    display: flex !important;
+    align-items: flex-end !important;
+    gap: 8px;
+  }
+  .stats-filter-time > .stats-filter-label {
+    padding-bottom: 8px;
+  }
+  .stats-presets {
+    flex: 0 0 auto;
+    margin-bottom: 0;
+  }
+  .stats-date-row {
+    display: grid !important;
+    flex: 0 0 auto !important;
+    grid-template-columns: 155px auto 155px auto !important;
+    align-items: end !important;
+    gap: 6px;
+  }
+  .stats-date-row label,
+  .stats-date-row input {
+    width: 155px !important;
+    min-width: 155px !important;
+    max-width: 155px !important;
+  }
+  .stats-live {
+    align-self: end !important;
+    padding-bottom: 7px;
+    white-space: nowrap;
+  }
+  .stats-filter-data {
+    display: flex !important;
+    align-items: flex-end !important;
+    gap: 8px;
+  }
+  .stats-filter-data > .stats-filter-label {
+    padding-bottom: 8px;
+  }
+  .stats-filter-data .stats-select-grid {
+    display: grid !important;
+    flex: 0 0 auto !important;
+    grid-template-columns: 125px 125px 150px 150px !important;
+    gap: 6px;
+  }
+  .stats-select-grid select {
+    width: 100% !important;
+    min-width: 0 !important;
+  }
+  .stats-filter-actions {
+    margin-left: auto;
+    padding-bottom: 0;
+  }
+  .stats-overview {
+    align-items: start !important;
+  }
+  .stats-overview .stat-card {
+    display: flex !important;
+    flex-direction: column !important;
+    align-items: flex-start !important;
+    justify-content: center !important;
+    height: auto !important;
+    min-height: 92px !important;
+    padding: 12px 14px !important;
+    gap: 0 !important;
+  }
+  .stats-overview .stat-card small {
+    order: 1;
+  }
+  .stats-overview .stat-card strong {
+    order: 2;
+    margin-top: 4px !important;
+    min-width: 0;
+    overflow: hidden !important;
+    text-overflow: ellipsis !important;
+    white-space: nowrap;
+    max-width: 100%;
+  }
+  .stats-overview .stat-card em {
+    order: 3;
+    align-self: flex-start !important;
+    margin-top: 2px;
+  }
+  .stats-overview .stat-card-tokens {
+    height: auto !important;
+    min-height: 118px !important;
+  }
+  .stats-overview .token-details {
+    order: 4;
+    width: 100%;
+    margin-top: 5px;
+  }
+}
+
+/* checkbox must remain intrinsic instead of inheriting full-width text input */
+.stats-live input[type="checkbox"] {
+  width: 16px !important;
+  min-width: 16px !important;
+  max-width: 16px !important;
+  height: 16px;
+  margin: 0;
+  padding: 0;
+  flex: 0 0 16px;
+}
+
+/* prevent token totals and details from escaping their card */
+.stats-overview .stat-card-tokens {
+  min-width: 0;
+  overflow: hidden;
+}
+.stats-overview .stat-card-tokens > strong {
+  display: block;
+  width: 100%;
+  max-width: 100%;
+  min-width: 0;
+  overflow: hidden !important;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: clamp(18px, 1.6vw, 22px);
+}
+.stats-overview .stat-card-tokens .token-details {
+  min-width: 0;
+  max-width: 100%;
+  overflow: hidden;
+}
+.stats-overview .stat-card-tokens .token-details span {
+  min-width: 0;
+  overflow: hidden;
+}
+.stats-overview .stat-card-tokens .token-details b,
+.stats-overview .stat-card-tokens .token-details strong {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.stats-overview .stat-card-tokens .token-details {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 3px 8px;
+}
+.stats-overview .stat-card-tokens .token-details span {
+  display: flex;
+  flex-direction: row;
+  align-items: baseline;
+  justify-content: flex-end;
+  gap: 4px;
+  overflow: visible;
+}
+.stats-overview .stat-card-tokens .token-details b {
+  flex: 0 0 auto;
+  overflow: visible;
+  text-overflow: clip;
+  white-space: nowrap;
+  font-size: 9px;
+}
+.stats-overview .stat-card-tokens .token-details strong {
+  flex: 0 1 auto;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 11px;
+}
+
+/* final statistics layout: group labels sit above their controls; the date row
+   is a compact flex row (no stretched auto tracks); follow-now stays clear of
+   the end-time input; small screens fall back to a stacked single column */
+.stats-filter-time {
+  display: grid !important;
+  align-items: stretch !important;
+  gap: 6px !important;
+}
+.stats-filter-time > .stats-filter-label {
+  padding-bottom: 0 !important;
+}
+/* The data group must be a single column so its label sits above the select
+   grid; without an explicit column template, grid auto-placement puts the
+   label and the select grid side by side (two auto columns). */
+.stats-filter-data {
+  display: grid !important;
+  grid-template-columns: 1fr !important;
+  grid-template-rows: auto auto !important;
+  align-items: start !important;
+  align-content: start !important;
+  gap: 6px 0 !important;
+  flex: 1 1 auto !important;
+}
+.stats-filter-data > .stats-filter-label {
+  padding-bottom: 0 !important;
+}
+.stats-presets-group {
+  display: grid;
+  gap: 4px;
+  align-self: end;
+}
+.stats-date-row .stats-live {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-left: 14px;
+  white-space: nowrap;
+  align-self: end;
+}
+@media (min-width: 601px) {
+  .stats-date-row {
+    display: flex !important;
+    flex-wrap: wrap;
+    align-items: end !important;
+    gap: 8px !important;
+  }
+}
+@media (max-width: 600px) {
+  .stats-date-row {
+    display: grid !important;
+    grid-template-columns: 1fr !important;
+  }
+  .stats-date-separator {
+    display: none;
+  }
+  .stats-date-row .stats-live {
+    margin-left: 0;
+  }
+}
+
+/* 统计页令牌卡片:明细移至大数字右侧,同一行卡片等高 */
+@media (min-width: 601px) {
+  .stats-overview {
+    align-items: stretch !important;
+  }
+
+  .stats-overview .stat-card {
+    align-self: stretch !important;
+  }
+
+  .stat-card-token-body {
+    display: flex;
+    order: 2;
+    align-items: center;
+    gap: 12px;
+    width: 100%;
+    min-width: 0;
+  }
+
+  .stat-card-token-body > strong {
+    flex: 0 1 auto;
+    min-width: 0;
+    max-width: 45%;
+    font-size: clamp(16px, 1.5vw, 22px) !important;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .stat-card-tokens .token-details {
+    display: grid !important;
+    width: auto;
+    flex: 1 1 auto;
+    min-width: 0;
+    grid-template-columns: repeat(2, minmax(0, 1fr)) !important;
+    gap: 4px 10px !important;
+  }
+
+  .stat-card-tokens .token-details span,
+  .stat-card-tokens .token-details strong {
+    min-width: 0;
+  }
+
+  .stat-card-tokens .token-details strong {
+    overflow: hidden !important;
+    text-overflow: ellipsis !important;
+    white-space: nowrap;
+  }
+}
+
+/* 统计页移动端:令牌明细回到大数字下方,单列堆叠 */
+@media (max-width: 600px) {
+  .stat-card-token-body {
+    flex-wrap: wrap;
+    gap: 6px 12px;
+  }
+
+  .stat-card-token-body > strong {
+    flex: 0 1 auto;
+    max-width: 100%;
+  }
+
+  .stat-card-tokens .token-details {
+    display: grid;
+    flex: 1 1 100%;
+    grid-template-columns: 1fr;
+    gap: 4px;
+  }
+
+  .stat-card-tokens .token-details span,
+  .stat-card-tokens .token-details strong {
+    min-width: 0;
+  }
+
+  .stat-card-tokens .token-details strong {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
 }

@@ -152,50 +152,86 @@
         </section>
         <section id="statistics" class="view statistics-view">
           <div class="toolbar">
-            <strong data-i18n="usageStatistics">使用统计</strong
-            ><span
-              ><button id="exportStatistics" data-i18n="exportLogs">导出</button
-              ><button id="refreshStatistics" class="primary" data-i18n="refresh">
-                刷新
-              </button></span
-            >
+            <div>
+              <strong data-i18n="usageStatistics">使用统计</strong>
+              <span class="toolbar-subtitle" data-i18n="statsOverviewHint">按当前时间范围汇总</span>
+            </div>
+            <span class="toolbar-actions">
+              <button id="exportStatistics" data-i18n="exportLogs">导出</button>
+              <button id="refreshStatistics" class="primary" data-i18n="refresh">刷新</button>
+            </span>
           </div>
           <div class="stats-filters">
-            <div class="stats-presets" role="group" aria-label="统计时间范围">
-              <button type="button" data-stats-range="0" data-i18n="statsToday">今天</button>
-              <button type="button" data-stats-range="1">1d</button>
-              <button type="button" data-stats-range="7" class="active">7d</button>
-              <button type="button" data-stats-range="14">14d</button>
-              <button type="button" data-stats-range="30">30d</button>
+            <div class="stats-filter-group stats-filter-time">
+              <div class="stats-filter-label" data-i18n="statsTimeRange">时间范围</div>
+              <div class="stats-date-row">
+                <div class="stats-presets-group">
+                  <div class="stats-filter-label" data-i18n="statsPresetRange">快速范围</div>
+                  <div class="stats-presets" role="group" aria-label="统计时间范围">
+                    <button type="button" data-stats-range="0" data-i18n="statsToday">今天</button>
+                    <button type="button" data-stats-range="1">1d</button>
+                    <button type="button" data-stats-range="7" class="active">7d</button>
+                    <button type="button" data-stats-range="14">14d</button>
+                    <button type="button" data-stats-range="30">30d</button>
+                  </div>
+                </div>
+                <label
+                  ><span data-i18n="statsFrom">开始时间</span
+                  ><input id="statsFrom" type="datetime-local"
+                /></label>
+                <span class="stats-date-separator" aria-hidden="true">至</span>
+                <label
+                  ><span data-i18n="statsTo">结束时间</span
+                  ><input id="statsTo" type="datetime-local"
+                /></label>
+                <label class="stats-live"
+                  ><input id="statsFollowNow" type="checkbox" checked /><span
+                    data-i18n="statsFollowNow"
+                    >结束时间跟随当前时间</span
+                  ></label
+                >
+              </div>
             </div>
-            <input id="statsFrom" type="datetime-local" /><input
-              id="statsTo"
-              type="datetime-local"
-            /><label class="stats-live"
-              ><input id="statsFollowNow" type="checkbox" checked />
-              <span data-i18n="statsFollowNow">实时结束</span></label
-            ><select id="statsMetric">
-              <option value="token">Token</option>
-              <option value="cost">费用</option>
-            </select>
-            <select id="statsGranularity">
-              <option value="auto">自动</option>
-              <option value="day">按日</option>
-              <option value="week">按周</option>
-              <option value="month">按月</option>
-            </select>
-            <select id="statsBreakdown" aria-label="趋势分组">
-              <option value="total">总量趋势</option>
-              <option value="model">按模型叠加</option>
-              <option value="target">按转发地址叠加</option>
-            </select>
-            <select id="statsTarget">
-              <option value="">全部转发地址</option>
-            </select>
-            <select id="statsModel">
-              <option value="">全部模型</option>
-            </select>
+            <div class="stats-filter-group stats-filter-data">
+              <div class="stats-filter-label" data-i18n="statsDataFilters">统计维度</div>
+              <div class="stats-select-grid">
+                <label
+                  ><span data-i18n="statsMetricLabel">指标</span
+                  ><select id="statsMetric">
+                    <option value="token">Token</option>
+                    <option value="cost">费用</option>
+                  </select></label
+                >
+                <label
+                  ><span data-i18n="statsGranularityLabel">时间粒度</span
+                  ><select id="statsGranularity">
+                    <option value="auto">自动</option>
+                    <option value="day">按日</option>
+                    <option value="week">按周</option>
+                    <option value="month">按月</option>
+                  </select></label
+                >
+                <label
+                  ><span data-i18n="statsTargetLabel">转发地址</span
+                  ><select id="statsTarget">
+                    <option value="">全部转发地址</option>
+                  </select></label
+                >
+                <label
+                  ><span data-i18n="statsModelLabel">模型</span
+                  ><select id="statsModel">
+                    <option value="">全部模型</option>
+                  </select></label
+                >
+              </div>
+              <div class="stats-filter-actions">
+                <button id="applyStatsFilters" class="primary" data-i18n="applyFilters">
+                  应用筛选</button
+                ><button id="resetStatsFilters" data-i18n="resetFilters">重置</button>
+              </div>
+            </div>
           </div>
+          <div id="statsFilterSummary" class="stats-filter-summary" aria-live="polite"></div>
           <div class="stats-section-heading">
             <div>
               <h2 data-i18n="statsOverviewTitle">总体使用量</h2>

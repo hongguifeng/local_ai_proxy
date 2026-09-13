@@ -1148,6 +1148,8 @@ describe("admin UI history page", { timeout: UI_TEST_TIMEOUT_MS }, () => {
     await expectPage(taskBreakdown.locator("tbody tr").first()).toContainText("17.54%");
     await expectPage(taskBreakdown.locator("tfoot")).toContainText("Total");
     await expectPage(taskBreakdown.locator("tfoot")).toContainText("100%");
+    await expectPage(taskBreakdown.locator("tbody tr").nth(1)).toContainText("1,250");
+    await panel.screenshot({ path: "test-results/task-pricing-panel.png" });
     await expectPage(group.locator(".log-group-body")).toHaveCount(0);
     await expectPage(group.locator('[data-select-group="task-one"]')).not.toBeChecked();
     await panel.locator("[data-close-pricing]").click();
@@ -1171,7 +1173,7 @@ describe("admin UI history page", { timeout: UI_TEST_TIMEOUT_MS }, () => {
     await expectPage(requestPricing).toContainText("$0.0411");
     await expectPage(requestPricing).toContainText("Billing model");
     await expectPage(requestPricing).toContainText("gpt-5");
-    await expectPage(requestPricing).toContainText("1500");
+    await expectPage(requestPricing).toContainText("1,500");
     await expectPage(requestPricing.locator(".pricing-table thead")).toContainText("Share");
     await expectPage(requestPricing.locator(".pricing-table tbody tr").first()).toContainText(
       "18.24%",
@@ -1924,11 +1926,11 @@ describe("statistics page visual smoke", () => {
           totals: {
             requests: 2,
             tasks: 1,
-            input: "10",
-            output: "5",
-            cache_read: "0",
+            input: "1234567",
+            output: "7654321",
+            cache_read: "11223344",
             cache_write: "0",
-            cost: "1",
+            cost: "88.5",
           },
           byTarget: [{ id: "a", value: "10" }],
           byModel: [
@@ -1949,7 +1951,7 @@ describe("statistics page visual smoke", () => {
     await page.locator('[data-tab="statistics"]').click();
     await expectPage(page.locator(".pie-chart svg").first()).toHaveAttribute(
       "viewBox",
-      "0 0 600 300",
+      "0 0 600 260",
     );
     await expectPage(page.locator(".stats-empty")).toHaveCount(1);
     await page.screenshot({ path: "test-results/statistics-page-smoke.png", fullPage: true });
@@ -2014,7 +2016,7 @@ describe("statistics page visual smoke", () => {
               output: "1",
               cache_read: "0",
               cache_write: "0",
-              cost: "1000000",
+              cost: "10000000",
             },
           ],
         },
@@ -2022,6 +2024,9 @@ describe("statistics page visual smoke", () => {
     );
     await loadAdminPage();
     await page.locator('[data-tab="statistics"]').click();
+    await expectPage(page.locator(".trend-yaxis span")).toHaveCount(5);
+    await expectPage(page.locator(".trend-gridline")).toHaveCount(5);
+    await expectPage(page.locator(".trend-item").first().locator(".trend-segment")).toHaveCount(4);
     const tokenHeight = await page.locator(".trend-bar").nth(1).getAttribute("style");
     await page.locator("#statsMetric").selectOption("cost");
     await expectPage(page.locator(".trend-card-title")).toContainText("CNY");
@@ -2049,6 +2054,7 @@ describe("statistics page visual smoke", () => {
     await loadAdminPage();
     await page.locator('[data-tab="statistics"]').click();
     await expectPage(page.locator(".stats-unpriced")).toContainText("Unpriced");
+    await expectPage(page.locator(".stat-card-unpriced")).toHaveCount(0);
   });
 
   it("exports the active statistics filters", async () => {
