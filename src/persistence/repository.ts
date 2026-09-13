@@ -777,7 +777,7 @@ export class TrafficRepository {
         `SELECT task_id, timestamp, target_id, target_name, target_url, billing_model,
                 pricing_status, pricing_reason, billing_usage_json, cost_nano_cny
            FROM records
-          WHERE timestamp >= ? AND timestamp < ?
+          WHERE datetime(timestamp) >= datetime(?) AND datetime(timestamp) < datetime(?)
           ORDER BY timestamp ASC`,
       )
       .all(from, to) as RepositoryRecord[];

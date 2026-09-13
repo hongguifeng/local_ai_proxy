@@ -1746,7 +1746,7 @@ label span {
 .stat-groups {
   grid-column: 1/-1;
   display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
+  grid-template-columns: 1fr;
   gap: 18px;
 }
 .distribution-card {
@@ -1841,57 +1841,42 @@ label span {
   text-align: left;
 }
 .pie-chart {
-  display: grid;
-  grid-template-columns: 150px 1fr;
-  align-items: center;
-  gap: 4px;
-  margin: 0;
-  padding: 12px;
-  border-radius: 8px;
-  background: transparent;
-  color: var(--text, #182230);
-}
-.pie-chart svg {
-  width: 150px;
-  height: 150px;
-}
-.pie-legend-list {
   display: flex;
-  flex-direction: column;
-  gap: 4px;
-}
-.pie-legend {
-  display: grid;
-  grid-template-columns: 10px 1fr auto;
+  justify-content: center;
+  padding: 10px 0;
+  min-height: 280px;
   align-items: center;
-  gap: 8px;
-  width: 100%;
-}
-.pie-legend i {
-  width: 10px;
-  height: 10px;
-  border-radius: 50%;
-}
-.pie-chart + .stat-row {
-  margin-top: -8px;
 }
 .pie-chart svg {
-  width: 180px;
-  height: 180px;
-  transform: rotate(-90deg);
-}
-.pie-legend {
   display: block;
-  border: 0;
-  background: transparent;
-  color: inherit;
-  text-align: left;
-  cursor: pointer;
-  padding: 6px 8px;
+  width: 100%;
+  max-width: 720px;
+  height: auto;
 }
-.pie-legend.muted {
-  opacity: 0.45;
-  text-decoration: line-through;
+.pie-connector {
+  fill: none;
+  stroke: var(--pie-color);
+  stroke-width: 1.5;
+}
+.pie-label {
+  fill: var(--pie-color);
+  font-size: 13px;
+  font-weight: 600;
+}
+.pie-value {
+  fill: #667085;
+  font-size: 11px;
+}
+.pie-segment {
+  outline: none;
+}
+.pie-segment:hover .pie-slice,
+.pie-segment:focus .pie-slice {
+  stroke-width: 44;
+  filter: drop-shadow(0 2px 3px #10182826);
+}
+.pie-segment:focus .pie-label {
+  text-decoration: underline;
 }
 .trend-bars {
   display: flex;
@@ -1951,30 +1936,6 @@ label span {
 .stats-overview .stat-groups {
   grid-column: 1 / -1;
 }
-.stats-overview .distribution-card .pie-chart {
-  grid-template-columns: 200px minmax(0, 1fr);
-}
-.stats-overview .distribution-card .pie-chart svg {
-  width: 200px;
-  height: 200px;
-}
-.stats-overview .distribution-card .pie-legend-list {
-  min-width: 0;
-}
-.stats-overview .distribution-card .pie-legend {
-  display: grid;
-  grid-template-columns: 10px minmax(0, 1fr) auto auto;
-  align-items: center;
-  gap: 8px;
-  width: 100%;
-  overflow: hidden;
-  box-sizing: border-box;
-}
-.stats-overview .distribution-card .pie-legend span {
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
 @media (max-width: 900px) {
   .stat-groups {
     grid-template-columns: 1fr;
@@ -1989,22 +1950,9 @@ label span {
     repeating-linear-gradient(to top, transparent 0, transparent 37px, #eef1f5 38px),
     linear-gradient(to top, #cfd6df 1px, transparent 1px);
 }
-.stats-overview .pie-legend b {
-  margin-left: 4px;
-  white-space: nowrap;
-}
-
 .trend-card {
   overflow: auto;
 }
 .trend-card table {
   min-width: 860px;
-}
-
-.pie-legend em {
-  color: #667085;
-  font-style: normal;
-  font-size: 12px;
-  margin-left: 4px;
-  white-space: nowrap;
 }

@@ -1931,7 +1931,12 @@ describe("statistics page visual smoke", () => {
             cost: "1",
           },
           byTarget: [{ id: "a", value: "10" }],
-          byModel: [{ id: "m", value: "10" }],
+          byModel: [
+            { id: "gpt-6-astra", value: "65" },
+            { id: "gpt-5.6-terra", value: "25" },
+            { id: "gpt-5.6-sol", value: "9" },
+            { id: "gpt-5.5", value: "1" },
+          ],
           unpriced: {},
           dataVersion: 1,
         },
@@ -1944,7 +1949,7 @@ describe("statistics page visual smoke", () => {
     await page.locator('[data-tab="statistics"]').click();
     await expectPage(page.locator(".pie-chart svg").first()).toHaveAttribute(
       "viewBox",
-      "0 0 100 100",
+      "0 0 600 300",
     );
     await expectPage(page.locator(".stats-empty")).toHaveCount(1);
     await page.screenshot({ path: "test-results/statistics-page-smoke.png", fullPage: true });
@@ -2048,10 +2053,28 @@ describe("statistics page visual smoke", () => {
 
   it("exports the active statistics filters", async () => {
     await page.route("**/api/usage-statistics/options*", (route) =>
-      route.fulfill({ json: { targets: [{ id: "target-a", name: "Target A" }], models: ["model-a"] } }),
+      route.fulfill({
+        json: { targets: [{ id: "target-a", name: "Target A" }], models: ["model-a"] },
+      }),
     );
     await page.route("**/api/usage-statistics/overview*", (route) =>
-      route.fulfill({ json: { totals: { requests: 0, tasks: 0, input: "0", output: "0", cache_read: "0", cache_write: "0", cost: "0" }, byTarget: [], byModel: [], unpriced: {}, dataVersion: 1 } }),
+      route.fulfill({
+        json: {
+          totals: {
+            requests: 0,
+            tasks: 0,
+            input: "0",
+            output: "0",
+            cache_read: "0",
+            cache_write: "0",
+            cost: "0",
+          },
+          byTarget: [],
+          byModel: [],
+          unpriced: {},
+          dataVersion: 1,
+        },
+      }),
     );
     await page.route("**/api/usage-statistics/trend*", (route) =>
       route.fulfill({ json: { dataVersion: 1, granularity: "day", points: [] } }),
@@ -2059,9 +2082,10 @@ describe("statistics page visual smoke", () => {
     await loadAdminPage();
     await page.locator('[data-tab="statistics"]').click();
     await page.locator('[data-stats-range="0"]').click();
-    const todayRangeValid = await page.evaluate(() =>
-      new Date((document.querySelector("#statsFrom") as HTMLInputElement).value).getTime() <
-      new Date((document.querySelector("#statsTo") as HTMLInputElement).value).getTime(),
+    const todayRangeValid = await page.evaluate(
+      () =>
+        new Date((document.querySelector("#statsFrom") as HTMLInputElement).value).getTime() <
+        new Date((document.querySelector("#statsTo") as HTMLInputElement).value).getTime(),
     );
     expect(todayRangeValid).toBe(true);
     await page.locator('[data-stats-range="1"]').click();
@@ -2072,7 +2096,9 @@ describe("statistics page visual smoke", () => {
     const popupPromise = page.waitForEvent("popup");
     await page.locator("#exportStatistics").click();
     const popup = await popupPromise;
-    await expectPage(popup).toHaveURL(/\/api\/usage-statistics\/export\?.*granularity=month.*targetId=target-a.*model=model-a/);
+    await expectPage(popup).toHaveURL(
+      /\/api\/usage-statistics\/export\?.*granularity=month.*targetId=target-a.*model=model-a/,
+    );
     await popup.close();
   });
 });

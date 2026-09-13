@@ -1867,28 +1867,71 @@ async function loadStatistics() {
   const pie = (items) => {
     if (!items.length)
       return `<div class="pie-chart empty">${state.language === "en" ? "No data" : "暂无数据"}</div>`;
-    const total = items.reduce((sum, x) => sum + Number(x.value || 0), 0);
-    let offset = 25;
-    const slices = items
-      .map((x, i) => {
-        const pct = total ? (Number(x.value || 0) / total) * 100 : 0;
-        const dash = `${pct} ${100 - pct}`;
-        const el = `<circle cx="50" cy="50" r="40" pathLength="100" fill="none" stroke-width="20" stroke="hsl(${(i * 47) % 360} 70% 50%)" stroke-dasharray="${dash}" stroke-dashoffset="-${offset}" />`;
-        offset += pct;
-        return el;
+    const entries = items.filter((item) => Number(item.value) > 0);
+    const total = entries.reduce((sum, item) => sum + Number(item.value), 0);
+    if (!total)
+      return `<div class="pie-chart empty">${state.language === "en" ? "No data" : "暂无数据"}</div>`;
+    const colors = ["#31b981", "#f28c18", "#12b8e8", "#4679f6", "#9763d5", "#e36a91"];
+    let offset = 0;
+    const segments = entries.map((item, index) => {
+      const fraction = Number(item.value) / total;
+      const angle = (offset + fraction / 2) * 2 * Math.PI - Math.PI / 2;
+      const segment = {
+        item,
+        fraction,
+        offset,
+        angle,
+        side: Math.cos(angle) >= 0 ? 1 : -1,
+        color: colors[index % colors.length],
+      };
+      offset += fraction;
+      return segment;
+    });
+    const rowGap = 42;
+    const sideCount = Math.max(
+      ...[-1, 1].map((side) => segments.filter((s) => s.side === side).length),
+    );
+    const height = Math.max(300, sideCount * rowGap + 40);
+    const cx = 300,
+      cy = height / 2,
+      radius = 78,
+      outerRadius = 98;
+    for (const side of [-1, 1]) {
+      const labels = segments
+        .filter((s) => s.side === side)
+        .sort((a, b) => Math.sin(a.angle) - Math.sin(b.angle));
+      let previous = 4;
+      for (const segment of labels) {
+        segment.labelY = Math.max(previous + rowGap, cy + Math.sin(segment.angle) * 112);
+        previous = segment.labelY;
+      }
+      let next = height - 4;
+      for (const segment of [...labels].reverse()) {
+        segment.labelY = Math.min(segment.labelY, next - rowGap);
+        next = segment.labelY;
+      }
+    }
+    const slices = segments
+      .map((segment) => {
+        const { item, fraction, angle, side, color, labelY } = segment;
+        const value =
+          metric === "cost"
+            ? formatCurrencyAmount(item.cost)
+            : Number(item.value).toLocaleString(english ? "en-US" : "zh-CN");
+        const percentage = `${(fraction * 100).toFixed(1)}%`;
+        const name = String(item.id);
+        const shortName =
+          Array.from(name).length > 20 ? Array.from(name).slice(0, 19).join("") + "…" : name;
+        const title = escapeHtml(`${name}: ${percentage} · ${value}`);
+        const x1 = cx + Math.cos(angle) * outerRadius,
+          y1 = cy + Math.sin(angle) * outerRadius;
+        const x2 = cx + side * 116,
+          x3 = cx + side * 133,
+          textX = cx + side * 140;
+        return `<g class="pie-segment" tabindex="0" aria-label="${title}" style="--pie-color:${color}"><title>${title}</title><circle class="pie-slice" cx="${cx}" cy="${cy}" r="${radius}" pathLength="100" fill="none" stroke="${color}" stroke-width="40" stroke-dasharray="${fraction * 100} ${100 - fraction * 100}" stroke-dashoffset="${-segment.offset * 100}" transform="rotate(-90 ${cx} ${cy})"/><path class="pie-connector" d="M ${x1} ${y1} L ${x2} ${labelY} L ${x3} ${labelY}"/><text x="${textX}" y="${labelY - 3}" text-anchor="${side > 0 ? "start" : "end"}" class="pie-label">${escapeHtml(shortName)}</text><text x="${textX}" y="${labelY + 15}" text-anchor="${side > 0 ? "start" : "end"}" class="pie-value">${percentage} · ${escapeHtml(value)}</text></g>`;
       })
       .join("");
-    return `<div class="pie-chart"><svg viewBox="0 0 100 100" role="img" aria-label="distribution">${slices}</svg><div class="pie-legend-list">${items
-      .map((x, i) => {
-        const pct = total ? (Number(x.value || 0) / total) * 100 : 0;
-        const displayValue =
-          metric === "cost"
-            ? formatCurrencyAmount(x.cost)
-            : Number(x.value).toLocaleString(english ? "en-US" : "zh-CN");
-        const color = `hsl(${(i * 47) % 360} 70% 42%)`;
-        return `<button type="button" class="pie-legend" data-pie-index="${i}" style="--pie-color:${color}"><i style="background:${color}"></i><span style="color:${color}">${x.id}</span><em style="color:${color}">${pct.toFixed(1)}%</em><b>${displayValue}</b></button>`;
-      })
-      .join("")}</div></div>`;
+    return `<div class="pie-chart"><svg viewBox="0 0 600 ${height}" role="img" aria-label="${english ? "Distribution" : "占比分布"}">${slices}</svg></div>`;
   };
   const english = state.language === "en";
   const statDisplay = (key, value) =>
@@ -1935,13 +1978,6 @@ async function loadStatistics() {
       ? `<div class="stats-unpriced">${english ? "Unpriced records are excluded from cost totals" : "存在未计价记录，费用合计未包含这些记录"}（${Object.values(result.unpriced || {}).reduce((a, b) => a + Number(b), 0)}）</div>`
       : "") +
     `<div class="stat-groups"><section class="distribution-card"><h3>${targetTitle}<span class="distribution-total">${english ? "Total" : "总计"} · ${totalMetricValue}</span></h3>${pie(result.byTarget)}</section><section class="distribution-card"><h3>${modelTitle}<span class="distribution-total">${english ? "Total" : "总计"} · ${totalMetricValue}</span></h3>${pie(result.byModel)}</section></div>`;
-  $("statsOverview")
-    .querySelectorAll(".pie-legend")
-    .forEach((button) =>
-      button.addEventListener("click", () => {
-        button.classList.toggle("muted");
-      }),
-    );
   const trend = await fetch(
     `/api/usage-statistics/trend?from=${encodeURIComponent(iso(from))}&to=${encodeURIComponent(iso(to))}&granularity=${$("statsGranularity")?.value || "day"}&timezoneOffset=${timezoneOffset}&breakdown=${$("statsBreakdown")?.value || "total"}${extra}`,
   ).then(async (r) => {
@@ -2031,7 +2067,21 @@ async function loadStatistics() {
       ]
     : ["时间", "请求", "Task", "输入", "输出", "缓存读", "缓存写", "费用", "未计价"];
   $("statsTrend").innerHTML =
-    `<section class="trend-card"><div class="trend-card-title"><h3>${english ? "Usage trend" : "使用趋势"}</h3><span>${trend.granularity} · ${breakdown === "model" ? "模型叠加" : breakdown === "target" ? "转发地址叠加" : "总量"} · ${costMode ? (english ? "CNY" : "元") : english ? "tokens" : "Token"}</span></div><div class="trend-legend">${breakdown === "total" && !costMode ? `<span><i class="input"></i>${english ? "Input" : "输入"}</span><span><i class="output"></i>${english ? "Output" : "输出"}</span><span><i class="cache_read"></i>${english ? "Cache read" : "缓存读"}</span><span><i class="cache_write"></i>${english ? "Cache write" : "缓存写"}</span>` : [...new Map(trend.points.flatMap((p) => groupsFor(p).filter((g) => g.id !== "total").map((g) => [g.id, g]))).keys()].map((id, i) => `<span><i style="background:${groupColor(id, i)}"></i>${id}</span>`).join("")}</div><div class="trend-bars">${trendContent}</div><table><thead><tr>${headers.map((h) => `<th>${h}</th>`).join("")}</tr></thead><tbody>${trend.points.map((p) => `<tr><td>${p.bucket}</td><td>${p.requests}</td><td>${p.tasks}</td><td>${p.input}</td><td>${p.output}</td><td>${p.cache_read}</td><td>${p.cache_write}</td><td>${formatCurrencyAmount(pricingDecimalFromNano(p.cost))}</td><td>${p.unpriced ?? 0}</td></tr>`).join("")}</tbody></table></section>`;
+    `<section class="trend-card"><div class="trend-card-title"><h3>${english ? "Usage trend" : "使用趋势"}</h3><span>${trend.granularity} · ${breakdown === "model" ? "模型叠加" : breakdown === "target" ? "转发地址叠加" : "总量"} · ${costMode ? (english ? "CNY" : "元") : english ? "tokens" : "Token"}</span></div><div class="trend-legend">${
+      breakdown === "total" && !costMode
+        ? `<span><i class="input"></i>${english ? "Input" : "输入"}</span><span><i class="output"></i>${english ? "Output" : "输出"}</span><span><i class="cache_read"></i>${english ? "Cache read" : "缓存读"}</span><span><i class="cache_write"></i>${english ? "Cache write" : "缓存写"}</span>`
+        : [
+            ...new Map(
+              trend.points.flatMap((p) =>
+                groupsFor(p)
+                  .filter((g) => g.id !== "total")
+                  .map((g) => [g.id, g]),
+              ),
+            ).keys(),
+          ]
+            .map((id, i) => `<span><i style="background:${groupColor(id, i)}"></i>${id}</span>`)
+            .join("")
+    }</div><div class="trend-bars">${trendContent}</div><table><thead><tr>${headers.map((h) => `<th>${h}</th>`).join("")}</tr></thead><tbody>${trend.points.map((p) => `<tr><td>${p.bucket}</td><td>${p.requests}</td><td>${p.tasks}</td><td>${p.input}</td><td>${p.output}</td><td>${p.cache_read}</td><td>${p.cache_write}</td><td>${formatCurrencyAmount(pricingDecimalFromNano(p.cost))}</td><td>${p.unpriced ?? 0}</td></tr>`).join("")}</tbody></table></section>`;
 }
 function showStatisticsError(error) {
   $("statsOverview").innerHTML =
