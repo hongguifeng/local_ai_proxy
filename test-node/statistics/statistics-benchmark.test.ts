@@ -33,4 +33,21 @@ describe("usage statistics benchmark", () => {
     );
     expect(result.points.length).toBeLessThanOrEqual(366);
   });
+  it("does not access request or response bodies", () => {
+    const row = new Proxy(
+      { task_id: "t", pricing_status: "priced", billing_usage_json: "{}", cost_nano_cny: "0" },
+      {
+        get(target, key) {
+          if (key === "request_body" || key === "response_body") throw new Error("body accessed");
+          return Reflect.get(target, key);
+        },
+      },
+    );
+    expect(() =>
+      new UsageStatisticsService({ usageStatisticsRows: () => [row] }).overview(
+        "2025-01-01",
+        "2025-01-02",
+      ),
+    ).not.toThrow();
+  });
 });
