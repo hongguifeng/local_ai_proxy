@@ -7,6 +7,7 @@
 - Admin service methods are optional and routes register only when present. For a 404, compare `src/app/runtime.ts` wiring with `LogAdminService`, `PairAdminService`, and `SummaryModelAdminService`; add new-route coverage to the assembled-app smoke test in `test-node/app/runtime.test.ts`.
 - UI modifications require screenshot verification. Clean temporary files and processes when done.
 - After every task, build the portable executable: `npm run build && npm run rebuild:electron && npx electron-builder -w portable --publish never`.
+- Native module ABI: run `npm rebuild better-sqlite3` only before the final `npm run rebuild:electron`; never run the Node rebuild after Electron rebuild or before packaging, or the portable app will contain a Node ABI binary and fail at startup.
 - Execution history logs: `D:\Portable Program\llm_proxy\logs`.
 - Release: `npm version <patch|minor|major> --message "chore(release): %s"`, then push branch and tag (`git push origin main vX.Y.Z`). Publishing occurs only from `v*` tags; tag pushes rerun CI.
 - CI without `gh`: query the public Actions REST API with `curl` (`/actions/runs`, details, `/jobs`). Job logs require a token; diagnose `npm run check` by running `format:check`, `lint`, `typecheck`, `test`, and `build` separately.
