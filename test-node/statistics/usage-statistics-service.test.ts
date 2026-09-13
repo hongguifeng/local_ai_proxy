@@ -85,8 +85,8 @@ describe("UsageStatisticsService", () => {
     const overview = service.overview("2026-01-01", "2026-01-02");
     const trend = service.trend("2026-01-01", "2026-01-02");
     expect(overview.byTarget).toHaveLength(10);
-    expect(overview.byTarget.reduce((sum, row) => sum + Number(row.value), 0)).toBe(
-      Number(trend.points[0].input),
+    expect(overview.byTarget.reduce((sum, row) => sum + Number(row["value"]), 0)).toBe(
+      Number(trend.points[0]!["input"]),
     );
   });
 });
