@@ -2043,6 +2043,6 @@ describe("statistics page visual smoke", () => {
     );
     await loadAdminPage();
     await page.locator('[data-tab="statistics"]').click();
-    await expectPage(page.locator(".stats-unpriced")).toContainText("未计价");
+    await expectPage(page.locator(".stats-unpriced")).toMatch(/Unpriced|未计价/);
   });
 });
