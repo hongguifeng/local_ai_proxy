@@ -19,4 +19,18 @@ describe("usage statistics benchmark", () => {
     expect(result.totals["requests"]).toBe(10000);
     expect(result.totals["input"]).toBe("10000");
   });
+  it("caps trend output at 366 points", () => {
+    const rows = Array.from({ length: 400 }, (_, i) => ({
+      task_id: String(i),
+      timestamp: `2025-01-${String((i % 28) + 1).padStart(2, "0")}T00:00:00Z`,
+      pricing_status: "priced",
+      billing_usage_json: "{}",
+      cost_nano_cny: "0",
+    }));
+    const result = new UsageStatisticsService({ usageStatisticsRows: () => rows }).trend(
+      "2025-01-01",
+      "2026-02-01",
+    );
+    expect(result.points.length).toBeLessThanOrEqual(366);
+  });
 });
