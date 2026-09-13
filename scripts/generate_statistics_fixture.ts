@@ -22,6 +22,7 @@ for (let r = 0; r < 2; r++) {
       path: "/v1/chat/completions",
       timestamp,
       target_id: `target-${r}`,
+      target_name: `Fixture target ${r}`,
       pricing:
         i === 9
           ? { pricing_status: "unpriced", pricing_reason: "missing_usage" }
