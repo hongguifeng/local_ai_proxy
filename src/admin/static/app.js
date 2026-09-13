@@ -1947,6 +1947,13 @@ function showStatisticsError(error) {
 async function loadStatisticsOptions() {
   const to = new Date();
   const from = new Date(to.getTime() - 7 * 86400000);
+  const localInput = (value) => {
+    const d = new Date(value);
+    const pad = (n) => String(n).padStart(2, "0");
+    return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
+  };
+  if ($("statsFrom") && !$("statsFrom").value) $("statsFrom").value = localInput(from);
+  if ($("statsTo") && !$("statsTo").value) $("statsTo").value = localInput(to);
   const data = await fetch(
     `/api/usage-statistics/options?from=${encodeURIComponent(from.toISOString())}&to=${encodeURIComponent(to.toISOString())}`,
   ).then((r) => r.json());

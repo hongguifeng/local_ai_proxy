@@ -1836,3 +1836,13 @@ label span {
 .stats-overview .pie-legend b {
   margin-left: 10px;
 }
+
+.trend-card table {
+  display: block;
+  max-height: 280px;
+  overflow: auto;
+}
+.trend-card thead,
+.trend-card tbody {
+  width: 100%;
+}
