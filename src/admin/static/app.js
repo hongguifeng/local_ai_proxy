@@ -1887,8 +1887,11 @@ async function loadStatistics() {
       return `<span class="trend-bar" style="height:${h}px" title="${detail}" aria-label="${detail}">${costMode ? "" : tokens.map((k) => `<i class="trend-segment ${k}" style="height:${Math.max(1, (Number(point[k]) / Math.max(1, Number(point.input) + Number(point.output) + Number(point.cache_read) + Number(point.cache_write))) * h)}px"></i>`).join("")}</span>`;
     })
     .join("");
+  const trendContent = trend.points.length
+    ? trendBars
+    : '<div class="stats-empty">暂无趋势数据</div>';
   $("statsTrend").innerHTML =
-    `<div class="trend-bars">${trendBars}</div><table><thead><tr><th>时间</th><th>请求</th><th>Task</th><th>输入</th><th>输出</th><th>缓存读</th><th>缓存写</th><th>费用</th></tr></thead><tbody>${trend.points.map((p) => `<tr><td>${p.bucket}</td><td>${p.requests}</td><td>${p.tasks}</td><td>${p.input}</td><td>${p.output}</td><td>${p.cache_read}</td><td>${p.cache_write}</td><td>${p.cost}</td></tr>`).join("")}</tbody></table>`;
+    `<div class="trend-bars">${trendContent}</div><table><thead><tr><th>时间</th><th>请求</th><th>Task</th><th>输入</th><th>输出</th><th>缓存读</th><th>缓存写</th><th>费用</th></tr></thead><tbody>${trend.points.map((p) => `<tr><td>${p.bucket}</td><td>${p.requests}</td><td>${p.tasks}</td><td>${p.input}</td><td>${p.output}</td><td>${p.cache_read}</td><td>${p.cache_write}</td><td>${p.cost}</td></tr>`).join("")}</tbody></table>`;
 }
 async function loadStatisticsOptions() {
   const to = new Date();
