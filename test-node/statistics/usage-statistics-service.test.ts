@@ -37,7 +37,7 @@ describe("UsageStatisticsService", () => {
       cache_read: "2",
       cache_write: "1",
     });
-    expect(result.unpriced.legacy_record).toBe(1);
+    expect(result.unpriced["legacy_record"]).toBe(1);
     expect(result.byModel[0]).toMatchObject({ id: "m", value: "18" });
   });
 
