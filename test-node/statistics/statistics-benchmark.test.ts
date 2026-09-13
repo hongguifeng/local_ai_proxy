@@ -16,7 +16,7 @@ describe("usage statistics benchmark", () => {
       "2026-01-01",
       "2026-01-02",
     );
-    expect(result.totals.requests).toBe(10000);
-    expect(result.totals.input).toBe("10000");
+    expect(result.totals["requests"]).toBe(10000);
+    expect(result.totals["input"]).toBe("10000");
   });
 });
