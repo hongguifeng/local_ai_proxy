@@ -80,6 +80,13 @@ export function createNodeApplication(options: NodeApplicationOptions): NodeAppl
               },
             };
           })(),
+          ...(new LogQueryService(() => currentManager.logRoots()).usageStatisticsService()
+            ? {
+                usageStatisticsService: new LogQueryService(() =>
+                  currentManager.logRoots(),
+                ).usageStatisticsService()!,
+              }
+            : {}),
           targetCheckService: { checkTarget },
           summaryModelService: {
             getConfig: () => config.summary_model,

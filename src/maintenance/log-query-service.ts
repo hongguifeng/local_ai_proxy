@@ -14,6 +14,7 @@ import {
 import type { Readable } from "node:stream";
 import type { SummaryModelConfig } from "../config/index.js";
 import { joinTargetPath } from "../proxy/target.js";
+import { UsageStatisticsService } from "./usage-statistics-service.js";
 
 export interface LogGroupSummary {
   readonly cost?: LogTaskCost;
@@ -92,6 +93,11 @@ export class LogQueryService {
 
   constructor(logRoots: readonly string[] | (() => readonly string[])) {
     this.#logRoots = typeof logRoots === "function" ? logRoots : () => logRoots;
+  }
+
+  usageStatisticsService(): UsageStatisticsService | undefined {
+    const root = this.#logRoots().find((item) => item !== "");
+    return root === undefined ? undefined : new UsageStatisticsService(new TrafficRepository(root));
   }
 
   listGroups(query = "", limit = 100, offset = 0): LogGroupPage {
