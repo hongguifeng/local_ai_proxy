@@ -2023,4 +2023,26 @@ describe("statistics page visual smoke", () => {
     const costHeight = await page.locator(".trend-bar").nth(1).getAttribute("style");
     expect(costHeight).not.toBe(tokenHeight);
   });
+  it("shows an explicit warning when records are unpriced", async () => {
+    await page.route("**/api/usage-statistics/options*", (route) =>
+      route.fulfill({ json: { targets: [], models: [] } }),
+    );
+    await page.route("**/api/usage-statistics/overview*", (route) =>
+      route.fulfill({
+        json: {
+          totals: { requests: 1 },
+          byTarget: [],
+          byModel: [],
+          unpriced: { missing_usage: 2 },
+          dataVersion: 1,
+        },
+      }),
+    );
+    await page.route("**/api/usage-statistics/trend*", (route) =>
+      route.fulfill({ json: { dataVersion: 1, granularity: "day", points: [] } }),
+    );
+    await loadAdminPage();
+    await page.locator('[data-tab="statistics"]').click();
+    await expectPage(page.locator(".stats-unpriced")).toContainText("未计价");
+  });
 });
