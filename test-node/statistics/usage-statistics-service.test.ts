@@ -68,4 +68,25 @@ describe("UsageStatisticsService", () => {
     expect(result.points).toHaveLength(1);
     expect(result.points[0]).toMatchObject({ requests: 1, tasks: 1, cost: "7" });
   });
+
+  it("keeps overview distribution aligned with trend token totals", () => {
+    const service = new UsageStatisticsService({
+      usageStatisticsRows: () =>
+        Array.from({ length: 10 }, (_, i) => ({
+          task_id: `t${i}`,
+          target_id: `target-${i}`,
+          billing_model: "m",
+          timestamp: "2026-01-01T00:00:00Z",
+          pricing_status: "priced",
+          billing_usage_json: JSON.stringify({ input_uncached_tokens: 1 }),
+          cost_nano_cny: "1",
+        })),
+    });
+    const overview = service.overview("2026-01-01", "2026-01-02");
+    const trend = service.trend("2026-01-01", "2026-01-02");
+    expect(overview.byTarget).toHaveLength(10);
+    expect(overview.byTarget.reduce((sum, row) => sum + Number(row.value), 0)).toBe(
+      Number(trend.points[0].input),
+    );
+  });
 });
