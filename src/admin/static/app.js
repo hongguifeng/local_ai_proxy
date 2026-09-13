@@ -1858,13 +1858,20 @@ async function loadStatistics() {
         return el;
       })
       .join("");
-    return `<div class="pie-chart"><svg viewBox="0 0 100 100" role="img" aria-label="distribution">${slices}</svg>${items.map((x) => `<span>${x.id}: ${x.value}</span>`).join("")}</div>`;
+    return `<div class="pie-chart"><svg viewBox="0 0 100 100" role="img" aria-label="distribution">${slices}</svg>${items.map((x, i) => `<button type="button" class="pie-legend" data-pie-index="${i}">${x.id}: ${x.value}</button>`).join("")}</div>`;
   };
   $("statsOverview").innerHTML =
     Object.entries(result.totals)
       .map(([k, v]) => `<div class="stat-card"><small>${k}</small><strong>${v}</strong></div>`)
       .join("") +
     `<div class="stat-groups"><h3>转发地址分布</h3>${pie(result.byTarget)}${result.byTarget.map((x) => `<div class="stat-row"><span>${x.id}</span><b>${x.value}</b></div>`).join("")}<h3>模型分布</h3>${pie(result.byModel)}${result.byModel.map((x) => `<div class="stat-row"><span>${x.id}</span><b>${x.value}</b></div>`).join("")}</div>`;
+  $("statsOverview")
+    .querySelectorAll(".pie-legend")
+    .forEach((button) =>
+      button.addEventListener("click", () => {
+        button.classList.toggle("muted");
+      }),
+    );
   const trend = await fetch(
     `/api/usage-statistics/trend?from=${encodeURIComponent(iso(from))}&to=${encodeURIComponent(iso(to))}&granularity=${$("statsGranularity")?.value || "day"}${extra}`,
   ).then(async (r) => {
