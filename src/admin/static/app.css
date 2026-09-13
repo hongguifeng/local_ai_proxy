@@ -1882,3 +1882,9 @@ label span {
 .trend-card table {
   min-width: 760px;
 }
+
+.pie-legend em {
+  color: #667085;
+  font-style: normal;
+  font-size: 12px;
+}
