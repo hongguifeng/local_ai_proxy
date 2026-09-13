@@ -59,6 +59,10 @@ describe("admin UI source migration", () => {
       "responseMeta",
       "responseJson",
       "toast",
+      "statsMetric",
+      "statsGranularity",
+      "statsTarget",
+      "statsModel",
     ]) {
       expect(html).toContain(`id="${id}"`);
     }
