@@ -2018,7 +2018,7 @@ document.querySelectorAll("[data-stats-range]").forEach((button) =>
   button.addEventListener("click", () => {
     const days = Number(button.dataset.statsRange || 7);
     const to = new Date();
-    const from = new Date(to.getTime() - days * 86400000);
+    const from = days === 0 ? new Date(to.getFullYear(), to.getMonth(), to.getDate()) : new Date(to.getTime() - days * 86400000);
     $("statsFrom").value = statsLocalInput(from);
     $("statsTo").value = statsLocalInput(to);
     document.querySelectorAll("[data-stats-range]").forEach((item) => item.classList.toggle("active", item === button));

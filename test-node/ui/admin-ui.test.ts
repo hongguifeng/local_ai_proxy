@@ -2058,6 +2058,12 @@ describe("statistics page visual smoke", () => {
     );
     await loadAdminPage();
     await page.locator('[data-tab="statistics"]').click();
+    await page.locator('[data-stats-range="0"]').click();
+    const todayRangeValid = await page.evaluate(() =>
+      new Date((document.querySelector("#statsFrom") as HTMLInputElement).value).getTime() <
+      new Date((document.querySelector("#statsTo") as HTMLInputElement).value).getTime(),
+    );
+    expect(todayRangeValid).toBe(true);
     await page.locator('[data-stats-range="1"]').click();
     await expectPage(page.locator('[data-stats-range="1"]')).toHaveClass(/active/);
     await page.locator("#statsTarget").selectOption("target-a");
