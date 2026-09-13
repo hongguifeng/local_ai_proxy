@@ -1,0 +1,43 @@
+{
+  "pairs": [
+    {
+      "id": "fixture",
+      "name": "Statistics fixture",
+      "enabled": false,
+      "listen_host": "127.0.0.1",
+      "listen_port": 1234,
+      "access_log": false,
+      "targets": [
+        {
+          "id": "fixture-target-0",
+          "name": "Fixture target 0",
+          "enabled": true,
+          "target_url": "http://127.0.0.1:18020/v1",
+          "target_api_key": "",
+          "target_headers": [],
+          "strip_request_fields": "",
+          "inject_request_fields": "",
+          "log_root": "D:\\code\\local_ai_proxy\\test-fixtures\\statistics\\logs-0",
+          "redact_logs": false,
+          "model_mappings": [],
+          "model_prices": []
+        },
+        {
+          "id": "fixture-target-1",
+          "name": "Fixture target 1",
+          "enabled": true,
+          "target_url": "http://127.0.0.1:18020/v1",
+          "target_api_key": "",
+          "target_headers": [],
+          "strip_request_fields": "",
+          "inject_request_fields": "",
+          "log_root": "D:\\code\\local_ai_proxy\\test-fixtures\\statistics\\logs-1",
+          "redact_logs": false,
+          "model_mappings": [],
+          "model_prices": []
+        }
+      ],
+      "default_target_id": "fixture-target-0"
+    }
+  ]
+}
