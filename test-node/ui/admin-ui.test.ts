@@ -2017,10 +2017,10 @@ describe("statistics page visual smoke", () => {
     );
     await loadAdminPage();
     await page.locator('[data-tab="statistics"]').click();
-    const tokenHeight = await page.locator(".trend-bar").first().getAttribute("style");
+    const tokenHeight = await page.locator(".trend-bar").nth(1).getAttribute("style");
     await page.locator("#statsMetric").selectOption("cost");
     await expectPage(page.locator(".trend-card-title")).toContainText("CNY");
-    const costHeight = await page.locator(".trend-bar").first().getAttribute("style");
+    const costHeight = await page.locator(".trend-bar").nth(1).getAttribute("style");
     expect(costHeight).not.toBe(tokenHeight);
   });
 });
