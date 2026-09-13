@@ -1829,8 +1829,9 @@ label span {
 }
 
 .stats-overview .trend-bars {
-  min-height: 190px;
-  height: 190px;
+  min-height: 150px;
+  height: 150px;
+  padding: 12px 24px 0;
 }
 .stats-overview .pie-legend b {
   margin-left: 10px;
