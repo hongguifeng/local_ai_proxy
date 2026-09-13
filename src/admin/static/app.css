@@ -1758,3 +1758,6 @@ label span {
 .stats-overview .distribution-card .pie-legend { overflow: hidden; }
 .stats-overview .distribution-card .pie-legend span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 @media (max-width: 900px) { .stat-groups { grid-template-columns: 1fr; } }
+
+.stats-overview .trend-bars { min-height: 190px; height: 190px; }
+.stats-overview .pie-legend b { margin-left: 10px; }
