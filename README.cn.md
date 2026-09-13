@@ -96,3 +96,5 @@ qwen-local => qwen3
 # 使用统计
 
 管理页面新增“使用统计”标签，可按时间范围查看地址、模型的 token 与费用分布，并查看趋势表格。统计接口包括 `/api/usage-statistics/overview`、`/api/usage-statistics/trend` 和 CSV 导出接口。
+
+趋势和导出接口支持 `targetId`、`model` 与 `granularity`（`day`、`week`、`month`）参数，时间范围使用 ISO-8601 格式的 `from`/`to` 参数。
