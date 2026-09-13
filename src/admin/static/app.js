@@ -1832,10 +1832,13 @@ document.querySelectorAll(".tab").forEach((tab) =>
 
 async function loadStatistics() {
   const now = new Date();
-  const from = new Date(now.getTime() - 7 * 86400000);
+  const from = $("statsFrom").value
+    ? new Date($("statsFrom").value)
+    : new Date(now.getTime() - 7 * 86400000);
+  const to = $("statsTo").value ? new Date($("statsTo").value) : now;
   const iso = (d) => d.toISOString();
   const result = await fetch(
-    `/api/usage-statistics/overview?from=${encodeURIComponent(iso(from))}&to=${encodeURIComponent(iso(now))}&metric=${$("statsMetric").value}`,
+    `/api/usage-statistics/overview?from=${encodeURIComponent(iso(from))}&to=${encodeURIComponent(iso(to))}&metric=${$("statsMetric").value}`,
   ).then((r) => r.json());
   const pie = (items) =>
     `<div class="pie-chart">${items.map((x) => `<span>${x.id}: ${x.value}</span>`).join("")}</div>`;
@@ -1845,7 +1848,7 @@ async function loadStatistics() {
       .join("") +
     `<div class="stat-groups"><h3>转发地址分布</h3>${pie(result.byTarget)}${result.byTarget.map((x) => `<div class="stat-row"><span>${x.id}</span><b>${x.value}</b></div>`).join("")}<h3>模型分布</h3>${pie(result.byModel)}${result.byModel.map((x) => `<div class="stat-row"><span>${x.id}</span><b>${x.value}</b></div>`).join("")}</div>`;
   const trend = await fetch(
-    `/api/usage-statistics/trend?from=${encodeURIComponent(iso(from))}&to=${encodeURIComponent(iso(now))}`,
+    `/api/usage-statistics/trend?from=${encodeURIComponent(iso(from))}&to=${encodeURIComponent(iso(to))}`,
   ).then((r) => r.json());
   $("statsTrend").innerHTML =
     `<table><thead><tr><th>时间</th><th>请求</th><th>Task</th><th>输入</th><th>输出</th><th>缓存读</th><th>缓存写</th><th>费用</th></tr></thead><tbody>${trend.points.map((p) => `<tr><td>${p.bucket}</td><td>${p.requests}</td><td>${p.tasks}</td><td>${p.input}</td><td>${p.output}</td><td>${p.cache_read}</td><td>${p.cache_write}</td><td>${p.cost}</td></tr>`).join("")}</tbody></table>`;
@@ -1853,6 +1856,7 @@ async function loadStatistics() {
 $("refreshStatistics")?.addEventListener("click", () =>
   loadStatistics().catch((e) => toast(e.message)),
 );
+$("statsMetric")?.addEventListener("change", () => loadStatistics().catch((e) => toast(e.message)));
 $("languageSelect").addEventListener("change", (event) => setLanguage(event.target.value));
 $("addProxy").addEventListener("click", () => {
   state.pairs.push(newPair());
