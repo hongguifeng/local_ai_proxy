@@ -21,6 +21,8 @@ const translations = {
     exportLogs: "导出",
     statsToday: "今天",
     statsFollowNow: "实时结束",
+    statsOverviewTitle: "总体使用量",
+    statsOverviewHint: "按当前时间范围汇总",
     cleanupLogs: "清理",
     cleanupSelectedLogs: "清理选中",
     selectAllLogs: "全选",
@@ -181,6 +183,8 @@ const translations = {
     exportLogs: "Export",
     statsToday: "Today",
     statsFollowNow: "Live end",
+    statsOverviewTitle: "Total usage",
+    statsOverviewHint: "Summary for the selected period",
     cleanupLogs: "Clean",
     cleanupSelectedLogs: "Clean",
     selectAllLogs: "Select all",
@@ -1886,6 +1890,14 @@ async function loadStatistics() {
     key === "cost" ? formatCurrencyAmount(value) : Number(value).toLocaleString(english ? "en-US" : "zh-CN");
   const targetTitle = english ? "Target distribution" : "转发地址分布";
   const modelTitle = english ? "Model distribution" : "模型分布";
+  const totalTokens = ["input", "output", "cache_read", "cache_write"].reduce(
+    (sum, key) => sum + BigInt(String(result.totals[key] || 0)),
+    0n,
+  );
+  const totalMetricValue =
+    metric === "cost"
+      ? formatCurrencyAmount(result.totals.cost)
+      : totalTokens.toLocaleString(english ? "en-US" : "zh-CN");
   const statLabels = english
     ? {
         requests: "Requests",
@@ -1915,7 +1927,7 @@ async function loadStatistics() {
     (Object.values(result.unpriced || {}).reduce((a, b) => a + Number(b), 0)
       ? `<div class="stats-unpriced">${english ? "Unpriced records are excluded from cost totals" : "存在未计价记录，费用合计未包含这些记录"}（${Object.values(result.unpriced || {}).reduce((a, b) => a + Number(b), 0)}）</div>`
       : "") +
-    `<div class="stat-groups"><section class="distribution-card"><h3>${targetTitle}</h3>${pie(result.byTarget)}</section><section class="distribution-card"><h3>${modelTitle}</h3>${pie(result.byModel)}</section></div>`;
+    `<div class="stat-groups"><section class="distribution-card"><h3>${targetTitle}<span class="distribution-total">${english ? "Total" : "总计"} · ${totalMetricValue}</span></h3>${pie(result.byTarget)}</section><section class="distribution-card"><h3>${modelTitle}<span class="distribution-total">${english ? "Total" : "总计"} · ${totalMetricValue}</span></h3>${pie(result.byModel)}</section></div>`;
   $("statsOverview")
     .querySelectorAll(".pie-legend")
     .forEach((button) =>
