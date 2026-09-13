@@ -31,6 +31,7 @@ describe("admin UI source migration", () => {
     expect(script).toContain('localStorage.getItem("llmProxyLanguage")');
     expect(script).toContain('localStorage.setItem("llmProxyLanguage", language)');
     expect(script).toContain('(navigator.language || "").toLowerCase().startsWith("zh")');
+    expect(script).toContain("pie-legend");
   });
 
   it("preserves the DOM IDs and data attributes used by browser logic", async () => {
