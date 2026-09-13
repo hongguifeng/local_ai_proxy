@@ -1965,8 +1965,10 @@ function showStatisticsError(error) {
   toast(error.message);
 }
 async function loadStatisticsOptions() {
-  const to = new Date();
-  const from = new Date(to.getTime() - 7 * 86400000);
+  const to = $("statsTo")?.value ? new Date($("statsTo").value) : new Date();
+  const from = $("statsFrom")?.value
+    ? new Date($("statsFrom").value)
+    : new Date(to.getTime() - 7 * 86400000);
   const localInput = (value) => {
     const d = new Date(value);
     const pad = (n) => String(n).padStart(2, "0");
@@ -2003,6 +2005,14 @@ $("statsModel")?.addEventListener("change", () => loadStatistics().catch((e) => 
 $("statsGranularity")?.addEventListener("change", () =>
   loadStatistics().catch((e) => toast(e.message)),
 );
+$("statsFrom")?.addEventListener("change", () => {
+  loadStatisticsOptions().catch((e) => toast(e.message));
+  loadStatistics().catch((e) => toast(e.message));
+});
+$("statsTo")?.addEventListener("change", () => {
+  loadStatisticsOptions().catch((e) => toast(e.message));
+  loadStatistics().catch((e) => toast(e.message));
+});
 loadStatisticsOptions().catch(() => {});
 $("languageSelect").addEventListener("change", (event) => setLanguage(event.target.value));
 $("addProxy").addEventListener("click", () => {
