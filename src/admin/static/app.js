@@ -1846,7 +1846,8 @@ async function loadStatistics() {
     return r.json();
   });
   const pie = (items) => {
-    if (!items.length) return '<div class="pie-chart empty">暂无数据</div>';
+    if (!items.length)
+      return `<div class="pie-chart empty">${state.language === "en" ? "No data" : "暂无数据"}</div>`;
     const total = items.reduce((sum, x) => sum + Number(x.value || 0), 0);
     let offset = 25;
     const slices = items
@@ -1899,7 +1900,7 @@ async function loadStatistics() {
     .join("");
   const trendContent = trend.points.length
     ? trendBars
-    : '<div class="stats-empty">暂无趋势数据</div>';
+    : `<div class="stats-empty">${english ? "No trend data" : "暂无趋势数据"}</div>`;
   $("statsTrend").innerHTML =
     `<div class="trend-bars">${trendContent}</div><table><thead><tr><th>时间</th><th>请求</th><th>Task</th><th>输入</th><th>输出</th><th>缓存读</th><th>缓存写</th><th>费用</th></tr></thead><tbody>${trend.points.map((p) => `<tr><td>${p.bucket}</td><td>${p.requests}</td><td>${p.tasks}</td><td>${p.input}</td><td>${p.output}</td><td>${p.cache_read}</td><td>${p.cache_write}</td><td>${p.cost}</td></tr>`).join("")}</tbody></table>`;
 }
