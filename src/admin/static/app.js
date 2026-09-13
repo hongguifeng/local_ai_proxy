@@ -1856,6 +1856,14 @@ async function loadStatistics() {
 $("refreshStatistics")?.addEventListener("click", () =>
   loadStatistics().catch((e) => toast(e.message)),
 );
+$("exportStatistics")?.addEventListener("click", () => {
+  const now = new Date();
+  const from = new Date(now.getTime() - 7 * 86400000);
+  window.open(
+    `/api/usage-statistics/export?from=${encodeURIComponent(from.toISOString())}&to=${encodeURIComponent(now.toISOString())}`,
+    "_blank",
+  );
+});
 $("statsMetric")?.addEventListener("change", () => loadStatistics().catch((e) => toast(e.message)));
 $("languageSelect").addEventListener("change", (event) => setLanguage(event.target.value));
 $("addProxy").addEventListener("click", () => {
