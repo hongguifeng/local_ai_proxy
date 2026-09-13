@@ -266,6 +266,27 @@ export function createAdminServer(options: AdminServerOptions): FastifyInstance 
         query.metric ?? "token",
       );
     });
+    server.get("/api/usage-statistics/trend", (request) => {
+      const query = request.query as {
+        from?: string;
+        to?: string;
+        targetId?: string;
+        model?: string;
+        granularity?: string;
+      };
+      if (query.from === undefined || query.to === undefined || query.from >= query.to)
+        throw Object.assign(new Error("Invalid time range"), {
+          statusCode: 400,
+          code: "bad_request",
+        });
+      return options.usageStatisticsService!.trend(
+        query.from,
+        query.to,
+        query.targetId,
+        query.model,
+        query.granularity ?? "day",
+      );
+    });
   }
   server.addHook("onRequest", (request, _reply, done) => {
     requestStarted.set(request, performance.now());

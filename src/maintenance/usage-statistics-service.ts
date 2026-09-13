@@ -27,6 +27,9 @@ const empty = () => ({
 
 export class UsageStatisticsService {
   constructor(private readonly repository: TrafficRepository) {}
+  repositoryRows(from: string, to: string): readonly RepositoryRecord[] {
+    return this.repository.usageStatisticsRows(from, to);
+  }
 
   overview(from: string, to: string, metric: StatisticsMetric = "token"): UsageStatisticsOverview {
     const targets = new Map<string, ReturnType<typeof empty>>();
