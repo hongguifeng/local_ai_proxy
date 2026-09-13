@@ -1976,4 +1976,51 @@ describe("statistics page visual smoke", () => {
       true,
     );
   });
+  it("recomputes trend scale and units when switching to cost", async () => {
+    await page.route("**/api/usage-statistics/options*", (route) =>
+      route.fulfill({ json: { targets: [], models: [] } }),
+    );
+    await page.route("**/api/usage-statistics/overview*", (route) =>
+      route.fulfill({
+        json: { totals: {}, byTarget: [], byModel: [], unpriced: {}, dataVersion: 1 },
+      }),
+    );
+    await page.route("**/api/usage-statistics/trend*", (route) =>
+      route.fulfill({
+        json: {
+          dataVersion: 1,
+          granularity: "day",
+          points: [
+            {
+              bucket: "2026-09-01",
+              requests: 1,
+              tasks: 1,
+              input: "100",
+              output: "10",
+              cache_read: "0",
+              cache_write: "0",
+              cost: "100000000",
+            },
+            {
+              bucket: "2026-09-02",
+              requests: 100,
+              tasks: 1,
+              input: "1",
+              output: "1",
+              cache_read: "0",
+              cache_write: "0",
+              cost: "1000000",
+            },
+          ],
+        },
+      }),
+    );
+    await loadAdminPage();
+    await page.locator('[data-tab="statistics"]').click();
+    const tokenHeight = await page.locator(".trend-bar").first().getAttribute("style");
+    await page.locator("#statsMetric").selectOption("cost");
+    await expectPage(page.locator(".trend-card-title")).toContainText("CNY");
+    const costHeight = await page.locator(".trend-bar").first().getAttribute("style");
+    expect(costHeight).not.toBe(tokenHeight);
+  });
 });
