@@ -1852,6 +1852,7 @@ async function loadStatistics() {
     if (!r.ok) throw new Error(`统计请求失败 (${r.status})`);
     return r.json();
   });
+  const metric = $("statsMetric").value;
   const pie = (items) => {
     if (!items.length)
       return `<div class="pie-chart empty">${state.language === "en" ? "No data" : "暂无数据"}</div>`;
