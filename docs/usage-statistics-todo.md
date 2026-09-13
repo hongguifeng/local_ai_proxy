@@ -125,6 +125,8 @@
 
 验收记录（当前）：`npm run build`、`npm run regen:ui-baselines` 及统计相关 Vitest 均已通过；由于 STAT-07、STAT-10、STAT-11 尚未完成，STAT-12 暂不标记完成。
 
+最新回归：统计、基准和静态资源测试共 10 项通过，`npm run build` 通过。
+
 每项完成后追加：
 
 ```text
