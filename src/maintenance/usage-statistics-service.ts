@@ -52,8 +52,24 @@ export class UsageStatisticsService {
       targets.set(targetKey, target);
       models.set(modelKey, model);
     }
-    const project = (map: Map<string, ReturnType<typeof empty>>) =>
-      [...map].map(([key, v]) => ({
+    const project = (map: Map<string, ReturnType<typeof empty>>) => {
+      const rows = [...map].sort((a, b) => Number(b[1].requests - a[1].requests));
+      const visible = rows.slice(0, 9);
+      const rest = rows.slice(9);
+      if (rest.length) {
+        const other = empty();
+        for (const [, value] of rest) {
+          other.requests += value.requests;
+          other.input += value.input;
+          other.output += value.output;
+          other.cacheRead += value.cacheRead;
+          other.cacheWrite += value.cacheWrite;
+          other.cost += value.cost;
+          for (const task of value.tasks) other.tasks.add(task);
+        }
+        visible.push(["other", other]);
+      }
+      return visible.map(([key, v]) => ({
         id: key,
         requests: v.requests,
         tasks: v.tasks.size,
@@ -67,6 +83,7 @@ export class UsageStatisticsService {
             ? v.cost.toString()
             : (v.input + v.output + v.cacheRead + v.cacheWrite).toString(),
       }));
+    };
     return {
       dataVersion: 1,
       totals: {
