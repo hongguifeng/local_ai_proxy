@@ -1965,6 +1965,8 @@ describe("statistics page visual smoke", () => {
     await loadAdminPage();
     await page.locator('[data-tab="statistics"]').click();
     await page.locator("#statsGranularity").selectOption("month");
-    expect(requests.some((url) => url.includes("granularity=month"))).toBe(true);
+    await expectPage
+      .poll(() => requests.some((url) => url.includes("granularity=month")))
+      .toBe(true);
   });
 });
