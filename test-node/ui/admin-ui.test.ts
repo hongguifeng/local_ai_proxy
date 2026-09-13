@@ -1948,4 +1948,23 @@ describe("statistics page visual smoke", () => {
     );
     await expectPage(page.locator(".stats-empty")).toHaveCount(1);
   });
+  it("serializes granularity and filter selections", async () => {
+    const requests: string[] = [];
+    await page.route("**/api/usage-statistics/options*", (route) =>
+      route.fulfill({ json: { targets: [{ id: "a", name: "A" }], models: ["m"] } }),
+    );
+    await page.route("**/api/usage-statistics/overview*", (route) =>
+      route.fulfill({
+        json: { totals: {}, byTarget: [], byModel: [], unpriced: {}, dataVersion: 1 },
+      }),
+    );
+    await page.route("**/api/usage-statistics/trend*", (route) => {
+      requests.push(route.request().url());
+      return route.fulfill({ json: { dataVersion: 1, granularity: "month", points: [] } });
+    });
+    await loadAdminPage();
+    await page.locator('[data-tab="statistics"]').click();
+    await page.locator("#statsGranularity").selectOption("month");
+    expect(requests.some((url) => url.includes("granularity=month"))).toBe(true);
+  });
 });
