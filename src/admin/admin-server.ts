@@ -11,6 +11,7 @@ import type {
   LogGroupPage,
   LogRecordDetail,
 } from "../maintenance/index.js";
+import type { UsageStatisticsService } from "../maintenance/usage-statistics-service.js";
 import { StructuredLogger } from "../shared/index.js";
 
 export type HealthStatus = "degraded" | "ok" | "starting" | "stopping";
@@ -29,6 +30,7 @@ export interface AdminServerOptions {
   readonly staticAssets?: AdminStaticAssets | (() => Promise<AdminStaticAssets>);
   readonly targetCheckService?: TargetCheckAdminService;
   readonly summaryModelService?: SummaryModelAdminService;
+  readonly usageStatisticsService?: UsageStatisticsService;
 }
 export interface SummaryModelAdminService {
   getConfig(): SummaryModelConfig | undefined;
@@ -249,6 +251,22 @@ export function createAdminServer(options: AdminServerOptions): FastifyInstance 
     logController: new LogController({ disableRequestLogging: true }),
     logger: false,
   });
+  if (options.usageStatisticsService !== undefined) {
+    server.get("/api/usage-statistics/overview", (request) => {
+      const query = request.query as { from?: string; to?: string; metric?: "token" | "cost" };
+      if (query.from === undefined || query.to === undefined || query.from >= query.to) {
+        throw Object.assign(new Error("Invalid time range"), {
+          statusCode: 400,
+          code: "bad_request",
+        });
+      }
+      return options.usageStatisticsService!.overview(
+        query.from,
+        query.to,
+        query.metric ?? "token",
+      );
+    });
+  }
   server.addHook("onRequest", (request, _reply, done) => {
     requestStarted.set(request, performance.now());
     done();
