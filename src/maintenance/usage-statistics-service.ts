@@ -43,7 +43,9 @@ export class UsageStatisticsService {
       const bucket = this.rowBucket(row, unpriced);
       if (bucket === undefined) continue;
       this.add(total, bucket, row);
-      const targetKey = String(row["target_id"] ?? row["target_url"] ?? "unknown");
+      const targetKey = String(
+        row["target_name"] ?? row["target_id"] ?? row["target_url"] ?? "unknown",
+      );
       const modelKey = String(row["billing_model"] ?? "unknown");
       const target = targets.get(targetKey) ?? empty();
       const model = models.get(modelKey) ?? empty();
