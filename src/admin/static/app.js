@@ -1864,9 +1864,31 @@ async function loadStatistics() {
   const english = state.language === "en";
   const targetTitle = english ? "Target distribution" : "转发地址分布";
   const modelTitle = english ? "Model distribution" : "模型分布";
+  const statLabels = english
+    ? {
+        requests: "Requests",
+        tasks: "Tasks",
+        input: "Input",
+        output: "Output",
+        cache_read: "Cache read",
+        cache_write: "Cache write",
+        cost: "Cost",
+      }
+    : {
+        requests: "请求",
+        tasks: "Task",
+        input: "输入",
+        output: "输出",
+        cache_read: "缓存读",
+        cache_write: "缓存写",
+        cost: "费用",
+      };
   $("statsOverview").innerHTML =
     Object.entries(result.totals)
-      .map(([k, v]) => `<div class="stat-card"><small>${k}</small><strong>${v}</strong></div>`)
+      .map(
+        ([k, v]) =>
+          `<div class="stat-card"><small>${statLabels[k] || k}</small><strong>${v}</strong></div>`,
+      )
       .join("") +
     `<div class="stat-groups"><h3>${targetTitle}</h3>${pie(result.byTarget)}${result.byTarget.map((x) => `<div class="stat-row"><span>${x.id}</span><b>${x.value}</b></div>`).join("")}<h3>${modelTitle}</h3>${pie(result.byModel)}${result.byModel.map((x) => `<div class="stat-row"><span>${x.id}</span><b>${x.value}</b></div>`).join("")}</div>`;
   $("statsOverview")
