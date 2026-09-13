@@ -1837,6 +1837,7 @@ async function loadStatistics() {
     : new Date(now.getTime() - 7 * 86400000);
   const to = $("statsTo").value ? new Date($("statsTo").value) : now;
   const iso = (d) => d.toISOString();
+  const extra = `${$("statsTarget")?.value ? `&targetId=${encodeURIComponent($("statsTarget").value)}` : ""}${$("statsModel")?.value ? `&model=${encodeURIComponent($("statsModel").value)}` : ""}`;
   const result = await fetch(
     `/api/usage-statistics/overview?from=${encodeURIComponent(iso(from))}&to=${encodeURIComponent(iso(to))}&metric=${$("statsMetric").value}`,
   ).then((r) => r.json());
@@ -1848,7 +1849,7 @@ async function loadStatistics() {
       .join("") +
     `<div class="stat-groups"><h3>转发地址分布</h3>${pie(result.byTarget)}${result.byTarget.map((x) => `<div class="stat-row"><span>${x.id}</span><b>${x.value}</b></div>`).join("")}<h3>模型分布</h3>${pie(result.byModel)}${result.byModel.map((x) => `<div class="stat-row"><span>${x.id}</span><b>${x.value}</b></div>`).join("")}</div>`;
   const trend = await fetch(
-    `/api/usage-statistics/trend?from=${encodeURIComponent(iso(from))}&to=${encodeURIComponent(iso(to))}`,
+    `/api/usage-statistics/trend?from=${encodeURIComponent(iso(from))}&to=${encodeURIComponent(iso(to))}${extra}`,
   ).then((r) => r.json());
   const maxRequests = Math.max(1, ...trend.points.map((point) => Number(point.requests) || 0));
   const trendBars = trend.points
@@ -1872,6 +1873,8 @@ $("exportStatistics")?.addEventListener("click", () => {
   );
 });
 $("statsMetric")?.addEventListener("change", () => loadStatistics().catch((e) => toast(e.message)));
+$("statsTarget")?.addEventListener("change", () => loadStatistics().catch((e) => toast(e.message)));
+$("statsModel")?.addEventListener("change", () => loadStatistics().catch((e) => toast(e.message)));
 $("languageSelect").addEventListener("change", (event) => setLanguage(event.target.value));
 $("addProxy").addEventListener("click", () => {
   state.pairs.push(newPair());
