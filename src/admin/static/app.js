@@ -1860,11 +1860,14 @@ async function loadStatistics() {
       .join("");
     return `<div class="pie-chart"><svg viewBox="0 0 100 100" role="img" aria-label="distribution">${slices}</svg>${items.map((x, i) => `<button type="button" class="pie-legend" data-pie-index="${i}">${x.id}: ${x.value}</button>`).join("")}</div>`;
   };
+  const english = state.language === "en";
+  const targetTitle = english ? "Target distribution" : "转发地址分布";
+  const modelTitle = english ? "Model distribution" : "模型分布";
   $("statsOverview").innerHTML =
     Object.entries(result.totals)
       .map(([k, v]) => `<div class="stat-card"><small>${k}</small><strong>${v}</strong></div>`)
       .join("") +
-    `<div class="stat-groups"><h3>转发地址分布</h3>${pie(result.byTarget)}${result.byTarget.map((x) => `<div class="stat-row"><span>${x.id}</span><b>${x.value}</b></div>`).join("")}<h3>模型分布</h3>${pie(result.byModel)}${result.byModel.map((x) => `<div class="stat-row"><span>${x.id}</span><b>${x.value}</b></div>`).join("")}</div>`;
+    `<div class="stat-groups"><h3>${targetTitle}</h3>${pie(result.byTarget)}${result.byTarget.map((x) => `<div class="stat-row"><span>${x.id}</span><b>${x.value}</b></div>`).join("")}<h3>${modelTitle}</h3>${pie(result.byModel)}${result.byModel.map((x) => `<div class="stat-row"><span>${x.id}</span><b>${x.value}</b></div>`).join("")}</div>`;
   $("statsOverview")
     .querySelectorAll(".pie-legend")
     .forEach((button) =>
