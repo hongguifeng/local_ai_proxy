@@ -2005,9 +2005,17 @@ $("refreshStatistics")?.addEventListener("click", () =>
 );
 $("exportStatistics")?.addEventListener("click", () => {
   const now = new Date();
-  const from = new Date(now.getTime() - 7 * 86400000);
+  const from = $("statsFrom").value ? new Date($("statsFrom").value) : new Date(now.getTime() - 7 * 86400000);
+  const to = $("statsTo").value ? new Date($("statsTo").value) : now;
+  const params = new URLSearchParams({
+    from: from.toISOString(),
+    to: to.toISOString(),
+    granularity: $("statsGranularity")?.value || "day",
+  });
+  if ($("statsTarget")?.value) params.set("targetId", $("statsTarget").value);
+  if ($("statsModel")?.value) params.set("model", $("statsModel").value);
   window.open(
-    `/api/usage-statistics/export?from=${encodeURIComponent(from.toISOString())}&to=${encodeURIComponent(now.toISOString())}`,
+    `/api/usage-statistics/export?${params.toString()}`,
     "_blank",
   );
 });

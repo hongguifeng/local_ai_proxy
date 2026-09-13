@@ -2045,4 +2045,26 @@ describe("statistics page visual smoke", () => {
     await page.locator('[data-tab="statistics"]').click();
     await expectPage(page.locator(".stats-unpriced")).toContainText("Unpriced");
   });
+
+  it("exports the active statistics filters", async () => {
+    await page.route("**/api/usage-statistics/options*", (route) =>
+      route.fulfill({ json: { targets: [{ id: "target-a", name: "Target A" }], models: ["model-a"] } }),
+    );
+    await page.route("**/api/usage-statistics/overview*", (route) =>
+      route.fulfill({ json: { totals: { requests: 0, tasks: 0, input: "0", output: "0", cache_read: "0", cache_write: "0", cost: "0" }, byTarget: [], byModel: [], unpriced: {}, dataVersion: 1 } }),
+    );
+    await page.route("**/api/usage-statistics/trend*", (route) =>
+      route.fulfill({ json: { dataVersion: 1, granularity: "day", points: [] } }),
+    );
+    await loadAdminPage();
+    await page.locator('[data-tab="statistics"]').click();
+    await page.locator("#statsTarget").selectOption("target-a");
+    await page.locator("#statsModel").selectOption("model-a");
+    await page.locator("#statsGranularity").selectOption("month");
+    const popupPromise = page.waitForEvent("popup");
+    await page.locator("#exportStatistics").click();
+    const popup = await popupPromise;
+    await expectPage(popup).toHaveURL(/\/api\/usage-statistics\/export\?.*granularity=month.*targetId=target-a.*model=model-a/);
+    await popup.close();
+  });
 });
