@@ -1850,8 +1850,15 @@ async function loadStatistics() {
   const trend = await fetch(
     `/api/usage-statistics/trend?from=${encodeURIComponent(iso(from))}&to=${encodeURIComponent(iso(to))}`,
   ).then((r) => r.json());
+  const maxRequests = Math.max(1, ...trend.points.map((point) => Number(point.requests) || 0));
+  const trendBars = trend.points
+    .map(
+      (point) =>
+        `<span class="trend-bar" style="height:${Math.max(2, ((Number(point.requests) || 0) / maxRequests) * 120)}px" title="${point.bucket}: ${point.requests}"></span>`,
+    )
+    .join("");
   $("statsTrend").innerHTML =
-    `<table><thead><tr><th>时间</th><th>请求</th><th>Task</th><th>输入</th><th>输出</th><th>缓存读</th><th>缓存写</th><th>费用</th></tr></thead><tbody>${trend.points.map((p) => `<tr><td>${p.bucket}</td><td>${p.requests}</td><td>${p.tasks}</td><td>${p.input}</td><td>${p.output}</td><td>${p.cache_read}</td><td>${p.cache_write}</td><td>${p.cost}</td></tr>`).join("")}</tbody></table>`;
+    `<div class="trend-bars">${trendBars}</div><table><thead><tr><th>时间</th><th>请求</th><th>Task</th><th>输入</th><th>输出</th><th>缓存读</th><th>缓存写</th><th>费用</th></tr></thead><tbody>${trend.points.map((p) => `<tr><td>${p.bucket}</td><td>${p.requests}</td><td>${p.tasks}</td><td>${p.input}</td><td>${p.output}</td><td>${p.cache_read}</td><td>${p.cache_write}</td><td>${p.cost}</td></tr>`).join("")}</tbody></table>`;
 }
 $("refreshStatistics")?.addEventListener("click", () =>
   loadStatistics().catch((e) => toast(e.message)),
