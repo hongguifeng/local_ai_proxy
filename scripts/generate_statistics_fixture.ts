@@ -46,3 +46,38 @@ await writeFile(
   path.join(base, "README.json"),
   JSON.stringify({ roots, generatedAt: new Date().toISOString() }, null, 2),
 );
+const target = (index: number) => ({
+  id: `fixture-target-${index}`,
+  name: `Fixture target ${index}`,
+  enabled: true,
+  target_url: "http://127.0.0.1:18020/v1",
+  target_api_key: "",
+  target_headers: [],
+  strip_request_fields: "",
+  inject_request_fields: "",
+  log_root: roots[index],
+  redact_logs: false,
+  model_mappings: [],
+  model_prices: [],
+});
+await writeFile(
+  path.join(base, "proxies.json"),
+  JSON.stringify(
+    {
+      pairs: [
+        {
+          id: "fixture",
+          name: "Statistics fixture",
+          enabled: false,
+          listen_host: "127.0.0.1",
+          listen_port: 1234,
+          access_log: false,
+          targets: [target(0), target(1)],
+          default_target_id: "fixture-target-0",
+        },
+      ],
+    },
+    null,
+    2,
+  ),
+);
