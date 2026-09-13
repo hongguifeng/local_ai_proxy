@@ -127,6 +127,7 @@ export class UsageStatisticsService {
       granularity,
       points: [...points]
         .sort(([a], [b]) => a.localeCompare(b))
+        .slice(-366)
         .map(([bucket, v]) => ({
           bucket,
           requests: v.requests,
