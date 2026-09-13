@@ -1861,6 +1861,21 @@ async function loadStatistics() {
   $("statsTrend").innerHTML =
     `<div class="trend-bars">${trendBars}</div><table><thead><tr><th>时间</th><th>请求</th><th>Task</th><th>输入</th><th>输出</th><th>缓存读</th><th>缓存写</th><th>费用</th></tr></thead><tbody>${trend.points.map((p) => `<tr><td>${p.bucket}</td><td>${p.requests}</td><td>${p.tasks}</td><td>${p.input}</td><td>${p.output}</td><td>${p.cache_read}</td><td>${p.cache_write}</td><td>${p.cost}</td></tr>`).join("")}</tbody></table>`;
 }
+async function loadStatisticsOptions() {
+  const to = new Date();
+  const from = new Date(to.getTime() - 7 * 86400000);
+  const data = await fetch(
+    `/api/usage-statistics/options?from=${encodeURIComponent(from.toISOString())}&to=${encodeURIComponent(to.toISOString())}`,
+  ).then((r) => r.json());
+  if ($("statsTarget"))
+    $("statsTarget").innerHTML =
+      '<option value="">全部转发地址</option>' +
+      data.targets.map((x) => `<option value="${x.id}">${x.name}</option>`).join("");
+  if ($("statsModel"))
+    $("statsModel").innerHTML =
+      '<option value="">全部模型</option>' +
+      data.models.map((x) => `<option value="${x}">${x}</option>`).join("");
+}
 $("refreshStatistics")?.addEventListener("click", () =>
   loadStatistics().catch((e) => toast(e.message)),
 );
@@ -1875,6 +1890,7 @@ $("exportStatistics")?.addEventListener("click", () => {
 $("statsMetric")?.addEventListener("change", () => loadStatistics().catch((e) => toast(e.message)));
 $("statsTarget")?.addEventListener("change", () => loadStatistics().catch((e) => toast(e.message)));
 $("statsModel")?.addEventListener("change", () => loadStatistics().catch((e) => toast(e.message)));
+loadStatisticsOptions().catch(() => {});
 $("languageSelect").addEventListener("change", (event) => setLanguage(event.target.value));
 $("addProxy").addEventListener("click", () => {
   state.pairs.push(newPair());
