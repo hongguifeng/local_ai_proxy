@@ -188,6 +188,7 @@ export class UsageStatisticsService {
         cacheWrite: n("cache_write_tokens"),
         cost: BigInt(String(row["cost_nano_cny"] ?? 0)),
         requests: 0,
+        unpriced: 0,
         tasks: new Set(),
       };
     } catch {
