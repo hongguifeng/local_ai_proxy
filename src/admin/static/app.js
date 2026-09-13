@@ -1837,11 +1837,13 @@ async function loadStatistics() {
   const result = await fetch(
     `/api/usage-statistics/overview?from=${encodeURIComponent(iso(from))}&to=${encodeURIComponent(iso(now))}&metric=${$("statsMetric").value}`,
   ).then((r) => r.json());
+  const pie = (items) =>
+    `<div class="pie-chart">${items.map((x) => `<span>${x.id}: ${x.value}</span>`).join("")}</div>`;
   $("statsOverview").innerHTML =
     Object.entries(result.totals)
       .map(([k, v]) => `<div class="stat-card"><small>${k}</small><strong>${v}</strong></div>`)
       .join("") +
-    `<div class="stat-groups"><h3>转发地址分布</h3>${result.byTarget.map((x) => `<div class="stat-row"><span>${x.id}</span><b>${x.value}</b></div>`).join("")}<h3>模型分布</h3>${result.byModel.map((x) => `<div class="stat-row"><span>${x.id}</span><b>${x.value}</b></div>`).join("")}</div>`;
+    `<div class="stat-groups"><h3>转发地址分布</h3>${pie(result.byTarget)}${result.byTarget.map((x) => `<div class="stat-row"><span>${x.id}</span><b>${x.value}</b></div>`).join("")}<h3>模型分布</h3>${pie(result.byModel)}${result.byModel.map((x) => `<div class="stat-row"><span>${x.id}</span><b>${x.value}</b></div>`).join("")}</div>`;
   const trend = await fetch(
     `/api/usage-statistics/trend?from=${encodeURIComponent(iso(from))}&to=${encodeURIComponent(iso(now))}`,
   ).then((r) => r.json());
