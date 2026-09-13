@@ -769,6 +769,19 @@ export class TrafficRepository {
       response_body_json: loadRecordBody(this.#database, recordId, "response"),
     });
   }
+
+  /** Returns lightweight rows for usage statistics; body columns are intentionally omitted. */
+  usageStatisticsRows(from: string, to: string): readonly RepositoryRecord[] {
+    return this.#database
+      .prepare(
+        `SELECT task_id, timestamp, target_id, target_name, target_url, billing_model,
+                pricing_status, pricing_reason, billing_usage_json, cost_nano_cny
+           FROM records
+          WHERE timestamp >= ? AND timestamp < ?
+          ORDER BY timestamp ASC`,
+      )
+      .all(from, to) as RepositoryRecord[];
+  }
 }
 
 export interface RecordSearchDocument {
