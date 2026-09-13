@@ -1,4 +1,4 @@
-import { mkdir, rm } from "node:fs/promises";
+import { mkdir, rm, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { TrafficRepository } from "../src/persistence/index.js";
 const base = path.resolve("test-fixtures/statistics");
@@ -42,3 +42,7 @@ for (let r = 0; r < 2; r++) {
   roots.push(root);
 }
 console.log(JSON.stringify({ roots }, null, 2));
+await writeFile(
+  path.join(base, "README.json"),
+  JSON.stringify({ roots, generatedAt: new Date().toISOString() }, null, 2),
+);
