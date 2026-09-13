@@ -309,6 +309,45 @@ export function createAdminServer(options: AdminServerOptions): FastifyInstance 
       };
     });
   }
+  if (options.usageStatisticsService !== undefined) {
+    server.get("/api/usage-statistics/export", (request, reply) => {
+      const q = request.query as {
+        from?: string;
+        to?: string;
+        targetId?: string;
+        model?: string;
+        granularity?: string;
+      };
+      if (!q.from || !q.to || q.from >= q.to)
+        throw Object.assign(new Error("Invalid time range"), {
+          statusCode: 400,
+          code: "bad_request",
+        });
+      const trend = options.usageStatisticsService!.trend(
+        q.from,
+        q.to,
+        q.targetId,
+        q.model,
+        q.granularity ?? "day",
+      );
+      const lines = [
+        "bucket,requests,tasks,input,output,cache_read,cache_write,cost",
+        ...trend.points.map((p) =>
+          [
+            p["bucket"],
+            p["requests"],
+            p["tasks"],
+            p["input"],
+            p["output"],
+            p["cache_read"],
+            p["cache_write"],
+            p["cost"],
+          ].join(","),
+        ),
+      ];
+      return reply.type("text/csv; charset=utf-8").send("\uFEFF" + lines.join("\n") + "\n");
+    });
+  }
   server.addHook("onRequest", (request, _reply, done) => {
     requestStarted.set(request, performance.now());
     done();
