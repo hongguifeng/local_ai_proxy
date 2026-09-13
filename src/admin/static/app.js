@@ -1928,10 +1928,13 @@ async function loadStatistics() {
   );
   const trendBars = trend.points
     .map((point) => {
-      const h = Math.max(
-        2,
-        ((Number(costMode ? point.cost : point.requests) || 0) / maxRequests) * 120,
-      );
+      const metricValue = costMode
+        ? Number(point.cost)
+        : Number(point.input) +
+          Number(point.output) +
+          Number(point.cache_read) +
+          Number(point.cache_write);
+      const h = Math.max(2, ((metricValue || 0) / maxRequests) * 120);
       const tokens = ["input", "output", "cache_read", "cache_write"];
       const detail = `${point.bucket} | 请求 ${point.requests} | Task ${point.tasks} | 输入 ${point.input} | 输出 ${point.output} | 缓存读 ${point.cache_read} | 缓存写 ${point.cache_write} | 费用 ${pricingDecimalFromNano(point.cost)}`;
       return `<span class="trend-bar" style="height:${h}px" title="${detail}" aria-label="${detail}">${costMode ? "" : tokens.map((k) => `<i class="trend-segment ${k}" style="height:${Math.max(1, (Number(point[k]) / Math.max(1, Number(point.input) + Number(point.output) + Number(point.cache_read) + Number(point.cache_write))) * h)}px"></i>`).join("")}</span>`;
