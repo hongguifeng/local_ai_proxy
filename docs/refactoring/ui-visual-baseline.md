@@ -13,7 +13,7 @@
 | Proxy | 中文 | `doc/ui_proxy_cn.png` | 1278 x 1215 | `c2ff326b0a5cc3167f2febb61455977b65b10bd0b3e030c63f1716b46fb4d85a` |
 | Proxy | 英文 | `doc/ui_proxy_en.png` | 1278 x 1208 | `1649bacdfcd18c88fd9069e5b1473e55454482236b9a6e23d9f692a90ebd8742` |
 | History | 中文 | `doc/ui_logs_cn.png` | 1384 x 1212 | `8fb76413da35988f7508a7098a4e20fb5d166daf06dda8ac18c08a523b74a8f1` |
-| History | 英文 | `doc/ui_logs_en.png` | 1384 x 1224 | `989688f2b5fe2718c5f958f002dbe3b539080d30470a539da0dc213f0ffa3cba` |
+| History | 英文 | `doc/ui_logs_en.png` | 1384 x 1224 | `c996b901a9fb8beff8e5c5c7a71ebcd0807a2ac888f228f3aa0a2ae5376b84c9` |
 
 哈希复现命令：
 

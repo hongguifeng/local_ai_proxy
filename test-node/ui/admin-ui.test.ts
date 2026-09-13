@@ -2058,6 +2058,8 @@ describe("statistics page visual smoke", () => {
     );
     await loadAdminPage();
     await page.locator('[data-tab="statistics"]').click();
+    await page.locator('[data-stats-range="1"]').click();
+    await expectPage(page.locator('[data-stats-range="1"]')).toHaveClass(/active/);
     await page.locator("#statsTarget").selectOption("target-a");
     await page.locator("#statsModel").selectOption("model-a");
     await page.locator("#statsGranularity").selectOption("month");
