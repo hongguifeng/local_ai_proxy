@@ -1934,7 +1934,7 @@ async function loadStatistics() {
     ? ["Time", "Requests", "Tasks", "Input", "Output", "Cache read", "Cache write", "Cost"]
     : ["时间", "请求", "Task", "输入", "输出", "缓存读", "缓存写", "费用"];
   $("statsTrend").innerHTML =
-    `<section class="trend-card"><div class="trend-card-title"><h3>${english ? "Usage trend" : "使用趋势"}</h3><span>${trend.granularity}</span></div><div class="trend-bars">${trendContent}</div><table><thead><tr>${headers.map((h) => `<th>${h}</th>`).join("")}</tr></thead><tbody>${trend.points.map((p) => `<tr><td>${p.bucket}</td><td>${p.requests}</td><td>${p.tasks}</td><td>${p.input}</td><td>${p.output}</td><td>${p.cache_read}</td><td>${p.cache_write}</td><td>${p.cost}</td></tr>`).join("")}</tbody></table></section>`;
+    `<section class="trend-card"><div class="trend-card-title"><h3>${english ? "Usage trend" : "使用趋势"}</h3><span>${trend.granularity}</span></div><div class="trend-bars">${trendContent}</div><table><thead><tr>${headers.map((h) => `<th>${h}</th>`).join("")}</tr></thead><tbody>${trend.points.map((p) => `<tr><td>${p.bucket}</td><td>${p.requests}</td><td>${p.tasks}</td><td>${p.input}</td><td>${p.output}</td><td>${p.cache_read}</td><td>${p.cache_write}</td><td>${pricingDecimalFromNano(p.cost)}</td></tr>`).join("")}</tbody></table></section>`;
 }
 function showStatisticsError(error) {
   $("statsOverview").innerHTML =
