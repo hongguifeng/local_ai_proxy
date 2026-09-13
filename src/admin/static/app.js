@@ -1875,7 +1875,7 @@ async function loadStatistics() {
   };
   const english = state.language === "en";
   const statDisplay = (key, value) =>
-    key === "cost" ? value : Number(value).toLocaleString(english ? "en-US" : "zh-CN");
+    key === "cost" ? formatCurrencyAmount(pricingDecimalFromNano(value)) : Number(value).toLocaleString(english ? "en-US" : "zh-CN");
   const targetTitle = english ? "Target distribution" : "转发地址分布";
   const modelTitle = english ? "Model distribution" : "模型分布";
   const statLabels = english
@@ -1957,7 +1957,7 @@ async function loadStatistics() {
     ? ["Time", "Requests", "Tasks", "Input", "Output", "Cache read", "Cache write", "Cost"]
     : ["时间", "请求", "Task", "输入", "输出", "缓存读", "缓存写", "费用"];
   $("statsTrend").innerHTML =
-    `<section class="trend-card"><div class="trend-card-title"><h3>${english ? "Usage trend" : "使用趋势"}</h3><span>${trend.granularity} · ${costMode ? (english ? "CNY" : "元") : english ? "tokens" : "Token"}</span></div>${costMode ? "" : `<div class="trend-legend"><span><i class="input"></i>${english ? "Input" : "输入"}</span><span><i class="output"></i>${english ? "Output" : "输出"}</span><span><i class="cache_read"></i>${english ? "Cache read" : "缓存读"}</span><span><i class="cache_write"></i>${english ? "Cache write" : "缓存写"}</span></div>`}<div class="trend-bars">${trendContent}</div><table><thead><tr>${headers.map((h) => `<th>${h}</th>`).join("")}</tr></thead><tbody>${trend.points.map((p) => `<tr><td>${p.bucket}</td><td>${p.requests}</td><td>${p.tasks}</td><td>${p.input}</td><td>${p.output}</td><td>${p.cache_read}</td><td>${p.cache_write}</td><td>${pricingDecimalFromNano(p.cost)}</td></tr>`).join("")}</tbody></table></section>`;
+    `<section class="trend-card"><div class="trend-card-title"><h3>${english ? "Usage trend" : "使用趋势"}</h3><span>${trend.granularity} · ${costMode ? (english ? "CNY" : "元") : english ? "tokens" : "Token"}</span></div>${costMode ? "" : `<div class="trend-legend"><span><i class="input"></i>${english ? "Input" : "输入"}</span><span><i class="output"></i>${english ? "Output" : "输出"}</span><span><i class="cache_read"></i>${english ? "Cache read" : "缓存读"}</span><span><i class="cache_write"></i>${english ? "Cache write" : "缓存写"}</span></div>`}<div class="trend-bars">${trendContent}</div><table><thead><tr>${headers.map((h) => `<th>${h}</th>`).join("")}</tr></thead><tbody>${trend.points.map((p) => `<tr><td>${p.bucket}</td><td>${p.requests}</td><td>${p.tasks}</td><td>${p.input}</td><td>${p.output}</td><td>${p.cache_read}</td><td>${p.cache_write}</td><td>${formatCurrencyAmount(pricingDecimalFromNano(p.cost))}</td></tr>`).join("")}</tbody></table></section>`;
 }
 function showStatisticsError(error) {
   $("statsOverview").innerHTML =

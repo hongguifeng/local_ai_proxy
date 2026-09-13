@@ -1861,7 +1861,13 @@ label span {
   min-width: 0;
 }
 .stats-overview .distribution-card .pie-legend {
+  display: grid;
+  grid-template-columns: 10px minmax(0, 1fr) auto auto;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
   overflow: hidden;
+  box-sizing: border-box;
 }
 .stats-overview .distribution-card .pie-legend span {
   overflow: hidden;
@@ -1883,7 +1889,8 @@ label span {
     linear-gradient(to top, #cfd6df 1px, transparent 1px);
 }
 .stats-overview .pie-legend b {
-  margin-left: 10px;
+  margin-left: 4px;
+  white-space: nowrap;
 }
 
 .trend-card {
@@ -1897,4 +1904,6 @@ label span {
   color: #667085;
   font-style: normal;
   font-size: 12px;
+  margin-left: 4px;
+  white-space: nowrap;
 }
