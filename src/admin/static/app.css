@@ -1837,12 +1837,9 @@ label span {
   margin-left: 10px;
 }
 
-.trend-card table {
-  display: block;
-  max-height: 280px;
+.trend-card {
   overflow: auto;
 }
-.trend-card thead,
-.trend-card tbody {
-  width: 100%;
+.trend-card table {
+  min-width: 760px;
 }
