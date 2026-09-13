@@ -1869,7 +1869,8 @@ async function loadStatistics() {
     return `<div class="pie-chart"><svg viewBox="0 0 100 100" role="img" aria-label="distribution">${slices}</svg><div class="pie-legend-list">${items
       .map((x, i) => {
         const pct = total ? (Number(x.value || 0) / total) * 100 : 0;
-        return `<button type="button" class="pie-legend" data-pie-index="${i}"><i style="background:hsl(${(i * 47) % 360} 70% 50%)"></i><span>${x.id}</span><em>${pct.toFixed(1)}%</em><b>${Number(x.value).toLocaleString()}</b></button>`;
+        const displayValue = metric === "cost" ? formatCurrencyAmount(x.cost) : Number(x.value).toLocaleString(english ? "en-US" : "zh-CN");
+        return `<button type="button" class="pie-legend" data-pie-index="${i}"><i style="background:hsl(${(i * 47) % 360} 70% 50%)"></i><span>${x.id}</span><em>${pct.toFixed(1)}%</em><b>${displayValue}</b></button>`;
       })
       .join("")}</div></div>`;
   };
