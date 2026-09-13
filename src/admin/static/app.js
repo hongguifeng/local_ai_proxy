@@ -1842,6 +1842,7 @@ async function loadStatistics() {
     `/api/usage-statistics/overview?from=${encodeURIComponent(iso(from))}&to=${encodeURIComponent(iso(to))}&metric=${$("statsMetric").value}`,
   ).then((r) => r.json());
   const pie = (items) => {
+    if (!items.length) return '<div class="pie-chart empty">暂无数据</div>';
     const total = items.reduce((sum, x) => sum + Number(x.value || 0), 0);
     let offset = 25;
     const slices = items
