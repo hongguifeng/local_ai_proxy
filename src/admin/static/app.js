@@ -1841,6 +1841,7 @@ async function loadStatistics() {
     $("statsGranularity")?.querySelector('option[value="day"]')?.replaceChildren("Daily");
     $("statsGranularity")?.querySelector('option[value="week"]')?.replaceChildren("Weekly");
     $("statsGranularity")?.querySelector('option[value="month"]')?.replaceChildren("Monthly");
+    $("statsGranularity")?.querySelector('option[value="auto"]')?.replaceChildren("Auto");
   }
   $("statsOverview").innerHTML = '<div class="stats-loading">加载中…</div>';
   const now = new Date();
