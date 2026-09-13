@@ -1627,3 +1627,55 @@ label span {
   gap: 8px;
   margin-top: 12px;
 }
+.statistics-view {
+  padding: 20px;
+}
+.stats-filters {
+  display: flex;
+  gap: 10px;
+  margin: 12px 0;
+}
+.stats-overview {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+  gap: 12px;
+}
+.stat-card,
+.stat-groups {
+  border: 1px solid var(--border, #ddd);
+  border-radius: 10px;
+  padding: 14px;
+  background: var(--panel, #fff);
+}
+.stat-card strong {
+  display: block;
+  font-size: 20px;
+  margin-top: 6px;
+}
+.stat-groups {
+  grid-column: 1/-1;
+}
+.stat-row {
+  display: flex;
+  justify-content: space-between;
+  padding: 6px 0;
+  border-bottom: 1px solid #eee;
+}
+.stats-trend {
+  margin-top: 18px;
+  overflow: auto;
+}
+.stats-trend table {
+  width: 100%;
+  border-collapse: collapse;
+}
+.stats-trend th,
+.stats-trend td {
+  padding: 8px;
+  border-bottom: 1px solid #eee;
+  text-align: right;
+}
+.stats-trend th:first-child,
+.stats-trend td:first-child {
+  text-align: left;
+}

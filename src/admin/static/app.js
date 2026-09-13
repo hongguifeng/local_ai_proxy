@@ -1837,11 +1837,16 @@ async function loadStatistics() {
   const result = await fetch(
     `/api/usage-statistics/overview?from=${encodeURIComponent(iso(from))}&to=${encodeURIComponent(iso(now))}&metric=${$("statsMetric").value}`,
   ).then((r) => r.json());
-  $("statsOverview").textContent = JSON.stringify(result.totals);
+  $("statsOverview").innerHTML =
+    Object.entries(result.totals)
+      .map(([k, v]) => `<div class="stat-card"><small>${k}</small><strong>${v}</strong></div>`)
+      .join("") +
+    `<div class="stat-groups"><h3>转发地址分布</h3>${result.byTarget.map((x) => `<div class="stat-row"><span>${x.id}</span><b>${x.value}</b></div>`).join("")}<h3>模型分布</h3>${result.byModel.map((x) => `<div class="stat-row"><span>${x.id}</span><b>${x.value}</b></div>`).join("")}</div>`;
   const trend = await fetch(
     `/api/usage-statistics/trend?from=${encodeURIComponent(iso(from))}&to=${encodeURIComponent(iso(now))}`,
   ).then((r) => r.json());
-  $("statsTrend").textContent = JSON.stringify(trend.points);
+  $("statsTrend").innerHTML =
+    `<table><thead><tr><th>时间</th><th>请求</th><th>Task</th><th>输入</th><th>输出</th><th>缓存读</th><th>缓存写</th><th>费用</th></tr></thead><tbody>${trend.points.map((p) => `<tr><td>${p.bucket}</td><td>${p.requests}</td><td>${p.tasks}</td><td>${p.input}</td><td>${p.output}</td><td>${p.cache_read}</td><td>${p.cache_write}</td><td>${p.cost}</td></tr>`).join("")}</tbody></table>`;
 }
 $("refreshStatistics")?.addEventListener("click", () =>
   loadStatistics().catch((e) => toast(e.message)),
