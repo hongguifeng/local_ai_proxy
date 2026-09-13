@@ -161,10 +161,17 @@
             >
           </div>
           <div class="stats-filters">
+            <div class="stats-presets" role="group" aria-label="统计时间范围">
+              <button type="button" data-stats-range="0" data-i18n="statsToday">今天</button>
+              <button type="button" data-stats-range="1">1d</button>
+              <button type="button" data-stats-range="7" class="active">7d</button>
+              <button type="button" data-stats-range="14">14d</button>
+              <button type="button" data-stats-range="30">30d</button>
+            </div>
             <input id="statsFrom" type="datetime-local" /><input
               id="statsTo"
               type="datetime-local"
-            /><select id="statsMetric">
+            /><label class="stats-live"><input id="statsFollowNow" type="checkbox" checked /> <span data-i18n="statsFollowNow">实时结束</span></label><select id="statsMetric">
               <option value="token">Token</option>
               <option value="cost">费用</option>
             </select>

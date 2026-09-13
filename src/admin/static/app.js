@@ -19,6 +19,8 @@ const translations = {
     search: "搜索",
     refresh: "刷新",
     exportLogs: "导出",
+    statsToday: "今天",
+    statsFollowNow: "实时结束",
     cleanupLogs: "清理",
     cleanupSelectedLogs: "清理选中",
     selectAllLogs: "全选",
@@ -177,6 +179,8 @@ const translations = {
     search: "Search",
     refresh: "Refresh",
     exportLogs: "Export",
+    statsToday: "Today",
+    statsFollowNow: "Live end",
     cleanupLogs: "Clean",
     cleanupSelectedLogs: "Clean",
     selectAllLogs: "Select all",
@@ -1840,6 +1844,7 @@ async function loadStatistics() {
   }
   $("statsOverview").innerHTML = '<div class="stats-loading">加载中…</div>';
   const now = new Date();
+  if ($("statsFollowNow")?.checked && $("statsTo")) $("statsTo").value = statsLocalInput(now);
   const from = $("statsFrom").value
     ? new Date($("statsFrom").value)
     : new Date(now.getTime() - 7 * 86400000);
@@ -2003,6 +2008,28 @@ async function loadStatisticsOptions() {
 $("refreshStatistics")?.addEventListener("click", () =>
   loadStatistics().catch(showStatisticsError),
 );
+function statsLocalInput(value) {
+  const d = new Date(value);
+  const pad = (n) => String(n).padStart(2, "0");
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
+}
+document.querySelectorAll("[data-stats-range]").forEach((button) =>
+  button.addEventListener("click", () => {
+    const days = Number(button.dataset.statsRange || 7);
+    const to = new Date();
+    const from = new Date(to.getTime() - days * 86400000);
+    $("statsFrom").value = statsLocalInput(from);
+    $("statsTo").value = statsLocalInput(to);
+    document.querySelectorAll("[data-stats-range]").forEach((item) => item.classList.toggle("active", item === button));
+    loadStatisticsOptions().then(() => loadStatistics()).catch(showStatisticsError);
+  }),
+);
+$("statsFollowNow")?.addEventListener("change", () => {
+  if ($("statsFollowNow").checked) {
+    $("statsTo").value = statsLocalInput(new Date());
+    loadStatistics().catch(showStatisticsError);
+  }
+});
 $("exportStatistics")?.addEventListener("click", () => {
   const now = new Date();
   const from = $("statsFrom").value ? new Date($("statsFrom").value) : new Date(now.getTime() - 7 * 86400000);

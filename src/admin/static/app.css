@@ -1632,8 +1632,40 @@ label span {
 }
 .stats-filters {
   display: flex;
+  align-items: center;
+  flex-wrap: wrap;
   gap: 10px;
   margin: 12px 0;
+}
+.stats-presets {
+  display: inline-flex;
+  gap: 4px;
+  padding: 3px;
+  border: 1px solid var(--border, #d9dee7);
+  border-radius: 8px;
+  background: #f8fafc;
+}
+.stats-presets button {
+  border: 0;
+  background: transparent;
+  border-radius: 6px;
+  padding: 6px 9px;
+  color: #475467;
+  cursor: pointer;
+}
+.stats-presets button.active,
+.stats-presets button:hover {
+  background: #fff;
+  color: #1d4ed8;
+  box-shadow: 0 1px 3px #1018281f;
+}
+.stats-live {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  white-space: nowrap;
+  color: #475467;
+  font-size: 13px;
 }
 .stats-overview {
   display: grid;
