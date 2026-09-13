@@ -1982,6 +1982,8 @@ async function loadStatisticsOptions() {
   const data = await fetch(
     `/api/usage-statistics/options?from=${encodeURIComponent(from.toISOString())}&to=${encodeURIComponent(to.toISOString())}`,
   ).then((r) => r.json());
+  const selectedTarget = $("statsTarget")?.value || "";
+  const selectedModel = $("statsModel")?.value || "";
   if ($("statsTarget"))
     $("statsTarget").innerHTML =
       '<option value="">全部转发地址</option>' +
@@ -1990,6 +1992,10 @@ async function loadStatisticsOptions() {
     $("statsModel").innerHTML =
       '<option value="">全部模型</option>' +
       data.models.map((x) => `<option value="${x}">${x}</option>`).join("");
+  if ($("statsTarget")?.querySelector(`option[value="${CSS.escape(selectedTarget)}"]`))
+    $("statsTarget").value = selectedTarget;
+  if ($("statsModel")?.querySelector(`option[value="${CSS.escape(selectedModel)}"]`))
+    $("statsModel").value = selectedModel;
 }
 $("refreshStatistics")?.addEventListener("click", () =>
   loadStatistics().catch(showStatisticsError),
