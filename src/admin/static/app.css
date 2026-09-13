@@ -1698,6 +1698,32 @@ label span {
   color: #667085;
   font-size: 13px;
 }
+.trend-legend {
+  display: flex;
+  gap: 16px;
+  margin: 0 0 8px;
+  color: #667085;
+  font-size: 12px;
+}
+.trend-legend i {
+  display: inline-block;
+  width: 9px;
+  height: 9px;
+  border-radius: 2px;
+  margin-right: 5px;
+}
+.trend-legend i.input {
+  background: #2f80ed;
+}
+.trend-legend i.output {
+  background: #27ae60;
+}
+.trend-legend i.cache_read {
+  background: #f2994a;
+}
+.trend-legend i.cache_write {
+  background: #9b51e0;
+}
 .stats-trend table {
   width: 100%;
   border-collapse: collapse;
