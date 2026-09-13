@@ -252,7 +252,20 @@ export function createAdminServer(options: AdminServerOptions): FastifyInstance 
     logger: false,
   });
   if (options.usageStatisticsService !== undefined) {
-    server.get("/api/usage-statistics/overview", (request) => {
+    const statsQuery = {
+      type: "object",
+      required: ["from", "to"],
+      additionalProperties: false,
+      properties: {
+        from: { type: "string", format: "date-time" },
+        to: { type: "string", format: "date-time" },
+        metric: { type: "string", enum: ["token", "cost"] },
+        targetId: { type: "string", minLength: 1, maxLength: 200 },
+        model: { type: "string", minLength: 1, maxLength: 200 },
+        granularity: { type: "string", enum: ["day", "week", "month", "auto"] },
+      },
+    } as const;
+    server.get("/api/usage-statistics/overview", { schema: { querystring: statsQuery } }, (request) => {
       const query = request.query as { from?: string; to?: string; metric?: "token" | "cost" };
       if (query.from === undefined || query.to === undefined || query.from >= query.to) {
         throw Object.assign(new Error("Invalid time range"), {
@@ -266,7 +279,7 @@ export function createAdminServer(options: AdminServerOptions): FastifyInstance 
         query.metric ?? "token",
       );
     });
-    server.get("/api/usage-statistics/trend", (request) => {
+    server.get("/api/usage-statistics/trend", { schema: { querystring: statsQuery } }, (request) => {
       const query = request.query as {
         from?: string;
         to?: string;
@@ -287,7 +300,7 @@ export function createAdminServer(options: AdminServerOptions): FastifyInstance 
         query.granularity ?? "day",
       );
     });
-    server.get("/api/usage-statistics/options", (request) => {
+    server.get("/api/usage-statistics/options", { schema: { querystring: { type: "object", required: ["from", "to"], additionalProperties: false, properties: { from: { type: "string", format: "date-time" }, to: { type: "string", format: "date-time" } } } } }, (request) => {
       const query = request.query as { from?: string; to?: string };
       if (query.from === undefined || query.to === undefined || query.from >= query.to)
         throw Object.assign(new Error("Invalid time range"), {
@@ -310,7 +323,7 @@ export function createAdminServer(options: AdminServerOptions): FastifyInstance 
     });
   }
   if (options.usageStatisticsService !== undefined) {
-    server.get("/api/usage-statistics/export", (request, reply) => {
+    server.get("/api/usage-statistics/export", { schema: { querystring: { type: "object", required: ["from", "to"], additionalProperties: false, properties: { from: { type: "string", format: "date-time" }, to: { type: "string", format: "date-time" }, targetId: { type: "string", minLength: 1, maxLength: 200 }, model: { type: "string", minLength: 1, maxLength: 200 }, granularity: { type: "string", enum: ["day", "week", "month", "auto"] } } } } }, (request, reply) => {
       const q = request.query as {
         from?: string;
         to?: string;
