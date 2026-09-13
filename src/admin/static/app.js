@@ -1861,7 +1861,7 @@ async function loadStatistics() {
       .map((x, i) => {
         const pct = total ? (Number(x.value || 0) / total) * 100 : 0;
         const dash = `${pct} ${100 - pct}`;
-        const el = `<circle cx="50" cy="50" r="40" pathLength="100" stroke="hsl(${(i * 47) % 360} 70% 50%)" stroke-dasharray="${dash}" stroke-dashoffset="-${offset}" />`;
+        const el = `<circle cx="50" cy="50" r="40" pathLength="100" fill="none" stroke-width="20" stroke="hsl(${(i * 47) % 360} 70% 50%)" stroke-dasharray="${dash}" stroke-dashoffset="-${offset}" />`;
         offset += pct;
         return el;
       })
