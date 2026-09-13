@@ -1866,7 +1866,7 @@ async function loadStatistics() {
         return el;
       })
       .join("");
-    return `<div class="pie-chart"><svg viewBox="0 0 100 100" role="img" aria-label="distribution">${slices}</svg>${items.map((x, i) => `<button type="button" class="pie-legend" data-pie-index="${i}">${x.id}: ${x.value}</button>`).join("")}</div>`;
+    return `<div class="pie-chart"><svg viewBox="0 0 100 100" role="img" aria-label="distribution">${slices}</svg><div class="pie-legend-list">${items.map((x, i) => `<button type="button" class="pie-legend" data-pie-index="${i}"><i style="background:hsl(${(i * 47) % 360} 70% 50%)"></i><span>${x.id}</span><b>${x.value}</b></button>`).join("")}</div></div>`;
   };
   const english = state.language === "en";
   const targetTitle = english ? "Target distribution" : "转发地址分布";
@@ -1897,7 +1897,7 @@ async function loadStatistics() {
           `<div class="stat-card"><small>${statLabels[k] || k}</small><strong>${v}</strong></div>`,
       )
       .join("") +
-    `<div class="stat-groups"><h3>${targetTitle}</h3>${pie(result.byTarget)}${result.byTarget.map((x) => `<div class="stat-row"><span>${x.id}</span><b>${x.value}</b></div>`).join("")}<h3>${modelTitle}</h3>${pie(result.byModel)}${result.byModel.map((x) => `<div class="stat-row"><span>${x.id}</span><b>${x.value}</b></div>`).join("")}</div>`;
+    `<div class="stat-groups"><section class="distribution-card"><h3>${targetTitle}</h3>${pie(result.byTarget)}</section><section class="distribution-card"><h3>${modelTitle}</h3>${pie(result.byModel)}</section></div>`;
   $("statsOverview")
     .querySelectorAll(".pie-legend")
     .forEach((button) =>

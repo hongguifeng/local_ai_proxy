@@ -1654,13 +1654,10 @@ label span {
 }
 .stat-groups {
   grid-column: 1/-1;
-  display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 18px;
+  display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 18px;
 }
-.stat-groups h3 { grid-column: span 1; margin: 0; font-size: 18px; }
-.stat-groups .pie-chart { grid-column: span 1; grid-row: span 2; }
-.stat-groups .stat-row { grid-column: span 1; }
+.distribution-card { border: 1px solid #e4e8ee; border-radius: 10px; padding: 16px; background: #fbfcfe; }
+.distribution-card h3 { margin: 0 0 12px; font-size: 17px; }
 .stat-row {
   display: flex;
   justify-content: space-between;
@@ -1686,8 +1683,7 @@ label span {
   text-align: left;
 }
 .pie-chart {
-  display: grid;
-  grid-template-columns: 180px 1fr;
+  display: grid; grid-template-columns: 150px 1fr;
   align-items: center;
   gap: 4px;
   margin: 0;
@@ -1696,6 +1692,10 @@ label span {
   background: transparent;
   color: var(--text, #182230);
 }
+.pie-chart svg { width: 150px; height: 150px; }
+.pie-legend-list { display: flex; flex-direction: column; gap: 4px; }
+.pie-legend { display: grid; grid-template-columns: 10px 1fr auto; align-items: center; gap: 8px; width: 100%; }
+.pie-legend i { width: 10px; height: 10px; border-radius: 50%; }
 .pie-chart + .stat-row { margin-top: -8px; }
 .pie-chart svg {
   width: 180px;
@@ -1747,3 +1747,12 @@ label span {
 .trend-segment.cache_write {
   background: #9b51e0;
 }
+
+/* statistics dashboard refinement */
+.stats-overview .stat-groups { grid-column: 1 / -1; }
+.stats-overview .distribution-card .pie-chart { grid-template-columns: 150px minmax(0,1fr); }
+.stats-overview .distribution-card .pie-chart svg { width: 150px; height: 150px; }
+.stats-overview .distribution-card .pie-legend-list { min-width: 0; }
+.stats-overview .distribution-card .pie-legend { overflow: hidden; }
+.stats-overview .distribution-card .pie-legend span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+@media (max-width: 900px) { .stat-groups { grid-template-columns: 1fr; } }
