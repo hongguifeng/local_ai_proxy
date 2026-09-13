@@ -1904,6 +1904,9 @@ async function loadStatistics() {
           `<div class="stat-card"><small>${statLabels[k] || k}</small><strong>${statDisplay(k, v)}</strong></div>`,
       )
       .join("") +
+    (Object.values(result.unpriced || {}).reduce((a, b) => a + Number(b), 0)
+      ? `<div class="stats-unpriced">${english ? "Unpriced records are excluded from cost totals" : "存在未计价记录，费用合计未包含这些记录"}（${Object.values(result.unpriced || {}).reduce((a, b) => a + Number(b), 0)}）</div>`
+      : "") +
     `<div class="stat-groups"><section class="distribution-card"><h3>${targetTitle}</h3>${pie(result.byTarget)}</section><section class="distribution-card"><h3>${modelTitle}</h3>${pie(result.byModel)}</section></div>`;
   $("statsOverview")
     .querySelectorAll(".pie-legend")
