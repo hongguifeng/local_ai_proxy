@@ -1840,7 +1840,10 @@ async function loadStatistics() {
   const extra = `${$("statsTarget")?.value ? `&targetId=${encodeURIComponent($("statsTarget").value)}` : ""}${$("statsModel")?.value ? `&model=${encodeURIComponent($("statsModel").value)}` : ""}`;
   const result = await fetch(
     `/api/usage-statistics/overview?from=${encodeURIComponent(iso(from))}&to=${encodeURIComponent(iso(to))}&metric=${$("statsMetric").value}`,
-  ).then((r) => r.json());
+  ).then(async (r) => {
+    if (!r.ok) throw new Error(`统计请求失败 (${r.status})`);
+    return r.json();
+  });
   const pie = (items) => {
     if (!items.length) return '<div class="pie-chart empty">暂无数据</div>';
     const total = items.reduce((sum, x) => sum + Number(x.value || 0), 0);
@@ -1863,7 +1866,10 @@ async function loadStatistics() {
     `<div class="stat-groups"><h3>转发地址分布</h3>${pie(result.byTarget)}${result.byTarget.map((x) => `<div class="stat-row"><span>${x.id}</span><b>${x.value}</b></div>`).join("")}<h3>模型分布</h3>${pie(result.byModel)}${result.byModel.map((x) => `<div class="stat-row"><span>${x.id}</span><b>${x.value}</b></div>`).join("")}</div>`;
   const trend = await fetch(
     `/api/usage-statistics/trend?from=${encodeURIComponent(iso(from))}&to=${encodeURIComponent(iso(to))}&granularity=${$("statsGranularity")?.value || "day"}${extra}`,
-  ).then((r) => r.json());
+  ).then(async (r) => {
+    if (!r.ok) throw new Error(`趋势请求失败 (${r.status})`);
+    return r.json();
+  });
   const costMode = $("statsMetric").value === "cost";
   const maxRequests = Math.max(
     1,
