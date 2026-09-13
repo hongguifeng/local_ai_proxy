@@ -1868,6 +1868,9 @@ label span {
   min-height: 150px;
   height: 150px;
   padding: 12px 24px 0;
+  background:
+    repeating-linear-gradient(to top, transparent 0, transparent 37px, #eef1f5 38px),
+    linear-gradient(to top, #cfd6df 1px, transparent 1px);
 }
 .stats-overview .pie-legend b {
   margin-left: 10px;
