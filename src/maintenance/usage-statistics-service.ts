@@ -165,7 +165,16 @@ export class UsageStatisticsService {
     }
     try {
       const u = JSON.parse(String(row["billing_usage_json"] ?? "{}")) as Record<string, unknown>;
-      const n = (k: string) => BigInt(Number(u[k] ?? 0));
+      const aliases: Record<string, string[]> = {
+        input_uncached_tokens: ["input_uncached_tokens", "inputUncachedTokens"],
+        output_tokens: ["output_tokens", "outputTokens"],
+        cache_read_tokens: ["cache_read_tokens", "cacheReadTokens"],
+        cache_write_tokens: ["cache_write_tokens", "cacheWriteTokens"],
+      };
+      const n = (k: string) =>
+        BigInt(
+          Number((aliases[k] ?? [k]).map((name) => u[name]).find((v) => v !== undefined) ?? 0),
+        );
       return {
         input: n("input_uncached_tokens"),
         output: n("output_tokens"),
