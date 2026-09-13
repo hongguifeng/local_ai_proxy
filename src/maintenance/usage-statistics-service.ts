@@ -9,6 +9,11 @@ export interface UsageStatisticsOverview {
   readonly unpriced: Record<string, number>;
   readonly dataVersion: 1;
 }
+export interface UsageStatisticsTrend {
+  readonly dataVersion: 1;
+  readonly granularity: string;
+  readonly points: readonly Record<string, unknown>[];
+}
 
 const empty = () => ({
   input: 0n,
@@ -73,6 +78,45 @@ export class UsageStatisticsService {
     };
   }
 
+  trend(
+    from: string,
+    to: string,
+    targetId?: string,
+    model?: string,
+    granularity = "day",
+  ): UsageStatisticsTrend {
+    const points = new Map<string, ReturnType<typeof empty>>();
+    for (const row of this.repository.usageStatisticsRows(from, to)) {
+      if (
+        targetId !== undefined &&
+        String(row["target_id"] ?? row["target_url"] ?? "") !== targetId
+      )
+        continue;
+      if (model !== undefined && String(row["billing_model"] ?? "") !== model) continue;
+      const key = bucketKey(String(row["timestamp"]), granularity);
+      const value = points.get(key) ?? empty();
+      const parsed = this.rowBucket(row, {});
+      if (parsed !== undefined) this.add(value, parsed, row);
+      points.set(key, value);
+    }
+    return {
+      dataVersion: 1,
+      granularity,
+      points: [...points]
+        .sort(([a], [b]) => a.localeCompare(b))
+        .map(([bucket, v]) => ({
+          bucket,
+          requests: v.requests,
+          tasks: v.tasks.size,
+          input: v.input.toString(),
+          output: v.output.toString(),
+          cache_read: v.cacheRead.toString(),
+          cache_write: v.cacheWrite.toString(),
+          cost: v.cost.toString(),
+        })),
+    };
+  }
+
   private add(
     to: ReturnType<typeof empty>,
     from: ReturnType<typeof empty>,
@@ -112,4 +156,16 @@ export class UsageStatisticsService {
       return undefined;
     }
   }
+}
+
+function bucketKey(timestamp: string, granularity: string): string {
+  const d = new Date(timestamp);
+  if (Number.isNaN(d.getTime())) return "invalid";
+  if (granularity === "month")
+    return `${d.getUTCFullYear()}-${String(d.getUTCMonth() + 1).padStart(2, "0")}`;
+  if (granularity === "week") {
+    const day = d.getUTCDay() || 7;
+    d.setUTCDate(d.getUTCDate() - day + 1);
+  }
+  return d.toISOString().slice(0, 10);
 }
