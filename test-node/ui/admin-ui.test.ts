@@ -1947,6 +1947,7 @@ describe("statistics page visual smoke", () => {
       "0 0 100 100",
     );
     await expectPage(page.locator(".stats-empty")).toHaveCount(1);
+    await page.screenshot({ path: "test-results/statistics-page-smoke.png", fullPage: true });
   });
   it("serializes granularity and filter selections", async () => {
     const requests: string[] = [];
