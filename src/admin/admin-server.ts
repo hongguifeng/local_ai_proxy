@@ -263,104 +263,158 @@ export function createAdminServer(options: AdminServerOptions): FastifyInstance 
         targetId: { type: "string", minLength: 1, maxLength: 200 },
         model: { type: "string", minLength: 1, maxLength: 200 },
         granularity: { type: "string", enum: ["day", "week", "month", "auto"] },
+        timezoneOffset: { type: "integer", minimum: -840, maximum: 840 },
+        breakdown: { type: "string", enum: ["total", "model", "target"] },
       },
     } as const;
-    server.get("/api/usage-statistics/overview", { schema: { querystring: statsQuery } }, (request) => {
-      const query = request.query as { from?: string; to?: string; metric?: "token" | "cost" };
-      if (query.from === undefined || query.to === undefined || query.from >= query.to) {
-        throw Object.assign(new Error("Invalid time range"), {
-          statusCode: 400,
-          code: "bad_request",
-        });
-      }
-      return options.usageStatisticsService!.overview(
-        query.from,
-        query.to,
-        query.metric ?? "token",
-      );
-    });
-    server.get("/api/usage-statistics/trend", { schema: { querystring: statsQuery } }, (request) => {
-      const query = request.query as {
-        from?: string;
-        to?: string;
-        targetId?: string;
-        model?: string;
-        granularity?: string;
-      };
-      if (query.from === undefined || query.to === undefined || query.from >= query.to)
-        throw Object.assign(new Error("Invalid time range"), {
-          statusCode: 400,
-          code: "bad_request",
-        });
-      return options.usageStatisticsService!.trend(
-        query.from,
-        query.to,
-        query.targetId,
-        query.model,
-        query.granularity ?? "day",
-      );
-    });
-    server.get("/api/usage-statistics/options", { schema: { querystring: { type: "object", required: ["from", "to"], additionalProperties: false, properties: { from: { type: "string", format: "date-time" }, to: { type: "string", format: "date-time" }, targetId: { type: "string", minLength: 1, maxLength: 200 } } } } }, (request) => {
-      const query = request.query as { from?: string; to?: string; targetId?: string };
-      if (query.from === undefined || query.to === undefined || query.from >= query.to)
-        throw Object.assign(new Error("Invalid time range"), {
-          statusCode: 400,
-          code: "bad_request",
-        });
-      const rows = options.usageStatisticsService!.repositoryRows(query.from, query.to);
-      const targets = new Map<string, string>();
-      const models = new Set<string>();
-      for (const row of rows) {
-        const id = String(row["target_id"] ?? row["target_url"] ?? "unknown");
-        targets.set(id, String(row["target_name"] ?? row["target_url"] ?? id));
-        if (query.targetId && query.targetId !== id) continue;
-        const model = String(row["billing_model"] ?? "");
-        if (model) models.add(model);
-      }
-      return {
-        targets: [...targets].map(([id, name]) => ({ id, name })),
-        models: [...models].sort(),
-      };
-    });
+    server.get(
+      "/api/usage-statistics/overview",
+      { schema: { querystring: statsQuery } },
+      (request) => {
+        const query = request.query as { from?: string; to?: string; metric?: "token" | "cost" };
+        if (query.from === undefined || query.to === undefined || query.from >= query.to) {
+          throw Object.assign(new Error("Invalid time range"), {
+            statusCode: 400,
+            code: "bad_request",
+          });
+        }
+        return options.usageStatisticsService!.overview(
+          query.from,
+          query.to,
+          query.metric ?? "token",
+        );
+      },
+    );
+    server.get(
+      "/api/usage-statistics/trend",
+      { schema: { querystring: statsQuery } },
+      (request) => {
+        const query = request.query as {
+          from?: string;
+          to?: string;
+          targetId?: string;
+          model?: string;
+          granularity?: string;
+          timezoneOffset?: number;
+          breakdown?: "total" | "model" | "target";
+        };
+        if (query.from === undefined || query.to === undefined || query.from >= query.to)
+          throw Object.assign(new Error("Invalid time range"), {
+            statusCode: 400,
+            code: "bad_request",
+          });
+        return options.usageStatisticsService!.trend(
+          query.from,
+          query.to,
+          query.targetId,
+          query.model,
+          query.granularity ?? "day",
+          query.timezoneOffset ?? 0,
+          query.breakdown ?? "total",
+        );
+      },
+    );
+    server.get(
+      "/api/usage-statistics/options",
+      {
+        schema: {
+          querystring: {
+            type: "object",
+            required: ["from", "to"],
+            additionalProperties: false,
+            properties: {
+              from: { type: "string", format: "date-time" },
+              to: { type: "string", format: "date-time" },
+              targetId: { type: "string", minLength: 1, maxLength: 200 },
+            },
+          },
+        },
+      },
+      (request) => {
+        const query = request.query as { from?: string; to?: string; targetId?: string };
+        if (query.from === undefined || query.to === undefined || query.from >= query.to)
+          throw Object.assign(new Error("Invalid time range"), {
+            statusCode: 400,
+            code: "bad_request",
+          });
+        const rows = options.usageStatisticsService!.repositoryRows(query.from, query.to);
+        const targets = new Map<string, string>();
+        const models = new Set<string>();
+        for (const row of rows) {
+          const id = String(row["target_id"] ?? row["target_url"] ?? "unknown");
+          targets.set(id, String(row["target_name"] ?? row["target_url"] ?? id));
+          if (query.targetId && query.targetId !== id) continue;
+          const model = String(row["billing_model"] ?? "");
+          if (model) models.add(model);
+        }
+        return {
+          targets: [...targets].map(([id, name]) => ({ id, name })),
+          models: [...models].sort(),
+        };
+      },
+    );
   }
   if (options.usageStatisticsService !== undefined) {
-    server.get("/api/usage-statistics/export", { schema: { querystring: { type: "object", required: ["from", "to"], additionalProperties: false, properties: { from: { type: "string", format: "date-time" }, to: { type: "string", format: "date-time" }, targetId: { type: "string", minLength: 1, maxLength: 200 }, model: { type: "string", minLength: 1, maxLength: 200 }, granularity: { type: "string", enum: ["day", "week", "month", "auto"] } } } } }, (request, reply) => {
-      const q = request.query as {
-        from?: string;
-        to?: string;
-        targetId?: string;
-        model?: string;
-        granularity?: string;
-      };
-      if (!q.from || !q.to || q.from >= q.to)
-        throw Object.assign(new Error("Invalid time range"), {
-          statusCode: 400,
-          code: "bad_request",
-        });
-      const trend = options.usageStatisticsService!.trend(
-        q.from,
-        q.to,
-        q.targetId,
-        q.model,
-        q.granularity ?? "day",
-      );
-      const lines = [
-        "bucket,requests,tasks,input,output,cache_read,cache_write,cost",
-        ...trend.points.map((p) =>
-          [
-            csvCell(p["bucket"]),
-            p["requests"],
-            p["tasks"],
-            p["input"],
-            p["output"],
-            p["cache_read"],
-            p["cache_write"],
-            p["cost"],
-          ].join(","),
-        ),
-      ];
-      return reply.type("text/csv; charset=utf-8").send("\uFEFF" + lines.join("\n") + "\n");
-    });
+    server.get(
+      "/api/usage-statistics/export",
+      {
+        schema: {
+          querystring: {
+            type: "object",
+            required: ["from", "to"],
+            additionalProperties: false,
+            properties: {
+              from: { type: "string", format: "date-time" },
+              to: { type: "string", format: "date-time" },
+              targetId: { type: "string", minLength: 1, maxLength: 200 },
+              model: { type: "string", minLength: 1, maxLength: 200 },
+              granularity: { type: "string", enum: ["day", "week", "month", "auto"] },
+              timezoneOffset: { type: "integer", minimum: -840, maximum: 840 },
+            },
+          },
+        },
+      },
+      (request, reply) => {
+        const q = request.query as {
+          from?: string;
+          to?: string;
+          targetId?: string;
+          model?: string;
+          granularity?: string;
+          timezoneOffset?: number;
+        };
+        if (!q.from || !q.to || q.from >= q.to)
+          throw Object.assign(new Error("Invalid time range"), {
+            statusCode: 400,
+            code: "bad_request",
+          });
+        const trend = options.usageStatisticsService!.trend(
+          q.from,
+          q.to,
+          q.targetId,
+          q.model,
+          q.granularity ?? "day",
+          q.timezoneOffset ?? 0,
+        );
+        const lines = [
+          "bucket,requests,tasks,input,output,cache_read,cache_write,cost,unpriced",
+          ...trend.points.map((p) =>
+            [
+              csvCell(p["bucket"]),
+              p["requests"],
+              p["tasks"],
+              p["input"],
+              p["output"],
+              p["cache_read"],
+              p["cache_write"],
+              p["cost"],
+              p["unpriced"] ?? 0,
+            ].join(","),
+          ),
+        ];
+        return reply.type("text/csv; charset=utf-8").send("\uFEFF" + lines.join("\n") + "\n");
+      },
+    );
   }
   server.addHook("onRequest", (request, _reply, done) => {
     requestStarted.set(request, performance.now());

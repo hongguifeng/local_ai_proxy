@@ -1856,6 +1856,7 @@ async function loadStatistics() {
   const to = $("statsTo").value ? new Date($("statsTo").value) : now;
   const iso = (d) => d.toISOString();
   const extra = `${$("statsTarget")?.value ? `&targetId=${encodeURIComponent($("statsTarget").value)}` : ""}${$("statsModel")?.value ? `&model=${encodeURIComponent($("statsModel").value)}` : ""}`;
+  const timezoneOffset = -new Date().getTimezoneOffset();
   const result = await fetch(
     `/api/usage-statistics/overview?from=${encodeURIComponent(iso(from))}&to=${encodeURIComponent(iso(to))}&metric=${$("statsMetric").value}`,
   ).then(async (r) => {
@@ -1880,14 +1881,20 @@ async function loadStatistics() {
     return `<div class="pie-chart"><svg viewBox="0 0 100 100" role="img" aria-label="distribution">${slices}</svg><div class="pie-legend-list">${items
       .map((x, i) => {
         const pct = total ? (Number(x.value || 0) / total) * 100 : 0;
-        const displayValue = metric === "cost" ? formatCurrencyAmount(x.cost) : Number(x.value).toLocaleString(english ? "en-US" : "zh-CN");
-        return `<button type="button" class="pie-legend" data-pie-index="${i}"><i style="background:hsl(${(i * 47) % 360} 70% 50%)"></i><span>${x.id}</span><em>${pct.toFixed(1)}%</em><b>${displayValue}</b></button>`;
+        const displayValue =
+          metric === "cost"
+            ? formatCurrencyAmount(x.cost)
+            : Number(x.value).toLocaleString(english ? "en-US" : "zh-CN");
+        const color = `hsl(${(i * 47) % 360} 70% 42%)`;
+        return `<button type="button" class="pie-legend" data-pie-index="${i}" style="--pie-color:${color}"><i style="background:${color}"></i><span style="color:${color}">${x.id}</span><em style="color:${color}">${pct.toFixed(1)}%</em><b>${displayValue}</b></button>`;
       })
       .join("")}</div></div>`;
   };
   const english = state.language === "en";
   const statDisplay = (key, value) =>
-    key === "cost" ? formatCurrencyAmount(value) : Number(value).toLocaleString(english ? "en-US" : "zh-CN");
+    key === "cost"
+      ? formatCurrencyAmount(value)
+      : Number(value).toLocaleString(english ? "en-US" : "zh-CN");
   const targetTitle = english ? "Target distribution" : "转发地址分布";
   const modelTitle = english ? "Model distribution" : "模型分布";
   const totalTokens = ["input", "output", "cache_read", "cache_write"].reduce(
@@ -1936,49 +1943,95 @@ async function loadStatistics() {
       }),
     );
   const trend = await fetch(
-    `/api/usage-statistics/trend?from=${encodeURIComponent(iso(from))}&to=${encodeURIComponent(iso(to))}&granularity=${$("statsGranularity")?.value || "day"}${extra}`,
+    `/api/usage-statistics/trend?from=${encodeURIComponent(iso(from))}&to=${encodeURIComponent(iso(to))}&granularity=${$("statsGranularity")?.value || "day"}&timezoneOffset=${timezoneOffset}&breakdown=${$("statsBreakdown")?.value || "total"}${extra}`,
   ).then(async (r) => {
     if (!r.ok) throw new Error(`趋势请求失败 (${r.status})`);
     return r.json();
   });
   const costMode = $("statsMetric").value === "cost";
+  const breakdown = $("statsBreakdown")?.value || "total";
+  const groupKey = breakdown === "model" ? "by_model" : breakdown === "target" ? "by_target" : null;
+  const groupsFor = (point) =>
+    groupKey && Array.isArray(point[groupKey]) && point[groupKey].length
+      ? point[groupKey]
+      : [
+          {
+            id: "total",
+            input: point.input,
+            output: point.output,
+            cache_read: point.cache_read,
+            cache_write: point.cache_write,
+            cost: point.cost,
+          },
+        ];
+  const colors = [
+    "#2563eb",
+    "#0f766e",
+    "#c2410c",
+    "#7c3aed",
+    "#be123c",
+    "#4d7c0f",
+    "#a16207",
+    "#0369a1",
+  ];
+  const groupColor = (id, index) => colors[index % colors.length];
   const maxRequests = Math.max(
     1,
-    ...trend.points.map(
-      (point) =>
-        Number(
-          costMode
-            ? point.cost
-            : Number(point.input) +
-                Number(point.output) +
-                Number(point.cache_read) +
-                Number(point.cache_write),
-        ) || 0,
+    ...trend.points.map((point) =>
+      groupsFor(point).reduce(
+        (sum, g) =>
+          sum +
+          (costMode
+            ? Number(g.cost)
+            : Number(g.input) + Number(g.output) + Number(g.cache_read) + Number(g.cache_write)),
+        0,
+      ),
     ),
   );
   const trendBars = trend.points
     .map((point) => {
-      const metricValue = costMode
-        ? Number(point.cost)
-        : Number(point.input) +
-          Number(point.output) +
-          Number(point.cache_read) +
-          Number(point.cache_write);
+      const groups = groupsFor(point);
+      const metricValue = groups.reduce(
+        (sum, g) =>
+          sum +
+          (costMode
+            ? Number(g.cost)
+            : Number(g.input) + Number(g.output) + Number(g.cache_read) + Number(g.cache_write)),
+        0,
+      );
       const h = Math.max(2, ((metricValue || 0) / maxRequests) * 210);
       const tokens = ["input", "output", "cache_read", "cache_write"];
       const trendCost = formatCurrencyAmount(pricingDecimalFromNano(point.cost));
-      const detail = `${point.bucket} | 请求 ${point.requests} | Task ${point.tasks} | 输入 ${point.input} | 输出 ${point.output} | 缓存读 ${point.cache_read} | 缓存写 ${point.cache_write} | 费用 ${trendCost}`;
-      return `<div class="trend-item"><span class="trend-bar" style="height:${h}px" title="${detail}" aria-label="${detail}">${costMode ? "" : tokens.map((k) => `<i class="trend-segment ${k}" style="height:${Math.max(1, (Number(point[k]) / Math.max(1, Number(point.input) + Number(point.output) + Number(point.cache_read) + Number(point.cache_write))) * h)}px"></i>`).join("")}</span><small>${point.bucket}</small></div>`;
+      const detail = `${point.bucket} | 请求 ${point.requests} | Task ${point.tasks} | 费用 ${trendCost}`;
+      const segments = groups
+        .map((g, i) => {
+          const value = costMode
+            ? Number(g.cost)
+            : Number(g.input) + Number(g.output) + Number(g.cache_read) + Number(g.cache_write);
+          return `<i class="trend-segment ${costMode ? "cost" : "input"}" style="height:${Math.max(1, (value / Math.max(1, metricValue)) * h)}px;background:${groupColor(g.id, i)}" title="${g.id}: ${costMode ? formatCurrencyAmount(pricingDecimalFromNano(g.cost)) : value.toLocaleString()}"></i>`;
+        })
+        .join("");
+      return `<div class="trend-item"><span class="trend-bar" style="height:${h}px" title="${detail}" aria-label="${detail}">${segments}</span><small>${point.bucket}</small></div>`;
     })
     .join("");
   const trendContent = trend.points.length
     ? trendBars
     : `<div class="stats-empty">${english ? "No trend data" : "暂无趋势数据"}</div>`;
   const headers = english
-    ? ["Time", "Requests", "Tasks", "Input", "Output", "Cache read", "Cache write", "Cost", "Unpriced"]
+    ? [
+        "Time",
+        "Requests",
+        "Tasks",
+        "Input",
+        "Output",
+        "Cache read",
+        "Cache write",
+        "Cost",
+        "Unpriced",
+      ]
     : ["时间", "请求", "Task", "输入", "输出", "缓存读", "缓存写", "费用", "未计价"];
   $("statsTrend").innerHTML =
-    `<section class="trend-card"><div class="trend-card-title"><h3>${english ? "Usage trend" : "使用趋势"}</h3><span>${trend.granularity} · ${costMode ? (english ? "CNY" : "元") : english ? "tokens" : "Token"}</span></div>${costMode ? "" : `<div class="trend-legend"><span><i class="input"></i>${english ? "Input" : "输入"}</span><span><i class="output"></i>${english ? "Output" : "输出"}</span><span><i class="cache_read"></i>${english ? "Cache read" : "缓存读"}</span><span><i class="cache_write"></i>${english ? "Cache write" : "缓存写"}</span></div>`}<div class="trend-bars">${trendContent}</div><table><thead><tr>${headers.map((h) => `<th>${h}</th>`).join("")}</tr></thead><tbody>${trend.points.map((p) => `<tr><td>${p.bucket}</td><td>${p.requests}</td><td>${p.tasks}</td><td>${p.input}</td><td>${p.output}</td><td>${p.cache_read}</td><td>${p.cache_write}</td><td>${formatCurrencyAmount(pricingDecimalFromNano(p.cost))}</td><td>${p.unpriced ?? 0}</td></tr>`).join("")}</tbody></table></section>`;
+    `<section class="trend-card"><div class="trend-card-title"><h3>${english ? "Usage trend" : "使用趋势"}</h3><span>${trend.granularity} · ${breakdown === "model" ? "模型叠加" : breakdown === "target" ? "转发地址叠加" : "总量"} · ${costMode ? (english ? "CNY" : "元") : english ? "tokens" : "Token"}</span></div><div class="trend-legend">${breakdown === "total" && !costMode ? `<span><i class="input"></i>${english ? "Input" : "输入"}</span><span><i class="output"></i>${english ? "Output" : "输出"}</span><span><i class="cache_read"></i>${english ? "Cache read" : "缓存读"}</span><span><i class="cache_write"></i>${english ? "Cache write" : "缓存写"}</span>` : [...new Map(trend.points.flatMap((p) => groupsFor(p).filter((g) => g.id !== "total").map((g) => [g.id, g]))).keys()].map((id, i) => `<span><i style="background:${groupColor(id, i)}"></i>${id}</span>`).join("")}</div><div class="trend-bars">${trendContent}</div><table><thead><tr>${headers.map((h) => `<th>${h}</th>`).join("")}</tr></thead><tbody>${trend.points.map((p) => `<tr><td>${p.bucket}</td><td>${p.requests}</td><td>${p.tasks}</td><td>${p.input}</td><td>${p.output}</td><td>${p.cache_read}</td><td>${p.cache_write}</td><td>${formatCurrencyAmount(pricingDecimalFromNano(p.cost))}</td><td>${p.unpriced ?? 0}</td></tr>`).join("")}</tbody></table></section>`;
 }
 function showStatisticsError(error) {
   $("statsOverview").innerHTML =
@@ -2000,7 +2053,9 @@ async function loadStatisticsOptions() {
   };
   if ($("statsFrom") && !$("statsFrom").value) $("statsFrom").value = localInput(from);
   if ($("statsTo") && !$("statsTo").value) $("statsTo").value = localInput(to);
-  const targetParam = $("statsTarget")?.value ? `&targetId=${encodeURIComponent($("statsTarget").value)}` : "";
+  const targetParam = $("statsTarget")?.value
+    ? `&targetId=${encodeURIComponent($("statsTarget").value)}`
+    : "";
   const data = await fetch(
     `/api/usage-statistics/options?from=${encodeURIComponent(from.toISOString())}&to=${encodeURIComponent(to.toISOString())}${targetParam}`,
   ).then((r) => r.json());
@@ -2031,11 +2086,18 @@ document.querySelectorAll("[data-stats-range]").forEach((button) =>
   button.addEventListener("click", () => {
     const days = Number(button.dataset.statsRange || 7);
     const to = new Date();
-    const from = days === 0 ? new Date(to.getFullYear(), to.getMonth(), to.getDate()) : new Date(to.getTime() - days * 86400000);
+    const from =
+      days === 0
+        ? new Date(to.getFullYear(), to.getMonth(), to.getDate())
+        : new Date(to.getTime() - days * 86400000);
     $("statsFrom").value = statsLocalInput(from);
     $("statsTo").value = statsLocalInput(to);
-    document.querySelectorAll("[data-stats-range]").forEach((item) => item.classList.toggle("active", item === button));
-    loadStatisticsOptions().then(() => loadStatistics()).catch(showStatisticsError);
+    document
+      .querySelectorAll("[data-stats-range]")
+      .forEach((item) => item.classList.toggle("active", item === button));
+    loadStatisticsOptions()
+      .then(() => loadStatistics())
+      .catch(showStatisticsError);
   }),
 );
 $("statsFollowNow")?.addEventListener("change", () => {
@@ -2046,26 +2108,31 @@ $("statsFollowNow")?.addEventListener("change", () => {
 });
 $("exportStatistics")?.addEventListener("click", () => {
   const now = new Date();
-  const from = $("statsFrom").value ? new Date($("statsFrom").value) : new Date(now.getTime() - 7 * 86400000);
+  const from = $("statsFrom").value
+    ? new Date($("statsFrom").value)
+    : new Date(now.getTime() - 7 * 86400000);
   const to = $("statsTo").value ? new Date($("statsTo").value) : now;
   const params = new URLSearchParams({
     from: from.toISOString(),
     to: to.toISOString(),
     granularity: $("statsGranularity")?.value || "day",
+    timezoneOffset: String(-new Date().getTimezoneOffset()),
   });
   if ($("statsTarget")?.value) params.set("targetId", $("statsTarget").value);
   if ($("statsModel")?.value) params.set("model", $("statsModel").value);
-  window.open(
-    `/api/usage-statistics/export?${params.toString()}`,
-    "_blank",
-  );
+  window.open(`/api/usage-statistics/export?${params.toString()}`, "_blank");
 });
 $("statsMetric")?.addEventListener("change", () => loadStatistics().catch((e) => toast(e.message)));
 $("statsTarget")?.addEventListener("change", () =>
-  loadStatisticsOptions().then(() => loadStatistics()).catch(showStatisticsError),
+  loadStatisticsOptions()
+    .then(() => loadStatistics())
+    .catch(showStatisticsError),
 );
 $("statsModel")?.addEventListener("change", () => loadStatistics().catch((e) => toast(e.message)));
 $("statsGranularity")?.addEventListener("change", () =>
+  loadStatistics().catch((e) => toast(e.message)),
+);
+$("statsBreakdown")?.addEventListener("change", () =>
   loadStatistics().catch((e) => toast(e.message)),
 );
 $("statsFrom")?.addEventListener("change", () => {

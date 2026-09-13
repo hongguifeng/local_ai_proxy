@@ -171,7 +171,10 @@
             <input id="statsFrom" type="datetime-local" /><input
               id="statsTo"
               type="datetime-local"
-            /><label class="stats-live"><input id="statsFollowNow" type="checkbox" checked /> <span data-i18n="statsFollowNow">实时结束</span></label><select id="statsMetric">
+            /><label class="stats-live"
+              ><input id="statsFollowNow" type="checkbox" checked />
+              <span data-i18n="statsFollowNow">实时结束</span></label
+            ><select id="statsMetric">
               <option value="token">Token</option>
               <option value="cost">费用</option>
             </select>
@@ -180,6 +183,11 @@
               <option value="day">按日</option>
               <option value="week">按周</option>
               <option value="month">按月</option>
+            </select>
+            <select id="statsBreakdown" aria-label="趋势分组">
+              <option value="total">总量趋势</option>
+              <option value="model">按模型叠加</option>
+              <option value="target">按转发地址叠加</option>
             </select>
             <select id="statsTarget">
               <option value="">全部转发地址</option>

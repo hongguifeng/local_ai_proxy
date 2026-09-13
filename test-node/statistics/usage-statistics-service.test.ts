@@ -89,4 +89,47 @@ describe("UsageStatisticsService", () => {
       Number(trend.points[0]!["input"]),
     );
   });
+
+  it("buckets timestamps using the requested local timezone and returns breakdowns", () => {
+    const service = new UsageStatisticsService({
+      usageStatisticsRows: () => [
+        {
+          task_id: "t1",
+          target_id: "a",
+          target_name: "Alpha",
+          billing_model: "m1",
+          timestamp: "2026-09-12T16:30:00Z",
+          pricing_status: "priced",
+          billing_usage_json: JSON.stringify({ input_uncached_tokens: 3 }),
+          cost_nano_cny: "5",
+        },
+        {
+          task_id: "t2",
+          target_id: "b",
+          target_name: "Beta",
+          billing_model: "m2",
+          timestamp: "2026-09-12T17:30:00Z",
+          pricing_status: "priced",
+          billing_usage_json: JSON.stringify({ input_uncached_tokens: 4 }),
+          cost_nano_cny: "6",
+        },
+      ],
+    });
+    const result = service.trend(
+      "2026-09-12",
+      "2026-09-14",
+      undefined,
+      undefined,
+      "day",
+      480,
+      "model",
+    );
+    expect(result.points[0]).toMatchObject({ bucket: "2026-09-13", input: "7" });
+    expect(result.points[0]!["by_model"]).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ id: "m1", input: "3" }),
+        expect.objectContaining({ id: "m2", input: "4" }),
+      ]),
+    );
+  });
 });

@@ -17,6 +17,7 @@ export interface UsageStatisticsTrend {
   readonly granularity: string;
   readonly points: readonly Record<string, unknown>[];
 }
+type TrendBreakdown = "total" | "model" | "target";
 
 const empty = () => ({
   input: 0n,
@@ -111,8 +112,17 @@ export class UsageStatisticsService {
     targetId?: string,
     model?: string,
     granularity = "day",
+    timezoneOffsetMinutes = 0,
+    breakdown: TrendBreakdown = "total",
   ): UsageStatisticsTrend {
-    const points = new Map<string, ReturnType<typeof empty>>();
+    const points = new Map<
+      string,
+      {
+        total: ReturnType<typeof empty>;
+        byModel: Map<string, ReturnType<typeof empty>>;
+        byTarget: Map<string, ReturnType<typeof empty>>;
+      }
+    >();
     for (const row of this.repository.usageStatisticsRows(from, to)) {
       if (
         targetId !== undefined &&
@@ -120,11 +130,22 @@ export class UsageStatisticsService {
       )
         continue;
       if (model !== undefined && String(row["billing_model"] ?? "") !== model) continue;
-      const key = bucketKey(String(row["timestamp"]), granularity);
-      const value = points.get(key) ?? empty();
+      const key = bucketKey(String(row["timestamp"]), granularity, timezoneOffsetMinutes);
+      const value = points.get(key) ?? { total: empty(), byModel: new Map(), byTarget: new Map() };
       const parsed = this.rowBucket(row, {});
-      if (parsed !== undefined) this.add(value, parsed, row);
-      else value.unpriced++;
+      if (parsed !== undefined) {
+        this.add(value.total, parsed, row);
+        const modelKey = String(row["billing_model"] ?? "unknown");
+        const targetKey = String(
+          row["target_name"] ?? row["target_id"] ?? row["target_url"] ?? "unknown",
+        );
+        const model = value.byModel.get(modelKey) ?? empty();
+        const target = value.byTarget.get(targetKey) ?? empty();
+        this.add(model, parsed, row);
+        this.add(target, parsed, row);
+        value.byModel.set(modelKey, model);
+        value.byTarget.set(targetKey, target);
+      } else value.total.unpriced++;
       points.set(key, value);
     }
     return {
@@ -133,17 +154,34 @@ export class UsageStatisticsService {
       points: [...points]
         .sort(([a], [b]) => a.localeCompare(b))
         .slice(-366)
-        .map(([bucket, v]) => ({
-          bucket,
-          requests: v.requests,
-          tasks: v.tasks.size,
-          input: v.input.toString(),
-          output: v.output.toString(),
-          cache_read: v.cacheRead.toString(),
-          cache_write: v.cacheWrite.toString(),
-          cost: v.cost.toString(),
-          unpriced: v.unpriced,
-        })),
+        .map(([bucket, groups]) => {
+          const v = groups.total;
+          const serialize = (m: Map<string, ReturnType<typeof empty>>) =>
+            [...m].map(([id, x]) => ({
+              id,
+              requests: x.requests,
+              tasks: x.tasks.size,
+              input: x.input.toString(),
+              output: x.output.toString(),
+              cache_read: x.cacheRead.toString(),
+              cache_write: x.cacheWrite.toString(),
+              cost: x.cost.toString(),
+              unpriced: x.unpriced,
+            }));
+          return {
+            bucket,
+            requests: v.requests,
+            tasks: v.tasks.size,
+            input: v.input.toString(),
+            output: v.output.toString(),
+            cache_read: v.cacheRead.toString(),
+            cache_write: v.cacheWrite.toString(),
+            cost: v.cost.toString(),
+            unpriced: v.unpriced,
+            by_model: breakdown === "model" ? serialize(groups.byModel) : [],
+            by_target: breakdown === "target" ? serialize(groups.byTarget) : [],
+          };
+        }),
     };
   }
 
@@ -198,9 +236,10 @@ export class UsageStatisticsService {
   }
 }
 
-function bucketKey(timestamp: string, granularity: string): string {
+function bucketKey(timestamp: string, granularity: string, timezoneOffsetMinutes = 0): string {
   const d = new Date(timestamp);
   if (Number.isNaN(d.getTime())) return "invalid";
+  d.setUTCMinutes(d.getUTCMinutes() + timezoneOffsetMinutes);
   if (granularity === "month")
     return `${d.getUTCFullYear()}-${String(d.getUTCMonth() + 1).padStart(2, "0")}`;
   if (granularity === "week") {
