@@ -287,6 +287,27 @@ export function createAdminServer(options: AdminServerOptions): FastifyInstance 
         query.granularity ?? "day",
       );
     });
+    server.get("/api/usage-statistics/options", (request) => {
+      const query = request.query as { from?: string; to?: string };
+      if (query.from === undefined || query.to === undefined || query.from >= query.to)
+        throw Object.assign(new Error("Invalid time range"), {
+          statusCode: 400,
+          code: "bad_request",
+        });
+      const rows = options.usageStatisticsService!.repositoryRows(query.from, query.to);
+      const targets = new Map<string, string>();
+      const models = new Set<string>();
+      for (const row of rows) {
+        const id = String(row["target_id"] ?? row["target_url"] ?? "unknown");
+        targets.set(id, String(row["target_name"] ?? row["target_url"] ?? id));
+        const model = String(row["billing_model"] ?? "");
+        if (model) models.add(model);
+      }
+      return {
+        targets: [...targets].map(([id, name]) => ({ id, name })),
+        models: [...models].sort(),
+      };
+    });
   }
   server.addHook("onRequest", (request, _reply, done) => {
     requestStarted.set(request, performance.now());
