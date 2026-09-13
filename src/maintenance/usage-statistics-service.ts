@@ -1,4 +1,7 @@
-import type { TrafficRepository, RepositoryRecord } from "../persistence/repository.js";
+import type { RepositoryRecord } from "../persistence/repository.js";
+interface StatisticsRepository {
+  usageStatisticsRows(from: string, to: string): readonly RepositoryRecord[];
+}
 
 export type StatisticsMetric = "token" | "cost";
 
@@ -26,7 +29,7 @@ const empty = () => ({
 });
 
 export class UsageStatisticsService {
-  constructor(private readonly repository: TrafficRepository) {}
+  constructor(private readonly repository: StatisticsRepository) {}
   repositoryRows(from: string, to: string): readonly RepositoryRecord[] {
     return this.repository.usageStatisticsRows(from, to);
   }

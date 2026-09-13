@@ -96,8 +96,19 @@ export class LogQueryService {
   }
 
   usageStatisticsService(): UsageStatisticsService | undefined {
-    const root = this.#logRoots().find((item) => item !== "");
-    return root === undefined ? undefined : new UsageStatisticsService(new TrafficRepository(root));
+    const roots = [...new Set(this.#logRoots().filter((item) => item !== ""))];
+    if (roots.length === 0) return undefined;
+    return new UsageStatisticsService({
+      usageStatisticsRows: (from, to) =>
+        roots.flatMap((root) => {
+          const repository = new TrafficRepository(root);
+          try {
+            return repository.usageStatisticsRows(from, to);
+          } finally {
+            repository.close();
+          }
+        }),
+    });
   }
 
   listGroups(query = "", limit = 100, offset = 0): LogGroupPage {
