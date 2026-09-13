@@ -300,8 +300,8 @@ export function createAdminServer(options: AdminServerOptions): FastifyInstance 
         query.granularity ?? "day",
       );
     });
-    server.get("/api/usage-statistics/options", { schema: { querystring: { type: "object", required: ["from", "to"], additionalProperties: false, properties: { from: { type: "string", format: "date-time" }, to: { type: "string", format: "date-time" } } } } }, (request) => {
-      const query = request.query as { from?: string; to?: string };
+    server.get("/api/usage-statistics/options", { schema: { querystring: { type: "object", required: ["from", "to"], additionalProperties: false, properties: { from: { type: "string", format: "date-time" }, to: { type: "string", format: "date-time" }, targetId: { type: "string", minLength: 1, maxLength: 200 } } } } }, (request) => {
+      const query = request.query as { from?: string; to?: string; targetId?: string };
       if (query.from === undefined || query.to === undefined || query.from >= query.to)
         throw Object.assign(new Error("Invalid time range"), {
           statusCode: 400,
@@ -313,6 +313,7 @@ export function createAdminServer(options: AdminServerOptions): FastifyInstance 
       for (const row of rows) {
         const id = String(row["target_id"] ?? row["target_url"] ?? "unknown");
         targets.set(id, String(row["target_name"] ?? row["target_url"] ?? id));
+        if (query.targetId && query.targetId !== id) continue;
         const model = String(row["billing_model"] ?? "");
         if (model) models.add(model);
       }

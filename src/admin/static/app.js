@@ -2000,8 +2000,9 @@ async function loadStatisticsOptions() {
   };
   if ($("statsFrom") && !$("statsFrom").value) $("statsFrom").value = localInput(from);
   if ($("statsTo") && !$("statsTo").value) $("statsTo").value = localInput(to);
+  const targetParam = $("statsTarget")?.value ? `&targetId=${encodeURIComponent($("statsTarget").value)}` : "";
   const data = await fetch(
-    `/api/usage-statistics/options?from=${encodeURIComponent(from.toISOString())}&to=${encodeURIComponent(to.toISOString())}`,
+    `/api/usage-statistics/options?from=${encodeURIComponent(from.toISOString())}&to=${encodeURIComponent(to.toISOString())}${targetParam}`,
   ).then((r) => r.json());
   const selectedTarget = $("statsTarget")?.value || "";
   const selectedModel = $("statsModel")?.value || "";
@@ -2060,7 +2061,9 @@ $("exportStatistics")?.addEventListener("click", () => {
   );
 });
 $("statsMetric")?.addEventListener("change", () => loadStatistics().catch((e) => toast(e.message)));
-$("statsTarget")?.addEventListener("change", () => loadStatistics().catch((e) => toast(e.message)));
+$("statsTarget")?.addEventListener("change", () =>
+  loadStatisticsOptions().then(() => loadStatistics()).catch(showStatisticsError),
+);
 $("statsModel")?.addEventListener("change", () => loadStatistics().catch((e) => toast(e.message)));
 $("statsGranularity")?.addEventListener("change", () =>
   loadStatistics().catch((e) => toast(e.message)),
