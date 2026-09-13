@@ -1877,7 +1877,7 @@ async function loadStatistics() {
   };
   const english = state.language === "en";
   const statDisplay = (key, value) =>
-    key === "cost" ? formatCurrencyAmount(pricingDecimalFromNano(value)) : Number(value).toLocaleString(english ? "en-US" : "zh-CN");
+    key === "cost" ? formatCurrencyAmount(value) : Number(value).toLocaleString(english ? "en-US" : "zh-CN");
   const targetTitle = english ? "Target distribution" : "转发地址分布";
   const modelTitle = english ? "Model distribution" : "模型分布";
   const statLabels = english
@@ -1948,7 +1948,8 @@ async function loadStatistics() {
           Number(point.cache_write);
       const h = Math.max(2, ((metricValue || 0) / maxRequests) * 120);
       const tokens = ["input", "output", "cache_read", "cache_write"];
-      const detail = `${point.bucket} | 请求 ${point.requests} | Task ${point.tasks} | 输入 ${point.input} | 输出 ${point.output} | 缓存读 ${point.cache_read} | 缓存写 ${point.cache_write} | 费用 ${pricingDecimalFromNano(point.cost)}`;
+      const trendCost = formatCurrencyAmount(pricingDecimalFromNano(point.cost));
+      const detail = `${point.bucket} | 请求 ${point.requests} | Task ${point.tasks} | 输入 ${point.input} | 输出 ${point.output} | 缓存读 ${point.cache_read} | 缓存写 ${point.cache_write} | 费用 ${trendCost}`;
       return `<span class="trend-bar" style="height:${h}px" title="${detail}" aria-label="${detail}">${costMode ? "" : tokens.map((k) => `<i class="trend-segment ${k}" style="height:${Math.max(1, (Number(point[k]) / Math.max(1, Number(point.input) + Number(point.output) + Number(point.cache_read) + Number(point.cache_write))) * h)}px"></i>`).join("")}</span>`;
     })
     .join("");
