@@ -1630,6 +1630,7 @@ label span {
 .statistics-view {
   padding: 24px;
   background: #f5f7fb;
+  overflow: auto;
 }
 .statistics-view .toolbar {
   margin-bottom: 18px;
