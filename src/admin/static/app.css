@@ -1719,14 +1719,16 @@ label span {
   display: flex;
   align-items: flex-end;
   gap: 8px;
-  min-height: 130px;
+  min-height: 260px;
+  height: 260px;
   padding: 10px;
   border-bottom: 1px solid #ddd;
 }
 .trend-bar {
   display: flex;
   flex-direction: column-reverse;
-  width: 24px;
+  flex: 1 1 24px;
+  max-width: 52px;
   min-height: 2px;
   background: #2f80ed;
   border-radius: 4px 4px 0 0;
