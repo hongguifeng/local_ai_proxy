@@ -1679,3 +1679,27 @@ label span {
 .stats-trend td:first-child {
   text-align: left;
 }
+.pie-chart {
+  display: grid;
+  gap: 4px;
+  margin: 8px 0 14px;
+  padding: 12px;
+  border-radius: 8px;
+  background: linear-gradient(90deg, #2f80ed 0 25%, #27ae60 25% 50%, #f2994a 50% 75%, #9b51e0 75%);
+  color: #fff;
+}
+.trend-bars {
+  display: flex;
+  align-items: flex-end;
+  gap: 8px;
+  min-height: 130px;
+  padding: 10px;
+  border-bottom: 1px solid #ddd;
+}
+.trend-bar {
+  display: block;
+  width: 24px;
+  min-height: 2px;
+  background: #2f80ed;
+  border-radius: 4px 4px 0 0;
+}
