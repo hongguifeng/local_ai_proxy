@@ -1864,12 +1864,19 @@ async function loadStatistics() {
   const trend = await fetch(
     `/api/usage-statistics/trend?from=${encodeURIComponent(iso(from))}&to=${encodeURIComponent(iso(to))}&granularity=${$("statsGranularity")?.value || "day"}${extra}`,
   ).then((r) => r.json());
-  const maxRequests = Math.max(1, ...trend.points.map((point) => Number(point.requests) || 0));
+  const costMode = $("statsMetric").value === "cost";
+  const maxRequests = Math.max(
+    1,
+    ...trend.points.map((point) => Number(costMode ? point.cost : point.requests) || 0),
+  );
   const trendBars = trend.points
     .map((point) => {
-      const h = Math.max(2, ((Number(point.requests) || 0) / maxRequests) * 120);
+      const h = Math.max(
+        2,
+        ((Number(costMode ? point.cost : point.requests) || 0) / maxRequests) * 120,
+      );
       const tokens = ["input", "output", "cache_read", "cache_write"];
-      return `<span class="trend-bar" style="height:${h}px" title="${point.bucket}: ${point.requests}">${tokens.map((k) => `<i class="trend-segment ${k}" style="height:${Math.max(1, (Number(point[k]) / Math.max(1, Number(point.input) + Number(point.output) + Number(point.cache_read) + Number(point.cache_write))) * h)}px"></i>`).join("")}</span>`;
+      return `<span class="trend-bar" style="height:${h}px" title="${point.bucket}: ${costMode ? point.cost : point.requests}">${costMode ? "" : tokens.map((k) => `<i class="trend-segment ${k}" style="height:${Math.max(1, (Number(point[k]) / Math.max(1, Number(point.input) + Number(point.output) + Number(point.cache_read) + Number(point.cache_write))) * h)}px"></i>`).join("")}</span>`;
     })
     .join("");
   $("statsTrend").innerHTML =
