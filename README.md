@@ -96,3 +96,5 @@ Keep the console and proxy listeners bound to `127.0.0.1` where possible. Logs m
 # Usage statistics
 
 The admin page includes a Usage Statistics tab for reviewing token and cost distribution by forwarding target and model, with trend tables and CSV export.
+
+The read-only endpoints are `/api/usage-statistics/overview`, `/api/usage-statistics/trend`, `/api/usage-statistics/options`, and `/api/usage-statistics/export`. They accept ISO-8601 `from`/`to` values; trend and export also accept `targetId`, `model`, and `granularity` (`day`, `week`, or `month`).
