@@ -1964,9 +1964,15 @@ describe("statistics page visual smoke", () => {
     });
     await loadAdminPage();
     await page.locator('[data-tab="statistics"]').click();
+    await expectPage(page.locator("#statsTarget option")).toHaveCount(2);
+    await page.locator("#statsTarget").selectOption("a");
+    await page.locator("#statsModel").selectOption("m");
     await page.locator("#statsGranularity").selectOption("month");
     await expectPage
       .poll(() => requests.some((url) => url.includes("granularity=month")))
       .toBe(true);
+    expect(requests.some((url) => url.includes("targetId=a") && url.includes("model=m"))).toBe(
+      true,
+    );
   });
 });
