@@ -93,3 +93,6 @@ Enter fields such as `temperature, top_p, top_k` under **Request fields to remov
 Proxy settings are saved in `logs/proxies.json`; console settings are saved in `llm-proxy.json`. You usually do not need to edit these files manually.
 
 Keep the console and proxy listeners bound to `127.0.0.1` where possible. Logs may contain prompts, documents, API keys, and tool output; do not commit configuration files or log directories. Stop the proxy and back up the entire log directory before migration or upgrades, including `traffic.db-wal` and `traffic.db-shm`. See [docs/migration-rollback.md](docs/migration-rollback.md) for details.
+# Usage statistics
+
+The admin page includes a Usage Statistics tab for reviewing token and cost distribution by forwarding target and model, with trend tables and CSV export.
