@@ -93,4 +93,6 @@ qwen-local => qwen3
 代理设置会保存到 `logs/proxies.json`，管理页面设置保存在 `llm-proxy.json`。通常无需手动编辑这些文件。
 
 请尽量让管理页面和代理监听地址保持在 `127.0.0.1`。日志可能包含提示词、文档、API key 和工具输出；不要把配置文件或日志目录提交到代码仓库。迁移或升级前请停止代理并备份整个日志目录，包括 `traffic.db-wal` 和 `traffic.db-shm`。详细步骤见 [docs/migration-rollback.md](docs/migration-rollback.md)。
+# 使用统计
 
+管理页面新增“使用统计”标签，可按时间范围查看地址、模型的 token 与费用分布，并查看趋势表格。统计接口包括 `/api/usage-statistics/overview`、`/api/usage-statistics/trend` 和 CSV 导出接口。
