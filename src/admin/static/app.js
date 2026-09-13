@@ -1831,6 +1831,13 @@ document.querySelectorAll(".tab").forEach((tab) =>
 );
 
 async function loadStatistics() {
+  if (state.language === "en") {
+    $("statsTarget")?.querySelector('option[value=""]')?.replaceChildren("All targets");
+    $("statsModel")?.querySelector('option[value=""]')?.replaceChildren("All models");
+    $("statsGranularity")?.querySelector('option[value="day"]')?.replaceChildren("Daily");
+    $("statsGranularity")?.querySelector('option[value="week"]')?.replaceChildren("Weekly");
+    $("statsGranularity")?.querySelector('option[value="month"]')?.replaceChildren("Monthly");
+  }
   $("statsOverview").innerHTML = '<div class="stats-loading">加载中…</div>';
   const now = new Date();
   const from = $("statsFrom").value
