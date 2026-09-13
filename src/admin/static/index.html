@@ -14,6 +14,7 @@
           <div class="tabs" role="tablist">
             <button class="tab active" data-tab="proxies" data-i18n="tabProxies">监听转发</button>
             <button class="tab" data-tab="logs" data-i18n="tabLogs">历史日志</button>
+            <button class="tab" data-tab="statistics" data-i18n="tabStatistics">使用统计</button>
           </div>
           <select id="languageSelect" class="language-toggle" data-i18n-title="language">
             <option value="zh">🇨🇳 中文</option>
@@ -148,6 +149,11 @@
             </div>
             <section id="pricingPanel" class="pricing-panel" hidden aria-live="polite"></section>
           </section>
+        </section>
+        <section id="statistics" class="view statistics-view">
+          <div class="toolbar"><strong data-i18n="usageStatistics">使用统计</strong><button id="refreshStatistics" class="primary" data-i18n="refresh">刷新</button></div>
+          <div class="stats-filters"><input id="statsFrom" type="datetime-local" /><input id="statsTo" type="datetime-local" /><select id="statsMetric"><option value="token">Token</option><option value="cost">费用</option></select></div>
+          <div id="statsOverview" class="stats-overview"></div><div id="statsTrend" class="stats-trend"></div>
         </section>
       </main>
     </div>

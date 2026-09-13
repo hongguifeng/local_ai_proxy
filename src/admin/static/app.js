@@ -3,6 +3,8 @@ const translations = {
     language: "语言",
     tabProxies: "监听转发",
     tabLogs: "历史日志",
+    tabStatistics: "使用统计",
+    usageStatistics: "使用统计",
     request: "请求",
     response: "响应",
     firstTokenTime: "首 token",
@@ -159,6 +161,8 @@ const translations = {
     language: "Language",
     tabProxies: "Proxy",
     tabLogs: "History",
+    tabStatistics: "Usage statistics",
+    usageStatistics: "Usage statistics",
     request: "Request",
     response: "Response",
     firstTokenTime: "First token",
@@ -1822,7 +1826,25 @@ document.querySelectorAll(".tab").forEach((tab) =>
     tab.classList.add("active");
     $(tab.dataset.tab).classList.add("active");
     if (tab.dataset.tab === "logs") loadLogs().catch((e) => toast(e.message));
+    if (tab.dataset.tab === "statistics") loadStatistics().catch((e) => toast(e.message));
   }),
+);
+
+async function loadStatistics() {
+  const now = new Date();
+  const from = new Date(now.getTime() - 7 * 86400000);
+  const iso = (d) => d.toISOString();
+  const result = await fetch(
+    `/api/usage-statistics/overview?from=${encodeURIComponent(iso(from))}&to=${encodeURIComponent(iso(now))}&metric=${$("statsMetric").value}`,
+  ).then((r) => r.json());
+  $("statsOverview").textContent = JSON.stringify(result.totals);
+  const trend = await fetch(
+    `/api/usage-statistics/trend?from=${encodeURIComponent(iso(from))}&to=${encodeURIComponent(iso(now))}`,
+  ).then((r) => r.json());
+  $("statsTrend").textContent = JSON.stringify(trend.points);
+}
+$("refreshStatistics")?.addEventListener("click", () =>
+  loadStatistics().catch((e) => toast(e.message)),
 );
 $("languageSelect").addEventListener("change", (event) => setLanguage(event.target.value));
 $("addProxy").addEventListener("click", () => {
