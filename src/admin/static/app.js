@@ -1841,8 +1841,20 @@ async function loadStatistics() {
   const result = await fetch(
     `/api/usage-statistics/overview?from=${encodeURIComponent(iso(from))}&to=${encodeURIComponent(iso(to))}&metric=${$("statsMetric").value}`,
   ).then((r) => r.json());
-  const pie = (items) =>
-    `<div class="pie-chart">${items.map((x) => `<span>${x.id}: ${x.value}</span>`).join("")}</div>`;
+  const pie = (items) => {
+    const total = items.reduce((sum, x) => sum + Number(x.value || 0), 0);
+    let offset = 25;
+    const slices = items
+      .map((x, i) => {
+        const pct = total ? (Number(x.value || 0) / total) * 100 : 0;
+        const dash = `${pct} ${100 - pct}`;
+        const el = `<circle cx="50" cy="50" r="40" pathLength="100" stroke="hsl(${(i * 47) % 360} 70% 50%)" stroke-dasharray="${dash}" stroke-dashoffset="-${offset}" />`;
+        offset += pct;
+        return el;
+      })
+      .join("");
+    return `<div class="pie-chart"><svg viewBox="0 0 100 100" role="img" aria-label="distribution">${slices}</svg>${items.map((x) => `<span>${x.id}: ${x.value}</span>`).join("")}</div>`;
+  };
   $("statsOverview").innerHTML =
     Object.entries(result.totals)
       .map(([k, v]) => `<div class="stat-card"><small>${k}</small><strong>${v}</strong></div>`)
