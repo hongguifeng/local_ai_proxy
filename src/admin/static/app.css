@@ -1813,8 +1813,9 @@ label span {
 .trend-bar {
   display: flex;
   flex-direction: column-reverse;
-  flex: 1 1 24px;
-  max-width: 52px;
+  flex: 1 1 0;
+  max-width: none;
+  min-width: 8px;
   min-height: 2px;
   background: #2f80ed;
   border-radius: 4px 4px 0 0;
