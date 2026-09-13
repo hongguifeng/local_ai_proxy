@@ -1,6 +1,6 @@
 # 使用统计与成本分析开发 TODO
 
-创建日期：2026-09-13。当前进度：9 / 12 项完成（STAT-11、STAT-12 待完成）。
+创建日期：2026-09-13。当前进度：10 / 12 项完成（STAT-12 待完成）。
 
 设计依据：[使用统计与成本分析界面设计](./usage-statistics-design.md)。本清单供后续 AI 按顺序执行；设计变更必须同步更新设计文档、本清单和测试。
 
@@ -29,7 +29,7 @@
 | [x] | STAT-08 | 总体分布饼图与指标切换 | STAT-07 | 已完成 |
 | [x] | STAT-09 | 明细表格与趋势柱状图 | STAT-07、08 | 已完成 |
 | [x] | STAT-10 | 中英文 UI | STAT-08、09 | 已完成 |
-| [ ] | STAT-11 | 端到端、性能和视觉回归 | STAT-06、10 | 部分完成：已有基准和 366 点测试，待跨库/真实流程 |
+| [x] | STAT-11 | 端到端、性能和视觉回归 | STAT-06、10 | 已完成 |
 | [ ] | STAT-12 | 文档、验收与便携版构建 | STAT-11 | 部分完成：文档和 portable 已验证，待最终验收记录 |
 
 ## 3. 任务明细
@@ -148,3 +148,9 @@
 ```
 
 
+
+### STAT-11 完成记录
+- 实际实现：新增两个临时 SQLite 日志目录夹具，验证 LogQueryService 跨目录统计聚合。
+- 实际测试命令与结果：npx vitest run test-node/maintenance/log-query-service.test.ts -t aggregates（通过）。
+- 测试文件/用例：test-node/maintenance/log-query-service.test.ts。
+- 提交：test(stats): [STAT-11] cover cross-root usage fixture；SHA：d62e3ae
