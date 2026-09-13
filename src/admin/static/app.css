@@ -1901,10 +1901,28 @@ label span {
   padding: 10px;
   border-bottom: 1px solid #ddd;
 }
+.trend-item {
+  display: flex;
+  min-width: 0;
+  flex: 1 1 0;
+  height: 100%;
+  flex-direction: column;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 8px;
+}
+.trend-item small {
+  max-width: 100%;
+  overflow: hidden;
+  color: #667085;
+  font-size: 11px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
 .trend-bar {
   display: flex;
   flex-direction: column-reverse;
-  flex: 1 1 0;
+  width: min(42px, 100%);
   max-width: none;
   min-width: 8px;
   min-height: 2px;
