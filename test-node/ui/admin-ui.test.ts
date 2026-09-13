@@ -1912,3 +1912,40 @@ function screenshotContentRatio(buffer: Buffer): number {
   }
   return nonWhitePixels / (image.width * image.height);
 }
+
+describe("statistics page visual smoke", () => {
+  it("renders bounded SVG charts with mock statistics", async () => {
+    await page.route("**/api/usage-statistics/options*", (route) =>
+      route.fulfill({ json: { targets: [], models: [] } }),
+    );
+    await page.route("**/api/usage-statistics/overview*", (route) =>
+      route.fulfill({
+        json: {
+          totals: {
+            requests: 2,
+            tasks: 1,
+            input: "10",
+            output: "5",
+            cache_read: "0",
+            cache_write: "0",
+            cost: "1",
+          },
+          byTarget: [{ id: "a", value: "10" }],
+          byModel: [{ id: "m", value: "10" }],
+          unpriced: {},
+          dataVersion: 1,
+        },
+      }),
+    );
+    await page.route("**/api/usage-statistics/trend*", (route) =>
+      route.fulfill({ json: { dataVersion: 1, granularity: "day", points: [] } }),
+    );
+    await loadAdminPage();
+    await page.locator('[data-tab="statistics"]').click();
+    await expectPage(page.locator(".pie-chart svg").first()).toHaveAttribute(
+      "viewBox",
+      "0 0 100 100",
+    );
+    await expectPage(page.locator(".stats-empty")).toHaveCount(1);
+  });
+});
