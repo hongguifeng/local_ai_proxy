@@ -25,6 +25,7 @@ const empty = () => ({
   cacheWrite: 0n,
   cost: 0n,
   requests: 0,
+  unpriced: 0,
   tasks: new Set<string>(),
 });
 
@@ -67,6 +68,7 @@ export class UsageStatisticsService {
           other.cacheRead += value.cacheRead;
           other.cacheWrite += value.cacheWrite;
           other.cost += value.cost;
+          other.unpriced += value.unpriced;
           for (const task of value.tasks) other.tasks.add(task);
         }
         visible.push(["other", other]);
@@ -122,6 +124,7 @@ export class UsageStatisticsService {
       const value = points.get(key) ?? empty();
       const parsed = this.rowBucket(row, {});
       if (parsed !== undefined) this.add(value, parsed, row);
+      else value.unpriced++;
       points.set(key, value);
     }
     return {
@@ -139,6 +142,7 @@ export class UsageStatisticsService {
           cache_read: v.cacheRead.toString(),
           cache_write: v.cacheWrite.toString(),
           cost: v.cost.toString(),
+          unpriced: v.unpriced,
         })),
     };
   }
