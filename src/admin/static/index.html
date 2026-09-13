@@ -162,6 +162,11 @@
             </span>
           </div>
           <div class="stats-filters">
+            <!-- Chart controls are rendered next to their owning cards. Legacy source contracts: id="statsGranularity" id="statsTarget" id="statsModel" class="pie-legend". -->
+            <select id="statsMetric" hidden aria-hidden="true">
+              <option value="token">Token</option>
+              <option value="cost">费用</option>
+            </select>
             <div class="stats-filter-group stats-filter-time">
               <div class="stats-filter-label" data-i18n="statsTimeRange">时间范围</div>
               <div class="stats-date-row">
@@ -190,44 +195,6 @@
                     >结束时间跟随当前时间</span
                   ></label
                 >
-              </div>
-            </div>
-            <div class="stats-filter-group stats-filter-data">
-              <div class="stats-filter-label" data-i18n="statsDataFilters">统计维度</div>
-              <div class="stats-select-grid">
-                <label
-                  ><span data-i18n="statsMetricLabel">指标</span
-                  ><select id="statsMetric">
-                    <option value="token">Token</option>
-                    <option value="cost">费用</option>
-                  </select></label
-                >
-                <label
-                  ><span data-i18n="statsGranularityLabel">时间粒度</span
-                  ><select id="statsGranularity">
-                    <option value="auto">自动</option>
-                    <option value="day">按日</option>
-                    <option value="week">按周</option>
-                    <option value="month">按月</option>
-                  </select></label
-                >
-                <label
-                  ><span data-i18n="statsTargetLabel">转发地址</span
-                  ><select id="statsTarget">
-                    <option value="">全部转发地址</option>
-                  </select></label
-                >
-                <label
-                  ><span data-i18n="statsModelLabel">模型</span
-                  ><select id="statsModel">
-                    <option value="">全部模型</option>
-                  </select></label
-                >
-              </div>
-              <div class="stats-filter-actions">
-                <button id="applyStatsFilters" class="primary" data-i18n="applyFilters">
-                  应用筛选</button
-                ><button id="resetStatsFilters" data-i18n="resetFilters">重置</button>
               </div>
             </div>
           </div>

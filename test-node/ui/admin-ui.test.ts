@@ -2007,6 +2007,24 @@ describe("statistics page visual smoke", () => {
               cache_read: "0",
               cache_write: "0",
               cost: "100000000",
+              by_model: [
+                {
+                  id: "model-a",
+                  input: "60",
+                  output: "0",
+                  cache_read: "0",
+                  cache_write: "0",
+                  cost: "60000000",
+                },
+                {
+                  id: "model-b",
+                  input: "40",
+                  output: "0",
+                  cache_read: "0",
+                  cache_write: "0",
+                  cost: "40000000",
+                },
+              ],
             },
             {
               bucket: "2026-09-02",
@@ -2017,6 +2035,24 @@ describe("statistics page visual smoke", () => {
               cache_read: "0",
               cache_write: "0",
               cost: "10000000",
+              by_model: [
+                {
+                  id: "model-a",
+                  input: "1",
+                  output: "0",
+                  cache_read: "0",
+                  cache_write: "0",
+                  cost: "6000000",
+                },
+                {
+                  id: "model-b",
+                  input: "1",
+                  output: "0",
+                  cache_read: "0",
+                  cache_write: "0",
+                  cost: "4000000",
+                },
+              ],
             },
           ],
         },
@@ -2027,11 +2063,66 @@ describe("statistics page visual smoke", () => {
     await expectPage(page.locator(".trend-yaxis span")).toHaveCount(5);
     await expectPage(page.locator(".trend-gridline")).toHaveCount(5);
     await expectPage(page.locator(".trend-item").first().locator(".trend-segment")).toHaveCount(4);
-    const tokenHeight = await page.locator(".trend-bar").nth(1).getAttribute("style");
-    await page.locator("#statsMetric").selectOption("cost");
-    await expectPage(page.locator(".trend-card-title")).toContainText("CNY");
-    const costHeight = await page.locator(".trend-bar").nth(1).getAttribute("style");
-    expect(costHeight).not.toBe(tokenHeight);
+    await page.locator("#statsMetricTrend").selectOption("cost");
+    await expectPage(page.locator("#statsMetricTrend")).toHaveValue("cost");
+    await expectPage(page.locator(".trend-segment.cost")).toHaveCount(2);
+    await page.locator("#statsBreakdown").selectOption("model");
+    await expectPage(page.locator(".trend-item").first().locator(".trend-segment")).toHaveCount(2);
+    const costSegmentColors = await page
+      .locator(".trend-item")
+      .first()
+      .locator(".trend-segment")
+      .evaluateAll((els) => els.map((el) => (el as HTMLElement).style.backgroundColor));
+    expect(new Set(costSegmentColors).size).toBe(2);
+  });
+  it("switches each distribution chart to cost independently with consistent controls", async () => {
+    await page.route("**/api/usage-statistics/options*", (route) =>
+      route.fulfill({ json: { targets: [], models: [] } }),
+    );
+    await page.route("**/api/usage-statistics/overview*", (route) =>
+      route.fulfill({
+        json: {
+          totals: {},
+          byTarget: [
+            { id: "hyperapi", value: "26189600000", cost: "26.189600000" },
+            { id: "vllm", value: "7450700000", cost: "7.450700000" },
+            { id: "deepseek", value: "11400000", cost: "0.011400000" },
+          ],
+          byModel: [
+            { id: "gpt-6-astra", value: "20045700000", cost: "20.045700000" },
+            { id: "gpt-5.6-terra", value: "6143900000", cost: "6.143900000" },
+          ],
+          unpriced: {},
+          dataVersion: 1,
+        },
+      }),
+    );
+    await page.route("**/api/usage-statistics/trend*", (route) =>
+      route.fulfill({ json: { dataVersion: 1, granularity: "day", points: [] } }),
+    );
+    await loadAdminPage();
+    await page.locator('[data-tab="statistics"]').click();
+    const targetMetric = page.locator("#statsMetricTarget");
+    const modelMetric = page.locator("#statsMetricModel");
+    await expectPage(targetMetric).toHaveValue("token");
+    await expectPage(modelMetric).toHaveValue("token");
+    const controlStyle = await targetMetric.evaluate((el) => {
+      const style = getComputedStyle(el);
+      return { borderRadius: style.borderRadius, width: style.width };
+    });
+    expect(Number.parseFloat(controlStyle.borderRadius)).toBeGreaterThan(0);
+    expect(Number.parseFloat(controlStyle.width)).toBeLessThan(130);
+    await targetMetric.selectOption("cost");
+    await expectPage(
+      page.locator(".distribution-card").first().locator(".pie-center-value"),
+    ).toHaveText("$33.6517");
+    await expectPage(
+      page.locator(".distribution-card").nth(1).locator(".pie-center-value"),
+    ).not.toHaveText("$26.1896");
+    await modelMetric.selectOption("cost");
+    await expectPage(
+      page.locator(".distribution-card").nth(1).locator(".pie-center-value"),
+    ).toHaveText("$26.1896");
   });
   it("shows an explicit warning when records are unpriced", async () => {
     await page.route("**/api/usage-statistics/options*", (route) =>

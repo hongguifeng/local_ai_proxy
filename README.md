@@ -95,6 +95,6 @@ Proxy settings are saved in `logs/proxies.json`; console settings are saved in `
 Keep the console and proxy listeners bound to `127.0.0.1` where possible. Logs may contain prompts, documents, API keys, and tool output; do not commit configuration files or log directories. Stop the proxy and back up the entire log directory before migration or upgrades, including `traffic.db-wal` and `traffic.db-shm`. See [docs/migration-rollback.md](docs/migration-rollback.md) for details.
 # Usage statistics
 
-The admin page includes a Usage Statistics tab for reviewing token and cost distribution by forwarding target and model, with trend tables and CSV export.
+The admin page includes a Usage Statistics tab for reviewing token and cost distribution by forwarding target and model, with trend tables and CSV export. A task only counts toward the Task totals when it has more than five priced requests within the displayed scope (overview total, distribution rows, and trend buckets alike).
 
 The read-only endpoints are `/api/usage-statistics/overview`, `/api/usage-statistics/trend`, `/api/usage-statistics/options`, and `/api/usage-statistics/export`. They accept ISO-8601 `from`/`to` values; trend and export also accept `targetId`, `model`, and `granularity` (`day`, `week`, or `month`).

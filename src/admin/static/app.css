@@ -2568,6 +2568,47 @@ label span {
 .distribution-card h3 {
   margin-bottom: 3px;
 }
+.distribution-card-title,
+.trend-card-title {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+}
+.distribution-card-title h3,
+.trend-card-title h3 {
+  margin: 0;
+}
+.chart-control {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  white-space: nowrap;
+}
+.chart-control span {
+  color: #667085;
+  font-size: 12px;
+}
+.chart-control select,
+.trend-controls > select {
+  min-width: 108px;
+}
+.trend-controls {
+  display: flex;
+  align-items: flex-end;
+  justify-content: flex-end;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+@media (max-width: 800px) {
+  .distribution-card-title,
+  .trend-card-title {
+    flex-wrap: wrap;
+  }
+  .trend-controls {
+    justify-content: flex-start;
+  }
+}
 .pie-layout {
   display: grid;
   grid-template-columns: minmax(240px, 1fr) minmax(180px, 0.85fr);
@@ -2924,6 +2965,56 @@ label span {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+/* Chart-local controls: keep labels and selects compact and aligned. */
+.distribution-card-title .chart-control,
+.trend-controls .chart-control {
+  display: inline-flex !important;
+  flex-direction: row !important;
+  align-items: center !important;
+  gap: 6px !important;
+  width: auto !important;
+  min-width: 0 !important;
+}
+.distribution-card-title .chart-control span,
+.trend-controls .chart-control span {
+  display: inline !important;
+  width: auto !important;
+  color: var(--muted, #667085);
+  white-space: nowrap !important;
+}
+.distribution-card-title .chart-control select {
+  width: 112px !important;
+  min-width: 112px !important;
+}
+.trend-controls {
+  display: flex !important;
+  align-items: center !important;
+  justify-content: flex-end;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+.trend-controls .chart-control select,
+.trend-controls > select {
+  width: auto !important;
+  min-width: 92px !important;
+}
+.distribution-card-title .chart-control select,
+.trend-controls .chart-control select,
+.trend-controls > select {
+  height: 38px !important;
+  min-height: 38px !important;
+  padding: 7px 12px !important;
+  border: 1px solid var(--border, #d0d5dd) !important;
+  border-radius: 9px !important;
+  background: var(--panel, #fff) !important;
+  box-sizing: border-box !important;
+  font: inherit !important;
+}
+.distribution-card-title .chart-control select {
+  width: 70px !important;
+  min-width: 70px !important;
 }
 
 .stats-overview .stat-card-tokens .token-details {

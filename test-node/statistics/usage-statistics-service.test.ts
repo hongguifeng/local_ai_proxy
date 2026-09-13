@@ -31,7 +31,7 @@ describe("UsageStatisticsService", () => {
     const result = service.overview("2026-01-01", "2026-01-02");
     expect(result.totals).toMatchObject({
       requests: 1,
-      tasks: 1,
+      tasks: 0,
       input: "10",
       output: "5",
       cache_read: "2",
@@ -41,10 +41,50 @@ describe("UsageStatisticsService", () => {
     expect(result.byModel[0]).toMatchObject({ id: "m", value: "18" });
   });
 
+  it("only counts tasks with more than five requests", () => {
+    const service = new UsageStatisticsService({
+      usageStatisticsRows: () => [
+        ...Array.from({ length: 6 }, () => ({
+          task_id: "big",
+          target_id: "a",
+          billing_model: "m",
+          pricing_status: "priced",
+          billing_usage_json: "{}",
+          cost_nano_cny: "1",
+        })),
+        ...Array.from({ length: 5 }, () => ({
+          task_id: "small",
+          target_id: "a",
+          billing_model: "m",
+          pricing_status: "priced",
+          billing_usage_json: "{}",
+          cost_nano_cny: "1",
+        })),
+      ],
+    });
+    const overview = service.overview("2026-01-01", "2026-01-02");
+    const trend = service.trend(
+      "2026-01-01",
+      "2026-01-02",
+      undefined,
+      undefined,
+      "day",
+      0,
+      "model",
+    );
+    expect(overview.totals).toMatchObject({ requests: 11, tasks: 1 });
+    expect(overview.byTarget[0]).toMatchObject({ id: "a", requests: 11, tasks: 1 });
+    const point = trend.points[0];
+    expect(point).toMatchObject({ requests: 11, tasks: 1 });
+    expect(point?.["by_model"]).toEqual([
+      expect.objectContaining({ id: "m", requests: 11, tasks: 1 }),
+    ]);
+  });
+
   it("filters trend rows by target and model", () => {
     const service = new UsageStatisticsService({
       usageStatisticsRows: () => [
-        {
+        ...Array.from({ length: 6 }, () => ({
           task_id: "t1",
           target_id: "a",
           billing_model: "m1",
@@ -52,7 +92,7 @@ describe("UsageStatisticsService", () => {
           pricing_status: "priced",
           billing_usage_json: "{}",
           cost_nano_cny: "7",
-        },
+        })),
         {
           task_id: "t2",
           target_id: "b",
@@ -66,7 +106,7 @@ describe("UsageStatisticsService", () => {
     });
     const result = service.trend("2026-01-01", "2026-01-02", "a", "m1");
     expect(result.points).toHaveLength(1);
-    expect(result.points[0]).toMatchObject({ requests: 1, tasks: 1, cost: "7" });
+    expect(result.points[0]).toMatchObject({ requests: 6, tasks: 1, cost: "42" });
   });
 
   it("keeps overview distribution aligned with trend token totals", () => {

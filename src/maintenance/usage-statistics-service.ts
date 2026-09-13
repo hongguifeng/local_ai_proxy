@@ -27,8 +27,20 @@ const empty = () => ({
   cost: 0n,
   requests: 0,
   unpriced: 0,
-  tasks: new Set<string>(),
+  tasks: new Map<string, number>(),
 });
+
+const MIN_TASK_REQUESTS = 5;
+
+function countTasks(tasks: Map<string, number>): number {
+  let count = 0;
+  for (const requests of tasks.values()) if (requests > MIN_TASK_REQUESTS) count += 1;
+  return count;
+}
+
+function mergeTasks(to: Map<string, number>, from: Map<string, number>): void {
+  for (const [id, requests] of from) to.set(id, (to.get(id) ?? 0) + requests);
+}
 
 export class UsageStatisticsService {
   constructor(private readonly repository: StatisticsRepository) {}
@@ -70,14 +82,14 @@ export class UsageStatisticsService {
           other.cacheWrite += value.cacheWrite;
           other.cost += value.cost;
           other.unpriced += value.unpriced;
-          for (const task of value.tasks) other.tasks.add(task);
+          mergeTasks(other.tasks, value.tasks);
         }
         visible.push(["other", other]);
       }
       return visible.map(([key, v]) => ({
         id: key,
         requests: v.requests,
-        tasks: v.tasks.size,
+        tasks: countTasks(v.tasks),
         input: v.input.toString(),
         output: v.output.toString(),
         cache_read: v.cacheRead.toString(),
@@ -93,7 +105,7 @@ export class UsageStatisticsService {
       dataVersion: 1,
       totals: {
         requests: total.requests,
-        tasks: total.tasks.size,
+        tasks: countTasks(total.tasks),
         input: total.input.toString(),
         output: total.output.toString(),
         cache_read: total.cacheRead.toString(),
@@ -160,7 +172,7 @@ export class UsageStatisticsService {
             [...m].map(([id, x]) => ({
               id,
               requests: x.requests,
-              tasks: x.tasks.size,
+              tasks: countTasks(x.tasks),
               input: x.input.toString(),
               output: x.output.toString(),
               cache_read: x.cacheRead.toString(),
@@ -171,7 +183,7 @@ export class UsageStatisticsService {
           return {
             bucket,
             requests: v.requests,
-            tasks: v.tasks.size,
+            tasks: countTasks(v.tasks),
             input: v.input.toString(),
             output: v.output.toString(),
             cache_read: v.cacheRead.toString(),
@@ -196,7 +208,8 @@ export class UsageStatisticsService {
     to.cacheWrite += from.cacheWrite;
     to.cost += from.cost;
     to.requests++;
-    to.tasks.add(String(row["task_id"]));
+    const taskId = String(row["task_id"]);
+    to.tasks.set(taskId, (to.tasks.get(taskId) ?? 0) + 1);
   }
   private rowBucket(
     row: RepositoryRecord,
@@ -227,7 +240,7 @@ export class UsageStatisticsService {
         cost: BigInt(String(row["cost_nano_cny"] ?? 0)),
         requests: 0,
         unpriced: 0,
-        tasks: new Set(),
+        tasks: new Map<string, number>(),
       };
     } catch {
       unpriced["invalid_pricing_record"] = (unpriced["invalid_pricing_record"] ?? 0) + 1;

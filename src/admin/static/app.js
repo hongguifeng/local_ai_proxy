@@ -1865,12 +1865,32 @@ document.querySelectorAll(".tab").forEach((tab) =>
     tab.classList.add("active");
     $(tab.dataset.tab).classList.add("active");
     if (tab.dataset.tab === "logs") loadLogs().catch((e) => toast(e.message));
-    if (tab.dataset.tab === "statistics") loadStatistics().catch((e) => toast(e.message));
+    if (tab.dataset.tab === "statistics")
+      loadStatisticsOptions()
+        .then(() => loadStatistics())
+        .catch((e) => toast(e.message));
   }),
 );
 
+let statisticsRequestId = 0;
 async function loadStatistics() {
+  const requestId = ++statisticsRequestId;
+  const metricState = state.statisticsMetrics || (state.statisticsMetrics = {});
+  // Distribution legends retain the pie-legend class contract for downstream themes.
   const selectedBreakdown = $("statsBreakdown")?.value || "total";
+  const trendMetric =
+    metricState.trend || $("statsMetricTrend")?.value || $("statsMetric")?.value || "token";
+  const targetMetric =
+    metricState.target || $("statsMetricTarget")?.value || $("statsMetric")?.value || "token";
+  const modelMetric =
+    metricState.model || $("statsMetricModel")?.value || $("statsMetric")?.value || "token";
+  const selectedGranularity = $("statsGranularity")?.value || "auto";
+  const selectedTarget = $("statsTarget")?.value || "";
+  const selectedModel = $("statsModel")?.value || "";
+  const defaultTargetOption = `<option value="">${state.language === "en" ? "All targets" : "全部转发地址"}</option>`;
+  const defaultModelOption = `<option value="">${state.language === "en" ? "All models" : "全部模型"}</option>`;
+  const targetOptions = $("statsTarget")?.innerHTML || defaultTargetOption;
+  const modelOptions = $("statsModel")?.innerHTML || defaultModelOption;
   if (state.language === "en") {
     $("statsTarget")?.querySelector('option[value=""]')?.replaceChildren("All targets");
     $("statsModel")?.querySelector('option[value=""]')?.replaceChildren("All models");
@@ -1889,14 +1909,52 @@ async function loadStatistics() {
   const iso = (d) => d.toISOString();
   const extra = `${$("statsTarget")?.value ? `&targetId=${encodeURIComponent($("statsTarget").value)}` : ""}${$("statsModel")?.value ? `&model=${encodeURIComponent($("statsModel").value)}` : ""}`;
   const timezoneOffset = -new Date().getTimezoneOffset();
-  const result = await fetch(
-    `/api/usage-statistics/overview?from=${encodeURIComponent(iso(from))}&to=${encodeURIComponent(iso(to))}&metric=${$("statsMetric").value}`,
-  ).then(async (r) => {
-    if (!r.ok) throw new Error(`统计请求失败 (${r.status})`);
-    return r.json();
-  });
-  const metric = $("statsMetric").value;
-  const pie = (items) => {
+  const overview = (metric) =>
+    fetch(
+      `/api/usage-statistics/overview?from=${encodeURIComponent(iso(from))}&to=${encodeURIComponent(iso(to))}&metric=${metric}`,
+    ).then(async (r) => {
+      if (!r.ok) throw new Error(`统计请求失败 (${r.status})`);
+      return r.json();
+    });
+  const [result, targetResult, modelResult] = await Promise.all([
+    overview(trendMetric),
+    overview(targetMetric),
+    overview(modelMetric),
+  ]);
+  if (requestId !== statisticsRequestId) return;
+  const statisticsOptions = state.statisticsOptions || {};
+  // The options endpoint may be the only source of choices (its DOM write lands
+  // before these selects exist on first render), so fall back to overview rows.
+  const targetSource =
+    (statisticsOptions.targets?.length ? statisticsOptions.targets : undefined) ||
+    targetResult.byTarget ||
+    [];
+  const modelSource =
+    (statisticsOptions.models?.length ? statisticsOptions.models : undefined) ||
+    modelResult.byModel ||
+    [];
+  const resolvedTargetOptions =
+    targetOptions.includes("value=") && targetOptions !== defaultTargetOption
+      ? targetOptions
+      : defaultTargetOption +
+        targetSource
+          .map(
+            (x) =>
+              `<option value="${escapeHtml(String(x.id))}">${escapeHtml(String(x.name ?? x.id))}</option>`,
+          )
+          .join("");
+  const resolvedModelOptions =
+    modelOptions.includes("value=") && modelOptions !== defaultModelOption
+      ? modelOptions
+      : defaultModelOption +
+        modelSource
+          .map((m) => {
+            const id = String(typeof m === "string" ? m : m.id);
+            return `<option value="${escapeHtml(id)}">${escapeHtml(id)}</option>`;
+          })
+          .join("");
+  const metric = trendMetric;
+  const pie = (items, displayMetric = metric) => {
     if (!items.length)
       return `<div class="pie-chart empty">${state.language === "en" ? "No data" : "暂无数据"}</div>`;
     const entries = items.filter((item) => Number(item.value) > 0);
@@ -1947,27 +2005,27 @@ async function loadStatistics() {
       .map((segment) => {
         const { item, fraction, angle, side, color, labelY } = segment;
         const value =
-          metric === "cost"
-            ? formatCurrencyAmount(item.cost)
-            : Number(item.value).toLocaleString(english ? "en-US" : "zh-CN");
+          displayMetric === "cost" ? formatCurrencyAmount(item.cost) : compactNumber(item.value);
         const percentage = `${(fraction * 100).toFixed(1)}%`;
         const name = String(item.id);
         const shortName =
           Array.from(name).length > 20 ? Array.from(name).slice(0, 19).join("") + "…" : name;
         const title = escapeHtml(`${name}: ${percentage} · ${value}`);
+        // Extremely small arcs can render as a wedge at the SVG circle seam.
+        // Keep their labels, but omit the sub-pixel stroke to avoid artifacts.
+        const sliceWidth = fraction < 0.0005 ? 0 : 40;
         const x1 = cx + Math.cos(angle) * outerRadius,
           y1 = cy + Math.sin(angle) * outerRadius;
         const x2 = cx + side * 122,
           x3 = cx + side * 133,
           textX = cx + side * 140;
-        return `<g class="pie-segment" tabindex="0" aria-label="${title}" style="--pie-color:${color}"><title>${title}</title><circle class="pie-slice" cx="${cx}" cy="${cy}" r="${radius}" pathLength="100" fill="none" stroke="${color}" stroke-width="40" stroke-dasharray="${fraction * 100} ${100 - fraction * 100}" stroke-dashoffset="${-segment.offset * 100}" transform="rotate(-90 ${cx} ${cy})"/><path class="pie-connector" d="M ${x1} ${y1} L ${x2} ${labelY} L ${x3} ${labelY}"/><text x="${textX}" y="${labelY - 3}" text-anchor="${side > 0 ? "start" : "end"}" class="pie-label">${escapeHtml(shortName)}</text><text x="${textX}" y="${labelY + 15}" text-anchor="${side > 0 ? "start" : "end"}" class="pie-value">${percentage} · ${escapeHtml(value)}</text></g>`;
+        return `<g class="pie-segment" tabindex="0" aria-label="${title}" style="--pie-color:${color}"><title>${title}</title><circle class="pie-slice" cx="${cx}" cy="${cy}" r="${radius}" pathLength="100" fill="none" stroke="${color}" stroke-width="${sliceWidth}" stroke-dasharray="${fraction * 100} ${100 - fraction * 100}" stroke-dashoffset="${-segment.offset * 100}" transform="rotate(-90 ${cx} ${cy})"/><path class="pie-connector" d="M ${x1} ${y1} L ${x2} ${labelY} L ${x3} ${labelY}"/><text x="${textX}" y="${labelY - 3}" text-anchor="${side > 0 ? "start" : "end"}" class="pie-label">${escapeHtml(shortName)}</text><text x="${textX}" y="${labelY + 15}" text-anchor="${side > 0 ? "start" : "end"}" class="pie-value">${percentage} · ${escapeHtml(value)}</text></g>`;
       })
       .join("");
+    const costTotal = entries.reduce((sum, item) => sum + Number(item.cost || 0), 0);
     const centerValue =
-      metric === "cost"
-        ? formatCurrencyAmount(total)
-        : Number(total).toLocaleString(english ? "en-US" : "zh-CN");
-    return `<div class="pie-chart"><svg viewBox="0 0 600 ${height}" role="img" aria-label="${english ? "Distribution" : "占比分布"}">${slices}<text x="300" y="${cy - 4}" text-anchor="middle" class="pie-center-value">${escapeHtml(centerValue)}</text><text x="300" y="${cy + 16}" text-anchor="middle" class="pie-center-label">${metric === "cost" ? (english ? "Priced cost" : "已计价费用") : english ? "Tokens" : "Token"}</text></svg></div>`;
+      displayMetric === "cost" ? formatCurrencyAmount(costTotal) : compactNumber(total);
+    return `<div class="pie-chart"><svg viewBox="0 0 600 ${height}" role="img" aria-label="${english ? "Distribution" : "占比分布"}">${slices}<text x="300" y="${cy - 4}" text-anchor="middle" class="pie-center-value">${escapeHtml(centerValue)}</text><text x="300" y="${cy + 16}" text-anchor="middle" class="pie-center-label">${displayMetric === "cost" ? (english ? "Priced cost" : "已计价费用") : english ? "Tokens" : "Token"}</text></svg></div>`;
   };
   const english = state.language === "en";
   const statDisplay = (key, value) =>
@@ -1976,6 +2034,8 @@ async function loadStatistics() {
       : Number(value).toLocaleString(english ? "en-US" : "zh-CN");
   const targetTitle = english ? "Target distribution" : "转发地址分布";
   const modelTitle = english ? "Model distribution" : "模型分布";
+  const metricOptions = (selected) =>
+    `<option value="token"${selected === "token" ? " selected" : ""}>${english ? "Tokens" : "Token"}</option><option value="cost"${selected === "cost" ? " selected" : ""}>${english ? "Cost" : "费用"}</option>`;
   const totalTokens = ["input", "output", "cache_read", "cache_write"].reduce(
     (sum, key) => sum + BigInt(String(result.totals[key] || 0)),
     0n,
@@ -2036,14 +2096,15 @@ async function loadStatistics() {
             english ? "en-US" : "zh-CN",
           )}）</span><button type="button" class="stats-alert-action" data-i18n="viewDetails">${english ? "查看明细" : "查看明细"}</button></div>`
       : "") +
-    `<div class="stat-groups"><section class="distribution-card"><h3>${targetTitle}</h3>${pie(result.byTarget)}</section><section class="distribution-card"><h3>${modelTitle}</h3>${pie(result.byModel)}</section></div>`;
+    `<div class="stat-groups"><section class="distribution-card"><div class="distribution-card-title"><h3>${targetTitle}</h3><label class="chart-control"><span>${english ? "Metric" : "指标"}</span><select id="statsMetricTarget" aria-label="${english ? "Target distribution metric" : "转发地址分布指标"}">${metricOptions(targetMetric)}</select></label></div>${pie(targetResult.byTarget, targetMetric)}</section><section class="distribution-card"><div class="distribution-card-title"><h3>${modelTitle}</h3><label class="chart-control"><span>${english ? "Metric" : "指标"}</span><select id="statsMetricModel" aria-label="${english ? "Model distribution metric" : "模型分布指标"}">${metricOptions(modelMetric)}</select></label></div>${pie(modelResult.byModel, modelMetric)}</section></div>`;
   const trend = await fetch(
-    `/api/usage-statistics/trend?from=${encodeURIComponent(iso(from))}&to=${encodeURIComponent(to.toISOString())}&granularity=${$("statsGranularity")?.value || "day"}&timezoneOffset=${timezoneOffset}&breakdown=${selectedBreakdown}${extra}`,
+    `/api/usage-statistics/trend?from=${encodeURIComponent(iso(from))}&to=${encodeURIComponent(to.toISOString())}&granularity=${selectedGranularity}&timezoneOffset=${timezoneOffset}&breakdown=${selectedBreakdown}${extra}`,
   ).then(async (r) => {
     if (!r.ok) throw new Error(`趋势请求失败 (${r.status})`);
     return r.json();
   });
-  const costMode = $("statsMetric").value === "cost";
+  if (requestId !== statisticsRequestId) return;
+  const costMode = trendMetric === "cost";
   const breakdown = selectedBreakdown;
   const groupKey = breakdown === "model" ? "by_model" : breakdown === "target" ? "by_target" : null;
   const groupsFor = (point) =>
@@ -2086,7 +2147,7 @@ async function loadStatistics() {
   };
   const valueOf = (g) =>
     costMode
-      ? Number(g.cost)
+      ? Number(g.cost) / 1e9
       : Number(g.input) + Number(g.output) + Number(g.cache_read) + Number(g.cache_write);
   const maxRequests = Math.max(
     1,
@@ -2098,17 +2159,7 @@ async function loadStatistics() {
     return (f <= 1 ? 1 : f <= 2 ? 2 : f <= 5 ? 5 : 10) * exp;
   };
   const niceMax = niceCeil(maxRequests);
-  const formatTick = (v) => {
-    const abs = Math.abs(v);
-    const round = (n, digits) => Number(n.toFixed(digits));
-    return abs >= 1e9
-      ? `${round(v / 1e9, 2)}B`
-      : abs >= 1e6
-        ? `${round(v / 1e6, 2)}M`
-        : abs >= 1e3
-          ? `${round(v / 1e3, 2)}k`
-          : `${round(v, 2)}`;
-  };
+  const formatTick = (v) => compactNumber(v);
   const tokenNames = {
     input: english ? "Input" : "输入",
     output: english ? "Output" : "输出",
@@ -2132,20 +2183,29 @@ async function loadStatistics() {
               key: t,
               value: Number(point[t]) || 0,
             }))
-          : groups.map((g) => ({ key: costMode ? "cost" : g.id, value: valueOf(g) }));
+          : groups.map((g) => ({
+              // Keep the group id in cost mode as well.  The value changes to
+              // the group's priced cost, but the segment identity must remain
+              // the model/target id so stacked breakdowns retain their colors.
+              key: g.id,
+              value: valueOf(g),
+            }));
       const trendCost = formatCurrencyAmount(pricingDecimalFromNano(point.cost));
       const detail = `${point.bucket} | 请求 ${point.requests} | Task ${point.tasks} | 费用 ${trendCost}`;
       const segments = parts
         .map((p) => {
           const color = costMode
-            ? "#1f7a5a"
+            ? groupColor(p.key)
             : breakdown === "total"
               ? tokenColor[p.key]
               : groupColor(p.key);
           const height = p.value > 0 ? Math.max(1, (p.value / Math.max(1, metricValue)) * h) : 0;
           const label = costMode
-            ? `${p.key}: ${formatCurrencyAmount(Number(p.value))}`
-            : `${breakdown === "total" ? tokenNames[p.key] : p.key}: ${p.value.toLocaleString()}`;
+            ? // `valueOf` is already converted from nano-CNY to CNY. Avoid
+              // multiplying back to nanos: floating-point rounding can produce
+              // a non-integer that the currency formatter cannot pass to BigInt.
+              `${p.key}: ${formatCurrencyAmount(p.value)}`
+            : `${breakdown === "total" ? tokenNames[p.key] : p.key}: ${compactNumber(p.value)}`;
           return `<i class="trend-segment ${costMode ? "cost" : breakdown === "total" ? p.key : "group"}" style="height:${height}px;background:${color}" title="${label}"></i>`;
         })
         .join("");
@@ -2179,7 +2239,7 @@ async function loadStatistics() {
       ]
     : ["时间", "请求", "Task", "输入", "输出", "缓存读", "缓存写", "费用", "未计价"];
   $("statsTrend").innerHTML =
-    `<section class="trend-card"><div class="trend-card-title"><h3>${english ? "Usage trend" : "使用趋势"}</h3><div class="trend-controls"><select id="statsBreakdown" aria-label="${english ? "Trend grouping" : "趋势分组"}"><option value="total">${english ? "Total trend" : "总量趋势"}</option><option value="model">${english ? "By model" : "按模型叠加"}</option><option value="target">${english ? "By target" : "按转发地址叠加"}</option></select><span>${breakdown === "model" ? (english ? "By model" : "按模型叠加") : breakdown === "target" ? (english ? "By target" : "按转发地址叠加") : english ? "Total trend" : "总量趋势"} · ${trend.granularity} · ${costMode ? (english ? "CNY" : "元") : english ? "tokens" : "Token"}</span></div></div><div class="trend-legend">${
+    `<section class="trend-card"><div class="trend-card-title"><h3>${english ? "Usage trend" : "使用趋势"}</h3><div class="trend-controls"><label class="chart-control"><span>${english ? "Metric" : "指标"}</span><select id="statsMetricTrend" aria-label="${english ? "Trend metric" : "趋势指标"}">${metricOptions(trendMetric)}</select></label><label class="chart-control"><span>${english ? "Granularity" : "时间粒度"}</span><select id="statsGranularity" aria-label="${english ? "Granularity" : "时间粒度"}"><option value="auto">${english ? "Auto" : "自动"}</option><option value="day">${english ? "Daily" : "按日"}</option><option value="week">${english ? "Weekly" : "按周"}</option><option value="month">${english ? "Monthly" : "按月"}</option></select></label><label class="chart-control"><span>${english ? "Target" : "转发地址"}</span><select id="statsTarget" aria-label="${english ? "Target" : "转发地址"}">${resolvedTargetOptions}</select></label><label class="chart-control"><span>${english ? "Model" : "模型"}</span><select id="statsModel" aria-label="${english ? "Model" : "模型"}">${resolvedModelOptions}</select></label><label class="chart-control"><span>${english ? "Trend grouping" : "趋势分组"}</span><select id="statsBreakdown" aria-label="${english ? "Trend grouping" : "趋势分组"}"><option value="total">${english ? "Total trend" : "总量趋势"}</option><option value="model">${english ? "By model" : "按模型叠加"}</option><option value="target">${english ? "By target" : "按转发地址叠加"}</option></select></label></div></div><div class="trend-legend">${
       breakdown === "total" && !costMode
         ? `<span><i class="input"></i>${english ? "Input" : "输入"}</span><span><i class="output"></i>${english ? "Output" : "输出"}</span><span><i class="cache_read"></i>${english ? "Cache read" : "缓存读"}</span><span><i class="cache_write"></i>${english ? "Cache write" : "缓存写"}</span>`
         : [
@@ -2193,8 +2253,28 @@ async function loadStatistics() {
           ]
             .map((id) => `<span><i style="background:${groupColor(id)}"></i>${id}</span>`)
             .join("")
-    }</div><div class="trend-chart">${trendYaxis}<div class="trend-bars">${trendGrid}${trendContent}</div></div><table><thead><tr>${headers.map((h) => `<th>${h}</th>`).join("")}</tr></thead><tbody>${trendPoints.map((p) => `<tr><td>${p.bucket}</td><td>${p.requests}</td><td>${p.tasks}</td><td>${p.input}</td><td>${p.output}</td><td>${p.cache_read}</td><td>${p.cache_write}</td><td>${formatCurrencyAmount(pricingDecimalFromNano(p.cost))}</td><td>${p.unpriced ?? 0}</td></tr>`).join("")}</tbody></table></section>`;
+    }</div><div class="trend-chart">${trendYaxis}<div class="trend-bars">${trendGrid}${trendContent}</div></div><table><thead><tr>${headers.map((h) => `<th>${h}</th>`).join("")}</tr></thead><tbody>${trendPoints.map((p) => `<tr><td>${p.bucket}</td><td>${p.requests}</td><td>${p.tasks}</td><td title="${fullNumber(p.input)}">${compactNumber(p.input)}</td><td title="${fullNumber(p.output)}">${compactNumber(p.output)}</td><td title="${fullNumber(p.cache_read)}">${compactNumber(p.cache_read)}</td><td title="${fullNumber(p.cache_write)}">${compactNumber(p.cache_write)}</td><td>${formatCurrencyAmount(pricingDecimalFromNano(p.cost))}</td><td>${p.unpriced ?? 0}</td></tr>`).join("")}</tbody></table></section>`;
   $("statsBreakdown").value = breakdown;
+  $("statsTarget").value = selectedTarget;
+  $("statsModel").value = selectedModel;
+  $("statsGranularity").value = selectedGranularity;
+  $("statsMetricTrend")?.addEventListener("change", (event) => {
+    metricState.trend = event.target.value;
+    loadStatistics().catch(showStatisticsError);
+  });
+  $("statsMetricTarget")?.addEventListener("change", (event) => {
+    metricState.target = event.target.value;
+    loadStatistics().catch(showStatisticsError);
+  });
+  $("statsMetricModel")?.addEventListener("change", (event) => {
+    metricState.model = event.target.value;
+    loadStatistics().catch(showStatisticsError);
+  });
+  $("statsTarget")?.addEventListener("change", () => loadStatistics().catch(showStatisticsError));
+  $("statsModel")?.addEventListener("change", () => loadStatistics().catch(showStatisticsError));
+  $("statsGranularity")?.addEventListener("change", () =>
+    loadStatistics().catch(showStatisticsError),
+  );
   $("statsBreakdown")?.addEventListener("change", () =>
     loadStatistics().catch(showStatisticsError),
   );
@@ -2225,6 +2305,7 @@ async function loadStatisticsOptions() {
   const data = await fetch(
     `/api/usage-statistics/options?from=${encodeURIComponent(from.toISOString())}&to=${encodeURIComponent(to.toISOString())}${targetParam}`,
   ).then((r) => r.json());
+  state.statisticsOptions = data;
   const selectedTarget = $("statsTarget")?.value || "";
   const selectedModel = $("statsModel")?.value || "";
   if ($("statsTarget"))
@@ -2310,11 +2391,14 @@ $("resetStatsFilters")?.addEventListener("click", () => {
   const now = new Date();
   $("statsFrom").value = statsLocalInput(new Date(now.getTime() - 7 * 86400000));
   $("statsTo").value = statsLocalInput(now);
-  $("statsMetric").value = "token";
-  $("statsGranularity").value = "auto";
-  $("statsBreakdown").value = "total";
-  $("statsTarget").value = "";
-  $("statsModel").value = "";
+  $("statsMetricTrend") && ($("statsMetricTrend").value = "token");
+  $("statsMetricTarget") && ($("statsMetricTarget").value = "token");
+  $("statsMetricModel") && ($("statsMetricModel").value = "token");
+  $("statsGranularity") && ($("statsGranularity").value = "auto");
+  $("statsBreakdown") && ($("statsBreakdown").value = "total");
+  $("statsTarget") && ($("statsTarget").value = "");
+  $("statsModel") && ($("statsModel").value = "");
+  state.statisticsMetrics = { trend: "token", target: "token", model: "token" };
   document
     .querySelectorAll("[data-stats-range]")
     .forEach((item) => item.classList.toggle("active", item.dataset.statsRange === "7"));

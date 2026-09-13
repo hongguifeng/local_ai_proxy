@@ -395,37 +395,42 @@ function task(id: string, model: string, timestamp: string) {
   };
 }
 
-  it("aggregates usage statistics across distinct log roots", async () => {
-    const firstRoot = await mkdtemp(path.join(os.tmpdir(), "llm-proxy-stats-a-"));
-    const secondRoot = await mkdtemp(path.join(os.tmpdir(), "llm-proxy-stats-b-"));
-    temporaryDirectories.push(firstRoot, secondRoot);
-    for (const [root, taskId, target, cost] of [
-      [firstRoot, "stats-a", "target-a", "1000"],
-      [secondRoot, "stats-b", "target-b", "2000"],
-    ] as const) {
-      const repository = new TrafficRepository(root);
-      repository.upsertTask(task(taskId, "model", "2026-07-18T10:00:00.000+08:00"));
-      repository.upsertRecord({
-        id: `record-${taskId}`,
-        task_id: taskId,
-        sequence: 1,
-        method: "POST",
-        path: "/v1/responses",
-        target_url: target,
-        pricing: {
-          pricing_status: "priced",
-          billing_model: "model",
-          usage: { inputUncachedTokens: 10, outputTokens: 5, cacheReadTokens: 2, cacheWriteTokens: 1 },
-          cost_nano_cny: cost,
+it("aggregates usage statistics across distinct log roots", async () => {
+  const firstRoot = await mkdtemp(path.join(os.tmpdir(), "llm-proxy-stats-a-"));
+  const secondRoot = await mkdtemp(path.join(os.tmpdir(), "llm-proxy-stats-b-"));
+  temporaryDirectories.push(firstRoot, secondRoot);
+  for (const [root, taskId, target, cost] of [
+    [firstRoot, "stats-a", "target-a", "1000"],
+    [secondRoot, "stats-b", "target-b", "2000"],
+  ] as const) {
+    const repository = new TrafficRepository(root);
+    repository.upsertTask(task(taskId, "model", "2026-07-18T10:00:00.000+08:00"));
+    repository.upsertRecord({
+      id: `record-${taskId}`,
+      task_id: taskId,
+      sequence: 1,
+      method: "POST",
+      path: "/v1/responses",
+      target_url: target,
+      pricing: {
+        pricing_status: "priced",
+        billing_model: "model",
+        usage: {
+          inputUncachedTokens: 10,
+          outputTokens: 5,
+          cacheReadTokens: 2,
+          cacheWriteTokens: 1,
         },
-      });
-      repository.close();
-    }
-    const service = new LogQueryService([firstRoot, secondRoot]).usageStatisticsService();
-    expect(service).toBeDefined();
-    expect(service!.overview("2020-01-01T00:00:00Z", "2030-01-01T00:00:00Z").totals).toMatchObject({ requests: 2, tasks: 2, cost: "0.000003000" });
+        cost_nano_cny: cost,
+      },
+    });
+    repository.close();
+  }
+  const service = new LogQueryService([firstRoot, secondRoot]).usageStatisticsService();
+  expect(service).toBeDefined();
+  expect(service!.overview("2020-01-01T00:00:00Z", "2030-01-01T00:00:00Z").totals).toMatchObject({
+    requests: 2,
+    tasks: 0,
+    cost: "0.000003000",
   });
-
-
-
-
+});
