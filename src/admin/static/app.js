@@ -1831,6 +1831,7 @@ document.querySelectorAll(".tab").forEach((tab) =>
 );
 
 async function loadStatistics() {
+  $("statsOverview").innerHTML = '<div class="stats-loading">加载中…</div>';
   const now = new Date();
   const from = $("statsFrom").value
     ? new Date($("statsFrom").value)
