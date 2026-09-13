@@ -1930,8 +1930,11 @@ async function loadStatistics() {
   const trendContent = trend.points.length
     ? trendBars
     : `<div class="stats-empty">${english ? "No trend data" : "暂无趋势数据"}</div>`;
+  const headers = english
+    ? ["Time", "Requests", "Tasks", "Input", "Output", "Cache read", "Cache write", "Cost"]
+    : ["时间", "请求", "Task", "输入", "输出", "缓存读", "缓存写", "费用"];
   $("statsTrend").innerHTML =
-    `<div class="trend-bars">${trendContent}</div><table><thead><tr><th>时间</th><th>请求</th><th>Task</th><th>输入</th><th>输出</th><th>缓存读</th><th>缓存写</th><th>费用</th></tr></thead><tbody>${trend.points.map((p) => `<tr><td>${p.bucket}</td><td>${p.requests}</td><td>${p.tasks}</td><td>${p.input}</td><td>${p.output}</td><td>${p.cache_read}</td><td>${p.cache_write}</td><td>${p.cost}</td></tr>`).join("")}</tbody></table>`;
+    `<div class="trend-bars">${trendContent}</div><table><thead><tr>${headers.map((h) => `<th>${h}</th>`).join("")}</tr></thead><tbody>${trend.points.map((p) => `<tr><td>${p.bucket}</td><td>${p.requests}</td><td>${p.tasks}</td><td>${p.input}</td><td>${p.output}</td><td>${p.cache_read}</td><td>${p.cache_write}</td><td>${p.cost}</td></tr>`).join("")}</tbody></table>`;
 }
 function showStatisticsError(error) {
   $("statsOverview").innerHTML =
