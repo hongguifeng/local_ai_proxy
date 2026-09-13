@@ -15,6 +15,7 @@ npmRebuild: false
 forceCodeSigning: false
 win:
   icon: resources/app-icon.ico
+  signExecutable: false
   target:
     - nsis
     - portable
