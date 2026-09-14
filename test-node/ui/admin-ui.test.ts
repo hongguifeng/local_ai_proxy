@@ -429,6 +429,7 @@ beforeAll(async () => {
                   status: 200,
                   request_token_count: 8,
                   response_token_count: 4,
+                  cached_token_count: 4,
                   first_token_ms: 2_400,
                   duration_ms: 65_678,
                 },
@@ -1414,7 +1415,7 @@ describe("admin UI history page", { timeout: UI_TEST_TIMEOUT_MS }, () => {
     await expectPage(page.locator("#responseJson")).toContainText("done");
     await expectPage(page.locator("#responseMeta")).toBeHidden();
     await expectPage(page.locator("#responseTiming")).toHaveText(
-      "First token 00:02 · Total 01:06 · Prefill 3.3 tok/s · Decode 0.1 tok/s",
+      "First token 00:02 · Total 01:06 · Prefill 1.7 tok/s · Decode 0.1 tok/s",
     );
     await expectPage(formattedString).toHaveJSProperty("open", true);
     await expect.poll(() => scrollTop(requestJson)).toBe(scrollPositions.pane);
@@ -1682,6 +1683,16 @@ describe("admin UI visual regression", { timeout: UI_TEST_TIMEOUT_MS }, () => {
     expect(await screenshotDifference("doc/ui_logs_en.png")).toBeLessThan(0.25);
   });
 
+  it("matches the Chinese statistics page baseline", async () => {
+    await loadStatisticsBaseline("zh");
+    expect(await screenshotDifference("doc/ui_stats_cn.png")).toBeLessThan(0.25);
+  });
+
+  it("matches the English statistics page baseline", async () => {
+    await loadStatisticsBaseline("en");
+    expect(await screenshotDifference("doc/ui_stats_en.png")).toBeLessThan(0.25);
+  });
+
   it("renders and operates at the 760 px responsive breakpoint", async () => {
     pairs.splice(0, pairs.length, ...visualPairs());
     await page.setViewportSize({ width: 760, height: 1000 });
@@ -1752,6 +1763,162 @@ async function openRecordDetail(recordId: string): Promise<void> {
     page.waitForResponse((response) => response.url().endsWith(`/api/logs/${recordId}`)),
     page.locator(`[data-log-id="${recordId}"]`).click(),
   ]);
+}
+
+// Fixed usage-statistics payloads so the statistics page baseline is reproducible.
+function statisticsBaselineFixtures() {
+  const options = {
+    targets: [
+      { id: "target-a", name: "Target A" },
+      { id: "target-b", name: "Target B" },
+    ],
+    models: ["gpt-5", "gpt-5-mini", "gpt-5-nano"],
+  };
+  const totals = {
+    requests: 137,
+    tasks: 19,
+    input: "195716056",
+    output: "52962962",
+    cache_read: "133044107",
+    cache_write: "14320984",
+    cost: "305.500000000",
+  };
+  const overview = [
+    { dataVersion: 1, totals, byTarget: [], byModel: [], unpriced: { missing_usage: 6 } },
+    {
+      dataVersion: 1,
+      totals,
+      byTarget: [
+        { id: "Target A", value: "248320000", cost: "180.300000000", requests: 66, tasks: 9 },
+        { id: "Target B", value: "147724109", cost: "125.200000000", requests: 71, tasks: 10 },
+      ],
+      byModel: [],
+      unpriced: {},
+    },
+    {
+      dataVersion: 1,
+      totals,
+      byTarget: [],
+      byModel: [
+        { id: "gpt-5", value: "213450000", cost: "168.750000000", requests: 74, tasks: 13 },
+        { id: "gpt-5-mini", value: "118500000", cost: "92.350000000", requests: 45, tasks: 4 },
+        { id: "gpt-5-nano", value: "64094109", cost: "44.400000000", requests: 18, tasks: 2 },
+      ],
+      unpriced: {},
+    },
+  ];
+  const trend = {
+    dataVersion: 1,
+    granularity: "day",
+    points: [
+      {
+        bucket: "2026-01-05",
+        requests: 18,
+        tasks: 3,
+        input: "21456789",
+        output: "5432100",
+        cache_read: "12345678",
+        cache_write: "1234567",
+        cost: "41250000000",
+        unpriced: 1,
+      },
+      {
+        bucket: "2026-01-06",
+        requests: 24,
+        tasks: 3,
+        input: "30123456",
+        output: "8765432",
+        cache_read: "20487654",
+        cache_write: "2345678",
+        cost: "52300000000",
+        unpriced: 0,
+      },
+      {
+        bucket: "2026-01-07",
+        requests: 9,
+        tasks: 2,
+        input: "15234567",
+        output: "3456789",
+        cache_read: "10234567",
+        cache_write: "987654",
+        cost: "27800000000",
+        unpriced: 2,
+      },
+      {
+        bucket: "2026-01-08",
+        requests: 31,
+        tasks: 4,
+        input: "44321098",
+        output: "11234567",
+        cache_read: "30987654",
+        cache_write: "3456789",
+        cost: "61450000000",
+        unpriced: 0,
+      },
+      {
+        bucket: "2026-01-09",
+        requests: 12,
+        tasks: 2,
+        input: "22112233",
+        output: "6543210",
+        cache_read: "15321789",
+        cache_write: "1876543",
+        cost: "35600000000",
+        unpriced: 1,
+      },
+      {
+        bucket: "2026-01-10",
+        requests: 27,
+        tasks: 3,
+        input: "35678901",
+        output: "9876543",
+        cache_read: "25432198",
+        cache_write: "2876543",
+        cost: "48950000000",
+        unpriced: 0,
+      },
+      {
+        bucket: "2026-01-11",
+        requests: 16,
+        tasks: 2,
+        input: "26789012",
+        output: "7654321",
+        cache_read: "18234567",
+        cache_write: "1543210",
+        cost: "38150000000",
+        unpriced: 2,
+      },
+    ],
+  };
+  return { options, overview, trend };
+}
+
+async function loadStatisticsBaseline(language: "zh" | "en"): Promise<void> {
+  const fixtures = statisticsBaselineFixtures();
+  let overviewCalls = 0;
+  await page.route("**/api/usage-statistics/options*", (route) =>
+    route.fulfill({ json: fixtures.options }),
+  );
+  await page.route("**/api/usage-statistics/overview*", (route) =>
+    route.fulfill({ json: fixtures.overview[overviewCalls++ % 3] }),
+  );
+  await page.route("**/api/usage-statistics/trend*", (route) =>
+    route.fulfill({ json: fixtures.trend }),
+  );
+  await page.setViewportSize({ width: 1278, height: 900 });
+  await loadAdminPage();
+  await page.locator("#languageSelect").selectOption(language);
+  await page.locator('[data-tab="statistics"]').click();
+  await page.locator("#statsFollowNow").uncheck();
+  await page.locator("#statsFrom").fill("2026-01-05T18:30");
+  await page.locator("#statsTo").fill("2026-01-12T18:30");
+  await expectPage(page.locator("#statsOverview .stat-card")).toHaveCount(4);
+  await expectPage(page.locator(".trend-card table tbody tr")).toHaveCount(7);
+  const height = await page.evaluate(() => {
+    const el = document.querySelector("#statistics");
+    return el ? el.scrollHeight : 0;
+  });
+  await page.setViewportSize({ width: 1278, height: Math.min(Math.max(height + 52, 900), 4200) });
 }
 
 async function loadAdminPage(): Promise<void> {

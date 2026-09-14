@@ -2,9 +2,16 @@ import { access, readFile } from "node:fs/promises";
 import { describe, expect, it } from "vitest";
 
 describe("UI screenshots", () => {
-  it("keeps all four reviewed visual baselines", async () => {
+  it("keeps all six reviewed visual baselines", async () => {
     await Promise.all(
-      ["ui_proxy_cn.png", "ui_proxy_en.png", "ui_logs_cn.png", "ui_logs_en.png"].map((name) =>
+      [
+        "ui_proxy_cn.png",
+        "ui_proxy_en.png",
+        "ui_logs_cn.png",
+        "ui_logs_en.png",
+        "ui_stats_cn.png",
+        "ui_stats_en.png",
+      ].map((name) =>
         access(new URL(`../../doc/${name}`, import.meta.url)),
       ),
     );

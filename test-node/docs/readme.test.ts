@@ -51,12 +51,15 @@ describe("README runtime instructions", () => {
       const readme = await read(name);
       expect(readme).toContain("doc/ui_proxy_");
       expect(readme).toContain("doc/ui_logs_");
+      expect(readme).toContain("doc/ui_stats_");
     }
     for (const file of [
       "doc/ui_proxy_en.png",
       "doc/ui_proxy_cn.png",
       "doc/ui_logs_en.png",
       "doc/ui_logs_cn.png",
+      "doc/ui_stats_en.png",
+      "doc/ui_stats_cn.png",
     ]) {
       expect(existsSync(path.resolve(root, file)), file).toBe(true);
     }

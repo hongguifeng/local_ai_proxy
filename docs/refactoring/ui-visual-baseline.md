@@ -2,7 +2,7 @@
 
 ## 目的
 
-本文件登记 Python 版本现有的四张 UI 截图，作为 Node.js 重构阶段的布局、颜色、信息层级和交互状态基线。
+本文件登记六张 UI 基线截图：Proxy 与 History 页面各按中/英界面拆分，使用量统计页面各一张，作为 Node.js 重构阶段的布局、颜色、信息层级和交互状态基线。
 
 原截图没有保存浏览器名称、浏览器版本、设备缩放或原始 viewport 元数据，因此无法把像素级差异直接认定为回归。第一轮 Playwright 基线建立时，应在固定浏览器和 viewport 下重新生成一套可自动比较的截图；在此之前，以现有图片尺寸和可见结构进行人工对照。
 
@@ -10,15 +10,17 @@
 
 | 页面 | 语言 | 文件 | 图片尺寸 | SHA-256 |
 | --- | --- | --- | --- | --- |
-| Proxy | 中文 | `doc/ui_proxy_cn.png` | 1278 x 1215 | `c2ff326b0a5cc3167f2febb61455977b65b10bd0b3e030c63f1716b46fb4d85a` |
-| Proxy | 英文 | `doc/ui_proxy_en.png` | 1278 x 1208 | `1649bacdfcd18c88fd9069e5b1473e55454482236b9a6e23d9f692a90ebd8742` |
-| History | 中文 | `doc/ui_logs_cn.png` | 1384 x 1212 | `8fb76413da35988f7508a7098a4e20fb5d166daf06dda8ac18c08a523b74a8f1` |
-| History | 英文 | `doc/ui_logs_en.png` | 1384 x 1224 | `c996b901a9fb8beff8e5c5c7a71ebcd0807a2ac888f228f3aa0a2ae5376b84c9` |
+| Proxy | 中文 | `doc/ui_proxy_cn.png` | 1278 x 1215 | `e4ef18f60a4e7bb4486290bbd4f13d20635801e450bca75feb045cbb0e5ce40b` |
+| Proxy | 英文 | `doc/ui_proxy_en.png` | 1278 x 1208 | `4c59873ffde0ab35efc585d208fc907565698f7d219b52c4a6d91c7f4fca509a` |
+| History | 中文 | `doc/ui_logs_cn.png` | 1384 x 1212 | `4842282348fd3909df0475f99711f7b1af40d1e0f9dd41d9a48df8bd6352660e` |
+| History | 英文 | `doc/ui_logs_en.png` | 1384 x 1224 | `caf4da9e8e828c07ee72d7c3d2c27ac42cd4d9130a6ae77b57d0e2292e0b1b84` |
+| Usage statistics | 中文 | `doc/ui_stats_cn.png` | 1278 x 1613 | `37da967d4d72be179e6f0917a3a5f5fa68d303aa58352becde91474ac0820d8a` |
+| Usage statistics | 英文 | `doc/ui_stats_en.png` | 1278 x 1613 | `f7c2e373753270551f8f8afb330fd20a7cb4fc8661c192cd044cb6793d96b25a` |
 
 哈希复现命令：
 
 ```bash
-sha256sum doc/ui_proxy_cn.png doc/ui_proxy_en.png doc/ui_logs_cn.png doc/ui_logs_en.png
+sha256sum doc/ui_proxy_cn.png doc/ui_proxy_en.png doc/ui_logs_cn.png doc/ui_logs_en.png doc/ui_stats_cn.png doc/ui_stats_en.png
 ```
 
 ## Proxy 页面状态
@@ -53,9 +55,20 @@ sha256sum doc/ui_proxy_cn.png doc/ui_proxy_en.png doc/ui_logs_cn.png doc/ui_logs
 - Request 和 Response 之间有可拖动水平分隔条；列表和详情之间有可拖动垂直分隔条。
 - Request 中的格式化长字符串字段以展开的多行纯文本块显示（含换行、分段标记和 raw payload 尾部），并带复制按钮。
 
+## Usage statistics 页面状态
+
+统计页面由固定 fixture 驱动（固定日期范围、跟随当前时间关闭），关键基线：
+
+- 筛选区：统计区间起止（datetime-local 输入）、跟随当前时间复选框、快捷区间按钮（7/14/30 天、今天）、转发地址/模型/粒度/指标筛选和“应用/重置”按钮。
+- 概览卡片为两行：请求数、任务数、Token 总量、费用，以及费用趋势、按转发地址、按模型三张趋势/占比卡片。
+- Token 总量卡片内部分区展示输入、输出、缓存读取、缓存写入的明细。
+- 费用趋势使用 SVG 折线图；按转发地址、按模型使用环形图，图心显示总量，图例列出各项名称、数值与占比。
+- 未计价请求在概览卡片上以警告条提示，并提供“查看明细”操作。
+- 中文与英文界面保持同一布局，数值单位分别使用万/亿与 K/M/B 压缩显示。
+
 ## 自动化视觉回归约定
 
-基线重生成：`npm run regen:ui-baselines`（通过视觉回归测试重新捕获四张截图，并自动同步上表 SHA-256）。
+基线重生成：`npm run regen:ui-baselines`（通过视觉回归测试重新捕获六张截图，并自动同步上表 SHA-256）。
 
 Playwright 视觉测试建立后固定：
 

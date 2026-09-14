@@ -93,8 +93,21 @@ qwen-local => qwen3
 代理设置会保存到 `logs/proxies.json`，管理页面设置保存在 `llm-proxy.json`。通常无需手动编辑这些文件。
 
 请尽量让管理页面和代理监听地址保持在 `127.0.0.1`。日志可能包含提示词、文档、API key 和工具输出；不要把配置文件或日志目录提交到代码仓库。迁移或升级前请停止代理并备份整个日志目录，包括 `traffic.db-wal` 和 `traffic.db-shm`。详细步骤见 [docs/migration-rollback.md](docs/migration-rollback.md)。
-# 使用统计
+## 使用统计
 
-管理页面新增“使用统计”标签，可按时间范围查看地址、模型的 token 与费用分布，并查看趋势表格。统计接口包括 `/api/usage-statistics/overview`、`/api/usage-statistics/trend` 和 CSV 导出接口。
+![使用统计](doc/ui_stats_cn.png)
 
-趋势和导出接口支持 `targetId`、`model` 与 `granularity`（`day`、`week`、`month`）参数，时间范围使用 ISO-8601 格式的 `from`/`to` 参数。
+“使用统计”标签读取与历史相同的本地数据，按时间范围汇总 token 与费用使用情况。
+
+| 功能 | 说明 |
+| --- | --- |
+| 时间范围与筛选 | 选择起止时间（或 7/14/30 天、今天快捷区间），可选“跟随当前时间”自动刷新，并按转发地址、模型筛选。 |
+| 概览 | 请求数、任务数、Token 总量（输入/输出/缓存读取/缓存写入）与费用。 |
+| 趋势与分布 | 时间趋势图（自动/日/周/月粒度，按总量、模型或地址）以及按转发地址、按模型的占比环形图。 |
+| 任务计数 | 只有当任务在显示范围内有超过 5 条已计价请求时，才计入任务总数（概览、分布行与趋势桶规则一致）。 |
+| 未计价请求 | 缺少用量或价格的请求标记为“未计价”，不会当作免费，并可查看明细。 |
+| CSV 导出 | 将当前筛选范围导出为 CSV。 |
+
+Token 以压缩单位显示（英文界面使用 K/M/B，中文界面使用万/亿）。
+
+只读接口包括 `/api/usage-statistics/overview`、`/api/usage-statistics/trend`、`/api/usage-statistics/options` 和 CSV 导出接口 `/api/usage-statistics/export`。它们使用 ISO-8601 格式的 `from`/`to` 参数；趋势和导出还支持 `targetId`、`model` 与 `granularity`（`day`、`week`、`month`）参数。

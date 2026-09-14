@@ -93,8 +93,21 @@ Enter fields such as `temperature, top_p, top_k` under **Request fields to remov
 Proxy settings are saved in `logs/proxies.json`; console settings are saved in `llm-proxy.json`. You usually do not need to edit these files manually.
 
 Keep the console and proxy listeners bound to `127.0.0.1` where possible. Logs may contain prompts, documents, API keys, and tool output; do not commit configuration files or log directories. Stop the proxy and back up the entire log directory before migration or upgrades, including `traffic.db-wal` and `traffic.db-shm`. See [docs/migration-rollback.md](docs/migration-rollback.md) for details.
-# Usage statistics
+## Usage statistics
 
-The admin page includes a Usage Statistics tab for reviewing token and cost distribution by forwarding target and model, with trend tables and CSV export. A task only counts toward the Task totals when it has more than five priced requests within the displayed scope (overview total, distribution rows, and trend buckets alike).
+![Usage statistics](doc/ui_stats_en.png)
+
+The Usage statistics tab reads the same local history data as History and summarizes token and cost usage over a chosen time range.
+
+| Feature | What it does |
+| --- | --- |
+| Time range and filters | Pick a start and end time (or 7/14/30-day and today shortcuts), optionally follow the current time, and filter by forwarding target and model. |
+| Overview | Request count, task count, token totals (input / output / cache read / cache write), and total cost. |
+| Trends and breakdowns | Trend charts over time (auto / daily / weekly / monthly granularity, by total, model, or target) plus per-target and per-model distributions with donut charts. |
+| Task counting | A task counts toward the Task totals only when it has more than five priced requests within the displayed scope (overview total, distribution rows, and trend buckets alike). |
+| Unpriced requests | Requests with missing usage or a missing price are flagged as unpriced, never free, and can be reviewed in detail. |
+| CSV export | Export the current filter scope as CSV. |
+
+Token amounts use compact units (K/M/B in the English interface; ten-thousand/hundred-million units in the Chinese interface).
 
 The read-only endpoints are `/api/usage-statistics/overview`, `/api/usage-statistics/trend`, `/api/usage-statistics/options`, and `/api/usage-statistics/export`. They accept ISO-8601 `from`/`to` values; trend and export also accept `targetId`, `model`, and `granularity` (`day`, `week`, or `month`).
