@@ -491,7 +491,7 @@ ZIP 当前整体在内存中生成后一次性返回。
 - 支持复制完整 JSON。
 - 支持显示/隐藏请求和响应元信息。
 - Response 标题栏显示首 token 耗时和总耗时：≥ 1 秒使用 `分:秒` 格式（按最接近的整秒显示），不足 1 秒显示毫秒；某一项耗时缺失（旧记录、pending 或非流式响应）时仅显示可用段。
-- 记录包含首 token 耗时、总耗时和 token 数时，标题栏额外显示 Prefill 和 Decode 速度（token/s）：Prefill = 请求 token 数 / 首 token 耗时；Decode = 响应 token 数 / (总耗时 - 首 token 耗时)。速度 ≥ 1000 时显示为 `k`（如 `1.2k`），≥ 100 取整，否则保留 1 位小数；对应耗时或 token 数缺失/非正时不显示该速度。
+- 记录包含首 token 耗时、总耗时和 token 数时，标题栏额外显示 Prefill 和 Decode 速度（token/s）：Prefill = (请求 token 数 - 缓存命中 token 数) / 首 token 耗时（缓存命中部分由上游 prompt cache 直接服务，不参与真实 prefill，不计入估算；无计费用量信息时按未命中处理）；Decode = 响应 token 数 / (总耗时 - 首 token 耗时)。速度 ≥ 1000 时显示为 `k`（如 `1.2k`），≥ 100 取整，否则保留 1 位小数；对应耗时或 token 数缺失/非正时不显示该速度。
 - 自动刷新 selected record 时保留对象、数组、格式化长字符串的展开状态、滚动位置和视图选项。
 
 ### 11.5 国际化

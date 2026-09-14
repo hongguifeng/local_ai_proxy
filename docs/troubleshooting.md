@@ -52,9 +52,11 @@ stream never delivered a text token.
 
 The displayed **Prefill** and **Decode** rates are derived from usage token counts divided by these
 network windows — the prefill window is the first token timing and the decode window is the
-remaining time until the total duration. They are throughput estimates, not hardware benchmark
-values. Records without a first token timing (for example non-streaming responses) do not show speed
-estimates.
+remaining time until the total duration. The prefill estimate only counts uncached input tokens
+(`request token count − cached token count`): prompt-cache hits are served by the upstream without
+a real prefill, and records without billing usage data are treated as fully uncached. They are
+throughput estimates, not hardware benchmark values. Records without a first token timing (for
+example non-streaming responses) do not show speed estimates.
 
 ## Upstream target not responding
 

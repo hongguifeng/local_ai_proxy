@@ -1660,9 +1660,11 @@ function updateResponseTiming() {
   if (tokenMs !== undefined && durationMs !== undefined) {
     // Prefill is measured until the first generated text token; records without
     // that timing (e.g. non-streaming responses) do not show speed estimates.
-    const prefill = formatTokensPerSecond(
-      (positiveNumber(meta.request_token_count) ?? 0) * (1000 / tokenMs),
-    );
+    // Prompt-cache hits are served by the upstream without a real prefill, so
+    // only the uncached input tokens count toward the prefill speed estimate.
+    const inputTokens = positiveNumber(meta.request_token_count) ?? 0;
+    const cachedTokens = Math.min(positiveNumber(meta.cached_token_count) ?? 0, inputTokens);
+    const prefill = formatTokensPerSecond((inputTokens - cachedTokens) * (1000 / tokenMs));
     const decodeWindowMs = durationMs - tokenMs;
     const decode =
       decodeWindowMs > 0

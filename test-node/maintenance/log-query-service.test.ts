@@ -311,6 +311,17 @@ describe("LogQueryService", () => {
       request_body: { input: "hello" },
       response_body: { output: "world" },
       stripped_fields: [],
+      pricing: {
+        pricing_status: "priced",
+        usage: {
+          source: "responses",
+          inputUncachedTokens: 4,
+          outputTokens: 3,
+          cacheReadTokens: 2,
+          cacheWriteTokens: 0,
+          totalInputTokens: 6,
+        },
+      },
     });
     repository.close();
 
@@ -332,6 +343,7 @@ describe("LogQueryService", () => {
         duration_ms: 15,
         request_token_count: 6,
         response_token_count: 3,
+        cached_token_count: 2,
       },
     });
   });

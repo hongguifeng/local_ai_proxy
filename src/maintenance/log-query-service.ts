@@ -500,10 +500,22 @@ function recordDetail(record: Readonly<RepositoryRecord>): LogRecordDetail {
       duration_ms: pending ? undefined : record["duration_ms"],
       request_token_count: record["request_token_count"],
       response_token_count: record["response_token_count"],
+      cached_token_count: cachedTokenCount(record),
       error: record["error"],
       headers: record["response_headers"],
     }),
   };
+}
+
+/**
+ * Returns the part of the request prompt that hit the upstream prompt cache, or
+ * undefined when the record has no usable billing usage (unpriced records).
+ */
+function cachedTokenCount(record: Readonly<RepositoryRecord>): number | undefined {
+  const pricing = isRecord(record["pricing"]) ? record["pricing"] : undefined;
+  const usage = pricing !== undefined && isRecord(pricing["usage"]) ? pricing["usage"] : undefined;
+  const value = usage !== undefined ? usage["cacheReadTokens"] : undefined;
+  return typeof value === "number" && Number.isSafeInteger(value) && value > 0 ? value : undefined;
 }
 
 function clientAddress(record: Readonly<RepositoryRecord>): string {
