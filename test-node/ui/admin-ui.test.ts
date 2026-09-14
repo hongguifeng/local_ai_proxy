@@ -7,6 +7,7 @@ import {
   type Page,
 } from "@playwright/test";
 import type { AddressInfo } from "node:net";
+import { existsSync } from "node:fs";
 import { readFile, writeFile } from "node:fs/promises";
 import { Readable } from "node:stream";
 import pixelmatch from "pixelmatch";
@@ -491,16 +492,21 @@ beforeAll(async () => {
   await server.listen({ host: "127.0.0.1", port: 0 });
   const address = server.server.address() as AddressInfo;
   baseUrl = `http://127.0.0.1:${address.port}`;
+  const systemChrome =
+    process.platform === "win32"
+      ? "C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe"
+      : "/usr/bin/google-chrome";
+  // Prefer the Playwright-bundled Chromium (deterministic across CI runners);
+  // CHROME_PATH still wins, and the OS Chrome remains a fallback when the
+  // bundled browser was not downloaded during install.
+  const bundledChrome = chromium.executablePath();
   browser = await chromium.launch({
     executablePath:
-      process.env["CHROME_PATH"] ??
-      (process.platform === "win32"
-        ? "C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe"
-        : "/usr/bin/google-chrome"),
+      process.env["CHROME_PATH"] ?? (existsSync(bundledChrome) ? bundledChrome : systemChrome),
     headless: true,
     args: ["--no-sandbox"],
   });
-}, 30_000);
+}, 60_000);
 
 beforeEach(async () => {
   pairs.splice(0, pairs.length, fixturePair());
