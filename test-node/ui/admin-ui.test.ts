@@ -2129,6 +2129,42 @@ describe("statistics page visual smoke", () => {
     await expectPage(page.locator(".stats-empty")).toHaveCount(1);
     await page.screenshot({ path: "test-results/statistics-page-smoke.png", fullPage: true });
   });
+  it("re-renders statistics labels when the language switches", async () => {
+    await page.route("**/api/usage-statistics/options*", (route) =>
+      route.fulfill({ json: { targets: [{ id: "a", name: "A" }], models: ["m"] } }),
+    );
+    await page.route("**/api/usage-statistics/overview*", (route) =>
+      route.fulfill({
+        json: {
+          totals: {},
+          byTarget: [{ id: "a", value: "10" }],
+          byModel: [{ id: "m", value: "10" }],
+          unpriced: {},
+          dataVersion: 1,
+        },
+      }),
+    );
+    await page.route("**/api/usage-statistics/trend*", (route) =>
+      route.fulfill({ json: { dataVersion: 1, granularity: "day", points: [] } }),
+    );
+    await loadAdminPage();
+    await page.locator('[data-tab="statistics"]').click();
+    await expectPage(page.locator("#statsOverview .distribution-card h3").first()).toHaveText(
+      "Target distribution",
+    );
+    await page.locator("#languageSelect").selectOption("zh");
+    await expectPage(page.locator("#statsOverview .distribution-card h3").first()).toHaveText(
+      "转发地址分布",
+    );
+    await expectPage(page.locator("#statsTrend .trend-card h3")).toHaveText("使用趋势");
+    await expectPage(page.locator("#statsTarget option").first()).toHaveText("全部转发地址");
+    await page.screenshot({ path: "test-results/statistics-page-language-zh.png", fullPage: true });
+    await page.locator("#languageSelect").selectOption("en");
+    await expectPage(page.locator("#statsOverview .distribution-card h3").first()).toHaveText(
+      "Target distribution",
+    );
+    await expectPage(page.locator("#statsTrend .trend-card h3")).toHaveText("Usage trend");
+  }, 30000);
   it("serializes granularity and filter selections", async () => {
     const requests: string[] = [];
     await page.route("**/api/usage-statistics/options*", (route) =>

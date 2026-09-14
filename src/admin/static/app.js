@@ -455,6 +455,12 @@ function setLanguage(language) {
   renderMetaPane("response");
   renderRequestPricing();
   renderTaskPricingPanel();
+  // The statistics page is rendered on demand; re-render it if it was loaded so
+  // its inline (non data-i18n) labels follow the new language without a refresh.
+  if ($("statsOverview")?.innerHTML)
+    loadStatisticsOptions()
+      .then(() => loadStatistics())
+      .catch((e) => toast(e.message));
 }
 function isPendingStatus(status) {
   return status === undefined || status === null || status === "pending";
