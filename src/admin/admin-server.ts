@@ -11,6 +11,7 @@ import type {
   LogGroupPage,
   LogRecordDetail,
 } from "../maintenance/index.js";
+import { recordText } from "../persistence/repository.js";
 import type { UsageStatisticsService } from "../maintenance/usage-statistics-service.js";
 import { StructuredLogger } from "../shared/index.js";
 
@@ -252,6 +253,7 @@ export function createAdminServer(options: AdminServerOptions): FastifyInstance 
     logger: false,
   });
   if (options.usageStatisticsService !== undefined) {
+    const usageStatisticsService = options.usageStatisticsService;
     const statsQuery = {
       type: "object",
       required: ["from", "to"],
@@ -278,11 +280,7 @@ export function createAdminServer(options: AdminServerOptions): FastifyInstance 
             code: "bad_request",
           });
         }
-        return options.usageStatisticsService!.overview(
-          query.from,
-          query.to,
-          query.metric ?? "token",
-        );
+        return usageStatisticsService.overview(query.from, query.to, query.metric ?? "token");
       },
     );
     server.get(
@@ -303,7 +301,7 @@ export function createAdminServer(options: AdminServerOptions): FastifyInstance 
             statusCode: 400,
             code: "bad_request",
           });
-        return options.usageStatisticsService!.trend(
+        return usageStatisticsService.trend(
           query.from,
           query.to,
           query.targetId,
@@ -337,14 +335,14 @@ export function createAdminServer(options: AdminServerOptions): FastifyInstance 
             statusCode: 400,
             code: "bad_request",
           });
-        const rows = options.usageStatisticsService!.repositoryRows(query.from, query.to);
+        const rows = usageStatisticsService.repositoryRows(query.from, query.to);
         const targets = new Map<string, string>();
         const models = new Set<string>();
         for (const row of rows) {
-          const id = String(row["target_id"] ?? row["target_url"] ?? "unknown");
-          targets.set(id, String(row["target_name"] ?? row["target_url"] ?? id));
+          const id = recordText(row, "unknown", "target_id", "target_url");
+          targets.set(id, recordText(row, id, "target_name", "target_url"));
           if (query.targetId && query.targetId !== id) continue;
-          const model = String(row["billing_model"] ?? "");
+          const model = recordText(row, "", "billing_model");
           if (model) models.add(model);
         }
         return {
@@ -355,6 +353,7 @@ export function createAdminServer(options: AdminServerOptions): FastifyInstance 
     );
   }
   if (options.usageStatisticsService !== undefined) {
+    const usageStatisticsService = options.usageStatisticsService;
     server.get(
       "/api/usage-statistics/export",
       {
@@ -388,7 +387,7 @@ export function createAdminServer(options: AdminServerOptions): FastifyInstance 
             statusCode: 400,
             code: "bad_request",
           });
-        const trend = options.usageStatisticsService!.trend(
+        const trend = usageStatisticsService.trend(
           q.from,
           q.to,
           q.targetId,
@@ -767,7 +766,14 @@ export function createAdminServer(options: AdminServerOptions): FastifyInstance 
 }
 
 function csvCell(value: unknown): string {
-  const text = String(value ?? "");
+  const text =
+    value === null || value === undefined
+      ? ""
+      : typeof value === "string"
+        ? value
+        : typeof value === "number" || typeof value === "boolean"
+          ? String(value)
+          : "";
   const safe = /^[=+\-@]/.test(text) ? `'${text}` : text;
   return /[",\n\r]/.test(safe) ? `"${safe.replace(/"/g, '""')}"` : safe;
 }

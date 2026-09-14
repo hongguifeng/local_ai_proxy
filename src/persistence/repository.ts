@@ -7,6 +7,20 @@ import { connectLogDatabase } from "./database.js";
 
 export type RepositoryRecord = Record<string, unknown>;
 
+/**
+ * Returns the first non-null cell of `row` as text, or `fallback` when every
+ * listed key is null, undefined, or not a primitive value.
+ */
+export function recordText(row: RepositoryRecord, fallback: string, ...keys: string[]): string {
+  for (const key of keys) {
+    const value = row[key];
+    if (value === null || value === undefined) continue;
+    if (typeof value === "string" || typeof value === "number" || typeof value === "boolean")
+      return String(value);
+  }
+  return fallback;
+}
+
 export interface TrafficRepositoryOptions {
   readonly now?: () => string;
 }

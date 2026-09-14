@@ -1,4 +1,4 @@
-import type { RepositoryRecord } from "../persistence/repository.js";
+import { recordText, type RepositoryRecord } from "../persistence/repository.js";
 interface StatisticsRepository {
   usageStatisticsRows(from: string, to: string): readonly RepositoryRecord[];
 }
@@ -18,6 +18,11 @@ export interface UsageStatisticsTrend {
   readonly points: readonly Record<string, unknown>[];
 }
 type TrendBreakdown = "total" | "model" | "target";
+interface TrendPointGroup {
+  total: ReturnType<typeof empty>;
+  byModel: Map<string, ReturnType<typeof empty>>;
+  byTarget: Map<string, ReturnType<typeof empty>>;
+}
 
 const empty = () => ({
   input: 0n,
@@ -57,10 +62,8 @@ export class UsageStatisticsService {
       const bucket = this.rowBucket(row, unpriced);
       if (bucket === undefined) continue;
       this.add(total, bucket, row);
-      const targetKey = String(
-        row["target_name"] ?? row["target_id"] ?? row["target_url"] ?? "unknown",
-      );
-      const modelKey = String(row["billing_model"] ?? "unknown");
+      const targetKey = recordText(row, "unknown", "target_name", "target_id", "target_url");
+      const modelKey = recordText(row, "unknown", "billing_model");
       const target = targets.get(targetKey) ?? empty();
       const model = models.get(modelKey) ?? empty();
       this.add(target, bucket, row);
@@ -69,7 +72,7 @@ export class UsageStatisticsService {
       models.set(modelKey, model);
     }
     const project = (map: Map<string, ReturnType<typeof empty>>) => {
-      const rows = [...map].sort((a, b) => Number(b[1].requests - a[1].requests));
+      const rows = [...map].sort((a, b) => b[1].requests - a[1].requests);
       const visible = rows.slice(0, 9);
       const rest = rows.slice(9);
       if (rest.length) {
@@ -127,30 +130,22 @@ export class UsageStatisticsService {
     timezoneOffsetMinutes = 0,
     breakdown: TrendBreakdown = "total",
   ): UsageStatisticsTrend {
-    const points = new Map<
-      string,
-      {
-        total: ReturnType<typeof empty>;
-        byModel: Map<string, ReturnType<typeof empty>>;
-        byTarget: Map<string, ReturnType<typeof empty>>;
-      }
-    >();
+    const points = new Map<string, TrendPointGroup>();
     for (const row of this.repository.usageStatisticsRows(from, to)) {
-      if (
-        targetId !== undefined &&
-        String(row["target_id"] ?? row["target_url"] ?? "") !== targetId
-      )
+      if (targetId !== undefined && recordText(row, "", "target_id", "target_url") !== targetId)
         continue;
-      if (model !== undefined && String(row["billing_model"] ?? "") !== model) continue;
+      if (model !== undefined && recordText(row, "", "billing_model") !== model) continue;
       const key = bucketKey(String(row["timestamp"]), granularity, timezoneOffsetMinutes);
-      const value = points.get(key) ?? { total: empty(), byModel: new Map(), byTarget: new Map() };
+      const value = points.get(key) ?? {
+        total: empty(),
+        byModel: new Map<string, ReturnType<typeof empty>>(),
+        byTarget: new Map<string, ReturnType<typeof empty>>(),
+      };
       const parsed = this.rowBucket(row, {});
       if (parsed !== undefined) {
         this.add(value.total, parsed, row);
-        const modelKey = String(row["billing_model"] ?? "unknown");
-        const targetKey = String(
-          row["target_name"] ?? row["target_id"] ?? row["target_url"] ?? "unknown",
-        );
+        const modelKey = recordText(row, "unknown", "billing_model");
+        const targetKey = recordText(row, "unknown", "target_name", "target_id", "target_url");
         const model = value.byModel.get(modelKey) ?? empty();
         const target = value.byTarget.get(targetKey) ?? empty();
         this.add(model, parsed, row);
@@ -216,12 +211,16 @@ export class UsageStatisticsService {
     unpriced: Record<string, number>,
   ): ReturnType<typeof empty> | undefined {
     if (row["pricing_status"] !== "priced") {
-      const r = String(row["pricing_reason"] ?? row["pricing_status"] ?? "unknown");
+      const r = recordText(row, "unknown", "pricing_reason", "pricing_status");
       unpriced[r] = (unpriced[r] ?? 0) + 1;
       return undefined;
     }
     try {
-      const u = JSON.parse(String(row["billing_usage_json"] ?? "{}")) as Record<string, unknown>;
+      const rawUsage: unknown = JSON.parse(recordText(row, "{}", "billing_usage_json"));
+      const u = (typeof rawUsage === "object" && rawUsage !== null ? rawUsage : {}) as Record<
+        string,
+        unknown
+      >;
       const aliases: Record<string, string[]> = {
         input_uncached_tokens: ["input_uncached_tokens", "inputUncachedTokens"],
         output_tokens: ["output_tokens", "outputTokens"],
@@ -237,7 +236,7 @@ export class UsageStatisticsService {
         output: n("output_tokens"),
         cacheRead: n("cache_read_tokens"),
         cacheWrite: n("cache_write_tokens"),
-        cost: BigInt(String(row["cost_nano_cny"] ?? 0)),
+        cost: BigInt(recordText(row, "0", "cost_nano_cny")),
         requests: 0,
         unpriced: 0,
         tasks: new Map<string, number>(),

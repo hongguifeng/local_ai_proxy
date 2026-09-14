@@ -39,7 +39,7 @@ describe("usage statistics benchmark", () => {
       {
         get(target, key) {
           if (key === "request_body" || key === "response_body") throw new Error("body accessed");
-          return Reflect.get(target, key);
+          return Reflect.get(target, key) as unknown;
         },
       },
     );

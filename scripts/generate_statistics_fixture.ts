@@ -11,7 +11,7 @@ for (let r = 0; r < 2; r++) {
   const db = new TrafficRepository(root);
   for (let i = 0; i < 10; i++) {
     const taskId = `fixture-${r}-${i}`,
-      model = ["qwen3.8-27b", "qwen3.8-27b-fast", "deepseek-v4-flash"][i % 3]!;
+      model = ["qwen3.8-27b", "qwen3.8-27b-fast", "deepseek-v4-flash"][i % 3] ?? "qwen3.8-27b";
     const timestamp = `2026-09-${String(i + 1).padStart(2, "0")}T10:00:00.000Z`;
     db.upsertTask({ id: taskId, model, started_at: timestamp, target: `target-${r}` });
     db.upsertRecord({

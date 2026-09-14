@@ -428,7 +428,8 @@ it("aggregates usage statistics across distinct log roots", async () => {
   }
   const service = new LogQueryService([firstRoot, secondRoot]).usageStatisticsService();
   expect(service).toBeDefined();
-  expect(service!.overview("2020-01-01T00:00:00Z", "2030-01-01T00:00:00Z").totals).toMatchObject({
+  if (service === undefined) throw new Error("Usage statistics service is unavailable");
+  expect(service.overview("2020-01-01T00:00:00Z", "2030-01-01T00:00:00Z").totals).toMatchObject({
     requests: 2,
     tasks: 0,
     cost: "0.000003000",

@@ -125,8 +125,10 @@ describe("UsageStatisticsService", () => {
     const overview = service.overview("2026-01-01", "2026-01-02");
     const trend = service.trend("2026-01-01", "2026-01-02");
     expect(overview.byTarget).toHaveLength(10);
+    const firstPoint = trend.points[0];
+    if (firstPoint === undefined) throw new Error("First trend point is missing");
     expect(overview.byTarget.reduce((sum, row) => sum + Number(row["value"]), 0)).toBe(
-      Number(trend.points[0]!["input"]),
+      Number(firstPoint["input"]),
     );
   });
 
@@ -164,8 +166,10 @@ describe("UsageStatisticsService", () => {
       480,
       "model",
     );
-    expect(result.points[0]).toMatchObject({ bucket: "2026-09-13", input: "7" });
-    expect(result.points[0]!["by_model"]).toEqual(
+    const firstPoint = result.points[0];
+    if (firstPoint === undefined) throw new Error("First trend point is missing");
+    expect(firstPoint).toMatchObject({ bucket: "2026-09-13", input: "7" });
+    expect(firstPoint["by_model"]).toEqual(
       expect.arrayContaining([
         expect.objectContaining({ id: "m1", input: "3" }),
         expect.objectContaining({ id: "m2", input: "4" }),

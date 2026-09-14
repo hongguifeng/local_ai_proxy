@@ -80,13 +80,12 @@ export function createNodeApplication(options: NodeApplicationOptions): NodeAppl
               },
             };
           })(),
-          ...(new LogQueryService(() => currentManager.logRoots()).usageStatisticsService()
-            ? {
-                usageStatisticsService: new LogQueryService(() =>
-                  currentManager.logRoots(),
-                ).usageStatisticsService()!,
-              }
-            : {}),
+          ...(() => {
+            const usageStatisticsService = new LogQueryService(() =>
+              currentManager.logRoots(),
+            ).usageStatisticsService();
+            return usageStatisticsService === undefined ? {} : { usageStatisticsService };
+          })(),
           targetCheckService: { checkTarget },
           summaryModelService: {
             getConfig: () => config.summary_model,

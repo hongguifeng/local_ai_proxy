@@ -2179,11 +2179,16 @@ describe("statistics page visual smoke", () => {
     await loadAdminPage();
     await page.locator('[data-tab="statistics"]').click();
     await page.locator('[data-stats-range="0"]').click();
-    const todayRangeValid = await page.evaluate(
-      () =>
-        new Date((document.querySelector("#statsFrom") as HTMLInputElement).value).getTime() <
-        new Date((document.querySelector("#statsTo") as HTMLInputElement).value).getTime(),
-    );
+    const todayRangeValid = await page.evaluate(() => {
+      const from = document.querySelector("#statsFrom");
+      const to = document.querySelector("#statsTo");
+      if (from === null || to === null) return false;
+      return (
+        from instanceof HTMLInputElement &&
+        to instanceof HTMLInputElement &&
+        new Date(from.value).getTime() < new Date(to.value).getTime()
+      );
+    });
     expect(todayRangeValid).toBe(true);
     await page.locator('[data-stats-range="1"]').click();
     await expectPage(page.locator('[data-stats-range="1"]')).toHaveClass(/active/);
