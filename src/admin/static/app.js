@@ -25,6 +25,7 @@ const translations = {
     statsTimeRange: "时间范围",
     statsFrom: "开始时间",
     statsTo: "结束时间",
+    statsDateSeparator: "至",
     statsDataFilters: "统计维度",
     statsMetricLabel: "指标",
     statsGranularityLabel: "时间粒度",
@@ -199,6 +200,7 @@ const translations = {
     statsTimeRange: "Time range",
     statsFrom: "From",
     statsTo: "To",
+    statsDateSeparator: "to",
     statsDataFilters: "Data dimensions",
     statsMetricLabel: "Metric",
     statsGranularityLabel: "Granularity",
@@ -1899,7 +1901,9 @@ async function loadStatistics() {
     $("statsGranularity")?.querySelector('option[value="month"]')?.replaceChildren("Monthly");
     $("statsGranularity")?.querySelector('option[value="auto"]')?.replaceChildren("Auto");
   }
-  $("statsOverview").innerHTML = '<div class="stats-loading">加载中…</div>';
+  $("statsOverview").innerHTML = `<div class="stats-loading">${
+    state.language === "en" ? "Loading..." : "加载中…"
+  }</div>`;
   const now = new Date();
   if ($("statsFollowNow")?.checked && $("statsTo")) $("statsTo").value = statsLocalInput(now);
   const from = $("statsFrom").value
@@ -1913,7 +1917,10 @@ async function loadStatistics() {
     fetch(
       `/api/usage-statistics/overview?from=${encodeURIComponent(iso(from))}&to=${encodeURIComponent(iso(to))}&metric=${metric}`,
     ).then(async (r) => {
-      if (!r.ok) throw new Error(`统计请求失败 (${r.status})`);
+      if (!r.ok)
+        throw new Error(
+          `${state.language === "en" ? "Statistics request failed" : "统计请求失败"} (${r.status})`,
+        );
       return r.json();
     });
   const [result, targetResult, modelResult] = await Promise.all([
@@ -2088,19 +2095,24 @@ async function loadStatistics() {
     `<div class="stat-card stat-card-tokens"><small>${english ? "Token total" : "Token 总量"}</small><div class="stat-card-token-body"><strong title="${fullNumber(totalTokens)}">${tokenTotalDisplay}</strong><div class="token-details">${tokenDetailHtml}</div></div></div>` +
     `<div class="stat-card stat-card-cost" title="${escapeHtml(`${statLabels.cost}: ${statDisplay("cost", result.totals.cost)}`)}"><small>${statLabels.cost}</small><strong>${statDisplay("cost", result.totals.cost)}</strong></div>` +
     (Object.values(result.unpriced || {}).reduce((a, b) => a + Number(b), 0)
-      ? `<div class="stats-unpriced"><span class="stats-alert-icon">!</span><span>${english ? "Unpriced records are excluded from cost totals" : "有未计价记录，费用合计不包含这些记录"}（${Object.values(
-          result.unpriced || {},
-        )
+      ? `<div class="stats-unpriced"><span class="stats-alert-icon">!</span><span>${english ? "Unpriced records are excluded from cost totals" : "有未计价记录，费用合计不包含这些记录"}${
+          english ? " (" : "（"
+        }${Object.values(result.unpriced || {})
           .reduce((a, b) => a + Number(b), 0)
           .toLocaleString(
             english ? "en-US" : "zh-CN",
-          )}）</span><button type="button" class="stats-alert-action" data-i18n="viewDetails">${english ? "查看明细" : "查看明细"}</button></div>`
+          )}${english ? ")" : "）"}</span><button type="button" class="stats-alert-action">${
+          english ? "View details" : "查看明细"
+        }</button></div>`
       : "") +
     `<div class="stat-groups"><section class="distribution-card"><div class="distribution-card-title"><h3>${targetTitle}</h3><label class="chart-control"><span>${english ? "Metric" : "指标"}</span><select id="statsMetricTarget" aria-label="${english ? "Target distribution metric" : "转发地址分布指标"}">${metricOptions(targetMetric)}</select></label></div>${pie(targetResult.byTarget, targetMetric)}</section><section class="distribution-card"><div class="distribution-card-title"><h3>${modelTitle}</h3><label class="chart-control"><span>${english ? "Metric" : "指标"}</span><select id="statsMetricModel" aria-label="${english ? "Model distribution metric" : "模型分布指标"}">${metricOptions(modelMetric)}</select></label></div>${pie(modelResult.byModel, modelMetric)}</section></div>`;
   const trend = await fetch(
     `/api/usage-statistics/trend?from=${encodeURIComponent(iso(from))}&to=${encodeURIComponent(to.toISOString())}&granularity=${selectedGranularity}&timezoneOffset=${timezoneOffset}&breakdown=${selectedBreakdown}${extra}`,
   ).then(async (r) => {
-    if (!r.ok) throw new Error(`趋势请求失败 (${r.status})`);
+    if (!r.ok)
+      throw new Error(
+        `${state.language === "en" ? "Trend request failed" : "趋势请求失败"} (${r.status})`,
+      );
     return r.json();
   });
   if (requestId !== statisticsRequestId) return;
@@ -2191,7 +2203,9 @@ async function loadStatistics() {
               value: valueOf(g),
             }));
       const trendCost = formatCurrencyAmount(pricingDecimalFromNano(point.cost));
-      const detail = `${point.bucket} | 请求 ${point.requests} | Task ${point.tasks} | 费用 ${trendCost}`;
+      const detail = `${point.bucket} | ${english ? "Requests" : "请求"} ${point.requests} | ${
+        english ? "Tasks" : "Task"
+      } ${point.tasks} | ${english ? "Cost" : "费用"} ${trendCost}`;
       const segments = parts
         .map((p) => {
           const color = costMode
@@ -2281,7 +2295,9 @@ async function loadStatistics() {
 }
 function showStatisticsError(error) {
   $("statsOverview").innerHTML =
-    `<div class="stats-error">${error.message} <button id="retryStatistics">重试</button></div>`;
+    `<div class="stats-error">${error.message} <button id="retryStatistics">${
+      state.language === "en" ? "Retry" : "重试"
+    }</button></div>`;
   $("retryStatistics")?.addEventListener("click", () =>
     loadStatistics().catch(showStatisticsError),
   );
@@ -2310,11 +2326,11 @@ async function loadStatisticsOptions() {
   const selectedModel = $("statsModel")?.value || "";
   if ($("statsTarget"))
     $("statsTarget").innerHTML =
-      '<option value="">全部转发地址</option>' +
+      `<option value="">${state.language === "en" ? "All targets" : "全部转发地址"}</option>` +
       data.targets.map((x) => `<option value="${x.id}">${x.name}</option>`).join("");
   if ($("statsModel"))
     $("statsModel").innerHTML =
-      '<option value="">全部模型</option>' +
+      `<option value="">${state.language === "en" ? "All models" : "全部模型"}</option>` +
       data.models.map((x) => `<option value="${x}">${x}</option>`).join("");
   if ($("statsTarget")?.querySelector(`option[value="${CSS.escape(selectedTarget)}"]`))
     $("statsTarget").value = selectedTarget;

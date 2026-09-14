@@ -172,7 +172,12 @@
               <div class="stats-date-row">
                 <div class="stats-presets-group">
                   <div class="stats-filter-label" data-i18n="statsPresetRange">快速范围</div>
-                  <div class="stats-presets" role="group" aria-label="统计时间范围">
+                  <div
+                    class="stats-presets"
+                    role="group"
+                    data-i18n-title="statsTimeRange"
+                    aria-label="统计时间范围"
+                  >
                     <button type="button" data-stats-range="0" data-i18n="statsToday">今天</button>
                     <button type="button" data-stats-range="1">1d</button>
                     <button type="button" data-stats-range="7" class="active">7d</button>
@@ -184,7 +189,9 @@
                   ><span data-i18n="statsFrom">开始时间</span
                   ><input id="statsFrom" type="datetime-local"
                 /></label>
-                <span class="stats-date-separator" aria-hidden="true">至</span>
+                <span class="stats-date-separator" data-i18n="statsDateSeparator" aria-hidden="true"
+                  >至</span
+                >
                 <label
                   ><span data-i18n="statsTo">结束时间</span
                   ><input id="statsTo" type="datetime-local"

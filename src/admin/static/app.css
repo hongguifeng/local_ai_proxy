@@ -3013,8 +3013,8 @@ label span {
   font: inherit !important;
 }
 .distribution-card-title .chart-control select {
-  width: 70px !important;
-  min-width: 70px !important;
+  width: 88px !important;
+  min-width: 88px !important;
 }
 
 .stats-overview .stat-card-tokens .token-details {
@@ -3124,10 +3124,12 @@ label span {
   }
 
   .stat-card-token-body > strong {
-    flex: 0 1 auto;
+    flex: 0 0 auto;
     min-width: 0;
     max-width: 45%;
-    font-size: clamp(16px, 1.5vw, 22px) !important;
+    /* smaller big number leaves room for the 2x2 details grid so long
+       values (e.g. "Cache read 280M" in English) are not ellipsized */
+    font-size: clamp(15px, 1.3vw, 18px) !important;
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
@@ -3140,11 +3142,6 @@ label span {
     min-width: 0;
     grid-template-columns: repeat(2, minmax(0, 1fr)) !important;
     gap: 4px 10px !important;
-  }
-
-  .stat-card-tokens .token-details span,
-  .stat-card-tokens .token-details strong {
-    min-width: 0;
   }
 
   .stat-card-tokens .token-details strong {
