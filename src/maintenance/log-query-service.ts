@@ -3,6 +3,7 @@ import {
   type RepositoryRecord,
   type TaskDecodeSpeedStats,
   type TaskPricingAggregate,
+  type TaskTokenSeriesPoint,
 } from "../persistence/index.js";
 import { formatLocalTimestamp } from "../shared/index.js";
 import { createLogExportStream } from "./log-export.js";
@@ -358,6 +359,19 @@ export class LogQueryService {
       try {
         const pricing = repository.taskPricing(groupId);
         if (pricing !== undefined) return pricing;
+      } finally {
+        repository.close();
+      }
+    }
+    return undefined;
+  }
+
+  getGroupTokenSeries(groupId: string): readonly TaskTokenSeriesPoint[] | undefined {
+    for (const root of [...new Set(this.#logRoots().filter((value) => value !== ""))]) {
+      const repository = new TrafficRepository(root);
+      try {
+        const series = repository.taskTokenSeries(groupId);
+        if (series !== undefined) return series;
       } finally {
         repository.close();
       }

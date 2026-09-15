@@ -410,6 +410,16 @@ beforeAll(async () => {
           ],
         };
       },
+      getGroupTokenSeries: (groupId) => {
+        if (groupId !== "task-one") return undefined;
+        return [
+          { sequence: 1, request_tokens: 10, response_tokens: 4, total_tokens: 14 },
+          { sequence: 2, request_tokens: 8, response_tokens: 4, total_tokens: 12 },
+          { sequence: 3, request_tokens: 24, response_tokens: 96, total_tokens: 120 },
+          { sequence: 4, request_tokens: 12, response_tokens: 0, total_tokens: 12 },
+          { sequence: 5, request_tokens: 46, response_tokens: 212, total_tokens: 258 },
+        ];
+      },
       cleanupSelectedGroups: (groupIds) => {
         groupIds.forEach((groupId) => deletedLogGroups.add(groupId));
         return { deleted: groupIds, deleted_count: groupIds.length };
@@ -1233,6 +1243,20 @@ describe("admin UI history page", { timeout: UI_TEST_TIMEOUT_MS }, () => {
     await expectPage(taskBreakdown.locator("tfoot")).toContainText("4,250");
     await expectPage(taskBreakdown.locator("tfoot")).not.toContainText("%");
     await expectPage(taskBreakdown.locator("tbody tr").nth(1)).toContainText("1,250");
+    // Token trend line chart: one dot per request with a known token total.
+    await page.waitForResponse((response) =>
+      response.url().endsWith("/api/log-groups/task-one/pricing/tokens"),
+    );
+    await expectPage(panel).toContainText("Token trend");
+    const tokenChart = panel.locator(".token-chart svg");
+    await expectPage(tokenChart).toBeVisible();
+    await expectPage(tokenChart.locator(".token-chart-dot")).toHaveCount(5);
+    await expectPage(tokenChart.locator(".token-chart-dot").first().locator("title")).toHaveText(
+      "Request #1: 14 tokens",
+    );
+    await expectPage(tokenChart.locator(".token-chart-dot").last().locator("title")).toHaveText(
+      "Request #5: 258 tokens",
+    );
     await panel.screenshot({ path: "test-results/task-pricing-panel.png" });
     await expectPage(group.locator(".log-group-body")).toHaveCount(0);
     await expectPage(group.locator('[data-select-group="task-one"]')).not.toBeChecked();

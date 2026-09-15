@@ -223,6 +223,50 @@ describe("TrafficRepository pricing persistence", () => {
     expect(repository.taskPricing("missing")).toBeUndefined();
     repository.close();
   });
+
+  it("lists per-request token totals by sequence with nulls for unknown counts", async () => {
+    const root = await mkdtemp(path.join(os.tmpdir(), "llm-proxy-repository-token-series-"));
+    temporaryDirectories.push(root);
+    const repository = new TrafficRepository(root);
+    repository.upsertTask({ id: "token-series-task", match_strategy_version: 4 });
+    const write = (id: string, sequence: number, extra: Record<string, unknown> = {}) =>
+      repository.upsertRecord({
+        id,
+        task_id: "token-series-task",
+        sequence,
+        method: "POST",
+        path: "/v1/chat/completions",
+        ...extra,
+      });
+    write("series-record-1", 1, {
+      event: "request_finished",
+      request_token_count: 100,
+      response_token_count: 40,
+    });
+    write("series-record-2", 2, {
+      event: "request_finished",
+      request_token_count: null,
+      response_token_count: 10,
+    });
+    write("series-record-3", 3, {
+      event: "request_pending_response",
+      request_token_count: null,
+      response_token_count: null,
+    });
+    write("series-record-4", 4, {
+      event: "request_finished",
+      request_token_count: 25,
+      response_token_count: null,
+    });
+    expect(repository.taskTokenSeries("token-series-task")).toEqual([
+      { sequence: 1, request_tokens: 100, response_tokens: 40, total_tokens: 140 },
+      { sequence: 2, request_tokens: null, response_tokens: 10, total_tokens: 10 },
+      { sequence: 3, request_tokens: null, response_tokens: null, total_tokens: null },
+      { sequence: 4, request_tokens: 25, response_tokens: null, total_tokens: 25 },
+    ]);
+    expect(repository.taskTokenSeries("missing")).toBeUndefined();
+    repository.close();
+  });
 });
 
 describe("TrafficRepository.transaction", () => {

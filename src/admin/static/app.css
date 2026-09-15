@@ -1450,8 +1450,55 @@ label span {
 .pricing-panel > .table-scroll,
 .pricing-panel > .pricing-note,
 .pricing-panel > h3,
-.pricing-panel > details {
+.pricing-panel > details,
+.pricing-panel > .token-chart {
   max-width: 760px;
+}
+/* Task-detail token trend: raw SVG line chart (request sequence vs total
+   tokens). The svg scales to the panel width via its viewBox. */
+.token-chart svg {
+  display: block;
+  width: 100%;
+  height: auto;
+  margin: 4px 0 2px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--panel);
+}
+.token-chart-grid {
+  stroke: #e7edf4;
+  stroke-width: 1;
+}
+.token-chart-tick {
+  fill: var(--muted);
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
+}
+.token-chart-line {
+  fill: none;
+  stroke: var(--accent);
+  stroke-width: 2;
+  stroke-linejoin: round;
+  stroke-linecap: round;
+}
+.token-chart-area {
+  fill: var(--accent-soft);
+  opacity: 0.6;
+}
+.token-chart-dot {
+  fill: var(--accent);
+  stroke: white;
+  stroke-width: 1.5;
+  cursor: default;
+}
+.token-chart-empty {
+  margin: 4px 0 2px;
+  padding: 18px;
+  border: 1px dashed var(--line);
+  border-radius: 8px;
+  background: var(--panel);
+  color: var(--muted);
+  text-align: center;
 }
 .pricing-table {
   width: 100%;

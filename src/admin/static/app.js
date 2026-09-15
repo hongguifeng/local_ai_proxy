@@ -129,6 +129,9 @@ const translations = {
     costShare: "占比",
     total: "合计",
     activeDuration: "请求总耗时",
+    tokenTrend: "Token 趋势",
+    tokenTrendNote: "每个请求的 token 总量（请求 + 响应），按请求序号；尚无 token 数的请求不显示。",
+    tokenTrendNoData: "暂无 token 数据",
     priceGroups: "按模型 / 单价分组",
     priced: "已计价",
     retry: "重试",
@@ -310,6 +313,10 @@ const translations = {
     costShare: "Share",
     total: "Total",
     activeDuration: "Request time",
+    tokenTrend: "Token trend",
+    tokenTrendNote:
+      "Total tokens (request + response) per request, by request sequence; requests without token counts are not shown.",
+    tokenTrendNoData: "No token data",
     priceGroups: "Model / price groups",
     priced: "Priced",
     retry: "Retry",
@@ -389,6 +396,7 @@ const state = {
   requestPricingOpen: false,
   activeTaskPricing: null,
   taskPricing: null,
+  taskTokenSeries: null,
   taskPricingAbort: null,
   logsLoadedAt: 0,
   logLimit: 100,
@@ -1264,6 +1272,21 @@ function formatIntegerValue(value) {
     ? n.toLocaleString(state.language === "en" ? "en-US" : "zh-CN")
     : String(value);
 }
+function compactNumber(value) {
+  const n = Number(value);
+  if (!Number.isFinite(n)) return String(value);
+  if (state.language === "en")
+    return n.toLocaleString("en-US", { notation: "compact", maximumFractionDigits: 1 });
+  if (Math.abs(n) >= 100000000) return `${(n / 100000000).toFixed(1).replace(/\.0$/, "")} 亿`;
+  if (Math.abs(n) >= 10000) return `${(n / 10000).toFixed(1).replace(/\.0$/, "")} 万`;
+  return n.toLocaleString("zh-CN");
+}
+function fullNumber(value) {
+  const n = Number(value);
+  return Number.isFinite(n)
+    ? n.toLocaleString(state.language === "en" ? "en-US" : "zh-CN")
+    : String(value);
+}
 function pricingStatusValue(pricing) {
   if (!pricing || pricing.pricing_status === "unpriced") return "—";
   if (pricing.pricing_status === "pending") return t("calculating");
@@ -1355,6 +1378,88 @@ function taskBreakdownTableHtml(breakdown, totalAmount, price = null) {
     .join("");
   return `<div class="table-scroll"><table class="pricing-table task-breakdown"><thead><tr><th></th><th>${escapeHtml(t("tokensBilled"))}</th>${priceHeader}<th>${escapeHtml(t("amountCny"))}</th><th>${escapeHtml(t("costShare"))}</th></tr></thead><tbody>${rows}</tbody><tfoot><tr><th>${escapeHtml(t("total"))}</th><td>${escapeHtml(formatIntegerValue(taskBreakdownTotalTokens(breakdown)))}</td>${price ? "<td></td>" : ""}<td>${escapeHtml(formatCurrencyAmount(totalAmount))}</td><td></td></tr></tfoot></table></div>`;
 }
+// Raw SVG line chart for the task-detail token trend: x = request sequence,
+// y = total tokens (request + response) of each finished request. Requests
+// whose token counts are still unknown are skipped, so the x positions can be
+// non-contiguous; the axis always shows the real sequence numbers.
+function taskTokenChartHtml(points) {
+  const known = (points || []).filter(
+    (point) => point?.total_tokens !== null && Number(point.total_tokens) >= 0,
+  );
+  const english = state.language === "en";
+  if (known.length === 0)
+    return `<div class="token-chart-empty">${escapeHtml(t("tokenTrendNoData"))}</div>`;
+  const width = 728,
+    height = 190,
+    padTop = 14,
+    padRight = 14,
+    padBottom = 26,
+    padLeft = 56;
+  const plotWidth = width - padLeft - padRight;
+  const plotHeight = height - padTop - padBottom;
+  const maxSequence = Math.max(...known.map((point) => Number(point.sequence)));
+  const minSequence = Math.min(...known.map((point) => Number(point.sequence)));
+  const maxTokens = Math.max(...known.map((point) => Number(point.total_tokens)));
+  // Round the axis maximum up to a nice step so gridline labels stay tidy.
+  const niceStep =
+    maxTokens <= 0
+      ? 1
+      : (() => {
+          const rough = maxTokens / 4;
+          const magnitude = 10 ** Math.floor(Math.log10(rough));
+          for (const factor of [1, 2, 5, 10]) {
+            if (rough <= factor * magnitude) return factor * magnitude;
+          }
+          return 10 * magnitude;
+        })();
+  const axisMax = Math.max(niceStep * 4, Math.ceil(maxTokens / niceStep) * niceStep);
+  const xFor = (sequence) =>
+    maxSequence === minSequence
+      ? padLeft + plotWidth / 2
+      : padLeft + ((Number(sequence) - minSequence) / (maxSequence - minSequence)) * plotWidth;
+  const yFor = (tokens) => padTop + (1 - Number(tokens) / axisMax) * plotHeight;
+  const gridLines = [];
+  for (let value = 0; value <= axisMax; value += niceStep) {
+    const y = yFor(value);
+    gridLines.push(
+      `<line x1="${padLeft}" y1="${y}" x2="${width - padRight}" y2="${y}" class="token-chart-grid"/><text x="${padLeft - 8}" y="${y + 4}" text-anchor="end" class="token-chart-tick">${compactNumber(value)}</text>`,
+    );
+  }
+  const labelCount = Math.min(8, known.length, maxSequence - minSequence + 1);
+  const labelSteps = labelCount <= 1 ? [0] : Array.from({ length: labelCount }, (_, i) => i);
+  const xLabels = labelSteps
+    .map((i) => {
+      const index = Math.round((i * (known.length - 1)) / (labelCount - 1 || 1));
+      const point = known[index];
+      return `<text x="${xFor(point.sequence)}" y="${height - 8}" text-anchor="middle" class="token-chart-tick">${Number(point.sequence)}</text>`;
+    })
+    .join("");
+  const area =
+    known.length >= 2
+      ? `<polygon class="token-chart-area" points="${known
+          .map((point) => `${xFor(point.sequence)},${yFor(point.total_tokens)}`)
+          .join(
+            " ",
+          )} ${xFor(known.at(-1).sequence)},${padTop + plotHeight} ${xFor(known[0].sequence)},${padTop + plotHeight}"/>`
+      : "";
+  const line =
+    known.length >= 2
+      ? `<polyline class="token-chart-line" points="${known
+          .map((point) => `${xFor(point.sequence)},${yFor(point.total_tokens)}`)
+          .join(" ")}"/>`
+      : "";
+  const dots = known
+    .map((point) => {
+      const x = xFor(point.sequence);
+      const y = yFor(point.total_tokens);
+      const title = escapeHtml(
+        `${english ? "Request" : "请求"} #${Number(point.sequence)}: ${fullNumber(point.total_tokens)} ${t("tokens")}`,
+      );
+      return `<circle class="token-chart-dot" cx="${x}" cy="${y}" r="3.5"><title>${title}</title></circle>`;
+    })
+    .join("");
+  return `<div class="token-chart"><svg viewBox="0 0 ${width} ${height}" role="img" aria-label="${escapeHtml(t("tokenTrend"))}">${gridLines.join("")}${xLabels}${area}${line}${dots}</svg></div>`;
+}
 function renderTaskPricingPanel() {
   const panel = $("pricingPanel");
   const detail = $("detail");
@@ -1392,7 +1497,25 @@ function renderTaskPricingPanel() {
     pending_request_count: data.pending_request_count,
   };
   const durationText = formatDuration(data.active_request_ms);
-  panel.innerHTML = `<div class="pricing-panel-head"><strong>${escapeHtml(t("taskPricing"))}</strong><button type="button" data-close-pricing>${escapeHtml(t("close"))}</button></div><div class="pricing-card-head"><strong>${escapeHtml(formatGroupCost(cost))}</strong><span>${escapeHtml(`${t("priced")} ${data.priced_request_count} / ${t("unpriced")} ${data.unpriced_request_count} / ${t("pending")} ${data.pending_request_count}`)}</span></div><p class="pricing-target"><strong>${escapeHtml(t("target"))}:</strong> ${escapeHtml(data.target || "—")}</p>${durationText !== "" ? `<p class="pricing-target"><strong>${escapeHtml(t("activeDuration"))}:</strong> ${escapeHtml(durationText)}</p>` : ""}${data.priced_request_count ? taskBreakdownTableHtml(data.breakdown, pricingDecimalFromNano(data.cost_nano_cny)) : `<p>${escapeHtml(reasons || t("unpriced"))}</p>`}<p class="pricing-note">${escapeHtml(t("taskWholeScope"))}</p><h3>${escapeHtml(t("priceGroups"))}</h3>${groups || `<p>${escapeHtml(t("unpriced"))}</p>`}`;
+  const tokenSeries =
+    state.taskTokenSeries && state.taskTokenSeries.id === active
+      ? state.taskTokenSeries.points
+      : null;
+  const tokenChart = `<h3>${escapeHtml(t("tokenTrend"))}</h3>${tokenSeries === null ? `<p>${escapeHtml(t("loading"))}</p>` : taskTokenChartHtml(tokenSeries)}<p class="pricing-note">${escapeHtml(t("tokenTrendNote"))}</p>`;
+  panel.innerHTML = `<div class="pricing-panel-head"><strong>${escapeHtml(t("taskPricing"))}</strong><button type="button" data-close-pricing>${escapeHtml(t("close"))}</button></div><div class="pricing-card-head"><strong>${escapeHtml(formatGroupCost(cost))}</strong><span>${escapeHtml(`${t("priced")} ${data.priced_request_count} / ${t("unpriced")} ${data.unpriced_request_count} / ${t("pending")} ${data.pending_request_count}`)}</span></div><p class="pricing-target"><strong>${escapeHtml(t("target"))}:</strong> ${escapeHtml(data.target || "—")}</p>${durationText !== "" ? `<p class="pricing-target"><strong>${escapeHtml(t("activeDuration"))}:</strong> ${escapeHtml(durationText)}</p>` : ""}${data.priced_request_count ? taskBreakdownTableHtml(data.breakdown, pricingDecimalFromNano(data.cost_nano_cny)) : `<p>${escapeHtml(reasons || t("unpriced"))}</p>`}<p class="pricing-note">${escapeHtml(t("taskWholeScope"))}</p>${tokenChart}<h3>${escapeHtml(t("priceGroups"))}</h3>${groups || `<p>${escapeHtml(t("unpriced"))}</p>`}`;
+}
+function loadTaskTokenSeries(groupId, signal) {
+  return api(`/api/log-groups/${encodeURIComponent(groupId)}/pricing/tokens`, { signal })
+    .then((points) => {
+      if (state.activeTaskPricing !== groupId) return;
+      state.taskTokenSeries = { id: groupId, points };
+      renderTaskPricingPanel();
+    })
+    .catch((error) => {
+      if (error?.name === "AbortError" || state.activeTaskPricing !== groupId) return;
+      state.taskTokenSeries = { id: groupId, points: [] };
+      renderTaskPricingPanel();
+    });
 }
 async function showTaskPricing(groupId) {
   state.taskPricingAbort?.abort();
@@ -1400,7 +1523,9 @@ async function showTaskPricing(groupId) {
   state.taskPricingAbort = controller;
   state.activeTaskPricing = groupId;
   state.taskPricing = { id: groupId, loading: true, error: false, data: null };
+  state.taskTokenSeries = { id: groupId, points: null };
   renderTaskPricingPanel();
+  const series = loadTaskTokenSeries(groupId, controller.signal);
   try {
     const data = await api(`/api/log-groups/${encodeURIComponent(groupId)}/pricing`, {
       signal: controller.signal,
@@ -1413,11 +1538,13 @@ async function showTaskPricing(groupId) {
     state.taskPricing = { id: groupId, loading: false, error: true, data: null };
   }
   renderTaskPricingPanel();
+  await series;
 }
 function closeTaskPricing() {
   state.taskPricingAbort?.abort();
   state.taskPricingAbort = null;
   state.activeTaskPricing = null;
+  state.taskTokenSeries = null;
   renderTaskPricingPanel();
 }
 async function refreshTaskPricingPanel() {
@@ -1426,6 +1553,7 @@ async function refreshTaskPricingPanel() {
   const controller = new AbortController();
   state.taskPricingAbort?.abort();
   state.taskPricingAbort = controller;
+  const series = loadTaskTokenSeries(groupId, controller.signal);
   try {
     const data = await api(`/api/log-groups/${encodeURIComponent(groupId)}/pricing`, {
       signal: controller.signal,
@@ -1438,6 +1566,7 @@ async function refreshTaskPricingPanel() {
     state.taskPricing = { id: groupId, loading: false, error: true, data: null };
     renderTaskPricingPanel();
   }
+  await series;
 }
 function jsonType(value) {
   if (value === null) return "null";

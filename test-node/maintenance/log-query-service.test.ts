@@ -338,6 +338,40 @@ describe("LogQueryService", () => {
     expect(service.getGroupLogs("missing")).toBeUndefined();
   });
 
+  it("returns the per-request token series of a task across roots", async () => {
+    const firstRoot = await mkdtemp(path.join(os.tmpdir(), "llm-proxy-log-query-series-a-"));
+    const secondRoot = await mkdtemp(path.join(os.tmpdir(), "llm-proxy-log-query-series-b-"));
+    temporaryDirectories.push(firstRoot, secondRoot);
+    const repository = new TrafficRepository(secondRoot);
+    repository.upsertTask(task("series-task", "gpt-5", "2026-07-18T12:00:00.000+08:00"));
+    repository.upsertRecord({
+      id: "series-record-1",
+      task_id: "series-task",
+      sequence: 1,
+      event: "request_finished",
+      method: "POST",
+      path: "/v1/responses",
+      request_token_count: 30,
+      response_token_count: 12,
+    });
+    repository.upsertRecord({
+      id: "series-record-2",
+      task_id: "series-task",
+      sequence: 2,
+      event: "request_pending_response",
+      method: "POST",
+      path: "/v1/responses",
+    });
+    repository.close();
+
+    const service = new LogQueryService([firstRoot, secondRoot]);
+    expect(service.getGroupTokenSeries("series-task")).toEqual([
+      { sequence: 1, request_tokens: 30, response_tokens: 12, total_tokens: 42 },
+      { sequence: 2, request_tokens: null, response_tokens: null, total_tokens: null },
+    ]);
+    expect(service.getGroupTokenSeries("missing")).toBeUndefined();
+  });
+
   it("paginates task records after the initial 200 items", async () => {
     const root = await mkdtemp(path.join(os.tmpdir(), "llm-proxy-task-record-limit-"));
     temporaryDirectories.push(root);

@@ -54,6 +54,7 @@ export interface LogAdminService {
   readonly summarizeRecord?: (recordId: string) => Promise<unknown>;
   readonly getSummary?: (recordId: string) => unknown;
   readonly getGroupPricing?: (groupId: string) => unknown;
+  readonly getGroupTokenSeries?: (groupId: string) => unknown;
   listGroups(query: string, limit: number, offset: number): LogGroupPage;
 }
 
@@ -201,6 +202,11 @@ export const LOG_GROUP_PAGE_SCHEMA = {
 export const LOG_GROUP_LOGS_SCHEMA = {
   type: "object",
   additionalProperties: true,
+} as const;
+
+export const LOG_GROUP_TOKEN_SERIES_SCHEMA = {
+  type: "array",
+  items: { type: "object", additionalProperties: true },
 } as const;
 
 export const LOG_RECORD_DETAIL_SCHEMA = {
@@ -610,6 +616,25 @@ export function createAdminServer(options: AdminServerOptions): FastifyInstance 
         },
         (request, reply) =>
           getGroupPricing(request.params.id) ??
+          reply.code(404).send(adminError("log_group_not_found", "Log group not found.")),
+      );
+    }
+    const getGroupTokenSeries = logService.getGroupTokenSeries?.bind(logService);
+    if (getGroupTokenSeries !== undefined) {
+      server.get<{ Params: { id: string } }>(
+        "/api/log-groups/:id/pricing/tokens",
+        {
+          schema: {
+            params: {
+              type: "object",
+              required: ["id"],
+              properties: { id: { type: "string", minLength: 1 } },
+            },
+            response: { 200: LOG_GROUP_TOKEN_SERIES_SCHEMA },
+          },
+        },
+        (request, reply) =>
+          getGroupTokenSeries(request.params.id) ??
           reply.code(404).send(adminError("log_group_not_found", "Log group not found.")),
       );
     }

@@ -79,6 +79,13 @@ export interface TaskDecodeSpeedStats {
   readonly output_tokens: number;
 }
 
+export interface TaskTokenSeriesPoint {
+  readonly sequence: number;
+  readonly request_tokens: number | null;
+  readonly response_tokens: number | null;
+  readonly total_tokens: number | null;
+}
+
 export class TrafficRepository {
   get database(): Database.Database {
     return this.#database;
@@ -505,6 +512,37 @@ export class TrafficRepository {
     return new Map(
       [...aggregates].map(([id, aggregate]) => [id, finalizeTaskPricingAggregate(aggregate)]),
     );
+  }
+
+  /**
+   * Per-request token counts for the task-detail chart, ordered by request
+   * sequence. `total_tokens` is request + response when at least one side is
+   * known; pending requests (no counts yet) carry nulls and are skipped by
+   * the chart.
+   */
+  taskTokenSeries(taskId: string): readonly TaskTokenSeriesPoint[] | undefined {
+    if (this.getTask(taskId) === undefined) return undefined;
+    const rows = this.#database
+      .prepare(
+        `SELECT sequence, request_token_count, response_token_count
+         FROM records WHERE task_id = ? ORDER BY sequence`,
+      )
+      .all(taskId) as {
+      sequence: number;
+      request_token_count: number | null;
+      response_token_count: number | null;
+    }[];
+    return rows.map((row) => {
+      const request = row.request_token_count;
+      const response = row.response_token_count;
+      return {
+        sequence: integerValue(row.sequence, 0),
+        request_tokens: request,
+        response_tokens: response,
+        total_tokens:
+          request === null && response === null ? null : (request ?? 0) + (response ?? 0),
+      };
+    });
   }
 
   /**

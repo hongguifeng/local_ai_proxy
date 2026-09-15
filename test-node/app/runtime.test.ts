@@ -94,6 +94,20 @@ describe("createNodeApplication", () => {
       const list = await fetch(`http://127.0.0.1:${adminPort}/api/logs`);
       expect(list.status).toBe(200);
 
+      const pricing = await fetch(
+        `http://127.0.0.1:${adminPort}/api/log-groups/missing-group/pricing`,
+      );
+      expect(pricing.status).toBe(404);
+      const pricingBody = (await pricing.json()) as { error?: { code?: string } };
+      expect(pricingBody.error?.code).toBe("log_group_not_found");
+
+      const tokenSeries = await fetch(
+        `http://127.0.0.1:${adminPort}/api/log-groups/missing-group/pricing/tokens`,
+      );
+      expect(tokenSeries.status).toBe(404);
+      const tokenSeriesBody = (await tokenSeries.json()) as { error?: { code?: string } };
+      expect(tokenSeriesBody.error?.code).toBe("log_group_not_found");
+
       const exportResponse = await fetch(`http://127.0.0.1:${adminPort}/api/logs/export`);
       expect(exportResponse.status).toBe(200);
       expect(exportResponse.headers.get("content-type")).toBe("application/zip");
