@@ -939,6 +939,7 @@ describe("admin UI history page", { timeout: UI_TEST_TIMEOUT_MS }, () => {
     await response;
     expect(logQueries).toEqual(["needle"]);
     await expectPage(page.locator("#autoRefreshLogs")).toBeDisabled();
+    await expectPage(page.locator(".log-model")).toHaveCount(1);
     await expectPage(page.locator(".log-model")).toHaveText("claude");
 
     const clearResponse = page.waitForResponse((candidate) => candidate.url().includes("q="));
@@ -965,6 +966,7 @@ describe("admin UI history page", { timeout: UI_TEST_TIMEOUT_MS }, () => {
     await response;
     expect(logQueries).toEqual(["needle"]);
     await expectPage(page.locator("#autoRefreshLogs")).toBeDisabled();
+    await expectPage(page.locator(".log-model")).toHaveCount(1);
     await expectPage(page.locator(".log-model")).toHaveText("claude");
   });
 
