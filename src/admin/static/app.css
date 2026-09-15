@@ -1014,7 +1014,8 @@ label span {
   background: #dfe9f1;
   display: grid;
   grid-template-columns: auto minmax(0, 1fr);
-  gap: 7px;
+  grid-template-rows: auto auto auto;
+  gap: 3px 7px;
   text-align: left;
   box-shadow: inset 4px 0 #6b87a1;
   cursor: pointer;
@@ -1027,15 +1028,40 @@ label span {
   width: 14px;
   height: 14px;
   padding: 0;
-  margin: 3px 0 0;
+  margin: 0;
 }
 .log-group-controls {
+  grid-column: 1;
+  grid-row: 1 / span 3;
   display: grid;
   grid-template-columns: 1fr;
-  grid-auto-flow: row;
+  grid-template-rows: subgrid;
   justify-items: center;
-  align-content: start;
-  gap: 11px;
+  align-items: center;
+}
+.log-group-detail-btn {
+  width: 22px;
+  height: 22px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid #9db6cb;
+  border-radius: 5px;
+  background: #eaf2f8;
+  color: #315a82;
+  font: inherit;
+  font-size: 13px;
+  font-weight: 700;
+  line-height: 1;
+  cursor: pointer;
+  padding: 0;
+}
+.log-group-detail-btn:hover {
+  background: #d9e7f1;
+}
+.log-group-detail-btn:focus-visible {
+  outline: 2px solid #315a82;
+  outline-offset: 1px;
 }
 .log-group-caret {
   display: block;
@@ -1045,9 +1071,10 @@ label span {
 }
 .log-group-summary {
   grid-column: 2;
+  grid-row: 1 / span 3;
   min-width: 0;
   display: grid;
-  gap: 3px;
+  grid-template-rows: subgrid;
 }
 .log-group-time,
 .log-group-facts {
@@ -1091,9 +1118,10 @@ label span {
   white-space: nowrap;
 }
 .log-group-facts {
-  grid-row: 2;
+  grid-row: 2 / span 2;
   display: grid;
-  gap: 3px;
+  grid-template-rows: subgrid;
+  align-items: center;
   color: var(--muted);
   font-size: 11px;
   white-space: nowrap;
@@ -1116,13 +1144,9 @@ label span {
   grid-row: 2;
   display: block;
 }
-.log-cost {
-  border: 0;
-  background: transparent;
-  padding: 0;
+.log-group-cost {
   color: #176b52;
   white-space: nowrap;
-  font: inherit;
   font-weight: 700;
 }
 .log-group-decode-speed {

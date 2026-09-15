@@ -12,8 +12,8 @@
 | --- | --- | --- | --- | --- |
 | Proxy | 中文 | `doc/ui_proxy_cn.png` | 1278 x 1215 | `c2ff326b0a5cc3167f2febb61455977b65b10bd0b3e030c63f1716b46fb4d85a` |
 | Proxy | 英文 | `doc/ui_proxy_en.png` | 1278 x 1208 | `1649bacdfcd18c88fd9069e5b1473e55454482236b9a6e23d9f692a90ebd8742` |
-| History | 中文 | `doc/ui_logs_cn.png` | 1384 x 1212 | `4f0ff1a8fca44650114cdfec181ac7ca3eb3baa8d64e411fcf08043100401719` |
-| History | 英文 | `doc/ui_logs_en.png` | 1384 x 1224 | `a8df2f0227a3e91166fd8a9dbdab0d4ecbe62dcdfc24ea186a6fc034da231273` |
+| History | 中文 | `doc/ui_logs_cn.png` | 1384 x 1212 | `7ccb23067b034a93729aa1fe0c379b62b81a411eb82b07181ebf84dd67012823` |
+| History | 英文 | `doc/ui_logs_en.png` | 1384 x 1224 | `2effe6b0189e5d684616a8477c01eb397f22d51170c08cbfbb58c97d1acb83f2` |
 | Usage statistics | 中文 | `doc/ui_stats_cn.png` | 1278 x 1613 | `dac23fdfc8d59fa2a02461a07eb52cbcad51eb7b3c662d289aecc2b6081a8450` |
 | Usage statistics | 英文 | `doc/ui_stats_en.png` | 1278 x 1613 | `2b6f11098ad9a541d724e53216c67af4ae4e5b68b253a63d87a92e97395a253b` |
 
@@ -48,7 +48,7 @@ sha256sum doc/ui_proxy_cn.png doc/ui_proxy_en.png doc/ui_logs_cn.png doc/ui_logs
 - 左侧顶部包含搜索、自动刷新（文字位于复选框下方）、全选、清理选中、导出、刷新。
 - fixture 包含多个 task：首个 task 展开，其余以单行折叠卡片显示（不同 model 和 request 数）。
 - 每个 task 是浅灰列表区内一张独立的白色圆角卡片，卡片之间用留白分隔。
-- task header 是卡片顶部的蓝灰色块，带加粗左侧色条；左侧控制列中复选框（上）与折叠箭头（下）上下排列，右侧为时间范围和 model/request/target 摘要。header 与请求项列表之间有一条分隔线。
+- task header 是卡片顶部的蓝灰色块，带加粗左侧色条；左侧控制列中复选框、ⓘ 任务明细图标按钮与折叠箭头自上而下排列，右侧为时间范围和 model/request/target 摘要。header 与请求项列表之间有一条分隔线。
 - 展开的 task 下按 sequence 倒序显示 5 条请求项，白底、相对 header 缩进，仅用浅色细线分隔，视觉层级从属于 task header。
 - 请求项状态圆点覆盖两种非成功状态：红色 4xx 错误（保留状态码文字）、琥珀色 pending（保留"等待中"文字）；200 成功不再显示任何状态标记。
 - 指标颜色两级统一：费用为青绿色（#176b52），数量类指标（一级请求数、二级响应 tokens）为蓝色（#315a82），模型名与请求 tokens 为琥珀色（#7a4308 / #8a4b08），消息数为中性深灰。

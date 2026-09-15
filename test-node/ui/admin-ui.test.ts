@@ -1084,7 +1084,7 @@ describe("admin UI history page", { timeout: UI_TEST_TIMEOUT_MS }, () => {
       await route.fulfill({ response, json: data });
     });
     await page.locator("#refreshLogs").click();
-    await expectPage(page.locator('[data-group-cost="task-one"]')).toHaveText("$5");
+    await expectPage(page.locator('[data-group-detail="task-one"]')).toHaveText("ⓘ");
     await page.unroute("**/api/logs?**");
   });
 
@@ -1137,7 +1137,7 @@ describe("admin UI history page", { timeout: UI_TEST_TIMEOUT_MS }, () => {
     await expectPage(summary.locator(".log-group-fact-line")).toHaveCount(2);
     await expectPage(summary.locator(".log-group-fact-line").first()).toContainText("gpt-5");
     await expectPage(summary.locator(".log-group-fact-line").first()).toContainText("5 requests");
-    await expectPage(summary.locator("[data-group-cost]")).toHaveText("$0.0428");
+    await expectPage(summary.locator(".log-group-cost")).toHaveText("$0.0428");
     await expectPage(summary.locator(".log-group-decode-speed")).toHaveText("2.5t/s");
     await expectPage(summary.locator(".log-target")).toHaveText("fixture-target");
     await expectPage(group.locator("button button")).toHaveCount(0);
@@ -1195,11 +1195,11 @@ describe("admin UI history page", { timeout: UI_TEST_TIMEOUT_MS }, () => {
       page.waitForResponse((response) =>
         response.url().endsWith("/api/log-groups/task-one/pricing"),
       ),
-      group.locator("[data-group-cost]").press("Enter"),
+      group.locator("[data-group-detail]").press("Enter"),
     ]);
     const panel = page.locator("#pricingPanel");
     await expectPage(panel).toBeVisible();
-    await expectPage(panel).toContainText("Task pricing details");
+    await expectPage(panel).toContainText("Task details");
     await expectPage(panel).toContainText("$0.0428");
     await expectPage(panel).toContainText("fixture-target");
     await expectPage(panel).toContainText("gpt-5 · 3 requests · $0.0428");

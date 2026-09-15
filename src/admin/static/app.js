@@ -107,8 +107,8 @@ const translations = {
     currencySymbol: "¥",
     calculating: "计算中…",
     unpriced: "未计价",
-    taskPricing: "任务费用明细",
-    viewTaskPricing: "查看任务费用明细",
+    taskPricing: "任务明细",
+    viewTaskPricing: "查看任务明细",
     costEstimate: "费用估算",
     showCostDetails: "显示费用明细",
     hideCostDetails: "隐藏费用明细",
@@ -131,7 +131,7 @@ const translations = {
     priced: "已计价",
     retry: "重试",
     close: "关闭",
-    pricingUnavailable: "无法加载任务费用明细",
+    pricingUnavailable: "无法加载任务明细",
     taskDeleted: "任务已删除",
     taskWholeScope: "整个任务费用，包含未匹配请求。",
     moreTargetOptions: "更多配置",
@@ -286,8 +286,8 @@ const translations = {
     currencySymbol: "$",
     calculating: "Calculating…",
     unpriced: "Unpriced",
-    taskPricing: "Task pricing details",
-    viewTaskPricing: "View task pricing details",
+    taskPricing: "Task details",
+    viewTaskPricing: "View task details",
     costEstimate: "Cost estimate",
     showCostDetails: "Show cost details",
     hideCostDetails: "Hide cost details",
@@ -310,7 +310,7 @@ const translations = {
     priced: "Priced",
     retry: "Retry",
     close: "Close",
-    pricingUnavailable: "Could not load task pricing details",
+    pricingUnavailable: "Could not load task details",
     taskDeleted: "Task was deleted",
     taskWholeScope: "Whole-task cost, including requests outside this list.",
     modelMappings:
@@ -522,7 +522,7 @@ function logGroupFactsHtml(group) {
   const decodeSpeed = formatGroupDecodeSpeed(group.decode_speed_tps);
   const decodeSpeedTip = `${t("avgDecodeSpeed")}: ${t("avgDecodeSpeedTip")}`;
   return `<span class="log-group-facts">
-    <span class="log-group-fact-line">${group.model ? `<span class="log-model">${escapeHtml(group.model)}</span>` : ""}<span class="log-request-count"><strong>${escapeHtml(group.request_count ?? 0)}</strong> ${escapeHtml(t("requests"))}</span>${decodeSpeed ? `<span class="log-group-decode-speed" title="${escapeHtml(decodeSpeedTip)}">${escapeHtml(decodeSpeed)}t/s</span>` : ""}<button type="button" class="log-cost" data-group-cost="${escapeHtml(group.id || "")}" aria-label="${escapeHtml(t("viewTaskPricing"))}">${escapeHtml(formatGroupCost(group.cost))}</button></span>
+    <span class="log-group-fact-line">${group.model ? `<span class="log-model">${escapeHtml(group.model)}</span>` : ""}<span class="log-request-count"><strong>${escapeHtml(group.request_count ?? 0)}</strong> ${escapeHtml(t("requests"))}</span>${decodeSpeed ? `<span class="log-group-decode-speed" title="${escapeHtml(decodeSpeedTip)}">${escapeHtml(decodeSpeed)}t/s</span>` : ""}<span class="log-group-cost">${escapeHtml(formatGroupCost(group.cost))}</span></span>
     <span class="log-group-fact-line log-target" title="${escapeHtml(group.target || "")}">${escapeHtml(group.target || "—")}</span>
   </span>`;
 }
@@ -1130,6 +1130,7 @@ function renderLogs() {
       <div class="log-group-head" data-group-id="${escapeHtml(group.id || "")}" role="button" tabindex="0" aria-expanded="${state.collapsedGroups[group.id] ? "true" : "false"}" aria-label="${escapeHtml(t("task"))}">
         <div class="log-group-controls">
           <input class="log-group-select" type="checkbox" data-select-group="${escapeHtml(group.id || "")}" title="${escapeHtml(t("selectLogGroup"))}" ${state.selectedLogGroups[group.id] ? "checked" : ""}>
+          <button type="button" class="log-group-detail-btn" data-group-detail="${escapeHtml(group.id || "")}" title="${escapeHtml(t("viewTaskPricing"))}" aria-label="${escapeHtml(t("viewTaskPricing"))}">ⓘ</button>
           <span class="log-group-caret" aria-hidden="true">${!state.collapsedGroups[group.id] ? "▸" : "▾"}</span>
         </div>
         <div class="log-group-summary">
@@ -2697,10 +2698,10 @@ $("logItems").addEventListener("click", (event) => {
     updateSelectAllLogsButton();
     return;
   }
-  const groupCost = event.target.closest("[data-group-cost]");
-  if (groupCost) {
+  const groupDetail = event.target.closest("[data-group-detail]");
+  if (groupDetail) {
     event.stopPropagation();
-    showTaskPricing(groupCost.dataset.groupCost).catch((e) => toast(e.message));
+    showTaskPricing(groupDetail.dataset.groupDetail).catch((e) => toast(e.message));
     return;
   }
   const group = event.target.closest("[data-group-id]");
@@ -2744,7 +2745,7 @@ $("logItems").addEventListener("click", (event) => {
   if (
     !group ||
     event.target.matches("[data-select-group]") ||
-    event.target.closest("[data-group-cost]")
+    event.target.closest("[data-group-detail]")
   )
     return;
   const groupId = group.dataset.groupId;
