@@ -1225,7 +1225,8 @@ describe("admin UI history page", { timeout: UI_TEST_TIMEOUT_MS }, () => {
     await expectPage(taskBreakdown.locator("thead")).toContainText("Share");
     await expectPage(taskBreakdown.locator("tbody tr").first()).toContainText("17.54%");
     await expectPage(taskBreakdown.locator("tfoot")).toContainText("Total");
-    await expectPage(taskBreakdown.locator("tfoot")).toContainText("100%");
+    await expectPage(taskBreakdown.locator("tfoot")).toContainText("4,250");
+    await expectPage(taskBreakdown.locator("tfoot")).not.toContainText("%");
     await expectPage(taskBreakdown.locator("tbody tr").nth(1)).toContainText("1,250");
     await panel.screenshot({ path: "test-results/task-pricing-panel.png" });
     await expectPage(group.locator(".log-group-body")).toHaveCount(0);
@@ -1257,7 +1258,8 @@ describe("admin UI history page", { timeout: UI_TEST_TIMEOUT_MS }, () => {
       "18.24%",
     );
     await expectPage(requestPricing.locator(".pricing-table tfoot")).toContainText("Total");
-    await expectPage(requestPricing.locator(".pricing-table tfoot")).toContainText("100%");
+    await expectPage(requestPricing.locator(".pricing-table tfoot")).toContainText("4,000");
+    await expectPage(requestPricing.locator(".pricing-table tfoot")).not.toContainText("%");
     await pricingButton.click();
     await expectPage(requestPricing).toBeHidden();
   });

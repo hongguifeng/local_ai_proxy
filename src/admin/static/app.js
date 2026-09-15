@@ -1283,6 +1283,12 @@ const pricingBuckets = [
   ["cacheReadTokens", "cache_read_per_million", "cacheRead"],
   ["cacheWriteTokens", "cache_write_per_million", "cacheWrite"],
 ];
+function pricingUsageTotalTokens(breakdown) {
+  return pricingBuckets.reduce((sum, [usageKey]) => {
+    const value = Number(breakdown?.[usageKey]?.tokens ?? 0);
+    return sum + (Number.isFinite(value) ? value : 0);
+  }, 0);
+}
 function pricingTableHtml(breakdown, price = null, totalAmount = null) {
   const rows = pricingBuckets
     .map(([usageKey, priceKey, label]) => {
@@ -1292,7 +1298,7 @@ function pricingTableHtml(breakdown, price = null, totalAmount = null) {
       return `<tr><th>${escapeHtml(t(label))}</th><td>${escapeHtml(formatIntegerValue(tokens))}</td><td>${escapeHtml(price?.[priceKey] ?? "—")}</td><td>${escapeHtml(typeof amount === "string" ? formatCurrencyAmount(amount) : String(amount))}</td>${shareCellHtml(amount, totalAmount)}</tr>`;
     })
     .join("");
-  return `<div class="table-scroll"><table class="pricing-table"><thead><tr><th></th><th>${escapeHtml(t("tokensBilled"))}</th><th>${escapeHtml(t("pricePerMillion"))}</th><th>${escapeHtml(t("amountCny"))}</th><th>${escapeHtml(t("costShare"))}</th></tr></thead><tbody>${rows}</tbody><tfoot><tr><th>${escapeHtml(t("total"))}</th><td></td><td></td><td>${escapeHtml(formatCurrencyAmount(totalAmount))}</td>${shareCellHtml(totalAmount, totalAmount)}</tr></tfoot></table></div>`;
+  return `<div class="table-scroll"><table class="pricing-table"><thead><tr><th></th><th>${escapeHtml(t("tokensBilled"))}</th><th>${escapeHtml(t("pricePerMillion"))}</th><th>${escapeHtml(t("amountCny"))}</th><th>${escapeHtml(t("costShare"))}</th></tr></thead><tbody>${rows}</tbody><tfoot><tr><th>${escapeHtml(t("total"))}</th><td>${escapeHtml(formatIntegerValue(pricingUsageTotalTokens(breakdown)))}</td><td></td><td>${escapeHtml(formatCurrencyAmount(totalAmount))}</td><td></td></tr></tfoot></table></div>`;
 }
 function renderRequestPricing() {
   const el = $("responsePricing");
@@ -1322,6 +1328,12 @@ function renderRequestPricing() {
     <dl class="pricing-facts"><dt>${escapeHtml(t("billingModel"))}</dt><dd>${escapeHtml(pricing.billing_model || "—")}</dd><dt>${escapeHtml(t("matchedRule"))}</dt><dd>${escapeHtml(snapshot.model_pattern || "—")}</dd><dt>${escapeHtml(t("priceSource"))}</dt><dd>${escapeHtml(snapshot.target_name || "—")}</dd><dt>${escapeHtml(t("pricingUsage"))}</dt><dd>${escapeHtml(usage.source || "—")}</dd>${reason ? `<dt>${escapeHtml(t("pricingReason"))}</dt><dd>${escapeHtml(reason)}</dd>` : ""}</dl>
     ${pricing.pricing_status === "priced" ? pricingTableHtml(breakdown, snapshot, pricingDecimalFromNano(pricing.cost_nano_cny)) : ""}</section>`;
 }
+function taskBreakdownTotalTokens(breakdown) {
+  return ["input_uncached", "output", "cache_read", "cache_write"].reduce((sum, key) => {
+    const value = Number(breakdown?.[key]?.tokens ?? 0);
+    return sum + (Number.isFinite(value) ? value : 0);
+  }, 0);
+}
 function taskBreakdownTableHtml(breakdown, totalAmount, price = null) {
   const priceHeader = price ? `<th>${escapeHtml(t("pricePerMillion"))}</th>` : "";
   const priceCell = (value) =>
@@ -1339,7 +1351,7 @@ function taskBreakdownTableHtml(breakdown, totalAmount, price = null) {
       return `<tr><th>${escapeHtml(t(label))}</th><td>${escapeHtml(formatIntegerValue(bucket.tokens ?? 0))}</td>${priceCell(price?.[priceKey])}<td>${escapeHtml(formatCurrencyAmount(bucket.amount ?? null))}</td>${shareCellHtml(bucket.amount, totalAmount)}</tr>`;
     })
     .join("");
-  return `<div class="table-scroll"><table class="pricing-table task-breakdown"><thead><tr><th></th><th>${escapeHtml(t("tokensBilled"))}</th>${priceHeader}<th>${escapeHtml(t("amountCny"))}</th><th>${escapeHtml(t("costShare"))}</th></tr></thead><tbody>${rows}</tbody><tfoot><tr><th>${escapeHtml(t("total"))}</th><td></td>${price ? "<td></td>" : ""}<td>${escapeHtml(formatCurrencyAmount(totalAmount))}</td>${shareCellHtml(totalAmount, totalAmount)}</tr></tfoot></table></div>`;
+  return `<div class="table-scroll"><table class="pricing-table task-breakdown"><thead><tr><th></th><th>${escapeHtml(t("tokensBilled"))}</th>${priceHeader}<th>${escapeHtml(t("amountCny"))}</th><th>${escapeHtml(t("costShare"))}</th></tr></thead><tbody>${rows}</tbody><tfoot><tr><th>${escapeHtml(t("total"))}</th><td>${escapeHtml(formatIntegerValue(taskBreakdownTotalTokens(breakdown)))}</td>${price ? "<td></td>" : ""}<td>${escapeHtml(formatCurrencyAmount(totalAmount))}</td><td></td></tr></tfoot></table></div>`;
 }
 function renderTaskPricingPanel() {
   const panel = $("pricingPanel");
