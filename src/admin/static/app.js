@@ -1887,7 +1887,7 @@ async function loadStatistics() {
   const requestId = ++statisticsRequestId;
   const metricState = state.statisticsMetrics || (state.statisticsMetrics = {});
   // Distribution legends retain the pie-legend class contract for downstream themes.
-  const selectedBreakdown = $("statsBreakdown")?.value || "total";
+  const selectedBreakdown = $("statsBreakdown")?.value || "model";
   const trendMetric =
     metricState.trend || $("statsMetricTrend")?.value || $("statsMetric")?.value || "token";
   const targetMetric =
@@ -2107,11 +2107,7 @@ async function loadStatistics() {
           english ? " (" : "（"
         }${Object.values(result.unpriced || {})
           .reduce((a, b) => a + Number(b), 0)
-          .toLocaleString(
-            english ? "en-US" : "zh-CN",
-          )}${english ? ")" : "）"}</span><button type="button" class="stats-alert-action">${
-          english ? "View details" : "查看明细"
-        }</button></div>`
+          .toLocaleString(english ? "en-US" : "zh-CN")}${english ? ")" : "）"}</span></div>`
       : "") +
     `<div class="stat-groups"><section class="distribution-card"><div class="distribution-card-title"><h3>${targetTitle}</h3><label class="chart-control"><span>${english ? "Metric" : "指标"}</span><select id="statsMetricTarget" aria-label="${english ? "Target distribution metric" : "转发地址分布指标"}">${metricOptions(targetMetric)}</select></label></div>${pie(targetResult.byTarget, targetMetric)}</section><section class="distribution-card"><div class="distribution-card-title"><h3>${modelTitle}</h3><label class="chart-control"><span>${english ? "Metric" : "指标"}</span><select id="statsMetricModel" aria-label="${english ? "Model distribution metric" : "模型分布指标"}">${metricOptions(modelMetric)}</select></label></div>${pie(modelResult.byModel, modelMetric)}</section></div>`;
   const trend = await fetch(
@@ -2419,7 +2415,7 @@ $("resetStatsFilters")?.addEventListener("click", () => {
   $("statsMetricTarget") && ($("statsMetricTarget").value = "token");
   $("statsMetricModel") && ($("statsMetricModel").value = "token");
   $("statsGranularity") && ($("statsGranularity").value = "auto");
-  $("statsBreakdown") && ($("statsBreakdown").value = "total");
+  $("statsBreakdown") && ($("statsBreakdown").value = "model");
   $("statsTarget") && ($("statsTarget").value = "");
   $("statsModel") && ($("statsModel").value = "");
   state.statisticsMetrics = { trend: "token", target: "token", model: "token" };

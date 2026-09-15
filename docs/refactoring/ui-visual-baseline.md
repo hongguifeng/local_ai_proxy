@@ -12,8 +12,8 @@
 | --- | --- | --- | --- | --- |
 | Proxy | 中文 | `doc/ui_proxy_cn.png` | 1278 x 1215 | `c2ff326b0a5cc3167f2febb61455977b65b10bd0b3e030c63f1716b46fb4d85a` |
 | Proxy | 英文 | `doc/ui_proxy_en.png` | 1278 x 1208 | `1649bacdfcd18c88fd9069e5b1473e55454482236b9a6e23d9f692a90ebd8742` |
-| History | 中文 | `doc/ui_logs_cn.png` | 1384 x 1212 | `edf118ab37a77bbd432a62dc3b323dbf899a33ee0f86db606ac7a7063128b5cc` |
-| History | 英文 | `doc/ui_logs_en.png` | 1384 x 1224 | `16aa5406c321c95121a93981ab90481b2df3d25a7544a7e508ac99e5fc58480f` |
+| History | 中文 | `doc/ui_logs_cn.png` | 1384 x 1212 | `93075afdbf55820684cd14db77d04604c2af112469e3e6d51cea7f76b3bb266d` |
+| History | 英文 | `doc/ui_logs_en.png` | 1384 x 1224 | `586b251673cf52b67c1e0684f095ad9912ed7b1b48b1f1ec49c2b671d598b0e8` |
 | Usage statistics | 中文 | `doc/ui_stats_cn.png` | 1278 x 1613 | `dac23fdfc8d59fa2a02461a07eb52cbcad51eb7b3c662d289aecc2b6081a8450` |
 | Usage statistics | 英文 | `doc/ui_stats_en.png` | 1278 x 1613 | `2b6f11098ad9a541d724e53216c67af4ae4e5b68b253a63d87a92e97395a253b` |
 
@@ -22,6 +22,8 @@
 ```bash
 sha256sum doc/ui_proxy_cn.png doc/ui_proxy_en.png doc/ui_logs_cn.png doc/ui_logs_en.png doc/ui_stats_cn.png doc/ui_stats_en.png
 ```
+
+比较规则（`screenshotDifference`，test-node/ui/admin-ui.test.ts）：宽度必须一致；高度相差 ≤ 4 px（多余行必须为近白背景，容忍不同环境下分数像素舍入造成的文档高度漂移）；重叠区域像素差异比例小于 0.25。
 
 ## Proxy 页面状态
 

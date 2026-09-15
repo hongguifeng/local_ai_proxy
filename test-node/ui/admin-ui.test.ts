@@ -78,33 +78,38 @@ function fixturePair(): PublicProxyPair {
   };
 }
 
-function sessionTranscriptFixture(): string {
+function deploymentPromptFixture(): string {
   return [
-    "=== LLM session transcript ===",
-    "model: gpt-5",
-    "window: 2026-07-18 12:00:01 -> 12:00:02 (1.9s)",
+    "Summarize the deployment log below and flag anything unusual.",
     "",
-    "--- request #1 ---",
-    "user: Summarize the deployment log below.",
-    "",
-    "Deployment started at 11:58:40.",
-    "Stage build   : ok (18s)",
-    "Stage migrate : ok (3s)",
-    "Stage health  : ok (2s)",
-    "Deployment finished successfully in 2m 21s.",
-    "",
-    "--- response #1 ---",
-    "assistant: The deployment completed successfully in three stages.",
-    "  build took the longest at 18 seconds, followed by",
-    "  migration (3s) and the health check (2s). No errors",
-    "  were reported and the service is running on port 4321.",
-    "",
-    "--- raw payload tail ---",
-    "long-text-long-text-long-text-long-text-long-text-long-text-long-text-long-text-long-text",
-    "long-text-long-text-long-text-long-text-long-text-long-text-long-text-long-text-long-text",
-    "long-text-long-text-long-text-long-text-long-text-long-text-long-text-long-text-long-text",
-    "",
-    "=== end of transcript ===",
+    "Deployment run #417 \u2014 target: prod-cluster-a",
+    "Started:   2026-07-18 11:58:40",
+    "Stage build   : ok (18s) \u2014 212 artifacts, 3 workers",
+    "Stage package : ok (9s) \u2014 image 2.4 GB",
+    "Stage migrate : ok (3s) \u2014 3 replicas, zero downtime",
+    "Stage health  : ok (2s) \u2014 p99 latency 41 ms",
+    "Stage verify  : ok (6s) \u2014 24/24 checks passed",
+    "Stage canary  : ok (12s) \u2014 error rate 0.02%",
+    "Verification:",
+    "  - login flow     : ok",
+    "  - search index   : ok",
+    "  - billing webhook: ok",
+    "  - cache warmup   : ok",
+    "  - feature flags  : ok",
+    "  - rate limiter   : ok",
+    "  - replica 4321a  : healthy, 0 restarts",
+    "  - replica 4321b  : healthy, 0 restarts",
+    "  - replica 4321c  : healthy, 0 restarts",
+    "Metrics before: cpu 31%, mem 42%, net 1.2 Gb/s",
+    "Metrics after : cpu 28%, mem 39%, net 1.1 Gb/s",
+    "Alerts during window: 0",
+    "Slowest endpoint: /v1/responses (p99 412 ms)",
+    "Artifacts: 212 built, 210 promoted, 2 skipped",
+    "Image sha256    : 9f2c1a44d7e0b8c36f52a91e0d44b7c8 (matches build #417)",
+    "Config checksum : ok (14 keys unchanged)",
+    "Rollback plan retained until the next run",
+    "Operator note: no manual intervention needed",
+    "Finished:   2026-07-18 12:00:02, total 1m 22s",
   ].join("\n");
 }
 
@@ -415,13 +420,64 @@ beforeAll(async () => {
             id: recordId,
             pending,
             request: {
-              input: "hello",
-              formatted: sessionTranscriptFixture(),
-              nested: { deep: { deeper: { value: 1 } } },
+              model: "gpt-5",
+              input: deploymentPromptFixture(),
+              stream: true,
+              temperature: 0.3,
+              max_output_tokens: 1024,
+              metadata: {
+                deployment: {
+                  run_id: 417,
+                  cluster: "prod-cluster-a",
+                  window: {
+                    start: "2026-07-18T11:58:40+08:00",
+                    end: "2026-07-18T12:00:02+08:00",
+                  },
+                },
+              },
             },
             response: pending
               ? null
-              : { output: "done", nested: { deep: { deeper: { value: 2 } } } },
+              : {
+                  id: "resp_9f1e0b6a2c4d4e7f8a1b2c3d4e5f6071",
+                  object: "response",
+                  created_at: 1784347202,
+                  model: "gpt-5",
+                  model_version: "gpt-5-2025-08-07",
+                  status: "completed",
+                  content_policy: null,
+                  error: null,
+                  incomplete_details: null,
+                  instructions: null,
+                  metadata: {},
+                  output: [
+                    {
+                      id: "msg_4c7a9e2b8f1d4650b3a1c9e0d7f82436",
+                      type: "message",
+                      status: "completed",
+                      role: "assistant",
+                      content: [
+                        {
+                          type: "output_text",
+                          text: "The deployment completed successfully in six stages. build took the longest at 18 seconds, followed by canary (12s) and verify (6s). No errors were reported and the service is running on port 4321.",
+                          annotations: [],
+                        },
+                      ],
+                    },
+                  ],
+                  parallel_tool_calls: true,
+                  temperature: 0.3,
+                  tool_choice: "auto",
+                  tools: [],
+                  truncation: "disabled",
+                  usage: {
+                    input_tokens: 8,
+                    input_tokens_details: { cached_tokens: 4 },
+                    output_tokens: 4,
+                    output_tokens_details: { reasoning_tokens: 0 },
+                    total_tokens: 12,
+                  },
+                },
             request_meta: { method: "POST", endpoint: "/v1/responses" },
             response_meta: pending
               ? {}
@@ -1388,7 +1444,7 @@ describe("admin UI history page", { timeout: UI_TEST_TIMEOUT_MS }, () => {
       page.waitForResponse((response) => response.url().endsWith("/api/logs/record-one")),
       page.locator('[data-log-id="record-one"]').click(),
     ]);
-    await expectPage(page.locator("#requestJson")).toContainText("hello");
+    await expectPage(page.locator("#requestJson")).toContainText("gpt-5");
     await expectPage(page.locator("#responseJson")).toContainText("null");
     await expectPage(page.locator("#responseTiming")).toBeHidden();
     expect(detailReads.get("record-one")).toBe(1);
@@ -1412,7 +1468,7 @@ describe("admin UI history page", { timeout: UI_TEST_TIMEOUT_MS }, () => {
     );
     await autoRefresh.check();
     await finishedDetail;
-    await expectPage(page.locator("#responseJson")).toContainText("done");
+    await expectPage(page.locator("#responseJson")).toContainText("completed");
     await expectPage(page.locator("#responseMeta")).toBeHidden();
     await expectPage(page.locator("#responseTiming")).toHaveText(
       "First token 00:02 · Total 01:06 · Prefill 1.7 tok/s · Decode 0.1 tok/s",
@@ -1522,11 +1578,11 @@ describe("admin UI history page", { timeout: UI_TEST_TIMEOUT_MS }, () => {
     await page.locator('[data-wrap="request"]').click();
     await expectPage(requestJson).toHaveClass(/wrap/);
 
-    await expectPage(requestJson.locator(".json-str-body")).toContainText("long-text-long-text");
+    await expectPage(requestJson.locator(".json-str-body")).toContainText("Stage canary");
     await page.locator('[data-format="request"]').click();
     await expectPage(requestJson.locator(".json-str-body")).toHaveCount(0);
     await page.locator('[data-format="request"]').click();
-    await expectPage(requestJson.locator(".json-str-body")).toContainText("long-text-long-text");
+    await expectPage(requestJson.locator(".json-str-body")).toContainText("Stage canary");
 
     await page.evaluate(() => {
       Object.defineProperty(navigator, "clipboard", {
@@ -1546,7 +1602,7 @@ describe("admin UI history page", { timeout: UI_TEST_TIMEOUT_MS }, () => {
         const value: unknown = Reflect.get(globalThis, "__copiedJson");
         return typeof value === "string" ? value : "";
       }),
-    ).toContain('"input": "hello"');
+    ).toContain('"model": "gpt-5"');
 
     const metadata = page.locator("#requestMeta");
     await expectPage(metadata).toBeHidden();
@@ -1821,6 +1877,41 @@ function statisticsBaselineFixtures() {
         cache_write: "1234567",
         cost: "41250000000",
         unpriced: 1,
+        by_model: [
+          {
+            id: "gpt-5",
+            requests: 11,
+            tasks: 3,
+            input: "11564247",
+            output: "2927659",
+            cache_read: "6653767",
+            cache_write: "665377",
+            cost: "22785392800",
+            unpriced: 1,
+          },
+          {
+            id: "gpt-5-mini",
+            requests: 5,
+            tasks: 0,
+            input: "6420066",
+            output: "1625333",
+            cache_read: "3693939",
+            cache_write: "369393",
+            cost: "12469517184",
+            unpriced: 0,
+          },
+          {
+            id: "gpt-5-nano",
+            requests: 2,
+            tasks: 0,
+            input: "3472476",
+            output: "879108",
+            cache_read: "1997972",
+            cache_write: "199797",
+            cost: "5995090016",
+            unpriced: 0,
+          },
+        ],
       },
       {
         bucket: "2026-01-06",
@@ -1832,6 +1923,41 @@ function statisticsBaselineFixtures() {
         cache_write: "2345678",
         cost: "52300000000",
         unpriced: 0,
+        by_model: [
+          {
+            id: "gpt-5",
+            requests: 13,
+            tasks: 3,
+            input: "16235192",
+            output: "4724175",
+            cache_read: "11041927",
+            cache_write: "1264216",
+            cost: "28889116203",
+            unpriced: 0,
+          },
+          {
+            id: "gpt-5-mini",
+            requests: 8,
+            tasks: 0,
+            input: "9013212",
+            output: "2622697",
+            cache_read: "6130092",
+            cache_write: "701848",
+            cost: "15809836334",
+            unpriced: 0,
+          },
+          {
+            id: "gpt-5-nano",
+            requests: 3,
+            tasks: 0,
+            input: "4875052",
+            output: "1418560",
+            cache_read: "3315635",
+            cache_write: "379614",
+            cost: "7601047463",
+            unpriced: 0,
+          },
+        ],
       },
       {
         bucket: "2026-01-07",
@@ -1843,6 +1969,41 @@ function statisticsBaselineFixtures() {
         cache_write: "987654",
         cost: "27800000000",
         unpriced: 2,
+        by_model: [
+          {
+            id: "gpt-5",
+            requests: 5,
+            tasks: 2,
+            input: "8210748",
+            output: "1863055",
+            cache_read: "5515973",
+            cache_write: "532302",
+            cost: "15355973814",
+            unpriced: 2,
+          },
+          {
+            id: "gpt-5-mini",
+            requests: 3,
+            tasks: 0,
+            input: "4558321",
+            output: "1034302",
+            cache_read: "3062275",
+            cache_write: "295515",
+            cost: "8403698854",
+            unpriced: 0,
+          },
+          {
+            id: "gpt-5-nano",
+            requests: 1,
+            tasks: 0,
+            input: "2465498",
+            output: "559432",
+            cache_read: "1656319",
+            cache_write: "159837",
+            cost: "4040327332",
+            unpriced: 0,
+          },
+        ],
       },
       {
         bucket: "2026-01-08",
@@ -1854,6 +2015,41 @@ function statisticsBaselineFixtures() {
         cache_write: "3456789",
         cost: "61450000000",
         unpriced: 0,
+        by_model: [
+          {
+            id: "gpt-5",
+            requests: 17,
+            tasks: 3,
+            input: "23887084",
+            output: "6054927",
+            cache_read: "16700955",
+            cache_write: "1863054",
+            cost: "33943330606",
+            unpriced: 0,
+          },
+          {
+            id: "gpt-5-mini",
+            requests: 10,
+            tasks: 1,
+            input: "13261275",
+            output: "3361485",
+            cache_read: "9271788",
+            cache_write: "1034303",
+            cost: "18575801964",
+            unpriced: 0,
+          },
+          {
+            id: "gpt-5-nano",
+            requests: 4,
+            tasks: 0,
+            input: "7172739",
+            output: "1818155",
+            cache_read: "5014911",
+            cache_write: "559432",
+            cost: "8930867430",
+            unpriced: 0,
+          },
+        ],
       },
       {
         bucket: "2026-01-09",
@@ -1865,6 +2061,41 @@ function statisticsBaselineFixtures() {
         cache_write: "1876543",
         cost: "35600000000",
         unpriced: 1,
+        by_model: [
+          {
+            id: "gpt-5",
+            requests: 7,
+            tasks: 2,
+            input: "11917502",
+            output: "3526497",
+            cache_read: "8257757",
+            cache_write: "1011372",
+            cost: "19664484452",
+            unpriced: 0,
+          },
+          {
+            id: "gpt-5-mini",
+            requests: 4,
+            tasks: 0,
+            input: "6616181",
+            output: "1957788",
+            cache_read: "4584418",
+            cache_write: "561479",
+            cost: "10761571195",
+            unpriced: 1,
+          },
+          {
+            id: "gpt-5-nano",
+            requests: 1,
+            tasks: 0,
+            input: "3578550",
+            output: "1058925",
+            cache_read: "2479614",
+            cache_write: "303692",
+            cost: "5173944353",
+            unpriced: 0,
+          },
+        ],
       },
       {
         bucket: "2026-01-10",
@@ -1876,6 +2107,41 @@ function statisticsBaselineFixtures() {
         cache_write: "2876543",
         cost: "48950000000",
         unpriced: 0,
+        by_model: [
+          {
+            id: "gpt-5",
+            requests: 14,
+            tasks: 0,
+            input: "19229326",
+            output: "5323012",
+            cache_read: "13706813",
+            cache_write: "1550327",
+            cost: "27038666120",
+            unpriced: 0,
+          },
+          {
+            id: "gpt-5-mini",
+            requests: 9,
+            tasks: 2,
+            input: "10675452",
+            output: "2955152",
+            cache_read: "7609545",
+            cache_write: "860688",
+            cost: "14797160393",
+            unpriced: 0,
+          },
+          {
+            id: "gpt-5-nano",
+            requests: 4,
+            tasks: 1,
+            input: "5774123",
+            output: "1598379",
+            cache_read: "4115840",
+            cache_write: "465528",
+            cost: "7114173487",
+            unpriced: 0,
+          },
+        ],
       },
       {
         bucket: "2026-01-11",
@@ -1887,6 +2153,41 @@ function statisticsBaselineFixtures() {
         cache_write: "1543210",
         cost: "38150000000",
         unpriced: 2,
+        by_model: [
+          {
+            id: "gpt-5",
+            requests: 7,
+            tasks: 0,
+            input: "14438073",
+            output: "4125334",
+            cache_read: "9827610",
+            cache_write: "831719",
+            cost: "21073036005",
+            unpriced: 0,
+          },
+          {
+            id: "gpt-5-mini",
+            requests: 6,
+            tasks: 1,
+            input: "8015517",
+            output: "2290243",
+            cache_read: "5455950",
+            cache_write: "461743",
+            cost: "11532414076",
+            unpriced: 1,
+          },
+          {
+            id: "gpt-5-nano",
+            requests: 3,
+            tasks: 1,
+            input: "4335422",
+            output: "1238744",
+            cache_read: "2951007",
+            cache_write: "249748",
+            cost: "5544549919",
+            unpriced: 1,
+          },
+        ],
       },
     ],
   };
@@ -2049,18 +2350,41 @@ async function screenshotDifference(baselinePath: string): Promise<number> {
   ]);
   const actual = PNG.sync.read(actualBuffer);
   const baseline = PNG.sync.read(baselineBuffer);
-  expect({ width: actual.width, height: actual.height }).toEqual({
-    width: baseline.width,
-    height: baseline.height,
-  });
+  expect(actual.width).toBe(baseline.width);
+  // The document height can drift a few pixels between environments because of
+  // fractional-pixel rounding (e.g. aspect-ratio SVGs). Treat a page as
+  // unchanged when the overlap is identical and any extra rows are blank.
+  expect(Math.abs(actual.height - baseline.height)).toBeLessThanOrEqual(4);
+  const rows = Math.min(actual.height, baseline.height);
+  const stride = actual.width * 4;
+  const sliceRows = (image: { data: Buffer }) => {
+    const out = Buffer.alloc(rows * stride);
+    for (let y = 0; y < rows; y++) {
+      Buffer.from(image.data.subarray(y * stride, (y + 1) * stride)).copy(out, y * stride);
+    }
+    return out;
+  };
   const differentPixels = pixelmatch(
-    actual.data,
-    baseline.data,
+    sliceRows(actual),
+    sliceRows(baseline),
     undefined,
-    baseline.width,
-    baseline.height,
+    actual.width,
+    rows,
     { threshold: 0.2 },
   );
+  for (const image of [actual, baseline]) {
+    if (image.height <= rows) continue;
+    for (let y = rows; y < image.height; y++) {
+      for (let x = 0; x < image.width; x++) {
+        const i = (y * image.width + x) * 4;
+        const r = image.data[i] ?? 255,
+          g = image.data[i + 1] ?? 255,
+          b = image.data[i + 2] ?? 255,
+          a = image.data[i + 3] ?? 255;
+        expect(a < 10 || (r > 230 && g > 230 && b > 230)).toBe(true);
+      }
+    }
+  }
   return differentPixels / (baseline.width * baseline.height);
 }
 
@@ -2271,6 +2595,10 @@ describe("statistics page visual smoke", () => {
     await page.locator('[data-tab="statistics"]').click();
     await expectPage(page.locator(".trend-yaxis span")).toHaveCount(5);
     await expectPage(page.locator(".trend-gridline")).toHaveCount(5);
+    // The trend grouping defaults to the stacked by-model breakdown.
+    await expectPage(page.locator("#statsBreakdown")).toHaveValue("model");
+    await expectPage(page.locator(".trend-item").first().locator(".trend-segment")).toHaveCount(2);
+    await page.locator("#statsBreakdown").selectOption("total");
     await expectPage(page.locator(".trend-item").first().locator(".trend-segment")).toHaveCount(4);
     await page.locator("#statsMetricTrend").selectOption("cost");
     await expectPage(page.locator("#statsMetricTrend")).toHaveValue("cost");

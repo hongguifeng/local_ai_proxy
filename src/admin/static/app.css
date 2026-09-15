@@ -428,10 +428,6 @@ main {
   padding: 7px 10px;
   font-size: 12px;
 }
-.stats-alert-action {
-  padding: 3px 7px;
-  font-size: 11px;
-}
 .stat-groups {
   gap: 10px;
 }
@@ -2546,13 +2542,6 @@ label span {
   background: #f79009;
   color: #fff;
   font-weight: 800;
-}
-.stats-alert-action {
-  margin-left: auto;
-  padding: 4px 8px;
-  border-color: #f3d08a;
-  background: transparent;
-  color: #8a5a00;
 }
 .stat-groups {
   grid-template-columns: repeat(2, minmax(0, 1fr));
