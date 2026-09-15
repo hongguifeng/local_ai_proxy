@@ -193,6 +193,7 @@ beforeAll(async () => {
                   unpriced_request_count: 1,
                   pending_request_count: 1,
                 },
+                decode_speed_tps: 2.47,
               },
               {
                 id: "task-needle",
@@ -201,6 +202,7 @@ beforeAll(async () => {
                 model: "claude",
                 request_count: 1,
                 target: "fixture-target",
+                decode_speed_tps: 1250,
               },
               {
                 id: "task-three",
@@ -1136,6 +1138,7 @@ describe("admin UI history page", { timeout: UI_TEST_TIMEOUT_MS }, () => {
     await expectPage(summary.locator(".log-group-fact-line").first()).toContainText("gpt-5");
     await expectPage(summary.locator(".log-group-fact-line").first()).toContainText("5 requests");
     await expectPage(summary.locator("[data-group-cost]")).toHaveText("$0.0428");
+    await expectPage(summary.locator(".log-group-decode-speed")).toHaveText("2.5t/s");
     await expectPage(summary.locator(".log-target")).toHaveText("fixture-target");
     await expectPage(group.locator("button button")).toHaveCount(0);
 

@@ -43,6 +43,7 @@ export {
   type TrafficRepositoryOptions,
   type PricingBucket,
   type PricingPrice,
+  type TaskDecodeSpeedStats,
   type TaskPricingAggregate,
   type TaskPricingBreakdown,
   type TaskPricingGroup,

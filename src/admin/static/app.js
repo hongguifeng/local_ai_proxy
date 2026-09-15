@@ -12,6 +12,9 @@ const translations = {
     prefillSpeed: "Prefill",
     decodeSpeed: "Decode",
     tokensPerSecond: "token/s",
+    avgDecodeSpeed: "平均 decode 速度",
+    avgDecodeSpeedTip:
+      "该任务下所有已完成请求的平均 decode 速度（输出 token 总数 ÷ decode 总时长）",
     proxyPairs: "地址对",
     add: "添加",
     saveConfig: "保存配置",
@@ -187,6 +190,9 @@ const translations = {
     prefillSpeed: "Prefill",
     decodeSpeed: "Decode",
     tokensPerSecond: "tok/s",
+    avgDecodeSpeed: "Avg decode speed",
+    avgDecodeSpeedTip:
+      "Average decode speed across finished requests in the task (total output tokens ÷ total decode time)",
     proxyPairs: "Proxy pairs",
     add: "Add",
     saveConfig: "Save config",
@@ -507,9 +513,16 @@ function logGroupTimeHtml(group) {
     <span class="log-time-range">${range}</span>
   </span>`;
 }
+function formatGroupDecodeSpeed(value) {
+  if (typeof value !== "number" || !Number.isFinite(value) || value <= 0) return "";
+  if (value >= 100) return String(Math.round(value));
+  return value.toFixed(1);
+}
 function logGroupFactsHtml(group) {
+  const decodeSpeed = formatGroupDecodeSpeed(group.decode_speed_tps);
+  const decodeSpeedTip = `${t("avgDecodeSpeed")}: ${t("avgDecodeSpeedTip")}`;
   return `<span class="log-group-facts">
-    <span class="log-group-fact-line">${group.model ? `<span class="log-model">${escapeHtml(group.model)}</span>` : ""}<span class="log-request-count"><strong>${escapeHtml(group.request_count ?? 0)}</strong> ${escapeHtml(t("requests"))}</span><button type="button" class="log-cost" data-group-cost="${escapeHtml(group.id || "")}" aria-label="${escapeHtml(t("viewTaskPricing"))}">${escapeHtml(formatGroupCost(group.cost))}</button></span>
+    <span class="log-group-fact-line">${group.model ? `<span class="log-model">${escapeHtml(group.model)}</span>` : ""}<span class="log-request-count"><strong>${escapeHtml(group.request_count ?? 0)}</strong> ${escapeHtml(t("requests"))}</span>${decodeSpeed ? `<span class="log-group-decode-speed" title="${escapeHtml(decodeSpeedTip)}">${escapeHtml(decodeSpeed)}t/s</span>` : ""}<button type="button" class="log-cost" data-group-cost="${escapeHtml(group.id || "")}" aria-label="${escapeHtml(t("viewTaskPricing"))}">${escapeHtml(formatGroupCost(group.cost))}</button></span>
     <span class="log-group-fact-line log-target" title="${escapeHtml(group.target || "")}">${escapeHtml(group.target || "—")}</span>
   </span>`;
 }

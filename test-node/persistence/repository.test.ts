@@ -1111,3 +1111,102 @@ describe("record search document generation", () => {
     expect(document.responseText).toContain("searchable response");
   });
 });
+
+describe("TrafficRepository.taskDecodeSpeedStats", () => {
+  it("aggregates output tokens and decode windows per finished request", async () => {
+    const root = await mkdtemp(path.join(os.tmpdir(), "llm-proxy-decode-speed-"));
+    temporaryDirectories.push(root);
+    const repository = new TrafficRepository(root);
+    repository.upsertTask({ id: "task-1", match_strategy_version: 4 });
+    repository.upsertTask({ id: "task-2", match_strategy_version: 4 });
+    // Streaming request: 240 tokens decoded over 975ms.
+    repository.upsertRecord({
+      id: "decode-1",
+      task_id: "task-1",
+      sequence: 1,
+      event: "request_finished",
+      method: "POST",
+      path: "/v1/responses",
+      duration_ms: 1000,
+      first_token_ms: 25,
+      response_token_count: 240,
+    });
+    // Streaming request: 120 tokens decoded over 500ms.
+    repository.upsertRecord({
+      id: "decode-2",
+      task_id: "task-1",
+      sequence: 2,
+      event: "request_finished",
+      method: "POST",
+      path: "/v1/responses",
+      duration_ms: 600,
+      first_token_ms: 100,
+      response_token_count: 120,
+    });
+    // Non-streaming response: the whole body arrived with the first token,
+    // leaving a sub-millisecond decode window that must not contribute.
+    repository.upsertRecord({
+      id: "decode-3",
+      task_id: "task-1",
+      sequence: 3,
+      event: "request_finished",
+      method: "POST",
+      path: "/v1/responses",
+      duration_ms: 300,
+      first_token_ms: 299.5,
+      response_token_count: 40,
+    });
+    // Pending records and failed requests are excluded.
+    repository.upsertRecord({
+      id: "decode-4",
+      task_id: "task-1",
+      sequence: 4,
+      event: "request_pending_response",
+      method: "POST",
+      path: "/v1/responses",
+      duration_ms: 5000,
+      response_token_count: 800,
+    });
+    repository.upsertRecord({
+      id: "decode-5",
+      task_id: "task-1",
+      sequence: 5,
+      event: "request_finished",
+      method: "POST",
+      path: "/v1/responses",
+      duration_ms: 700,
+      first_token_ms: 100,
+      error: "upstream failed",
+    });
+    // A second task keeps the statistics scoped.
+    repository.upsertRecord({
+      id: "decode-6",
+      task_id: "task-2",
+      sequence: 1,
+      event: "request_finished",
+      method: "POST",
+      path: "/v1/responses",
+      duration_ms: 1000,
+      first_token_ms: 500,
+      response_token_count: 200,
+    });
+    repository.upsertRecord({
+      id: "decode-7",
+      task_id: "task-2",
+      sequence: 2,
+      event: "request_finished",
+      method: "POST",
+      path: "/v1/responses",
+      duration_ms: 800,
+      first_token_ms: 100,
+      response_token_count: 100,
+    });
+
+    const stats = repository.taskDecodeSpeedStats(["task-1", "task-1", "task-2", ""]);
+    expect(stats.get("task-1")).toEqual({ output_tokens: 360, decode_ms: 1475 });
+    expect(stats.get("task-2")).toEqual({ output_tokens: 300, decode_ms: 500 + 700 });
+    expect(stats.has("missing")).toBe(false);
+    expect(repository.taskDecodeSpeedStats([])).toEqual(new Map());
+    repository.close();
+  });
+});

@@ -73,6 +73,11 @@ export interface PricingPrice {
   readonly output_per_million: string;
 }
 
+export interface TaskDecodeSpeedStats {
+  readonly decode_ms: number;
+  readonly output_tokens: number;
+}
+
 export class TrafficRepository {
   get database(): Database.Database {
     return this.#database;
@@ -499,6 +504,42 @@ export class TrafficRepository {
     return new Map(
       [...aggregates].map(([id, aggregate]) => [id, finalizeTaskPricingAggregate(aggregate)]),
     );
+  }
+
+  /**
+   * Aggregate decode timing per task. The decode window runs from the first
+   * token to the end of the response; only finished requests with a window of
+   * at least 1ms contribute, because non-streaming responses arrive in a single
+   * chunk (a near-zero window) and failed requests carry no output tokens.
+   */
+  taskDecodeSpeedStats(taskIds: readonly string[]): Map<string, TaskDecodeSpeedStats> {
+    const ids = [...new Set(taskIds.filter((id) => id !== ""))];
+    if (ids.length === 0) return new Map();
+    const rows = this.#database
+      .prepare(
+        `SELECT task_id,
+          SUM(CASE WHEN response_token_count > 0 AND duration_ms - COALESCE(first_token_ms, 0) >= 1
+               THEN response_token_count ELSE 0 END) AS output_tokens,
+          SUM(CASE WHEN response_token_count > 0 AND duration_ms - COALESCE(first_token_ms, 0) >= 1
+               THEN duration_ms - COALESCE(first_token_ms, 0) ELSE 0 END) AS decode_ms
+         FROM records
+         WHERE event = 'request_finished'
+           AND task_id IN (${ids.map(() => "?").join(",")})
+         GROUP BY task_id`,
+      )
+      .all(...ids) as {
+      task_id: string;
+      output_tokens: number | null;
+      decode_ms: number | null;
+    }[];
+    const stats = new Map<string, TaskDecodeSpeedStats>();
+    for (const row of rows) {
+      stats.set(stringValue(row.task_id), {
+        output_tokens: row.output_tokens ?? 0,
+        decode_ms: row.decode_ms ?? 0,
+      });
+    }
+    return stats;
   }
 
   listTaskRecords(

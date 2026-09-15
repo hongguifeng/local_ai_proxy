@@ -12,8 +12,8 @@
 | --- | --- | --- | --- | --- |
 | Proxy | 中文 | `doc/ui_proxy_cn.png` | 1278 x 1215 | `c2ff326b0a5cc3167f2febb61455977b65b10bd0b3e030c63f1716b46fb4d85a` |
 | Proxy | 英文 | `doc/ui_proxy_en.png` | 1278 x 1208 | `1649bacdfcd18c88fd9069e5b1473e55454482236b9a6e23d9f692a90ebd8742` |
-| History | 中文 | `doc/ui_logs_cn.png` | 1384 x 1212 | `93075afdbf55820684cd14db77d04604c2af112469e3e6d51cea7f76b3bb266d` |
-| History | 英文 | `doc/ui_logs_en.png` | 1384 x 1224 | `586b251673cf52b67c1e0684f095ad9912ed7b1b48b1f1ec49c2b671d598b0e8` |
+| History | 中文 | `doc/ui_logs_cn.png` | 1384 x 1212 | `4f0ff1a8fca44650114cdfec181ac7ca3eb3baa8d64e411fcf08043100401719` |
+| History | 英文 | `doc/ui_logs_en.png` | 1384 x 1224 | `a8df2f0227a3e91166fd8a9dbdab0d4ecbe62dcdfc24ea186a6fc034da231273` |
 | Usage statistics | 中文 | `doc/ui_stats_cn.png` | 1278 x 1613 | `dac23fdfc8d59fa2a02461a07eb52cbcad51eb7b3c662d289aecc2b6081a8450` |
 | Usage statistics | 英文 | `doc/ui_stats_en.png` | 1278 x 1613 | `2b6f11098ad9a541d724e53216c67af4ae4e5b68b253a63d87a92e97395a253b` |
 

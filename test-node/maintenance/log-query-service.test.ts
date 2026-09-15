@@ -131,6 +131,73 @@ describe("LogQueryService", () => {
     });
   });
 
+  it("reports the average decode speed of finished streaming requests for a task group", async () => {
+    const root = await mkdtemp(path.join(os.tmpdir(), "llm-proxy-log-query-decode-"));
+    temporaryDirectories.push(root);
+    const repository = new TrafficRepository(root);
+    repository.upsertTask(task("task-decode", "gpt-5", "2026-07-18T12:00:00.000+08:00"));
+    repository.upsertRecord({
+      id: "record-decode-stream",
+      task_id: "task-decode",
+      sequence: 1,
+      event: "request_finished",
+      method: "POST",
+      path: "/v1/responses",
+      duration_ms: 1000,
+      first_token_ms: 25,
+      response_token_count: 240,
+    });
+    repository.upsertRecord({
+      id: "record-decode-nonstream",
+      task_id: "task-decode",
+      sequence: 2,
+      event: "request_finished",
+      method: "POST",
+      path: "/v1/responses",
+      duration_ms: 300,
+      first_token_ms: 299.5,
+      response_token_count: 40,
+    });
+    repository.upsertRecord({
+      id: "record-decode-failed",
+      task_id: "task-decode",
+      sequence: 3,
+      event: "request_finished",
+      method: "POST",
+      path: "/v1/responses",
+      duration_ms: 500,
+      first_token_ms: 50,
+      error: "upstream failed",
+    });
+    repository.close();
+
+    const group = new LogQueryService([root]).listGroups().groups[0];
+    expect(group?.decode_speed_tps).toBeCloseTo(240 / 0.975, 6);
+  });
+
+  it("omits the decode speed when the task has no measurable decode window", async () => {
+    const root = await mkdtemp(path.join(os.tmpdir(), "llm-proxy-log-query-decode-none-"));
+    temporaryDirectories.push(root);
+    const repository = new TrafficRepository(root);
+    repository.upsertTask(task("task-no-decode", "gpt-5", "2026-07-18T12:00:00.000+08:00"));
+    repository.upsertRecord({
+      id: "record-no-decode",
+      task_id: "task-no-decode",
+      sequence: 1,
+      event: "request_finished",
+      method: "POST",
+      path: "/v1/responses",
+      duration_ms: 200,
+      first_token_ms: 200,
+      response_token_count: 60,
+    });
+    repository.close();
+
+    const group = new LogQueryService([root]).listGroups().groups[0];
+    expect(group?.decode_speed_tps).toBeUndefined();
+    expect("decode_speed_tps" in (group ?? {})).toBe(false);
+  });
+
   it("merges, globally sorts, and paginates tasks from multiple log roots", async () => {
     const firstRoot = await mkdtemp(path.join(os.tmpdir(), "llm-proxy-log-query-a-"));
     const secondRoot = await mkdtemp(path.join(os.tmpdir(), "llm-proxy-log-query-b-"));

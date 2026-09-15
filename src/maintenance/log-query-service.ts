@@ -1,6 +1,7 @@
 import {
   TrafficRepository,
   type RepositoryRecord,
+  type TaskDecodeSpeedStats,
   type TaskPricingAggregate,
 } from "../persistence/index.js";
 import { formatLocalTimestamp } from "../shared/index.js";
@@ -18,6 +19,7 @@ import { UsageStatisticsService } from "./usage-statistics-service.js";
 
 export interface LogGroupSummary {
   readonly cost?: LogTaskCost;
+  readonly decode_speed_tps?: number;
   readonly preview?: LogGroupLogs;
   readonly id: string;
   readonly last_activity_at: string;
@@ -129,8 +131,11 @@ export class LogQueryService {
     try {
       const page = repository.listTaskSummaries(query, boundedLimit, boundedOffset);
       const pricing = repository.taskPricingForTasks(page.items.map((item) => string(item["id"])));
+      const decodeStats = repository.taskDecodeSpeedStats(
+        page.items.map((item) => string(item["id"])),
+      );
       return {
-        groups: groupsWithPreviews(repository, page.items, query, pricing),
+        groups: groupsWithPreviews(repository, page.items, query, pricing, decodeStats),
         total: page.total,
         limit: page.limit,
         offset: page.offset,
@@ -405,14 +410,23 @@ export class LogQueryService {
       const repository = new TrafficRepository(root);
       try {
         const pricing = repository.taskPricingForTasks(rootTasks.map((task) => string(task["id"])));
+        const decodeStats = repository.taskDecodeSpeedStats(
+          rootTasks.map((task) => string(task["id"])),
+        );
         if (!query.trim()) {
           for (const task of rootTasks) {
-            const group = taskGroupSummary(task, pricing.get(string(task["id"])));
+            const group = taskGroupSummary(task, pricing.get(string(task["id"])), decodeStats);
             summaries.set(group.id, group);
           }
           continue;
         }
-        for (const group of groupsWithPreviews(repository, rootTasks, query, pricing)) {
+        for (const group of groupsWithPreviews(
+          repository,
+          rootTasks,
+          query,
+          pricing,
+          decodeStats,
+        )) {
           summaries.set(group.id, group);
         }
       } finally {
@@ -441,13 +455,14 @@ function groupsWithPreviews(
   tasks: readonly RepositoryRecord[],
   query: string,
   pricing = new Map<string, TaskPricingAggregate>(),
+  decodeStats = new Map<string, TaskDecodeSpeedStats>(),
 ): LogGroupSummary[] {
   const previews = repository.listTaskSearchPreviews(
     tasks.map((task) => string(task["id"])),
     query,
   );
   return tasks.map((task) => {
-    const group = taskGroupSummary(task, pricing.get(string(task["id"])));
+    const group = taskGroupSummary(task, pricing.get(string(task["id"])), decodeStats);
     const page = previews.get(group.id);
     return page === undefined
       ? group
@@ -578,13 +593,20 @@ function taskSortTime(task: Readonly<RepositoryRecord>): number {
 function taskGroupSummary(
   task: Readonly<RepositoryRecord>,
   pricing?: TaskPricingAggregate,
+  decodeStats = new Map<string, TaskDecodeSpeedStats>(),
 ): LogGroupSummary {
   const requestCount = integer(task["request_count"], 0);
   const rawModel = optionalString(task["model"]);
   const model = rawModel === null ? null : basename(rawModel);
   const target = optionalString(task["target"]);
+  const decode = decodeStats.get(string(task["id"]));
+  const decodeSpeed =
+    decode !== undefined && decode.decode_ms > 0 && decode.output_tokens > 0
+      ? decode.output_tokens / (decode.decode_ms / 1000)
+      : undefined;
   return {
     cost: taskCost(pricing),
+    ...(decodeSpeed !== undefined ? { decode_speed_tps: decodeSpeed } : {}),
     id: string(task["id"]),
     last_activity_at: displayTimestamp(task["last_seen_at"] ?? task["last_response_at"]),
     model,

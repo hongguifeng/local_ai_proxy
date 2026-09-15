@@ -1107,21 +1107,28 @@ label span {
   overflow: hidden;
   white-space: nowrap;
 }
+/* Keep every item at natural width so the row overflows to the right and the
+   container hides it right-to-left (speed first, then cost/count/model). */
+.log-group-fact-line > * {
+  flex: 0 0 auto;
+}
 .log-group-fact-line.log-target {
   grid-row: 2;
   display: block;
 }
 .log-cost {
-  min-width: 0;
   border: 0;
   background: transparent;
   padding: 0;
   color: #176b52;
-  overflow: hidden;
-  text-overflow: ellipsis;
   white-space: nowrap;
   font: inherit;
   font-weight: 700;
+}
+.log-group-decode-speed {
+  color: #8a5a13;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
 }
 .log-model {
   color: #7a4308;
