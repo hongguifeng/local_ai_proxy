@@ -1275,6 +1275,9 @@ label span {
 .log-metric.response-tokens .log-metric-value {
   color: #315a82;
 }
+.log-metric.decode-speed .log-metric-value {
+  color: #8a5a13;
+}
 .log-metric.cost .log-metric-value {
   color: #176b52;
 }

@@ -173,6 +173,18 @@ describe("LogQueryService", () => {
 
     const group = new LogQueryService([root]).listGroups().groups[0];
     expect(group?.decode_speed_tps).toBeCloseTo(240 / 0.975, 6);
+
+    // The second-level list mirrors the group aggregate per record: only the
+    // finished streaming request has a measurable decode window.
+    const logs = new LogQueryService([root]).getGroupLogs("task-decode")?.logs ?? [];
+    expect(logs.map(({ id }) => id)).toEqual([
+      "record-decode-failed",
+      "record-decode-nonstream",
+      "record-decode-stream",
+    ]);
+    expect(logs[2]?.decode_speed_tps).toBeCloseTo(240 / 0.975, 6);
+    expect("decode_speed_tps" in (logs[0] ?? {})).toBe(false);
+    expect("decode_speed_tps" in (logs[1] ?? {})).toBe(false);
   });
 
   it("omits the decode speed when the task has no measurable decode window", async () => {
@@ -191,11 +203,25 @@ describe("LogQueryService", () => {
       first_token_ms: 200,
       response_token_count: 60,
     });
+    repository.upsertRecord({
+      id: "record-no-decode-pending",
+      task_id: "task-no-decode",
+      sequence: 2,
+      event: "request_pending_response",
+      method: "POST",
+      path: "/v1/responses",
+      duration_ms: 5000,
+      response_token_count: 800,
+    });
     repository.close();
 
     const group = new LogQueryService([root]).listGroups().groups[0];
     expect(group?.decode_speed_tps).toBeUndefined();
     expect("decode_speed_tps" in (group ?? {})).toBe(false);
+
+    const logs = new LogQueryService([root]).getGroupLogs("task-no-decode")?.logs ?? [];
+    expect(logs).toHaveLength(2);
+    for (const log of logs) expect("decode_speed_tps" in log).toBe(false);
   });
 
   it("merges, globally sorts, and paginates tasks from multiple log roots", async () => {

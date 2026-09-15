@@ -15,6 +15,7 @@ const translations = {
     avgDecodeSpeed: "平均 decode 速度",
     avgDecodeSpeedTip:
       "该任务下所有已完成请求的平均 decode 速度（输出 token 总数 ÷ decode 总时长）",
+    speed: "速度",
     proxyPairs: "地址对",
     add: "添加",
     saveConfig: "保存配置",
@@ -193,6 +194,7 @@ const translations = {
     avgDecodeSpeed: "Avg decode speed",
     avgDecodeSpeedTip:
       "Average decode speed across finished requests in the task (total output tokens ÷ total decode time)",
+    speed: "Speed",
     proxyPairs: "Proxy pairs",
     add: "Add",
     saveConfig: "Save config",
@@ -577,6 +579,10 @@ function logItemMetricsHtml(item) {
         `${t("response")} ${t("tokens")}`,
       ),
     );
+  }
+  const decodeSpeed = formatGroupDecodeSpeed(item.decode_speed_tps);
+  if (decodeSpeed !== "") {
+    metrics.push(logMetricHtml("decode-speed", t("speed"), `${decodeSpeed}t/s`, t("speed")));
   }
   metrics.push(logMetricHtml("cost", t("cost"), formatRequestCost(item.cost), t("cost")));
   return (

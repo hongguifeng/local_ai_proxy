@@ -631,6 +631,7 @@ export class TrafficRepository {
         `
         SELECT id, sequence, timestamp, method, path, endpoint, status,
           message_count, request_token_count, response_token_count, target_url,
+          event, first_token_ms, duration_ms,
           pricing_status, pricing_reason, CAST(cost_nano_cny AS TEXT) AS cost_nano_cny,
           EXISTS (
             SELECT 1 FROM history_summaries
@@ -687,6 +688,7 @@ export class TrafficRepository {
         SELECT records.id, records.task_id, records.sequence, records.timestamp,
           records.method, records.path, records.endpoint, records.status,
           records.message_count, records.request_token_count, records.response_token_count,
+          records.event, records.first_token_ms, records.duration_ms,
           records.target_url, records.pricing_status, records.pricing_reason,
           CAST(records.cost_nano_cny AS TEXT) AS cost_nano_cny, ranked.total,
           EXISTS (

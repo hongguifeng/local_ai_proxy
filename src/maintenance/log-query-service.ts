@@ -48,6 +48,7 @@ export interface LogGroupPage {
 
 export interface LogListItem {
   readonly cost?: LogRequestCost;
+  readonly decode_speed_tps?: number;
   readonly endpoint: string;
   readonly has_summary: boolean;
   readonly id: string;
@@ -554,8 +555,10 @@ function emptyMetaValue(value: unknown): boolean {
 }
 
 function logListItem(record: Readonly<RepositoryRecord>): LogListItem {
+  const decodeSpeed = recordDecodeSpeedTps(record);
   return {
     cost: requestCost(record),
+    ...(decodeSpeed !== undefined ? { decode_speed_tps: decodeSpeed } : {}),
     has_summary: Number(record["has_summary"]) === 1,
     id: string(record["id"]),
     timestamp: displayTimestamp(record["timestamp"]) || string(record["timestamp"]),
@@ -569,6 +572,27 @@ function logListItem(record: Readonly<RepositoryRecord>): LogListItem {
     response_token_count: optionalInteger(record["response_token_count"]),
     target: string(record["target_url"]),
   };
+}
+
+/**
+ * Per-record decode speed for the second-level log list. Mirrors the group
+ * aggregate in taskDecodeSpeedStats: the decode window runs from the first
+ * token to the end of the response; only finished requests with output
+ * tokens and a window of at least 1ms are measurable.
+ */
+function recordDecodeSpeedTps(record: Readonly<RepositoryRecord>): number | undefined {
+  if (string(record["event"]) !== "request_finished") return undefined;
+  const outputTokens = optionalInteger(record["response_token_count"]) ?? 0;
+  const durationMs = optionalNumber(record["duration_ms"]);
+  if (outputTokens <= 0 || durationMs === null) return undefined;
+  const decodeMs = durationMs - (optionalNumber(record["first_token_ms"]) ?? 0);
+  return decodeMs >= 1 ? outputTokens / (decodeMs / 1000) : undefined;
+}
+
+function optionalNumber(value: unknown): number | null {
+  if (value === null || value === undefined || value === "") return null;
+  const converted = Number(value);
+  return Number.isFinite(converted) ? converted : null;
 }
 
 function requestCost(record: Readonly<RepositoryRecord>): LogRequestCost {

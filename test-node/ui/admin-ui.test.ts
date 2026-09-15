@@ -335,6 +335,7 @@ beforeAll(async () => {
               status: 200,
               request_token_count: 24,
               response_token_count: 96,
+              decode_speed_tps: 30.07,
               target: "fixture-target",
               has_summary: false,
               cost: { currency: "CNY", amount: "0.041125", status: "priced", reason: null },
@@ -1147,6 +1148,17 @@ describe("admin UI history page", { timeout: UI_TEST_TIMEOUT_MS }, () => {
       summary.locator(".log-target").click(),
     ]);
     const priced = page.locator('[data-log-id="record-three"]');
+    await expectPage(priced.locator(".decode-speed .log-metric-label")).toHaveText("Speed");
+    await expectPage(priced.locator(".decode-speed .log-metric-value")).toHaveText("30.1t/s");
+    expect(await priced.locator(".log-item-metrics .log-metric-label").allTextContents()).toEqual([
+      "messages",
+      "Request",
+      "Response",
+      "Speed",
+      "Cost",
+    ]);
+    await expectPage(page.locator('[data-log-id="record-two"] .decode-speed')).toHaveCount(0);
+    await expectPage(page.locator('[data-log-id="record-one"] .decode-speed')).toHaveCount(0);
     await expectPage(priced.locator(".cost .log-metric-label")).toHaveText("Cost");
     await expectPage(priced.locator(".cost .log-metric-value")).toHaveText("$0.0411");
     await expectPage(page.locator('[data-log-id="record-two"] .cost .log-metric-value')).toHaveText(

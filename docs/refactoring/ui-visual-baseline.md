@@ -12,8 +12,8 @@
 | --- | --- | --- | --- | --- |
 | Proxy | 中文 | `doc/ui_proxy_cn.png` | 1278 x 1215 | `c2ff326b0a5cc3167f2febb61455977b65b10bd0b3e030c63f1716b46fb4d85a` |
 | Proxy | 英文 | `doc/ui_proxy_en.png` | 1278 x 1208 | `1649bacdfcd18c88fd9069e5b1473e55454482236b9a6e23d9f692a90ebd8742` |
-| History | 中文 | `doc/ui_logs_cn.png` | 1384 x 1212 | `7ccb23067b034a93729aa1fe0c379b62b81a411eb82b07181ebf84dd67012823` |
-| History | 英文 | `doc/ui_logs_en.png` | 1384 x 1224 | `2effe6b0189e5d684616a8477c01eb397f22d51170c08cbfbb58c97d1acb83f2` |
+| History | 中文 | `doc/ui_logs_cn.png` | 1384 x 1212 | `db0b74de468b91867fe2cacfb334833c576cc3dffaa35d0baa5dd7f787400185` |
+| History | 英文 | `doc/ui_logs_en.png` | 1384 x 1224 | `7496eac2c35ed025143e923521e669553ffc10c79d3193c5988db2837152e231` |
 | Usage statistics | 中文 | `doc/ui_stats_cn.png` | 1278 x 1613 | `dac23fdfc8d59fa2a02461a07eb52cbcad51eb7b3c662d289aecc2b6081a8450` |
 | Usage statistics | 英文 | `doc/ui_stats_en.png` | 1278 x 1613 | `2b6f11098ad9a541d724e53216c67af4ae4e5b68b253a63d87a92e97395a253b` |
 
@@ -52,6 +52,7 @@ sha256sum doc/ui_proxy_cn.png doc/ui_proxy_en.png doc/ui_logs_cn.png doc/ui_logs
 - 展开的 task 下按 sequence 倒序显示 5 条请求项，白底、相对 header 缩进，仅用浅色细线分隔，视觉层级从属于 task header。
 - 请求项状态圆点覆盖两种非成功状态：红色 4xx 错误（保留状态码文字）、琥珀色 pending（保留"等待中"文字）；200 成功不再显示任何状态标记。
 - 指标颜色两级统一：费用为青绿色（#176b52），数量类指标（一级请求数、二级响应 tokens）为蓝色（#315a82），模型名与请求 tokens 为琥珀色（#7a4308 / #8a4b08），消息数为中性深灰。
+- 速度指标两级同格式：一级显示任务平均 decode 速度，二级在“响应”与“费用”之间显示单条请求的 decode 速度，数值均为琥珀色（#8a5a13）且格式为“x.xt/s”（≥100 取整），无可用 decode 窗口时不显示。
 - 右侧 JSON 使用等宽字体、语法颜色和 `details/summary` 折叠树。
 - Request/Response 标题栏右侧包含 meta、wrap、expand、format、copy 按钮。
 - Request 和 Response 之间有可拖动水平分隔条；列表和详情之间有可拖动垂直分隔条。
