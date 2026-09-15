@@ -6,7 +6,7 @@ import { describe, expect, it } from "vitest";
 
 const root = fileURLToPath(new URL("../../", import.meta.url));
 const read = (name: string) => readFile(path.resolve(root, name), "utf8");
-const READMES = ["README.md", "README.cn.md"];
+const READMES = ["README.md", "README.en.md"];
 
 describe("README runtime instructions", () => {
   it("documents the Node quick start in both languages", async () => {
@@ -75,10 +75,10 @@ describe("README runtime instructions", () => {
   });
 
   it("keeps the English README free of Chinese text", async () => {
-    const readme = await read("README.md");
+    const readme = await read("README.en.md");
     const body = readme
       .split("\n")
-      .filter((line) => !line.includes("README.cn.md"))
+      .filter((line) => !line.includes("README.md"))
       .join("\n");
     expect(body).not.toMatch(/[\u4e00-\u9fff]/u);
   });

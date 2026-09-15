@@ -384,7 +384,7 @@ repository 封装所有 SQL 和 JSON 字段编码/解码：
 | `tray_launcher.py` | PyInstaller 托盘入口 | 由 Electron main 取代 |
 | `.github/workflows/ci.yml` | Windows Python 3.10/3.12 质量检查 | 迁移期保留，最终改为 Node 24 多层测试 |
 | `.github/workflows/release.yml` | PyInstaller exe、checksum、GitHub Release | 改为 electron-builder/CLI artifact |
-| `README.md`, `README.cn.md` | 双语用户说明 | 正式切换时完整改写运行和开发命令 |
+| `README.md`（中文）、`README.en.md`（英文） | 双语用户说明 | 正式切换时完整改写运行和开发命令 |
 | `doc/ui_*.png` | 中英文 UI 截图 | 作为视觉回归基线，必要时更新 |
 | `.gitignore` | 排除 logs、Python cache/build | 增加 node_modules、coverage、Node/Electron build 输出并移除陈旧项 |
 

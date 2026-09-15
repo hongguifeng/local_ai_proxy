@@ -1,29 +1,29 @@
 # LLM Proxy
 
-[中文](README.cn.md) | English
+[English](README.en.md) | 中文
 
-LLM Proxy is a local LLM gateway and visual console. It exposes OpenAI-compatible and Claude Messages APIs through local addresses, so you can choose upstreams by model and inspect complete request history in a browser.
+LLM Proxy 是一个运行在本机的 LLM 网关和可视化控制台。它把 OpenAI 兼容接口或 Claude Messages 接口统一暴露为本地地址，让你可以按模型选择上游，并在浏览器中查看完整请求记录。
 
-![Proxy Management UI](doc/ui_proxy_en.png)
+![Proxy Management UI](doc/ui_proxy_cn.png)
 
-![History Logs UI](doc/ui_logs_en.png)
+![History Logs UI](doc/ui_logs_cn.png)
 
-## How It Works
+## 工作方式
 
-Clients connect only to the local proxy address. The proxy reads the top-level `model` field, checks routing rules in order, and forwards the request to the first matching upstream. It can rewrite the model name; unmatched requests use the default upstream.
+客户端只需要连接本地代理地址。代理读取请求中的 `model`，依次检查模型路由规则；命中后转发到对应上游并可改写模型名，没有命中则使用默认上游。
 
 ```mermaid
 flowchart LR
-  C[Client / SDK\nhttp://127.0.0.1:1234] --> P[LLM Proxy]
-  P --> M{Model matches?}
-  M -->|A-gpt-5.5| A[Upstream A\nforward as gpt-5.5]
-  M -->|qwen-local| B[Upstream B\nforward as qwen3]
-  M -->|No match| D[Default upstream]
+  C[客户端 / SDK\nhttp://127.0.0.1:1234] --> P[LLM Proxy]
+  P --> M{model 匹配?}
+  M -->|A-gpt-5.5| A[上游 A\n转发为 gpt-5.5]
+  M -->|qwen-local| B[上游 B\n转发为 qwen3]
+  M -->|未命中| D[默认上游]
 ```
 
-## Get Started in 5 Minutes
+## 5 分钟开始使用
 
-Node.js 24 is required:
+需要 Node.js 24：
 
 ```powershell
 npm ci
@@ -31,83 +31,83 @@ npm run build
 npm start
 ```
 
-The console opens at <http://127.0.0.1:18080>. Use `npm start -- --no-browser` to skip automatic browser launch. Windows users can download an installer or portable version from GitHub Releases; the app runs in the system tray.
+控制台默认打开 <http://127.0.0.1:18080>。不想自动打开浏览器时使用 `npm start -- --no-browser`。Windows 用户也可以从 GitHub Release 下载安装包或 portable 版本；启动后应用会驻留在系统托盘中。
 
-In **Proxy**, create a proxy, set a listen address such as `127.0.0.1:1234`, add an upstream such as `http://127.0.0.1:1235` or `https://openrouter.ai/api/v1`, enter an API key if required, and enable it. Point your client base URL to `http://127.0.0.1:1234`.
+在 **Proxy** 页面新建代理，设置监听地址（例如 `127.0.0.1:1234`），添加上游地址（例如 `http://127.0.0.1:1235` 或 `https://openrouter.ai/api/v1`），填写 API Key（如需要）并启用。然后把客户端的 API base URL 改为 `http://127.0.0.1:1234`。
 
-See [examples/responses_client.mjs](examples/responses_client.mjs) for a minimal Node.js example.
+最小 Node.js 示例见 [examples/responses_client.mjs](examples/responses_client.mjs)。
 
-## Model Routing
+## 模型路由
 
-| Feature | What it does |
+| 功能 | 说明 |
 | --- | --- |
-| Multiple proxy ports | Create multiple local listeners from one console, each connected to different upstreams. |
-| Multiple upstreams | Configure several upstreams for one proxy and choose a default fallback. |
-| Model-based routing | Select an upstream from the top-level `model` field; the first matching rule wins and matching is case-sensitive. |
-| Model rewriting | Use `local-model => upstream-model` to rename the model sent upstream. |
-| Wildcard matching | Use patterns such as `*gpt-5.5* => gpt-5.5` to match any prefix or suffix. |
-| Upstream connectivity test | **Test** sends a minimal ping directly to OpenAI Chat, Responses, or Anthropic Messages. It does not pass through the proxy or enter History. |
-| Request field transforms | Remove or inject top-level JSON fields in **More settings** to adapt requests for different upstreams. |
-| Authentication and headers | Set an API key and custom headers separately for each upstream. |
-| Log privacy | **Redact logs** masks common API keys, tokens, and passwords when saving logs; forwarded requests are unchanged. |
-| Model pricing | Set per-million-token prices and a multiplier for input, output, and cache read/write. Prices are frozen when a request is forwarded; later edits affect new requests only. |
+| 多个代理端口 | 在一个控制台中创建多个本地监听地址，每个地址可连接不同上游。 |
+| 多个上游 | 一个代理可以配置多个上游，并指定一个默认上游处理未匹配请求。 |
+| 按模型分流 | 根据请求顶层 `model` 字段选择上游，第一条匹配规则优先，匹配区分大小写。 |
+| 模型改写 | 用 `本地模型 => 上游模型` 将客户端模型名改成上游需要的名称。 |
+| 通配符匹配 | 支持 `*gpt-5.5* => gpt-5.5`，匹配任意前后缀。 |
+| 上游连通性测试 | **Test** 按钮直接发送最小 ping 请求，支持 OpenAI Chat、Responses 和 Anthropic Messages。测试不会经过代理，也不会写入历史。 |
+| 请求字段处理 | 在 **More settings** 中删除或注入顶层 JSON 字段，适配不同上游的参数要求。 |
+| 鉴权与请求头 | 为每个上游单独设置 API Key 和自定义 headers。 |
+| 日志隐私 | 开启 **Redact logs** 后，仅在保存日志时隐藏常见 API key、token 和密码字段。 |
+| 模型价格 | 为模型设置输入、输出、缓存读写的每百万 token 价格和倍率；价格在请求转发时冻结，后续修改只影响新请求。 |
 
-Example mappings:
+示例映射：
 
 ```text
 A-gpt-5.5 => gpt-5.5
 qwen-local => qwen3
 ```
 
-## History
+## 历史记录
 
-| Feature | What it does |
+| 功能 | 说明 |
 | --- | --- |
-| Automatic capture | Stores request and response headers and bodies, status, duration, target, routing details, and streaming summaries. |
-| Task grouping | Groups consecutive Agent requests into tasks for reviewing one workflow. |
-| Full-text search | Search by path, method, status, target URL, task ID, or record ID; space-separated terms all apply. |
-| Request details | View request and response JSON side by side with expand, collapse, wrapping, formatting, and copy controls. |
-| Cost tracking | Shows task totals, priced/unpriced requests, pricing rules, and token details; each request shows its share. Missing reliable usage or pricing is marked unpriced, never free. |
-| Intelligent summaries | Use a configured summary model to summarize individual requests and split consecutive messages into reusable cached phases; summarized requests show a gold star. |
-| Export and cleanup | Export selected tasks as ZIP files or delete tasks and their request records. |
-| Paging and refresh | Browse large log directories with paged loading and automatic refresh. |
+| 自动记录 | 保存请求和响应 headers、body、状态码、耗时、目标地址、路由信息及流式响应摘要。 |
+| 任务分组 | 将 Agent 的连续多轮请求归入任务，便于按一次工作流查看。 |
+| 全文搜索 | 按路径、方法、状态、目标 URL、任务 ID 或记录 ID 搜索；空格分隔的关键词同时生效。 |
+| 请求详情 | 并排查看请求和响应 JSON，支持展开、折叠、换行、格式化和复制。 |
+| 成本统计 | 按任务显示总费用、已计价/未计价请求、价格规则和 token 明细；每条请求显示其费用占比。缺少可靠用量或价格时标记为未计价，不会当作免费。 |
+| 智能总结 | 使用配置的总结模型总结单条请求，并将连续消息分成可复用的缓存阶段；已有总结的请求会显示金色星标。 |
+| 导出与清理 | 将选中的任务导出为 ZIP，或删除任务及其请求记录。 |
+| 分页与刷新 | 大型日志目录支持分页加载和自动刷新。 |
 
-History data is stored by default in a `traffic.db` SQLite database under each log directory; proxy settings are stored in `logs/proxies.json`. Exported ZIP files contain readable Markdown, `request.json`, and `response.json`.
+历史数据默认保存在每个日志目录的 `traffic.db` SQLite 数据库中，代理配置保存在 `logs/proxies.json`。导出的 ZIP 包含可读 Markdown、`request.json` 和 `response.json`。
 
-## Common Workflows
+## 常见用法
 
-### Connect a local model
+### 连接本地模型
 
-Start a local service such as llama.cpp at `http://127.0.0.1:1235`, create a proxy from `127.0.0.1:1234` to that address, and point your client at the local proxy.
+启动本地服务（例如 llama.cpp）并监听 `http://127.0.0.1:1235`，然后创建从 `127.0.0.1:1234` 到该地址的代理，把客户端连接到本地代理即可。
 
-### Serve multiple models from one port
+### 一个端口连接多个模型
 
-Add multiple upstreams with mappings such as `A-gpt-5.5 => gpt-5.5` and `B-qwen => qwen3`. The client keeps one base URL while the proxy handles routing.
+添加多个上游并配置模型映射，例如 `A-gpt-5.5 => gpt-5.5` 和 `B-qwen => qwen3`。客户端始终使用同一个本地 base URL，代理负责分流。
 
-### Normalize request parameters
+### 统一请求参数
 
-Enter fields such as `temperature, top_p, top_k` under **Request fields to remove**, or inject JSON such as `{"stream":true}`. The transformed request is recorded in History.
+在 **Request fields to remove** 中填写 `temperature, top_p, top_k` 等字段；在 **Request fields to inject** 中填写 JSON，例如 `{"stream":true}`。改写结果会记录在历史详情中。
 
-## Configuration and Security
+## 配置与安全
 
-Proxy settings are saved in `logs/proxies.json`; console settings are saved in `llm-proxy.json`. You usually do not need to edit these files manually.
+代理设置会保存到 `logs/proxies.json`，管理页面设置保存在 `llm-proxy.json`。通常无需手动编辑这些文件。
 
-Keep the console and proxy listeners bound to `127.0.0.1` where possible. Logs may contain prompts, documents, API keys, and tool output; do not commit configuration files or log directories. Stop the proxy and back up the entire log directory before migration or upgrades, including `traffic.db-wal` and `traffic.db-shm`. See [docs/migration-rollback.md](docs/migration-rollback.md) for details.
-## Usage statistics
+请尽量让管理页面和代理监听地址保持在 `127.0.0.1`。日志可能包含提示词、文档、API key 和工具输出；不要把配置文件或日志目录提交到代码仓库。迁移或升级前请停止代理并备份整个日志目录，包括 `traffic.db-wal` 和 `traffic.db-shm`。详细步骤见 [docs/migration-rollback.md](docs/migration-rollback.md)。
+## 使用统计
 
-![Usage statistics](doc/ui_stats_en.png)
+![使用统计](doc/ui_stats_cn.png)
 
-The Usage statistics tab reads the same local history data as History and summarizes token and cost usage over a chosen time range.
+“使用统计”标签读取与历史相同的本地数据，按时间范围汇总 token 与费用使用情况。
 
-| Feature | What it does |
+| 功能 | 说明 |
 | --- | --- |
-| Time range and filters | Pick a start and end time (or 7/14/30-day and today shortcuts), optionally follow the current time, and filter by forwarding target and model. |
-| Overview | Request count, task count, token totals (input / output / cache read / cache write), and total cost. |
-| Trends and breakdowns | Trend charts over time (auto / daily / weekly / monthly granularity, by total, model, or target) plus per-target and per-model distributions with donut charts. |
-| Task counting | A task counts toward the Task totals only when it has more than five priced requests within the displayed scope (overview total, distribution rows, and trend buckets alike). |
-| Unpriced requests | Requests with missing usage or a missing price are flagged as unpriced, never free, and can be reviewed in detail. |
-| CSV export | Export the current filter scope as CSV. |
+| 时间范围与筛选 | 选择起止时间（或 7/14/30 天、今天快捷区间），可选“跟随当前时间”自动刷新，并按转发地址、模型筛选。 |
+| 概览 | 请求数、任务数、Token 总量（输入/输出/缓存读取/缓存写入）与费用。 |
+| 趋势与分布 | 时间趋势图（自动/日/周/月粒度，按总量、模型或地址）以及按转发地址、按模型的占比环形图。 |
+| 任务计数 | 只有当任务在显示范围内有超过 5 条已计价请求时，才计入任务总数（概览、分布行与趋势桶规则一致）。 |
+| 未计价请求 | 缺少用量或价格的请求标记为“未计价”，不会当作免费，并可查看明细。 |
+| CSV 导出 | 将当前筛选范围导出为 CSV。 |
 
-Token amounts use compact units (K/M/B in the English interface; ten-thousand/hundred-million units in the Chinese interface).
+Token 以压缩单位显示（英文界面使用 K/M/B，中文界面使用万/亿）。
 
-The read-only endpoints are `/api/usage-statistics/overview`, `/api/usage-statistics/trend`, `/api/usage-statistics/options`, and `/api/usage-statistics/export`. They accept ISO-8601 `from`/`to` values; trend and export also accept `targetId`, `model`, and `granularity` (`day`, `week`, or `month`).
+只读接口包括 `/api/usage-statistics/overview`、`/api/usage-statistics/trend`、`/api/usage-statistics/options` 和 CSV 导出接口 `/api/usage-statistics/export`。它们使用 ISO-8601 格式的 `from`/`to` 参数；趋势和导出还支持 `targetId`、`model` 与 `granularity`（`day`、`week`、`month`）参数。

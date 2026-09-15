@@ -15,7 +15,7 @@ describe("createCliArchive", () => {
       await writeFile(path.join(root, "package.json"), JSON.stringify({ version: "1.2.3" }));
       await writeFile(path.join(root, "package-lock.json"), "{}");
       await writeFile(path.join(root, "README.md"), "readme");
-      await writeFile(path.join(root, "README.cn.md"), "readme");
+      await writeFile(path.join(root, "README.en.md"), "readme");
       const output = await createCliArchive(root);
       const zip = await fromBufferPromise(await readFile(output), { lazyEntries: true });
       const names: string[] = [];

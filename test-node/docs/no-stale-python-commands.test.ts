@@ -3,7 +3,7 @@ import { describe, expect, it } from "vitest";
 
 const maintainedEntryPoints = [
   "README.md",
-  "README.cn.md",
+  "README.en.md",
   ".github/workflows/ci.yml",
   ".github/workflows/release.yml",
 ] as const;

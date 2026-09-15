@@ -8,5 +8,5 @@ fixtures/
 llm_proxy/static/
 doc/
 README.md
-README.cn.md
+README.en.md
 *.db

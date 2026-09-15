@@ -23,7 +23,7 @@ export async function createCliArchive(
   });
   archive.pipe(output);
   archive.directory(path.join(root, "dist-node/src"), "dist-node/src");
-  for (const name of ["package.json", "package-lock.json", "README.md", "README.cn.md"]) {
+  for (const name of ["package.json", "package-lock.json", "README.md", "README.en.md"]) {
     archive.file(path.join(root, name), { name });
   }
   await archive.finalize();
