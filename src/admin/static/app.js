@@ -128,6 +128,7 @@ const translations = {
     amountCny: "金额（元）",
     costShare: "占比",
     total: "合计",
+    activeDuration: "请求总耗时",
     priceGroups: "按模型 / 单价分组",
     priced: "已计价",
     retry: "重试",
@@ -308,6 +309,7 @@ const translations = {
     amountCny: "Amount (USD)",
     costShare: "Share",
     total: "Total",
+    activeDuration: "Request time",
     priceGroups: "Model / price groups",
     priced: "Priced",
     retry: "Retry",
@@ -1389,7 +1391,8 @@ function renderTaskPricingPanel() {
     unpriced_request_count: data.unpriced_request_count,
     pending_request_count: data.pending_request_count,
   };
-  panel.innerHTML = `<div class="pricing-panel-head"><strong>${escapeHtml(t("taskPricing"))}</strong><button type="button" data-close-pricing>${escapeHtml(t("close"))}</button></div><div class="pricing-card-head"><strong>${escapeHtml(formatGroupCost(cost))}</strong><span>${escapeHtml(`${t("priced")} ${data.priced_request_count} / ${t("unpriced")} ${data.unpriced_request_count} / ${t("pending")} ${data.pending_request_count}`)}</span></div><p class="pricing-target"><strong>${escapeHtml(t("target"))}:</strong> ${escapeHtml(data.target || "—")}</p>${data.priced_request_count ? taskBreakdownTableHtml(data.breakdown, pricingDecimalFromNano(data.cost_nano_cny)) : `<p>${escapeHtml(reasons || t("unpriced"))}</p>`}<p class="pricing-note">${escapeHtml(t("taskWholeScope"))}</p><h3>${escapeHtml(t("priceGroups"))}</h3>${groups || `<p>${escapeHtml(t("unpriced"))}</p>`}`;
+  const durationText = formatDuration(data.active_request_ms);
+  panel.innerHTML = `<div class="pricing-panel-head"><strong>${escapeHtml(t("taskPricing"))}</strong><button type="button" data-close-pricing>${escapeHtml(t("close"))}</button></div><div class="pricing-card-head"><strong>${escapeHtml(formatGroupCost(cost))}</strong><span>${escapeHtml(`${t("priced")} ${data.priced_request_count} / ${t("unpriced")} ${data.unpriced_request_count} / ${t("pending")} ${data.pending_request_count}`)}</span></div><p class="pricing-target"><strong>${escapeHtml(t("target"))}:</strong> ${escapeHtml(data.target || "—")}</p>${durationText !== "" ? `<p class="pricing-target"><strong>${escapeHtml(t("activeDuration"))}:</strong> ${escapeHtml(durationText)}</p>` : ""}${data.priced_request_count ? taskBreakdownTableHtml(data.breakdown, pricingDecimalFromNano(data.cost_nano_cny)) : `<p>${escapeHtml(reasons || t("unpriced"))}</p>`}<p class="pricing-note">${escapeHtml(t("taskWholeScope"))}</p><h3>${escapeHtml(t("priceGroups"))}</h3>${groups || `<p>${escapeHtml(t("unpriced"))}</p>`}`;
 }
 async function showTaskPricing(groupId) {
   state.taskPricingAbort?.abort();

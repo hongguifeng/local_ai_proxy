@@ -144,7 +144,11 @@ describe("TrafficRepository pricing persistence", () => {
       target: "https://upstream.example/v1",
       match_strategy_version: 4,
     });
-    const write = (id: string, pricing: Record<string, unknown>) =>
+    const write = (
+      id: string,
+      pricing: Record<string, unknown>,
+      meta: Record<string, unknown> = {},
+    ) =>
       repository.upsertRecord({
         id,
         task_id: "pricing-summary",
@@ -152,6 +156,7 @@ describe("TrafficRepository pricing persistence", () => {
         method: "POST",
         path: "/v1/chat/completions",
         pricing,
+        ...meta,
       });
     const snapshot = {
       input_per_million: "5",
@@ -160,35 +165,48 @@ describe("TrafficRepository pricing persistence", () => {
       cache_write_per_million: "6.25",
       algorithm_version: 1,
     };
-    write("record-1", {
-      pricing_status: "priced",
-      billing_model: "gpt-5",
-      pricing_snapshot: snapshot,
-      usage: {
-        inputUncachedTokens: 1500,
-        outputTokens: 1000,
-        cacheReadTokens: 1000,
-        cacheWriteTokens: 500,
+    write(
+      "record-1",
+      {
+        pricing_status: "priced",
+        billing_model: "gpt-5",
+        pricing_snapshot: snapshot,
+        usage: {
+          inputUncachedTokens: 1500,
+          outputTokens: 1000,
+          cacheReadTokens: 1000,
+          cacheWriteTokens: 500,
+        },
+        cost_nano_cny: "41125000",
       },
-      cost_nano_cny: "41125000",
-    });
-    write("record-2", {
-      pricing_status: "priced",
-      billing_model: "gpt-5",
-      pricing_snapshot: { ...snapshot, output_per_million: "31" },
-      usage: {
-        inputUncachedTokens: 100,
-        outputTokens: 10,
-        cacheReadTokens: 0,
-        cacheWriteTokens: 0,
+      { duration_ms: 1234.5 },
+    );
+    write(
+      "record-2",
+      {
+        pricing_status: "priced",
+        billing_model: "gpt-5",
+        pricing_snapshot: { ...snapshot, output_per_million: "31" },
+        usage: {
+          inputUncachedTokens: 100,
+          outputTokens: 10,
+          cacheReadTokens: 0,
+          cacheWriteTokens: 0,
+        },
+        cost_nano_cny: "810000",
       },
-      cost_nano_cny: "810000",
-    });
-    write("record-3", { pricing_status: "unpriced", pricing_reason: "missing_usage" });
+      { duration_ms: 500 },
+    );
+    write(
+      "record-3",
+      { pricing_status: "unpriced", pricing_reason: "missing_usage" },
+      { event: "request_pending_response", duration_ms: 999 },
+    );
     write("record-4", { pricing_status: "pending" });
 
     expect(repository.taskPricing("pricing-summary")).toMatchObject({
       target: "https://upstream.example/v1",
+      active_request_ms: 1734.5,
       cost_nano_cny: "41935000",
       priced_request_count: 2,
       unpriced_request_count: 1,

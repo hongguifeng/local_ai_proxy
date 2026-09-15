@@ -35,6 +35,7 @@ export interface RepositoryPage<T> {
 }
 
 export interface TaskPricingAggregate {
+  readonly active_request_ms: number;
   readonly breakdown: TaskPricingBreakdown;
   readonly cost_nano_cny: string | null;
   readonly groups: readonly TaskPricingGroup[];
@@ -492,7 +493,7 @@ export class TrafficRepository {
     for (const id of ids) aggregates.set(id, newTaskPricingAggregate(null));
     const rows = this.#database
       .prepare(
-        `SELECT task_id, pricing_status, pricing_reason, billing_model, pricing_snapshot_json,
+        `SELECT task_id, event, duration_ms, pricing_status, pricing_reason, billing_model, pricing_snapshot_json,
           billing_usage_json, CAST(cost_nano_cny AS TEXT) AS cost_nano_cny
          FROM records WHERE task_id IN (${ids.map(() => "?").join(",")})`,
       )
@@ -1068,6 +1069,7 @@ interface MutablePricingGroup {
 }
 
 interface MutableTaskPricingAggregate {
+  activeRequestMs: number;
   breakdown: Record<
     "cache_read" | "cache_write" | "input_uncached" | "output",
     MutablePricingBucket
@@ -1084,6 +1086,7 @@ interface MutableTaskPricingAggregate {
 function newTaskPricingAggregate(target: string | null): MutableTaskPricingAggregate {
   return {
     target,
+    activeRequestMs: 0,
     costNanoCny: 0n,
     pricedRequestCount: 0,
     unpricedRequestCount: 0,
@@ -1098,6 +1101,12 @@ function addPricingRow(
   aggregate: MutableTaskPricingAggregate,
   row: Readonly<RepositoryRecord>,
 ): void {
+  // Wall time a request spent inside the proxy, from send to finish. Only
+  // finished requests carry a measured duration; gap time between requests
+  // never lands in a record, so summing is exactly the requested total.
+  if (stringValue(row["event"]) === "request_finished") {
+    aggregate.activeRequestMs += optionalFloat(row["duration_ms"]) ?? 0;
+  }
   const status = pricingStatus(row["pricing_status"]);
   if (status === "pending") {
     aggregate.pendingRequestCount += 1;
@@ -1209,6 +1218,7 @@ function finalizeTaskPricingAggregate(
 ): TaskPricingAggregate {
   return {
     target: aggregate.target,
+    active_request_ms: aggregate.activeRequestMs,
     cost_nano_cny: aggregate.pricedRequestCount === 0 ? null : aggregate.costNanoCny.toString(),
     priced_request_count: aggregate.pricedRequestCount,
     unpriced_request_count: aggregate.unpricedRequestCount,

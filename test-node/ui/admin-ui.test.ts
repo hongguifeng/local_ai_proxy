@@ -377,6 +377,7 @@ beforeAll(async () => {
         if (groupId !== "task-one") return undefined;
         return {
           target: "fixture-target",
+          active_request_ms: 25321.4,
           cost_nano_cny: "42750000",
           priced_request_count: 3,
           unpriced_request_count: 1,
@@ -1216,6 +1217,8 @@ describe("admin UI history page", { timeout: UI_TEST_TIMEOUT_MS }, () => {
     await expectPage(panel).toContainText("Task details");
     await expectPage(panel).toContainText("$0.0428");
     await expectPage(panel).toContainText("fixture-target");
+    await expectPage(panel).toContainText("Request time");
+    await expectPage(panel).toContainText("00:25");
     await expectPage(panel).toContainText("gpt-5 · 3 requests · $0.0428");
     const groupDetails = panel.locator("details");
     await expectPage(groupDetails).toBeVisible();
