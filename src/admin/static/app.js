@@ -129,6 +129,7 @@ const translations = {
     costShare: "占比",
     total: "合计",
     activeDuration: "请求总耗时",
+    totalDuration: "任务总耗时",
     tokenTrend: "Token 趋势",
     tokenTrendNote: "每个请求的 token 总量（请求 + 响应），按请求序号；尚无 token 数的请求不显示。",
     tokenTrendNoData: "暂无 token 数据",
@@ -313,6 +314,7 @@ const translations = {
     costShare: "Share",
     total: "Total",
     activeDuration: "Request time",
+    totalDuration: "Task time",
     tokenTrend: "Token trend",
     tokenTrendNote:
       "Total tokens (request + response) per request, by request sequence; requests without token counts are not shown.",
@@ -1497,12 +1499,17 @@ function renderTaskPricingPanel() {
     pending_request_count: data.pending_request_count,
   };
   const durationText = formatDuration(data.active_request_ms);
+  const totalDurationText = formatDuration(data.total_request_ms);
+  const totalDurationLine =
+    totalDurationText === ""
+      ? ""
+      : `<p class="pricing-target"><strong>${escapeHtml(t("totalDuration"))}:</strong> ${escapeHtml(totalDurationText)}</p>`;
   const tokenSeries =
     state.taskTokenSeries && state.taskTokenSeries.id === active
       ? state.taskTokenSeries.points
       : null;
   const tokenChart = `<h3>${escapeHtml(t("tokenTrend"))}</h3>${tokenSeries === null ? `<p>${escapeHtml(t("loading"))}</p>` : taskTokenChartHtml(tokenSeries)}<p class="pricing-note">${escapeHtml(t("tokenTrendNote"))}</p>`;
-  panel.innerHTML = `<div class="pricing-panel-head"><strong>${escapeHtml(t("taskPricing"))}</strong><button type="button" data-close-pricing>${escapeHtml(t("close"))}</button></div><div class="pricing-card-head"><strong>${escapeHtml(formatGroupCost(cost))}</strong><span>${escapeHtml(`${t("priced")} ${data.priced_request_count} / ${t("unpriced")} ${data.unpriced_request_count} / ${t("pending")} ${data.pending_request_count}`)}</span></div><p class="pricing-target"><strong>${escapeHtml(t("target"))}:</strong> ${escapeHtml(data.target || "—")}</p>${durationText !== "" ? `<p class="pricing-target"><strong>${escapeHtml(t("activeDuration"))}:</strong> ${escapeHtml(durationText)}</p>` : ""}${data.priced_request_count ? taskBreakdownTableHtml(data.breakdown, pricingDecimalFromNano(data.cost_nano_cny)) : `<p>${escapeHtml(reasons || t("unpriced"))}</p>`}<p class="pricing-note">${escapeHtml(t("taskWholeScope"))}</p>${tokenChart}<h3>${escapeHtml(t("priceGroups"))}</h3>${groups || `<p>${escapeHtml(t("unpriced"))}</p>`}`;
+  panel.innerHTML = `<div class="pricing-panel-head"><strong>${escapeHtml(t("taskPricing"))}</strong><button type="button" data-close-pricing>${escapeHtml(t("close"))}</button></div><div class="pricing-card-head"><strong>${escapeHtml(formatGroupCost(cost))}</strong><span>${escapeHtml(`${t("priced")} ${data.priced_request_count} / ${t("unpriced")} ${data.unpriced_request_count} / ${t("pending")} ${data.pending_request_count}`)}</span></div><p class="pricing-target"><strong>${escapeHtml(t("target"))}:</strong> ${escapeHtml(data.target || "—")}</p>${totalDurationLine}${durationText !== "" ? `<p class="pricing-target"><strong>${escapeHtml(t("activeDuration"))}:</strong> ${escapeHtml(durationText)}</p>` : ""}${data.priced_request_count ? taskBreakdownTableHtml(data.breakdown, pricingDecimalFromNano(data.cost_nano_cny)) : `<p>${escapeHtml(reasons || t("unpriced"))}</p>`}<p class="pricing-note">${escapeHtml(t("taskWholeScope"))}</p>${tokenChart}<h3>${escapeHtml(t("priceGroups"))}</h3>${groups || `<p>${escapeHtml(t("unpriced"))}</p>`}`;
 }
 function loadTaskTokenSeries(groupId, signal) {
   return api(`/api/log-groups/${encodeURIComponent(groupId)}/pricing/tokens`, { signal })

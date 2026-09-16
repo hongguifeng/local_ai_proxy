@@ -37,6 +37,12 @@ export interface RepositoryPage<T> {
 export interface TaskPricingAggregate {
   readonly active_request_ms: number;
   readonly breakdown: TaskPricingBreakdown;
+  /**
+   * Wall-clock span from the first request's start to the last finished
+   * request's end (last start + last duration), in milliseconds. Null when
+   * the task has no finished request. Gap time between requests is included.
+   */
+  readonly total_request_ms: number | null;
   readonly cost_nano_cny: string | null;
   readonly groups: readonly TaskPricingGroup[];
   readonly pending_request_count: number;
@@ -500,7 +506,7 @@ export class TrafficRepository {
     for (const id of ids) aggregates.set(id, newTaskPricingAggregate(null));
     const rows = this.#database
       .prepare(
-        `SELECT task_id, event, duration_ms, pricing_status, pricing_reason, billing_model, pricing_snapshot_json,
+        `SELECT task_id, event, duration_ms, started_at, pricing_status, pricing_reason, billing_model, pricing_snapshot_json,
           billing_usage_json, CAST(cost_nano_cny AS TEXT) AS cost_nano_cny
          FROM records WHERE task_id IN (${ids.map(() => "?").join(",")})`,
       )
@@ -1108,6 +1114,8 @@ interface MutablePricingGroup {
 
 interface MutableTaskPricingAggregate {
   activeRequestMs: number;
+  firstStartMs: number | null;
+  lastFinishedEndMs: number | null;
   breakdown: Record<
     "cache_read" | "cache_write" | "input_uncached" | "output",
     MutablePricingBucket
@@ -1125,6 +1133,8 @@ function newTaskPricingAggregate(target: string | null): MutableTaskPricingAggre
   return {
     target,
     activeRequestMs: 0,
+    firstStartMs: null,
+    lastFinishedEndMs: null,
     costNanoCny: 0n,
     pricedRequestCount: 0,
     unpricedRequestCount: 0,
@@ -1144,6 +1154,22 @@ function addPricingRow(
   // never lands in a record, so summing is exactly the requested total.
   if (stringValue(row["event"]) === "request_finished") {
     aggregate.activeRequestMs += optionalFloat(row["duration_ms"]) ?? 0;
+    // Task span: the first request's start and the last request's end. A
+    // request is "last" only once finished, so an in-flight request does
+    // not extend the span until it ends.
+    const startedMs = recordTimestampMs(row["started_at"]);
+    if (startedMs !== null) {
+      aggregate.firstStartMs =
+        aggregate.firstStartMs === null ? startedMs : Math.min(aggregate.firstStartMs, startedMs);
+    }
+    const endedMs =
+      startedMs !== null ? startedMs + (optionalFloat(row["duration_ms"]) ?? 0) : null;
+    if (endedMs !== null) {
+      aggregate.lastFinishedEndMs =
+        aggregate.lastFinishedEndMs === null
+          ? endedMs
+          : Math.max(aggregate.lastFinishedEndMs, endedMs);
+    }
   }
   const status = pricingStatus(row["pricing_status"]);
   if (status === "pending") {
@@ -1254,9 +1280,13 @@ function addBuckets(
 function finalizeTaskPricingAggregate(
   aggregate: MutableTaskPricingAggregate,
 ): TaskPricingAggregate {
+  const firstStart = aggregate.firstStartMs;
+  const lastEnd = aggregate.lastFinishedEndMs;
   return {
     target: aggregate.target,
     active_request_ms: aggregate.activeRequestMs,
+    total_request_ms:
+      firstStart === null || lastEnd === null ? null : Math.max(0, lastEnd - firstStart),
     cost_nano_cny: aggregate.pricedRequestCount === 0 ? null : aggregate.costNanoCny.toString(),
     priced_request_count: aggregate.pricedRequestCount,
     unpriced_request_count: aggregate.unpricedRequestCount,
@@ -1272,6 +1302,16 @@ function finalizeTaskPricingAggregate(
       breakdown: pricingBreakdown(group.breakdown),
     })),
   };
+}
+
+/**
+ * Parse an ISO-8601 local timestamp (with or without milliseconds/offset) as
+ * epoch milliseconds; null when unparseable. `new Date` handles both forms.
+ */
+function recordTimestampMs(value: unknown): number | null {
+  if (typeof value !== "string" || value === "") return null;
+  const ms = Date.parse(value);
+  return Number.isNaN(ms) ? null : ms;
 }
 
 function pricingBreakdown(mutable: MutableTaskPricingAggregate["breakdown"]): TaskPricingBreakdown {

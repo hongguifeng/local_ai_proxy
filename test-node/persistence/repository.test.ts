@@ -179,7 +179,7 @@ describe("TrafficRepository pricing persistence", () => {
         },
         cost_nano_cny: "41125000",
       },
-      { duration_ms: 1234.5 },
+      { duration_ms: 1234.5, timestamp: "2026-09-11T12:00:00.000Z" },
     );
     write(
       "record-2",
@@ -195,18 +195,22 @@ describe("TrafficRepository pricing persistence", () => {
         },
         cost_nano_cny: "810000",
       },
-      { duration_ms: 500 },
+      { duration_ms: 500, timestamp: "2026-09-11T12:00:05.000Z" },
     );
     write(
       "record-3",
       { pricing_status: "unpriced", pricing_reason: "missing_usage" },
       { event: "request_pending_response", duration_ms: 999 },
     );
-    write("record-4", { pricing_status: "pending" });
+    write("record-4", { pricing_status: "pending" }, { event: "request_pending_response" });
 
     expect(repository.taskPricing("pricing-summary")).toMatchObject({
       target: "https://upstream.example/v1",
       active_request_ms: 1734.5,
+      // First request started 12:00:00.000; the last finished request (500 ms
+      // from 12:00:05.000) ended at 12:00:05.500, so the task span is 5.5 s
+      // even though the requests themselves only total 1.7 s.
+      total_request_ms: 5500,
       cost_nano_cny: "41935000",
       priced_request_count: 2,
       unpriced_request_count: 1,
@@ -221,6 +225,70 @@ describe("TrafficRepository pricing persistence", () => {
       groups: [{ cost_nano_cny: "41125000" }, { cost_nano_cny: "810000" }],
     });
     expect(repository.taskPricing("missing")).toBeUndefined();
+    repository.close();
+  });
+
+  it("computes the task span from the first request start to the last finished request end", async () => {
+    const root = await mkdtemp(path.join(os.tmpdir(), "llm-proxy-repository-pricing-span-"));
+    temporaryDirectories.push(root);
+    const repository = new TrafficRepository(root);
+    repository.upsertTask({ id: "pricing-span", match_strategy_version: 4 });
+    const write = (id: string, sequence: number, meta: Record<string, unknown>) =>
+      repository.upsertRecord({
+        id,
+        task_id: "pricing-span",
+        sequence,
+        method: "POST",
+        path: "/v1/chat/completions",
+        pricing: { pricing_status: "unpriced", pricing_reason: "missing_usage" },
+        ...meta,
+      });
+    write("span-record-1", 1, {
+      event: "request_finished",
+      timestamp: "2026-09-11T12:00:00.000Z",
+      duration_ms: 1000,
+    });
+    // Starts earlier than record 1's end but ends earlier than record 1.
+    write("span-record-2", 2, {
+      event: "request_finished",
+      timestamp: "2026-09-11T12:00:05.000Z",
+      duration_ms: 2000,
+    });
+    // An in-flight request starts after the last finished end and must not
+    // extend the span until it finishes.
+    write("span-record-3", 3, {
+      event: "request_pending_response",
+      timestamp: "2026-09-11T12:01:00.000Z",
+      duration_ms: 0,
+    });
+    expect(repository.taskPricing("pricing-span")).toMatchObject({
+      // Span is 12:00:00.000 -> 12:00:07.000 (last finished end), not
+      // 12:01:00.000, because the pending request has not finished.
+      active_request_ms: 3000,
+      total_request_ms: 7000,
+    });
+    repository.close();
+  });
+
+  it("reports a null task span while a task has no finished request", async () => {
+    const root = await mkdtemp(path.join(os.tmpdir(), "llm-proxy-repository-pricing-span-null-"));
+    temporaryDirectories.push(root);
+    const repository = new TrafficRepository(root);
+    repository.upsertTask({ id: "span-null-task", match_strategy_version: 4 });
+    repository.upsertRecord({
+      id: "span-null-record",
+      task_id: "span-null-task",
+      sequence: 1,
+      method: "POST",
+      path: "/v1/chat/completions",
+      event: "request_pending_response",
+      timestamp: "2026-09-11T12:00:00.000Z",
+      pricing: { pricing_status: "pending" },
+    });
+    expect(repository.taskPricing("span-null-task")).toMatchObject({
+      active_request_ms: 0,
+      total_request_ms: null,
+    });
     repository.close();
   });
 
