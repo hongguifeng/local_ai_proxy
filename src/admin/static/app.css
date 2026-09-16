@@ -999,16 +999,25 @@ label span {
   width: 100%;
   margin: 8px 0;
 }
+/* "clip" (not "hidden") keeps the section from becoming a scroll container,
+   which is what lets the group header stick inside .log-items. */
 .log-group {
   border: 1px solid var(--line);
   border-radius: 8px;
   background: white;
-  overflow: hidden;
+  overflow: clip;
 }
 .log-group + .log-group {
   margin-top: 10px;
 }
 .log-group-head {
+  /* Stick to the top of the .log-items scrollport while the expanded group
+     body is below the viewport. Sticky positioning is constrained to the
+     section, so the header releases on its own once the section's bottom
+     edge reaches the scrollport top and scrolls away with the body. */
+  position: sticky;
+  top: 0;
+  z-index: 1;
   width: 100%;
   padding: 11px 12px;
   background: #dfe9f1;
@@ -1023,6 +1032,19 @@ label span {
 .log-group-head:focus,
 .log-group-head:focus-within {
   background: #d3e0ea;
+}
+/* Covers the list's 10px top padding strip while the header is pinned (it
+   paints over the items sliding underneath). At rest the same box only
+   overlaps the list background (padding or the 10px gap between groups), so
+   it is invisible. */
+.log-group-head::before {
+  content: "";
+  position: absolute;
+  top: -10px;
+  height: 10px;
+  left: -1px;
+  right: -1px;
+  background: #eef2f6;
 }
 .log-group-select {
   width: 14px;
