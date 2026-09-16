@@ -57,7 +57,7 @@
 
 ## 6. 前端实现方案
 
-在现有 `src/admin/static/app.js/css/index.html` 增加导航项和视图状态：`range`, `metric`, `targetId`, `model`, `granularity`。使用现有原生 JS，不引入重量级图表依赖；优先采用 SVG 绘制饼图和柱状图。日期选择器沿用现有控件样式；图表颜色按模型/地址稳定 hash 分配，确保刷新后颜色不跳变。所有文案加入中英文资源，金额格式化复用现有 CNY formatter。
+在现有 `src/admin/static/app.js/css/index.html` 增加导航项和视图状态：`range`, `metric`, `targetId`, `model`, `granularity`。使用现有原生 JS，不引入重量级图表依赖；优先采用 SVG 绘制饼图和柱状图。日期选择器沿用现有控件样式；图表颜色按模型/地址稳定 hash 分配，确保刷新后颜色不跳变。分布图和按模型/地址堆叠的趋势图在分类超过六项时按当前指标排序，将从低占比末尾起累计仍严格小于 10% 的分类折叠为“其他”（英文为 `Other`），并在趋势的每个时间桶使用相同分类集合。所有文案加入中英文资源，金额格式化复用现有 CNY formatter。
 
 ## 7. 测试与验收
 

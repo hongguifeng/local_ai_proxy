@@ -2508,6 +2508,117 @@ describe("statistics page visual smoke", () => {
     await expectPage(page.locator(".stats-empty")).toHaveCount(1);
     await page.screenshot({ path: "test-results/statistics-page-smoke.png", fullPage: true });
   });
+  it("groups low-share distribution and trend categories into Other", async () => {
+    await page.route("**/api/usage-statistics/options*", (route) =>
+      route.fulfill({ json: { targets: [], models: [] } }),
+    );
+    await page.route("**/api/usage-statistics/overview*", (route) =>
+      route.fulfill({
+        json: {
+          totals: {},
+          byTarget: [{ id: "target-a", value: "96", cost: "96" }],
+          byModel: [
+            { id: "model-a", value: "60", cost: "60" },
+            { id: "model-b", value: "25", cost: "25" },
+            { id: "model-c", value: "6", cost: "6" },
+            { id: "model-d", value: "2", cost: "2" },
+            { id: "model-e", value: "1", cost: "1" },
+            { id: "model-f", value: "1", cost: "1" },
+            { id: "model-g", value: "1", cost: "1" },
+          ],
+          unpriced: {},
+          dataVersion: 1,
+        },
+      }),
+    );
+    await page.route("**/api/usage-statistics/trend*", (route) =>
+      route.fulfill({
+        json: {
+          dataVersion: 1,
+          granularity: "day",
+          points: [
+            {
+              bucket: "2026-09-01",
+              requests: 5,
+              tasks: 1,
+              input: "96",
+              output: "0",
+              cache_read: "0",
+              cache_write: "0",
+              cost: "96000000000",
+              by_model: [
+                {
+                  id: "model-a",
+                  input: "60",
+                  output: "0",
+                  cache_read: "0",
+                  cache_write: "0",
+                  cost: "60000000000",
+                },
+                {
+                  id: "model-b",
+                  input: "25",
+                  output: "0",
+                  cache_read: "0",
+                  cache_write: "0",
+                  cost: "25000000000",
+                },
+                {
+                  id: "model-c",
+                  input: "6",
+                  output: "0",
+                  cache_read: "0",
+                  cache_write: "0",
+                  cost: "6000000000",
+                },
+                {
+                  id: "model-d",
+                  input: "2",
+                  output: "0",
+                  cache_read: "0",
+                  cache_write: "0",
+                  cost: "2000000000",
+                },
+                {
+                  id: "model-e",
+                  input: "1",
+                  output: "0",
+                  cache_read: "0",
+                  cache_write: "0",
+                  cost: "1000000000",
+                },
+                {
+                  id: "model-f",
+                  input: "1",
+                  output: "0",
+                  cache_read: "0",
+                  cache_write: "0",
+                  cost: "1000000000",
+                },
+                {
+                  id: "model-g",
+                  input: "1",
+                  output: "0",
+                  cache_read: "0",
+                  cache_write: "0",
+                  cost: "1000000000",
+                },
+              ],
+            },
+          ],
+        },
+      }),
+    );
+    await loadAdminPage();
+    await page.locator('[data-tab="statistics"]').click();
+    const modelPie = page.locator(".distribution-card").nth(1);
+    await expectPage(modelPie.locator(".pie-segment")).toHaveCount(4);
+    await expectPage(modelPie).toContainText("Other");
+    await expectPage(modelPie).not.toContainText("model-d");
+    await expectPage(page.locator(".trend-item").first().locator(".trend-segment")).toHaveCount(4);
+    await expectPage(page.locator(".trend-legend")).toContainText("Other");
+    await expectPage(page.locator(".trend-legend")).not.toContainText("model-d");
+  });
   it("re-renders statistics labels when the language switches", async () => {
     await page.route("**/api/usage-statistics/options*", (route) =>
       route.fulfill({ json: { targets: [{ id: "a", name: "A" }], models: ["m"] } }),

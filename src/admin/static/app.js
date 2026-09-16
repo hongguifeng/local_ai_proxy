@@ -1199,6 +1199,9 @@ function renderLogs() {
     : "";
   $("logItems").innerHTML = groupsHtml + moreHtml;
 }
+// When a group is collapsed while its header is pinned to the top of the log
+// list, removing the body would shift the whole list up; compensate by
+// scrolling down by the removed height so the header keeps its position.
 function collapseLogGroup(groupId) {
   // Note: state.collapsedGroups holds the EXPANDED state (flag set = body
   // visible); collapsing a group clears its flag.
@@ -2174,17 +2177,53 @@ async function loadStatistics() {
           })
           .join("");
   const metric = trendMetric;
+  const maxVisibleCategories = 6;
+  // Keep the leading categories and fold the low-share tail into one slice.
+  // The selected metric determines the share, so cost charts use cost shares.
+  const aggregateSmallShares = (items, displayMetric, otherLabel) => {
+    const amountOf = (item) => Number(displayMetric === "cost" ? item.cost : item.value);
+    const entries = items
+      .map((item) => ({ item, amount: amountOf(item) }))
+      .filter(({ amount }) => Number.isFinite(amount) && amount > 0)
+      .sort((a, b) => b.amount - a.amount);
+    const total = entries.reduce((sum, entry) => sum + entry.amount, 0);
+    if (entries.length <= maxVisibleCategories) return entries;
+    let tailAmount = 0;
+    let tailStart = entries.length;
+    while (tailStart > 0 && (tailAmount + entries[tailStart - 1].amount) / total < 0.1) {
+      tailAmount += entries[--tailStart].amount;
+    }
+    if (tailStart === entries.length) return entries;
+    const tail = entries.slice(tailStart);
+    const sum = (field) => tail.reduce((total, entry) => total + Number(entry.item[field] || 0), 0);
+    return [
+      ...entries.slice(0, tailStart),
+      {
+        item: {
+          id: otherLabel,
+          value: sum("value"),
+          cost: sum("cost"),
+        },
+        amount: tailAmount,
+      },
+    ];
+  };
   const pie = (items, displayMetric = metric) => {
     if (!items.length)
       return `<div class="pie-chart empty">${state.language === "en" ? "No data" : "暂无数据"}</div>`;
-    const entries = items.filter((item) => Number(item.value) > 0);
-    const total = entries.reduce((sum, item) => sum + Number(item.value), 0);
+    const entries = aggregateSmallShares(
+      items,
+      displayMetric,
+      state.language === "en" ? "Other" : "其他",
+    );
+    const total = entries.reduce((sum, entry) => sum + entry.amount, 0);
     if (!total)
       return `<div class="pie-chart empty">${state.language === "en" ? "No data" : "暂无数据"}</div>`;
     const colors = ["#31b981", "#f28c18", "#12b8e8", "#4679f6", "#9763d5", "#e36a91"];
     let offset = 0;
-    const segments = entries.map((item, index) => {
-      const fraction = Number(item.value) / total;
+    const segments = entries.map((entry, index) => {
+      const { item } = entry;
+      const fraction = entry.amount / total;
       const angle = (offset + fraction / 2) * 2 * Math.PI - Math.PI / 2;
       const segment = {
         item,
@@ -2242,7 +2281,7 @@ async function loadStatistics() {
         return `<g class="pie-segment" tabindex="0" aria-label="${title}" style="--pie-color:${color}"><title>${title}</title><circle class="pie-slice" cx="${cx}" cy="${cy}" r="${radius}" pathLength="100" fill="none" stroke="${color}" stroke-width="${sliceWidth}" stroke-dasharray="${fraction * 100} ${100 - fraction * 100}" stroke-dashoffset="${-segment.offset * 100}" transform="rotate(-90 ${cx} ${cy})"/><path class="pie-connector" d="M ${x1} ${y1} L ${x2} ${labelY} L ${x3} ${labelY}"/><text x="${textX}" y="${labelY - 3}" text-anchor="${side > 0 ? "start" : "end"}" class="pie-label">${escapeHtml(shortName)}</text><text x="${textX}" y="${labelY + 15}" text-anchor="${side > 0 ? "start" : "end"}" class="pie-value">${percentage} · ${escapeHtml(value)}</text></g>`;
       })
       .join("");
-    const costTotal = entries.reduce((sum, item) => sum + Number(item.cost || 0), 0);
+    const costTotal = entries.reduce((sum, entry) => sum + Number(entry.item.cost || 0), 0);
     const centerValue =
       displayMetric === "cost" ? formatCurrencyAmount(costTotal) : compactNumber(total);
     return `<div class="pie-chart"><svg viewBox="0 0 600 ${height}" role="img" aria-label="${english ? "Distribution" : "占比分布"}">${slices}<text x="300" y="${cy - 4}" text-anchor="middle" class="pie-center-value">${escapeHtml(centerValue)}</text><text x="300" y="${cy + 16}" text-anchor="middle" class="pie-center-label">${displayMetric === "cost" ? (english ? "Priced cost" : "已计价费用") : english ? "Tokens" : "Token"}</text></svg></div>`;
@@ -2351,15 +2390,6 @@ async function loadStatistics() {
     "#a16207",
     "#0369a1",
   ];
-  const groupIds = [
-    ...new Set(
-      trend.points
-        .flatMap((point) => groupsFor(point).map((group) => String(group.id)))
-        .filter((id) => id !== "total"),
-    ),
-  ];
-  const groupColorMap = new Map(groupIds.map((id, index) => [id, colors[index % colors.length]]));
-  const groupColor = (id) => groupColorMap.get(String(id)) || colors[0];
   const tokenColor = {
     input: "#2f80ed",
     output: "#27ae60",
@@ -2370,9 +2400,61 @@ async function loadStatistics() {
     costMode
       ? Number(g.cost) / 1e9
       : Number(g.input) + Number(g.output) + Number(g.cache_read) + Number(g.cache_write);
+  const trendOtherId = "__usage-statistics-other__";
+  const groupLabel = (id) => (id === trendOtherId ? (english ? "Other" : "其他") : String(id));
+  const groupTotals = new Map();
+  if (groupKey) {
+    trend.points.flatMap(groupsFor).forEach((group) => {
+      const id = String(group.id);
+      groupTotals.set(id, (groupTotals.get(id) || 0) + valueOf(group));
+    });
+  }
+  const rankedGroups = [...groupTotals.entries()].sort((a, b) => b[1] - a[1]);
+  const groupedTotal = rankedGroups.reduce((sum, [, value]) => sum + value, 0);
+  let smallGroupStart = rankedGroups.length;
+  let smallGroupTotal = 0;
+  while (
+    rankedGroups.length > maxVisibleCategories &&
+    smallGroupStart > 0 &&
+    (smallGroupTotal + rankedGroups[smallGroupStart - 1][1]) / groupedTotal < 0.1
+  ) {
+    smallGroupTotal += rankedGroups[--smallGroupStart][1];
+  }
+  const smallGroupIds = new Set(rankedGroups.slice(smallGroupStart).map(([id]) => id));
+  const displayGroupsFor = (point) => {
+    const groups = groupsFor(point);
+    if (!smallGroupIds.size) return groups;
+    const tail = groups.filter((group) => smallGroupIds.has(String(group.id)));
+    if (!tail.length) return groups;
+    const sum = (field) => tail.reduce((total, group) => total + Number(group[field] || 0), 0);
+    const cost = tail.reduce((total, group) => total + BigInt(String(group.cost || 0)), 0n);
+    return [
+      ...groups.filter((group) => !smallGroupIds.has(String(group.id))),
+      {
+        id: trendOtherId,
+        input: sum("input"),
+        output: sum("output"),
+        cache_read: sum("cache_read"),
+        cache_write: sum("cache_write"),
+        cost: cost.toString(),
+      },
+    ];
+  };
+  const groupIds = [
+    ...new Set(
+      trend.points
+        .flatMap(displayGroupsFor)
+        .map((group) => String(group.id))
+        .filter((id) => id !== "total"),
+    ),
+  ];
+  const groupColorMap = new Map(groupIds.map((id, index) => [id, colors[index % colors.length]]));
+  const groupColor = (id) => groupColorMap.get(String(id)) || colors[0];
   const maxRequests = Math.max(
     1,
-    ...trend.points.map((point) => groupsFor(point).reduce((sum, g) => sum + valueOf(g), 0)),
+    ...trend.points.map((point) =>
+      displayGroupsFor(point).reduce((sum, group) => sum + valueOf(group), 0),
+    ),
   );
   const niceCeil = (value) => {
     const exp = 10 ** Math.floor(Math.log10(Math.max(1e-9, value)));
@@ -2395,7 +2477,7 @@ async function loadStatistics() {
   );
   const trendBars = trend.points
     .map((point) => {
-      const groups = groupsFor(point);
+      const groups = displayGroupsFor(point);
       const metricValue = groups.reduce((sum, g) => sum + valueOf(g), 0);
       const h = Math.max(2, (metricValue / niceMax) * 200);
       const parts =
@@ -2427,8 +2509,8 @@ async function loadStatistics() {
             ? // `valueOf` is already converted from nano-CNY to CNY. Avoid
               // multiplying back to nanos: floating-point rounding can produce
               // a non-integer that the currency formatter cannot pass to BigInt.
-              `${p.key}: ${formatCurrencyAmount(p.value)}`
-            : `${breakdown === "total" ? tokenNames[p.key] : p.key}: ${compactNumber(p.value)}`;
+              `${groupLabel(p.key)}: ${formatCurrencyAmount(p.value)}`
+            : `${breakdown === "total" ? tokenNames[p.key] : groupLabel(p.key)}: ${compactNumber(p.value)}`;
           return `<i class="trend-segment ${costMode ? "cost" : breakdown === "total" ? p.key : "group"}" style="height:${height}px;background:${color}" title="${label}"></i>`;
         })
         .join("");
@@ -2468,13 +2550,16 @@ async function loadStatistics() {
         : [
             ...new Map(
               trend.points.flatMap((p) =>
-                groupsFor(p)
+                displayGroupsFor(p)
                   .filter((g) => g.id !== "total")
                   .map((g) => [g.id, g]),
               ),
             ).keys(),
           ]
-            .map((id) => `<span><i style="background:${groupColor(id)}"></i>${id}</span>`)
+            .map(
+              (id) =>
+                `<span><i style="background:${groupColor(id)}"></i>${escapeHtml(groupLabel(id))}</span>`,
+            )
             .join("")
     }</div><div class="trend-chart">${trendYaxis}<div class="trend-bars">${trendGrid}${trendContent}</div></div><table><thead><tr>${headers.map((h) => `<th>${h}</th>`).join("")}</tr></thead><tbody>${trendPoints.map((p) => `<tr><td>${p.bucket}</td><td>${p.requests}</td><td>${p.tasks}</td><td title="${fullNumber(p.input)}">${compactNumber(p.input)}</td><td title="${fullNumber(p.output)}">${compactNumber(p.output)}</td><td title="${fullNumber(p.cache_read)}">${compactNumber(p.cache_read)}</td><td title="${fullNumber(p.cache_write)}">${compactNumber(p.cache_write)}</td><td>${formatCurrencyAmount(pricingDecimalFromNano(p.cost))}</td><td>${p.unpriced ?? 0}</td></tr>`).join("")}</tbody></table></section>`;
   $("statsBreakdown").value = breakdown;
