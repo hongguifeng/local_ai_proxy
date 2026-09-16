@@ -1201,7 +1201,9 @@ label span {
   font-weight: 700;
 }
 .log-group-decode-speed {
-  background: #fbf0dd;
+  /* Lighter than the count/cost tints so the amber value keeps contrast with
+     its own background. */
+  background: #fdf6ea;
   color: #8a5a13;
   font-weight: 700;
   font-variant-numeric: tabular-nums;
