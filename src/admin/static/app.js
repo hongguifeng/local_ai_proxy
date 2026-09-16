@@ -1199,6 +1199,40 @@ function renderLogs() {
     : "";
   $("logItems").innerHTML = groupsHtml + moreHtml;
 }
+function collapseLogGroup(groupId) {
+  // Note: state.collapsedGroups holds the EXPANDED state (flag set = body
+  // visible); collapsing a group clears its flag.
+  const list = $("logItems");
+  const head = list.querySelector(`.log-group-head[data-group-id="${CSS.escape(groupId)}"]`);
+  // Pinned: the header's border box sits at the scrollport content top
+  // (list border + padding). At its natural (top of list) position the
+  // section's 1 px border pushes it down one more pixel, and while
+  // releasing from the pin it sits above the content top; only the pinned
+  // state is worth compensating.
+  const wasPinned = (() => {
+    if (!head) return false;
+    const contentTop =
+      list.getBoundingClientRect().top +
+      list.clientTop +
+      parseFloat(getComputedStyle(list).paddingTop);
+    const headTop = head.getBoundingClientRect().top;
+    return headTop >= contentTop - 0.5 && headTop <= contentTop + 0.75;
+  })();
+  state.collapsedGroups[groupId] = false;
+  renderLogs();
+  if (wasPinned) {
+    // With the body gone the header is the section's first child and sits at
+    // its natural (non-sticky) spot, which is above the pinned line. Scroll
+    // by exactly that offset so it lands back where it was pinned.
+    const newHead = list.querySelector(`.log-group-head[data-group-id="${CSS.escape(groupId)}"]`);
+    if (!newHead) return;
+    const contentTop =
+      list.getBoundingClientRect().top +
+      list.clientTop +
+      parseFloat(getComputedStyle(list).paddingTop);
+    list.scrollTop += newHead.getBoundingClientRect().top - contentTop;
+  }
+}
 function pricingDecimalFromNano(value) {
   if (value === null || value === undefined || value === "") return null;
   const nano = BigInt(String(value));
@@ -2864,8 +2898,11 @@ $("logItems").addEventListener("click", (event) => {
   const group = event.target.closest("[data-group-id]");
   if (group) {
     const groupId = group.dataset.groupId;
-    state.collapsedGroups[groupId] = !state.collapsedGroups[groupId];
-    renderLogs();
+    if (state.collapsedGroups[groupId]) collapseLogGroup(groupId);
+    else {
+      state.collapsedGroups[groupId] = true;
+      renderLogs();
+    }
     return;
   }
   const item = event.target.closest("[data-log-id]");
@@ -2885,8 +2922,11 @@ $("logItems").addEventListener("keydown", (event) => {
   if (!group) return;
   event.preventDefault();
   const groupId = group.dataset.groupId;
-  state.collapsedGroups[groupId] = !state.collapsedGroups[groupId];
-  renderLogs();
+  if (state.collapsedGroups[groupId]) collapseLogGroup(groupId);
+  else {
+    state.collapsedGroups[groupId] = true;
+    renderLogs();
+  }
 });
 $("pricingPanel").addEventListener("click", (event) => {
   if (event.target.closest("[data-close-pricing]")) {
