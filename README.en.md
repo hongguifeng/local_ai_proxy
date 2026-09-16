@@ -4,10 +4,6 @@
 
 LLM Proxy is a local LLM gateway and visual console. It exposes OpenAI-compatible and Claude Messages APIs through local addresses, so you can choose upstreams by model and inspect complete request history in a browser.
 
-![Proxy Management UI](doc/ui_proxy_en.png)
-
-![History Logs UI](doc/ui_logs_en.png)
-
 ## How It Works
 
 Clients connect only to the local proxy address. The proxy reads the top-level `model` field, checks routing rules in order, and forwards the request to the first matching upstream. It can rewrite the model name; unmatched requests use the default upstream.
@@ -21,23 +17,9 @@ flowchart LR
   M -->|No match| D[Default upstream]
 ```
 
-## Get Started in 5 Minutes
-
-Node.js 24 is required:
-
-```powershell
-npm ci
-npm run build
-npm start
-```
-
-The console opens at <http://127.0.0.1:18080>. Use `npm start -- --no-browser` to skip automatic browser launch. Windows users can download an installer or portable version from GitHub Releases; the app runs in the system tray.
-
-In **Proxy**, create a proxy, set a listen address such as `127.0.0.1:1234`, add an upstream such as `http://127.0.0.1:1235` or `https://openrouter.ai/api/v1`, enter an API key if required, and enable it. Point your client base URL to `http://127.0.0.1:1234`.
-
-See [examples/responses_client.mjs](examples/responses_client.mjs) for a minimal Node.js example.
-
 ## Model Routing
+
+![Proxy Management UI](doc/ui_proxy_en.png)
 
 | Feature | What it does |
 | --- | --- |
@@ -61,6 +43,8 @@ qwen-local => qwen3
 
 ## History
 
+![History Logs UI](doc/ui_logs_en.png)
+
 | Feature | What it does |
 | --- | --- |
 | Automatic capture | Stores request and response headers and bodies, status, duration, target, routing details, and streaming summaries. |
@@ -73,6 +57,41 @@ qwen-local => qwen3
 | Paging and refresh | Browse large log directories with paged loading and automatic refresh. |
 
 History data is stored by default in a `traffic.db` SQLite database under each log directory; proxy settings are stored in `logs/proxies.json`. Exported ZIP files contain readable Markdown, `request.json`, and `response.json`.
+
+## Usage statistics
+
+![Usage statistics](doc/ui_stats_en.png)
+
+The Usage statistics tab reads the same local history data as History and summarizes token and cost usage over a chosen time range.
+
+| Feature | What it does |
+| --- | --- |
+| Time range and filters | Pick a start and end time (or 7/14/30-day and today shortcuts), optionally follow the current time, and filter by forwarding target and model. |
+| Overview | Request count, task count, token totals (input / output / cache read / cache write), and total cost. |
+| Trends and breakdowns | Trend charts over time (auto / daily / weekly / monthly granularity, by total, model, or target) plus per-target and per-model distributions with donut charts. |
+| Task counting | A task counts toward the Task totals only when it has more than five priced requests within the displayed scope (overview total, distribution rows, and trend buckets alike). |
+| Unpriced requests | Requests with missing usage or a missing price are flagged as unpriced, never free, and can be reviewed in detail. |
+| CSV export | Export the current filter scope as CSV. |
+
+Token amounts use compact units (K/M/B in the English interface; ten-thousand/hundred-million units in the Chinese interface).
+
+The read-only endpoints are `/api/usage-statistics/overview`, `/api/usage-statistics/trend`, `/api/usage-statistics/options`, and `/api/usage-statistics/export`. They accept ISO-8601 `from`/`to` values; trend and export also accept `targetId`, `model`, and `granularity` (`day`, `week`, or `month`).
+
+## Get Started in 5 Minutes
+
+Node.js 24 is required:
+
+```powershell
+npm ci
+npm run build
+npm start
+```
+
+The console opens at <http://127.0.0.1:18080>. Use `npm start -- --no-browser` to skip automatic browser launch. Windows users can download an installer or portable version from GitHub Releases; the app runs in the system tray.
+
+In **Proxy**, create a proxy, set a listen address such as `127.0.0.1:1234`, add an upstream such as `http://127.0.0.1:1235` or `https://openrouter.ai/api/v1`, enter an API key if required, and enable it. Point your client base URL to `http://127.0.0.1:1234`.
+
+See [examples/responses_client.mjs](examples/responses_client.mjs) for a minimal Node.js example.
 
 ## Common Workflows
 
@@ -93,21 +112,3 @@ Enter fields such as `temperature, top_p, top_k` under **Request fields to remov
 Proxy settings are saved in `logs/proxies.json`; console settings are saved in `llm-proxy.json`. You usually do not need to edit these files manually.
 
 Keep the console and proxy listeners bound to `127.0.0.1` where possible. Logs may contain prompts, documents, API keys, and tool output; do not commit configuration files or log directories. Stop the proxy and back up the entire log directory before migration or upgrades, including `traffic.db-wal` and `traffic.db-shm`. See [docs/migration-rollback.md](docs/migration-rollback.md) for details.
-## Usage statistics
-
-![Usage statistics](doc/ui_stats_en.png)
-
-The Usage statistics tab reads the same local history data as History and summarizes token and cost usage over a chosen time range.
-
-| Feature | What it does |
-| --- | --- |
-| Time range and filters | Pick a start and end time (or 7/14/30-day and today shortcuts), optionally follow the current time, and filter by forwarding target and model. |
-| Overview | Request count, task count, token totals (input / output / cache read / cache write), and total cost. |
-| Trends and breakdowns | Trend charts over time (auto / daily / weekly / monthly granularity, by total, model, or target) plus per-target and per-model distributions with donut charts. |
-| Task counting | A task counts toward the Task totals only when it has more than five priced requests within the displayed scope (overview total, distribution rows, and trend buckets alike). |
-| Unpriced requests | Requests with missing usage or a missing price are flagged as unpriced, never free, and can be reviewed in detail. |
-| CSV export | Export the current filter scope as CSV. |
-
-Token amounts use compact units (K/M/B in the English interface; ten-thousand/hundred-million units in the Chinese interface).
-
-The read-only endpoints are `/api/usage-statistics/overview`, `/api/usage-statistics/trend`, `/api/usage-statistics/options`, and `/api/usage-statistics/export`. They accept ISO-8601 `from`/`to` values; trend and export also accept `targetId`, `model`, and `granularity` (`day`, `week`, or `month`).
