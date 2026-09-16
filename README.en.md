@@ -48,7 +48,7 @@ qwen-local => qwen3
 | Feature | What it does |
 | --- | --- |
 | Automatic capture | Stores request and response headers and bodies, status, duration, target, routing details, and streaming summaries. |
-| Task grouping | Groups consecutive Agent requests into tasks for reviewing one workflow. |
+| Task grouping | Groups consecutive Agent requests into tasks for reviewing one workflow. Each task header stacks time range, model and metrics, and target URL: the date badge and target stay neutral, while request count, decode speed, and cost use tinted value chips. |
 | Full-text search | Search by path, method, status, target URL, task ID, or record ID; space-separated terms all apply. |
 | Request details | View request and response JSON side by side with expand, collapse, wrapping, formatting, and copy controls. |
 | Cost tracking | Shows task totals, priced/unpriced requests, pricing rules, and token details; each request shows its share. Missing reliable usage or pricing is marked unpriced, never free. Click the ⓘ icon button in a task header's control column to open the Task details panel with costs. |

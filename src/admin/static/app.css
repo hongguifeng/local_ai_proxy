@@ -1109,31 +1109,38 @@ label span {
   gap: 7px;
   font-variant-numeric: tabular-nums;
 }
+/* The date is context, not a metric: keep it in the header's blue-gray family
+   so the green stays reserved for cost. */
 .log-group-date {
   flex: 0 0 auto;
-  padding: 2px 6px;
-  border-radius: 4px;
-  background: #d8eee5;
-  color: #155f45;
-  font-size: 14px;
+  padding: 1px 6px;
+  border: 1px solid #cfdce8;
+  border-radius: 5px;
+  background: #e8eff6;
+  color: #3f5b78;
+  font-size: 13px;
   font-weight: 700;
+  letter-spacing: 0.02em;
 }
 .log-time-range {
   min-width: 0;
   display: flex;
   align-items: baseline;
-  gap: 3px;
+  gap: 4px;
+  color: #22384c;
   font-family: ui-monospace, SFMono-Regular, Consolas, monospace;
-  font-size: 17px;
-  font-weight: 700;
+  font-size: 15px;
+  font-weight: 600;
   white-space: nowrap;
 }
 .log-time-arrow {
-  color: #8a5a13;
+  color: #9aa9b8;
   font-family: system-ui, sans-serif;
-  font-weight: 700;
+  font-weight: 600;
 }
 .log-group-time-fallback {
+  color: #22384c;
+  font-size: 15px;
   font-weight: 700;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -1152,13 +1159,14 @@ label span {
 .log-group-fact-line {
   min-width: 0;
   display: flex;
-  gap: 6px;
-  align-items: baseline;
+  gap: 4px;
+  align-items: center;
   overflow: hidden;
   white-space: nowrap;
 }
 /* Keep every item at natural width so the row overflows to the right and the
-   container hides it right-to-left (speed first, then cost/count/model). */
+   container hides it right-to-left (speed first, then cost/count/model). The
+   model name is the exception (below): it is the row's flexible cell. */
 .log-group-fact-line > * {
   flex: 0 0 auto;
 }
@@ -1166,12 +1174,34 @@ label span {
   grid-row: 2;
   display: block;
 }
+/* The model name is the only flexible cell in the row: when everything does
+   not fit, it ellipsises first so the metric chips (especially the cost) stay
+   fully readable instead of being clipped at the container edge. */
+.log-group-fact-line > .log-model {
+  flex: 0 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+/* Secondary metrics are tinted value chips so the row reads as one scannable
+   data line instead of colored text floating on the header background. The
+   10 px/compact padding keeps a realistic row (long model name, 3-digit count
+   and speed, 4-digit cost) inside the default 330 px sidebar. */
+.log-request-count,
+.log-group-decode-speed,
 .log-group-cost {
+  padding: 0 5px;
+  border-radius: 999px;
+  font-size: 10px;
+}
+.log-group-cost {
+  background: #e2f1ea;
   color: #176b52;
   white-space: nowrap;
   font-weight: 700;
 }
 .log-group-decode-speed {
+  background: #fbf0dd;
   color: #8a5a13;
   font-weight: 700;
   font-variant-numeric: tabular-nums;
@@ -1181,21 +1211,34 @@ label span {
   font-weight: 700;
 }
 .log-request-count {
+  background: #e7eff7;
   color: #315a82;
 }
 .log-request-count strong {
   font-variant-numeric: tabular-nums;
   font-size: 12px;
 }
+/* A missing cost keeps its cell but renders as quiet text, not an empty chip
+   (paired selector so it reliably overrides .log-group-cost). */
+.log-group-cost.log-fact-empty {
+  padding: 0 3px;
+  background: none;
+  color: #9aa8b5;
+  font-weight: 600;
+}
 .log-target {
   min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
+  color: #71828f;
+  font-size: 11px;
 }
+/* Leading marker keeps the target line visually attached to the facts above
+   instead of floating as a stray line of gray text. */
 .log-target::before {
-  content: none;
-  margin-right: 6px;
-  color: #9ba6b2;
+  content: "•";
+  margin-right: 5px;
+  color: #a4b2c0;
 }
 .log-group-body {
   border-top: 1px solid var(--line);

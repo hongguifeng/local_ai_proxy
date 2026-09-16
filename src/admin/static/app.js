@@ -535,8 +535,13 @@ function formatGroupDecodeSpeed(value) {
 function logGroupFactsHtml(group) {
   const decodeSpeed = formatGroupDecodeSpeed(group.decode_speed_tps);
   const decodeSpeedTip = `${t("avgDecodeSpeed")}: ${t("avgDecodeSpeedTip")}`;
+  const cost = formatGroupCost(group.cost);
+  const costHtml =
+    cost === "—"
+      ? `<span class="log-group-cost log-fact-empty">—</span>`
+      : `<span class="log-group-cost">${escapeHtml(cost)}</span>`;
   return `<span class="log-group-facts">
-    <span class="log-group-fact-line">${group.model ? `<span class="log-model">${escapeHtml(group.model)}</span>` : ""}<span class="log-request-count"><strong>${escapeHtml(group.request_count ?? 0)}</strong> ${escapeHtml(t("requests"))}</span>${decodeSpeed ? `<span class="log-group-decode-speed" title="${escapeHtml(decodeSpeedTip)}">${escapeHtml(decodeSpeed)}t/s</span>` : ""}<span class="log-group-cost">${escapeHtml(formatGroupCost(group.cost))}</span></span>
+    <span class="log-group-fact-line">${group.model ? `<span class="log-model" title="${escapeHtml(group.model)}">${escapeHtml(group.model)}</span>` : ""}<span class="log-request-count"><strong>${escapeHtml(group.request_count ?? 0)}</strong> ${escapeHtml(t("requests"))}</span>${decodeSpeed ? `<span class="log-group-decode-speed" title="${escapeHtml(decodeSpeedTip)}">${escapeHtml(decodeSpeed)}t/s</span>` : ""}${costHtml}</span>
     <span class="log-group-fact-line log-target" title="${escapeHtml(group.target || "")}">${escapeHtml(group.target || "—")}</span>
   </span>`;
 }

@@ -12,8 +12,8 @@
 | --- | --- | --- | --- | --- |
 | Proxy | 中文 | `doc/ui_proxy_cn.png` | 1278 x 1215 | `c2ff326b0a5cc3167f2febb61455977b65b10bd0b3e030c63f1716b46fb4d85a` |
 | Proxy | 英文 | `doc/ui_proxy_en.png` | 1278 x 1208 | `1649bacdfcd18c88fd9069e5b1473e55454482236b9a6e23d9f692a90ebd8742` |
-| History | 中文 | `doc/ui_logs_cn.png` | 1384 x 1212 | `db0b74de468b91867fe2cacfb334833c576cc3dffaa35d0baa5dd7f787400185` |
-| History | 英文 | `doc/ui_logs_en.png` | 1384 x 1224 | `7496eac2c35ed025143e923521e669553ffc10c79d3193c5988db2837152e231` |
+| History | 中文 | `doc/ui_logs_cn.png` | 1384 x 1212 | `80225f50b585e2abf9cf10db3f5cc26bf3773048430004e7ba84f0aa06e40112` |
+| History | 英文 | `doc/ui_logs_en.png` | 1384 x 1224 | `8fc6c1cb3662ebd7dcc72a1b1c64ab60f060025f4a0fedd870d93bd3707aab6e` |
 | Usage statistics | 中文 | `doc/ui_stats_cn.png` | 1278 x 1613 | `dac23fdfc8d59fa2a02461a07eb52cbcad51eb7b3c662d289aecc2b6081a8450` |
 | Usage statistics | 英文 | `doc/ui_stats_en.png` | 1278 x 1613 | `2b6f11098ad9a541d724e53216c67af4ae4e5b68b253a63d87a92e97395a253b` |
 
@@ -49,9 +49,10 @@ sha256sum doc/ui_proxy_cn.png doc/ui_proxy_en.png doc/ui_logs_cn.png doc/ui_logs
 - fixture 包含多个 task：首个 task 展开，其余以单行折叠卡片显示（不同 model 和 request 数）。
 - 每个 task 是浅灰列表区内一张独立的白色圆角卡片，卡片之间用留白分隔。
 - task header 是卡片顶部的蓝灰色块，带加粗左侧色条；左侧控制列中复选框、ⓘ 任务明细图标按钮与折叠箭头自上而下排列，右侧为时间范围和 model/request/target 摘要。header 与请求项列表之间有一条分隔线。
+- task header 摘要分三行：第一行为日期徽标（蓝灰圆角标签，不参与指标配色）与等宽字体时间范围，中间箭头为中性灰；第二行为 model 名（琥珀色文本）以及请求数、decode 速度、费用三个浅色底值标签（chip）；模型名过长时优先省略（悬停显示完整名称），保证三个指标标签完整可见；第三行为转发地址，带前置圆点标记并单行省略。
 - 展开的 task 下按 sequence 倒序显示 5 条请求项，白底、相对 header 缩进，仅用浅色细线分隔，视觉层级从属于 task header。
 - 请求项状态圆点覆盖两种非成功状态：红色 4xx 错误（保留状态码文字）、琥珀色 pending（保留"等待中"文字）；200 成功不再显示任何状态标记。
-- 指标颜色两级统一：费用为青绿色（#176b52），数量类指标（一级请求数、二级响应 tokens）为蓝色（#315a82），模型名与请求 tokens 为琥珀色（#7a4308 / #8a4b08），消息数为中性深灰。
+- 指标颜色两级统一：费用为青绿色（#176b52），数量类指标（一级请求数、二级响应 tokens）为蓝色（#315a82），模型名与请求 tokens 为琥珀色（#7a4308 / #8a4b08），消息数为中性深灰；日期徽标、时间范围与转发地址使用中性蓝灰。
 - 速度指标两级同格式：一级显示任务平均 decode 速度，二级在“响应”与“费用”之间显示单条请求的 decode 速度，数值均为琥珀色（#8a5a13）且格式为“x.xt/s”（≥100 取整），无可用 decode 窗口时不显示。
 - 右侧 JSON 使用等宽字体、语法颜色和 `details/summary` 折叠树。
 - Request/Response 标题栏右侧包含 meta、wrap、expand、format、copy 按钮。
