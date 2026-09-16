@@ -7,6 +7,7 @@ node_modules/
 fixtures/
 llm_proxy/static/
 doc/
+electron-builder.env
 README.md
 README.en.md
 *.db
