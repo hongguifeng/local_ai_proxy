@@ -75,6 +75,7 @@ const translations = {
     injectFields: "转发前注入的 request 字段，JSON object；留空关闭",
     targets: "转发地址",
     addTarget: "添加转发地址",
+    dragTarget: "拖动调整顺序（方向键也可移动）",
     targetName: "名称",
     checkTarget: "测试",
     checkDialogTitle: "测试转发地址",
@@ -260,6 +261,7 @@ const translations = {
     injectFields: "Request fields to inject before forwarding, JSON object; leave blank to disable",
     targets: "Targets",
     addTarget: "Add target",
+    dragTarget: "Drag to reorder (arrow keys also move)",
     targetName: "Name",
     checkTarget: "Test",
     checkDialogTitle: "Test target",
@@ -718,6 +720,7 @@ function wildcardPriceMatch(pattern, model) {
 function renderTarget(target, pair, pairIndex, targetIndex) {
   const expanded = Boolean(target.expanded);
   const isDefault = pair.default_target_id === target.id;
+  const canReorder = (pair.targets || []).length > 1;
   const statusClass = isDefault
     ? "is-default-target"
     : target.enabled !== false
@@ -727,6 +730,7 @@ function renderTarget(target, pair, pairIndex, targetIndex) {
     <section class="target-card ${statusClass}" data-target-index="${targetIndex}">
       <div class="target-head">
         <div class="target-title">
+          <button type="button" class="target-drag-handle" data-drag-target title="${escapeHtml(t("dragTarget"))}" aria-label="${escapeHtml(t("dragTarget"))}" ${canReorder ? "" : "disabled"}>⠿</button>
           <input data-target-field="name" value="${escapeHtml(target.name || "")}" placeholder="${escapeHtml(t("targetName"))}">
           <label class="default-target"><input type="radio" name="default-target-${pairIndex}" data-default-target ${isDefault ? "checked" : ""}> <span>${escapeHtml(t("defaultTarget"))}</span></label>
         </div>
@@ -859,6 +863,171 @@ async function loadPairs() {
   state.pairs = data.pairs;
   renderPairs();
 }
+// Target cards are reordered by dragging their grip handle (pointer events, not the
+// native HTML5 drag API, so input fields keep working while cards move in the DOM).
+let targetDrag = null;
+function startTargetDrag(event) {
+  const handle = event.target.closest?.("[data-drag-target]");
+  if (!handle || handle.disabled || event.button !== 0) return;
+  const card = handle.closest(".target-card");
+  const row = card?.closest(".targets-row");
+  if (!card || !row || row.querySelectorAll(".target-card").length < 2) return;
+  event.preventDefault();
+  handle.focus({ preventScroll: true });
+  try {
+    handle.setPointerCapture(event.pointerId);
+  } catch {
+    // Capture is only a nicety; the window listeners below keep the drag alive.
+  }
+  collectPairs();
+  targetDrag = {
+    handle,
+    card,
+    row,
+    scroller: row.closest(".proxy-view"),
+    pairIndex: Number(row.closest(".proxy-card")?.dataset.index ?? -1),
+    pointerId: event.pointerId,
+    startX: event.clientX,
+    startY: event.clientY,
+    stacked: targetsRowIsStacked(row),
+    started: false,
+  };
+}
+function nearestTargetCard(row, dragged, x, y) {
+  let nearest = null;
+  let bestDistance = Infinity;
+  row.querySelectorAll(".target-card").forEach((card) => {
+    if (card === dragged) return;
+    const rect = card.getBoundingClientRect();
+    const distance = Math.hypot(
+      Math.max(rect.left - x, 0, x - rect.right),
+      Math.max(rect.top - y, 0, y - rect.bottom),
+    );
+    if (distance < bestDistance) {
+      bestDistance = distance;
+      nearest = card;
+    }
+  });
+  return nearest;
+}
+// A row of cards can be a horizontal grid or a single-column stack (narrow screens);
+// the drop side follows the axis the cards are actually arranged on.
+function targetsRowIsStacked(row) {
+  const rects = [...row.querySelectorAll(".target-card")].map((card) =>
+    card.getBoundingClientRect(),
+  );
+  return !rects.some((rect, index) =>
+    rects
+      .slice(index + 1)
+      .some((other) => rect.bottom > other.top + 1 && other.bottom > rect.top + 1),
+  );
+}
+function autoScrollDuringTargetDrag(dragging, y) {
+  const scroller = dragging.scroller;
+  if (!scroller || scroller.scrollHeight <= scroller.clientHeight) return;
+  const rect = scroller.getBoundingClientRect();
+  const margin = 48;
+  if (y < rect.top + margin) {
+    scroller.scrollTop -= Math.ceil((rect.top + margin - y) / 3);
+  } else if (y > rect.bottom - margin) {
+    scroller.scrollTop += Math.ceil((y - (rect.bottom - margin)) / 3);
+  }
+}
+function moveTargetCardToPointer(dragging, x, y) {
+  const { card, row } = dragging;
+  const nearest = nearestTargetCard(row, card, x, y);
+  if (!nearest) return;
+  const rect = nearest.getBoundingClientRect();
+  const after = dragging.stacked
+    ? y > rect.top + rect.height / 2
+    : y > rect.bottom || (y >= rect.top && x > rect.left + rect.width / 2);
+  if (after) {
+    if (card.previousElementSibling === nearest) return;
+    row.insertBefore(card, nearest.nextElementSibling);
+  } else {
+    if (card.nextElementSibling === nearest) return;
+    row.insertBefore(card, nearest);
+  }
+}
+function moveTargetDrag(event) {
+  const dragging = targetDrag;
+  if (!dragging || dragging.pointerId !== event.pointerId) return;
+  if (event.buttons === 0) {
+    endTargetDrag(event);
+    return;
+  }
+  if (!dragging.started) {
+    if (Math.hypot(event.clientX - dragging.startX, event.clientY - dragging.startY) < 4) return;
+    dragging.started = true;
+    dragging.card.classList.add("is-dragging");
+    document.body.classList.add("drag-target-active");
+  }
+  event.preventDefault();
+  autoScrollDuringTargetDrag(dragging, event.clientY);
+  moveTargetCardToPointer(dragging, event.clientX, event.clientY);
+}
+function commitTargetDrag(dragging) {
+  const pair = state.pairs[dragging.pairIndex];
+  if (!pair) return;
+  const targets = pairTargets(pair);
+  const ordered = [...dragging.row.querySelectorAll(".target-card")]
+    .map((card) => targets[Number(card.dataset.targetIndex)])
+    .filter(Boolean);
+  if (ordered.length !== targets.length) return;
+  pair.targets = ordered;
+  renderPairs();
+}
+function endTargetDrag(event) {
+  const dragging = targetDrag;
+  if (!dragging || event.pointerId !== dragging.pointerId) return;
+  targetDrag = null;
+  try {
+    dragging.handle.releasePointerCapture(dragging.pointerId);
+  } catch {
+    // The pointer was already released.
+  }
+  dragging.card.classList.remove("is-dragging");
+  document.body.classList.remove("drag-target-active");
+  if (dragging.started) commitTargetDrag(dragging);
+}
+function cancelTargetDrag() {
+  const dragging = targetDrag;
+  if (!dragging) return;
+  targetDrag = null;
+  try {
+    dragging.handle.releasePointerCapture(dragging.pointerId);
+  } catch {
+    // The pointer was already released.
+  }
+  dragging.card.classList.remove("is-dragging");
+  document.body.classList.remove("drag-target-active");
+  if (dragging.started) renderPairs();
+}
+// Keyboard equivalent of the drag: the arrow keys move the focused card one slot.
+function moveTargetCardByKey(handle, offset) {
+  const card = handle.closest(".target-card");
+  const row = card?.closest(".targets-row");
+  const pairCard = row?.closest(".proxy-card");
+  const pairIndex = Number(pairCard?.dataset.index ?? -1);
+  const pair = state.pairs[pairIndex];
+  if (!pair) return;
+  const index = Number(card.dataset.targetIndex);
+  collectPairs();
+  const targets = pairTargets(pair);
+  const next = index + offset;
+  if (next < 0 || next >= targets.length) return;
+  [targets[index], targets[next]] = [targets[next], targets[index]];
+  renderPairs();
+  document
+    .querySelector(
+      `.proxy-card[data-index="${pairIndex}"] .target-card[data-target-index="${next}"] [data-drag-target]`,
+    )
+    ?.focus();
+}
+window.addEventListener("pointermove", moveTargetDrag);
+window.addEventListener("pointerup", endTargetDrag);
+window.addEventListener("pointercancel", endTargetDrag);
+window.addEventListener("blur", () => cancelTargetDrag());
 async function savePairs() {
   collectPairs();
   const data = await api("/api/pairs", {
@@ -2906,6 +3075,20 @@ $("proxyGrid").addEventListener("change", async (event) => {
   });
   Object.assign(pair, data.pair);
   renderPairs();
+});
+$("proxyGrid").addEventListener("pointerdown", (event) => startTargetDrag(event));
+$("proxyGrid").addEventListener("keydown", (event) => {
+  if (targetDrag?.started && event.key === "Escape") {
+    event.preventDefault();
+    cancelTargetDrag();
+    return;
+  }
+  const handle = event.target.closest?.("[data-drag-target]");
+  if (!handle || handle.disabled) return;
+  const offset = { ArrowLeft: -1, ArrowUp: -1, ArrowRight: 1, ArrowDown: 1 }[event.key];
+  if (offset === undefined) return;
+  event.preventDefault();
+  moveTargetCardByKey(handle, offset);
 });
 $("proxyGrid").addEventListener("input", (event) => {
   if (!event.target.matches("[data-price-field], [data-price-test]")) return;

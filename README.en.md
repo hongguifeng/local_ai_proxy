@@ -26,6 +26,7 @@ flowchart LR
 | Multiple proxy ports | Create multiple local listeners from one console, each connected to different upstreams. |
 | Multiple upstreams | Configure several upstreams for one proxy and choose a default fallback. |
 | Model-based routing | Select an upstream from the top-level `model` field; the first matching rule wins and matching is case-sensitive. |
+| Upstream order | Drag the ⠿ handle at the top-left of an upstream card (or focus the handle and use the arrow keys) to reorder upstreams; the order is the model-mapping priority, so earlier upstreams match first. |
 | Model rewriting | Use `local-model => upstream-model` to rename the model sent upstream. |
 | Wildcard matching | Use patterns such as `*gpt-5.5* => gpt-5.5` to match any prefix or suffix. |
 | Upstream connectivity test | **Test** sends a minimal ping directly to OpenAI Chat, Responses, or Anthropic Messages. It does not pass through the proxy or enter History. |

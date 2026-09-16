@@ -228,6 +228,39 @@ main {
 .target-card button:hover {
   background: #d2deea;
 }
+/* Drag handle: the only drag surface, so the card's inputs stay selectable. */
+.target-card button.target-drag-handle {
+  padding: 3px 5px;
+  line-height: 1;
+  font-size: 16px;
+  color: #55616f;
+  background: transparent;
+  border-color: transparent;
+  touch-action: none;
+  cursor: grab;
+  user-select: none;
+}
+.target-card button.target-drag-handle:hover:not(:disabled) {
+  background: rgba(23, 32, 42, 0.08);
+  border-color: #b8c5d3;
+}
+.target-card button.target-drag-handle:active {
+  cursor: grabbing;
+}
+.target-card button.target-drag-handle:disabled {
+  opacity: 0.3;
+  cursor: default;
+}
+.target-card.is-dragging {
+  pointer-events: none;
+  opacity: 0.6;
+  outline: 2px dashed #3c74a6;
+  outline-offset: -3px;
+}
+body.drag-target-active {
+  cursor: grabbing;
+  user-select: none;
+}
 .model-prices {
   border-top: 1px solid #b8c5d3;
   padding-top: 10px;
@@ -751,7 +784,7 @@ main {
 .target-title {
   min-width: 0;
   display: grid;
-  grid-template-columns: minmax(0, 1fr) auto;
+  grid-template-columns: auto minmax(0, 1fr) auto;
   align-items: center;
   gap: 8px;
   font-weight: 650;

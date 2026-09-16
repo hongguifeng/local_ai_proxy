@@ -10,8 +10,8 @@
 
 | 页面 | 语言 | 文件 | 图片尺寸 | SHA-256 |
 | --- | --- | --- | --- | --- |
-| Proxy | 中文 | `doc/ui_proxy_cn.png` | 1278 x 1215 | `c2ff326b0a5cc3167f2febb61455977b65b10bd0b3e030c63f1716b46fb4d85a` |
-| Proxy | 英文 | `doc/ui_proxy_en.png` | 1278 x 1208 | `1649bacdfcd18c88fd9069e5b1473e55454482236b9a6e23d9f692a90ebd8742` |
+| Proxy | 中文 | `doc/ui_proxy_cn.png` | 1278 x 1215 | `300cfa020223b634a04ceee669895be2bc98f58be6ca0f1ec5aa11f3b37bbf36` |
+| Proxy | 英文 | `doc/ui_proxy_en.png` | 1278 x 1208 | `a6572a675299ac188f9cbaea6e7e9c14de65b236a2cf1d85db99bd51bd849455` |
 | History | 中文 | `doc/ui_logs_cn.png` | 1384 x 1212 | `c5cbabf31fc8476f8f9e3f28c536d4dece7c5d3895f25e9b3d50a588950b97ec` |
 | History | 英文 | `doc/ui_logs_en.png` | 1384 x 1224 | `3aec727156ac4671aadfc747042f769d12a0e10071c6c355617d5600fdb02189` |
 | Usage statistics | 中文 | `doc/ui_stats_cn.png` | 1278 x 1613 | `dac23fdfc8d59fa2a02461a07eb52cbcad51eb7b3c662d289aecc2b6081a8450` |
@@ -35,6 +35,7 @@ sha256sum doc/ui_proxy_cn.png doc/ui_proxy_en.png doc/ui_logs_cn.png doc/ui_logs
 - Target 卡片按状态区分背景色：默认目标浅绿色、已启用浅蓝色、未启用浅灰色，并在代理卡片内按可用宽度自动换行排列。
 - fixture 中第一个代理包含默认与已启用卡片，第二个代理包含一张未启用卡片，用于覆盖三种状态。
 - Target 默认展示名称、默认目标、URL、API Key、模型映射、启用状态和“更多配置”。
+- 每张 Target 卡片头部左侧是 ⠿ 拖拽手柄（同一代理只有一个 Target 时置灰禁用），拖动手柄可调整卡片顺序，顺序即模型映射的匹配优先级。
 - API Key 输入框包含显隐与复制按钮。
 - 代理卡片底部右侧包含添加 Target 和删除代理操作。
 - 运行代理使用绿色状态圆点和绿色开关；停止代理使用灰色状态。

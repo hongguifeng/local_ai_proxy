@@ -651,6 +651,71 @@ describe("admin UI proxy page", { timeout: UI_TEST_TIMEOUT_MS }, () => {
     await expectPage(card.locator('[data-target-field="name"]')).toHaveValue("Fixture Target");
   });
 
+  it("reorders target cards by dragging the handle", async () => {
+    await loadAdminPage();
+    const card = page.locator('.proxy-card[data-index="0"]');
+    // A single target cannot be reordered, so the handle stays disabled.
+    await expectPage(card.locator("[data-drag-target]")).toBeDisabled();
+
+    await card.locator("[data-add-target]").click();
+    const handles = card.locator("[data-drag-target]");
+    const names = card.locator('[data-target-field="name"]');
+    await expectPage(handles).toHaveCount(2);
+    await expectPage(handles.first()).toBeEnabled();
+    await expectPage(names.nth(0)).toHaveValue("Fixture Target");
+    await expectPage(names.nth(1)).toHaveValue("Target");
+
+    const handle = await requiredBox(handles.first());
+    const lastCard = await requiredBox(card.locator(".target-card").last());
+    await page.mouse.move(handle.x + handle.width / 2, handle.y + handle.height / 2);
+    await page.mouse.down();
+    // Right half of the second card, so the card is dropped after it.
+    await page.mouse.move(lastCard.x + lastCard.width * 0.8, lastCard.y + lastCard.height / 2, {
+      steps: 12,
+    });
+    await expectPage(card.locator(".target-card.is-dragging")).toHaveCount(1);
+    await page.mouse.up();
+
+    await expectPage(names.nth(0)).toHaveValue("Target");
+    await expectPage(names.nth(1)).toHaveValue("Fixture Target");
+    await expectPage(card.locator(".target-card.is-dragging")).toHaveCount(0);
+
+    await Promise.all([
+      page.waitForResponse(
+        (response) =>
+          response.url().endsWith("/api/pairs") && response.request().method() === "PUT",
+      ),
+      page.locator("#saveProxies").click(),
+    ]);
+    expect(pairs[0]?.targets.map((target) => target.name)).toEqual(["Target", "Fixture Target"]);
+  }, 20_000);
+
+  it("moves target cards with the keyboard from the handle", async () => {
+    await loadAdminPage();
+    const card = page.locator('.proxy-card[data-index="0"]');
+    await card.locator("[data-add-target]").click();
+    const names = card.locator('[data-target-field="name"]');
+    await expectPage(names).toHaveCount(2);
+
+    await card.locator(".target-card").last().locator("[data-drag-target]").focus();
+    await page.keyboard.press("ArrowLeft");
+    await expectPage(names.nth(0)).toHaveValue("Target");
+    await expectPage(names.nth(1)).toHaveValue("Fixture Target");
+
+    // Focus follows the moved card, so repeated presses keep working.
+    await expectPage(
+      card.locator(".target-card").first().locator("[data-drag-target]"),
+    ).toBeFocused();
+    await page.keyboard.press("ArrowRight");
+    await expectPage(names.nth(0)).toHaveValue("Fixture Target");
+    await expectPage(names.nth(1)).toHaveValue("Target");
+
+    // The last card cannot move further right, and the order stays intact.
+    await page.keyboard.press("ArrowRight");
+    await expectPage(names.nth(0)).toHaveValue("Fixture Target");
+    await expectPage(names.nth(1)).toHaveValue("Target");
+  });
+
   it("keeps the selected default target enabled", async () => {
     await loadAdminPage();
     const card = page.locator('.proxy-card[data-index="0"]');
