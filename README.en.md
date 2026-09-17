@@ -57,6 +57,10 @@ qwen-local => qwen3
 | Export and cleanup | Export selected tasks as ZIP files or delete tasks and their request records. |
 | Paging and refresh | Browse large log directories with paged loading and automatic refresh. |
 
+![Task details panel](doc/ui_task_detail_en.png)
+
+The **Task details** panel (open it from the ⓘ button in a task header's control column) summarizes a single task's total cost, per-bucket token breakdown (input / output / cache read / cache write), and a **Token trend** line chart, with model/price groups expanded to show pricing and cost share.
+
 History data is stored by default in a `traffic.db` SQLite database under each log directory; proxy settings are stored in `logs/proxies.json`. Exported ZIP files contain readable Markdown, `request.json`, and `response.json`.
 
 ## Usage statistics

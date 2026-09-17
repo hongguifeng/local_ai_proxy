@@ -57,6 +57,10 @@ qwen-local => qwen3
 | 导出与清理 | 将选中的任务导出为 ZIP，或删除任务及其请求记录。 |
 | 分页与刷新 | 大型日志目录支持分页加载和自动刷新。 |
 
+![任务明细面板](doc/ui_task_detail_cn.png)
+
+**任务明细**面板（点击任务卡片头部控制列的 ⓘ 打开）汇总单次任务的总费用、按输入/输出/缓存分区的 token 明细与“Token 趋势”折线图，并按计费模型分组展开单价与费用占比。
+
 历史数据默认保存在每个日志目录的 `traffic.db` SQLite 数据库中，代理配置保存在 `logs/proxies.json`。导出的 ZIP 包含可读 Markdown、`request.json` 和 `response.json`。
 
 ## 使用统计

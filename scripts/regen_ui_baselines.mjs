@@ -12,6 +12,8 @@ const images = [
   "ui_logs_en.png",
   "ui_stats_cn.png",
   "ui_stats_en.png",
+  "ui_task_detail_cn.png",
+  "ui_task_detail_en.png",
 ];
 
 console.log("[regen] capturing UI baselines through the visual regression tests...");

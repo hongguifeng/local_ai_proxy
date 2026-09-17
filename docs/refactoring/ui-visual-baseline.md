@@ -2,7 +2,7 @@
 
 ## 目的
 
-本文件登记六张 UI 基线截图：Proxy 与 History 页面各按中/英界面拆分，使用量统计页面各一张，作为 Node.js 重构阶段的布局、颜色、信息层级和交互状态基线。
+本文件登记八张 UI 基线截图：Proxy、History、使用量统计与任务明细（History 页内的“任务明细”面板）各按中/英界面拆分，作为 Node.js 重构阶段的布局、颜色、信息层级和交互状态基线。
 
 原截图没有保存浏览器名称、浏览器版本、设备缩放或原始 viewport 元数据，因此无法把像素级差异直接认定为回归。第一轮 Playwright 基线建立时，应在固定浏览器和 viewport 下重新生成一套可自动比较的截图；在此之前，以现有图片尺寸和可见结构进行人工对照。
 
@@ -16,11 +16,13 @@
 | History | 英文 | `doc/ui_logs_en.png` | 1384 x 1224 | `f822a2f6c00815da82817a7049312d15dbdd9602abecd5c9e0f24089586eb905` |
 | Usage statistics | 中文 | `doc/ui_stats_cn.png` | 1278 x 1613 | `dac23fdfc8d59fa2a02461a07eb52cbcad51eb7b3c662d289aecc2b6081a8450` |
 | Usage statistics | 英文 | `doc/ui_stats_en.png` | 1278 x 1613 | `2b6f11098ad9a541d724e53216c67af4ae4e5b68b253a63d87a92e97395a253b` |
+| Task detail | 中文 | `doc/ui_task_detail_cn.png` | 1180 x 1180 | `451edf6077f32389743ec824cb044a1b32eb223fbfcc397ce68714c893fd5952` |
+| Task detail | 英文 | `doc/ui_task_detail_en.png` | 1180 x 1180 | `2af364684f2dee331aa2ea06d61594cb2a5849252565918720084c139b7ab175` |
 
 哈希复现命令：
 
 ```bash
-sha256sum doc/ui_proxy_cn.png doc/ui_proxy_en.png doc/ui_logs_cn.png doc/ui_logs_en.png doc/ui_stats_cn.png doc/ui_stats_en.png
+sha256sum doc/ui_proxy_cn.png doc/ui_proxy_en.png doc/ui_logs_cn.png doc/ui_logs_en.png doc/ui_stats_cn.png doc/ui_stats_en.png doc/ui_task_detail_cn.png doc/ui_task_detail_en.png
 ```
 
 比较规则（`screenshotDifference`，test-node/ui/admin-ui.test.ts）：宽度必须一致；高度相差 ≤ 4 px（多余行必须为近白背景，容忍不同环境下分数像素舍入造成的文档高度漂移）；重叠区域像素差异比例小于 0.25。
@@ -71,9 +73,21 @@ sha256sum doc/ui_proxy_cn.png doc/ui_proxy_en.png doc/ui_logs_cn.png doc/ui_logs
 - 未计价请求在概览卡片上以警告条提示，并提供“查看明细”操作。
 - 中文与英文界面保持同一布局，数值单位分别使用万/亿与 K/M/B 压缩显示。
 
+## Task detail 面板状态
+
+“任务明细”是 History 页内的浮层面板（`#pricingPanel`，覆盖 Request/Response 详情区，左侧任务列表保持可见），由任务卡片头部控制列的 ⓘ 图标按钮打开，由固定 fixture 驱动，关键基线：
+
+- 面板顶部为标题行（“任务明细”/“Task details”）与右侧“关闭”按钮，下方以细线分隔。
+- 标题下为总费用高亮块（绿色左色条 + 浅绿底）：左侧大号总费用金额，右侧“已计价 X / 未计价 Y / 等待中 Z”计数。
+- 高亮块下按序为转发地址、任务总耗时（首请求到末请求结束的墙钟时间）与请求总耗时（各请求耗时之和）三行说明。
+- 中部为计费明细表：按“未缓存输入 / 输出 / 缓存读取 / 缓存写入”列出计费 tokens、token 占比、金额与费用占比（带占比条），末行为合计。
+- 表下为“Whole-task cost”提示文案，随后是“Token 趋势”折线图（SVG，x=请求序号，y=每请求 token 总量，一个点一个请求，点带悬停 title）及图下方说明。
+- 面板底部列出按计费模型分组的“价格分组”折叠卡片（模型 · 请求数 · 费用），展开后为对应明细表。
+- 面板内容宽度上限约 760px；中英文界面保持同一布局，金额单位分别使用 ¥ 与 $。
+
 ## 自动化视觉回归约定
 
-基线重生成：`npm run regen:ui-baselines`（通过视觉回归测试重新捕获六张截图，并自动同步上表 SHA-256）。
+基线重生成：`npm run regen:ui-baselines`（通过视觉回归测试重新捕获八张截图，并自动同步上表 SHA-256）。
 
 Playwright 视觉测试建立后固定：
 

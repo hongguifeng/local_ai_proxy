@@ -1869,6 +1869,16 @@ describe("admin UI visual regression", { timeout: UI_TEST_TIMEOUT_MS }, () => {
     expect(await screenshotDifference("doc/ui_stats_en.png")).toBeLessThan(0.25);
   });
 
+  it("matches the Chinese task-detail panel baseline", async () => {
+    await loadTaskDetailBaseline("zh");
+    expect(await screenshotDifference("doc/ui_task_detail_cn.png")).toBeLessThan(0.25);
+  });
+
+  it("matches the English task-detail panel baseline", async () => {
+    await loadTaskDetailBaseline("en");
+    expect(await screenshotDifference("doc/ui_task_detail_en.png")).toBeLessThan(0.25);
+  });
+
   it("renders and operates at the 760 px responsive breakpoint", async () => {
     pairs.splice(0, pairs.length, ...visualPairs());
     await page.setViewportSize({ width: 760, height: 1000 });
@@ -2340,6 +2350,28 @@ async function loadStatisticsBaseline(language: "zh" | "en"): Promise<void> {
     return el ? el.scrollHeight : 0;
   });
   await page.setViewportSize({ width: 1278, height: Math.min(Math.max(height + 52, 900), 4200) });
+}
+
+// Opens the history page and the task-detail (pricing) panel so the baseline
+// captures the full panel: total cost, target/duration, the billed-token
+// breakdown table and the token-trend line chart, overlaid on the log list.
+async function loadTaskDetailBaseline(language: "zh" | "en"): Promise<void> {
+  await page.setViewportSize({ width: 1180, height: 1180 });
+  await loadAdminPage();
+  await Promise.all([
+    page.waitForResponse((response) => response.url().includes("/api/logs?")),
+    page.locator('[data-tab="logs"]').click(),
+  ]);
+  await page.locator("#languageSelect").selectOption(language);
+  await Promise.all([
+    page.waitForResponse((response) => response.url().endsWith("/api/log-groups/task-one/pricing")),
+    page.locator('[data-group-id="task-one"] [data-group-detail]').click(),
+  ]);
+  await page.waitForResponse((response) =>
+    response.url().endsWith("/api/log-groups/task-one/pricing/tokens"),
+  );
+  await expectPage(page.locator("#pricingPanel")).toBeVisible();
+  await expectPage(page.locator("#pricingPanel .token-chart svg")).toBeVisible();
 }
 
 async function loadAdminPage(): Promise<void> {
