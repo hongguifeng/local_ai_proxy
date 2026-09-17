@@ -404,6 +404,7 @@ const state = {
   taskPricing: null,
   taskTokenSeries: null,
   taskPricingAbort: null,
+  pricingGroupOpen: {},
   logsLoadedAt: 0,
   logLimit: 100,
   logOffset: 0,
@@ -1676,6 +1677,30 @@ function taskTokenChartHtml(points) {
     .join("");
   return `<div class="token-chart"><svg viewBox="0 0 ${width} ${height}" role="img" aria-label="${escapeHtml(t("tokenTrend"))}">${gridLines.join("")}${xLabels}${area}${line}${dots}</svg></div>`;
 }
+const pricingGroupOpenStorageKey = "llmProxyPricingGroupOpen";
+function loadPricingGroupOpenState() {
+  let parsed = null;
+  try {
+    parsed = JSON.parse(localStorage.getItem(pricingGroupOpenStorageKey) || "{}");
+  } catch {
+    parsed = null;
+  }
+  state.pricingGroupOpen = {};
+  if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) {
+    Object.entries(parsed).forEach(([groupId, models]) => {
+      if (!models || typeof models !== "object" || Array.isArray(models)) return;
+      state.pricingGroupOpen[groupId] = Object.fromEntries(
+        Object.keys(models)
+          .filter((model) => Boolean(models[model]))
+          .map((model) => [model, true]),
+      );
+    });
+  }
+}
+function savePricingGroupOpenState() {
+  localStorage.setItem(pricingGroupOpenStorageKey, JSON.stringify(state.pricingGroupOpen));
+}
+loadPricingGroupOpenState();
 function renderTaskPricingPanel() {
   const panel = $("pricingPanel");
   const detail = $("detail");
@@ -1697,11 +1722,17 @@ function renderTaskPricingPanel() {
     return;
   }
   const data = pricing.data;
+  const openGroups = state.pricingGroupOpen[active] || {};
+  const presentModels = new Set((data.groups || []).map((group) => group.billing_model || "—"));
+  Object.keys(openGroups).forEach((model) => {
+    if (!presentModels.has(model)) delete openGroups[model];
+  });
+  if (Object.keys(openGroups).length === 0) delete state.pricingGroupOpen[active];
   const groups = (data.groups || [])
-    .map(
-      (group) =>
-        `<details open><summary>${escapeHtml(group.billing_model || "—")} · ${escapeHtml(String(group.request_count))} ${escapeHtml(t("requests"))} · ${escapeHtml(pricingAmount(group.cost_nano_cny))}</summary>${taskBreakdownTableHtml(group.breakdown, pricingDecimalFromNano(group.cost_nano_cny), group.price)}</details>`,
-    )
+    .map((group) => {
+      const model = group.billing_model || "—";
+      return `<details${openGroups[model] ? " open" : ""} data-price-group-model="${escapeHtml(model)}"><summary>${escapeHtml(model)} · ${escapeHtml(String(group.request_count))} ${escapeHtml(t("requests"))} · ${escapeHtml(pricingAmount(group.cost_nano_cny))}</summary>${taskBreakdownTableHtml(group.breakdown, pricingDecimalFromNano(group.cost_nano_cny), group.price)}</details>`;
+    })
     .join("");
   const reasons = Object.entries(data.unpriced_reasons || {})
     .map(([reason, count]) => `${reason}: ${count}`)
@@ -3211,6 +3242,20 @@ $("logItems").addEventListener("keydown", (event) => {
   }
 });
 $("pricingPanel").addEventListener("click", (event) => {
+  const summary = event.target.closest("summary");
+  if (summary && state.activeTaskPricing) {
+    const details = summary.parentElement;
+    if (details && details.hasAttribute("data-price-group-model")) {
+      const openGroups =
+        state.pricingGroupOpen[state.activeTaskPricing] ||
+        (state.pricingGroupOpen[state.activeTaskPricing] = {});
+      const model = details.dataset.priceGroupModel;
+      if (details.open) delete openGroups[model];
+      else openGroups[model] = true;
+      savePricingGroupOpenState();
+      return;
+    }
+  }
   if (event.target.closest("[data-close-pricing]")) {
     closeTaskPricing();
     return;

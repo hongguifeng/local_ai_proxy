@@ -1310,6 +1310,26 @@ describe("admin UI history page", { timeout: UI_TEST_TIMEOUT_MS }, () => {
     const groupBreakdown = groupDetails.locator(".task-breakdown");
     await expectPage(groupBreakdown.locator("thead")).toContainText("Price ($/M tokens)");
     await expectPage(groupBreakdown.locator("thead")).toContainText("Billed tokens");
+    // Model/price groups default to collapsed and keep the manual state across panel re-renders.
+    await expectPage(groupBreakdown).toBeHidden();
+    await groupDetails.locator("summary").click();
+    await expectPage(groupBreakdown).toBeVisible();
+    await Promise.all([
+      page.waitForResponse((response) =>
+        response.url().endsWith("/api/log-groups/task-one/pricing"),
+      ),
+      group.locator("[data-group-detail]").press("Enter"),
+    ]);
+    await expectPage(groupBreakdown).toBeVisible();
+    await groupDetails.locator("summary").click();
+    await expectPage(groupBreakdown).toBeHidden();
+    await Promise.all([
+      page.waitForResponse((response) =>
+        response.url().endsWith("/api/log-groups/task-one/pricing"),
+      ),
+      group.locator("[data-group-detail]").press("Enter"),
+    ]);
+    await expectPage(groupBreakdown).toBeHidden();
     const taskBreakdown = panel.locator(".task-breakdown").first();
     await expectPage(taskBreakdown.locator("thead")).toContainText("Share");
     await expectPage(taskBreakdown.locator("tbody tr").first()).toContainText("17.54%");

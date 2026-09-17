@@ -16,8 +16,8 @@
 | History | 英文 | `doc/ui_logs_en.png` | 1384 x 1224 | `f822a2f6c00815da82817a7049312d15dbdd9602abecd5c9e0f24089586eb905` |
 | Usage statistics | 中文 | `doc/ui_stats_cn.png` | 1278 x 1613 | `dac23fdfc8d59fa2a02461a07eb52cbcad51eb7b3c662d289aecc2b6081a8450` |
 | Usage statistics | 英文 | `doc/ui_stats_en.png` | 1278 x 1613 | `2b6f11098ad9a541d724e53216c67af4ae4e5b68b253a63d87a92e97395a253b` |
-| Task detail | 中文 | `doc/ui_task_detail_cn.png` | 1180 x 1180 | `451edf6077f32389743ec824cb044a1b32eb223fbfcc397ce68714c893fd5952` |
-| Task detail | 英文 | `doc/ui_task_detail_en.png` | 1180 x 1180 | `2af364684f2dee331aa2ea06d61594cb2a5849252565918720084c139b7ab175` |
+| Task detail | 中文 | `doc/ui_task_detail_cn.png` | 1180 x 1180 | `28c658ccb4455b71df8e27577b52b22420f8a80b1e093ff77565b2eeff0cf314` |
+| Task detail | 英文 | `doc/ui_task_detail_en.png` | 1180 x 1180 | `364808c51e0eae587e901218cb66bf2f3cf835107689a2fb4fab4492f0535cf7` |
 
 哈希复现命令：
 
@@ -82,7 +82,7 @@ sha256sum doc/ui_proxy_cn.png doc/ui_proxy_en.png doc/ui_logs_cn.png doc/ui_logs
 - 高亮块下按序为转发地址、任务总耗时（首请求到末请求结束的墙钟时间）与请求总耗时（各请求耗时之和）三行说明。
 - 中部为计费明细表：按“未缓存输入 / 输出 / 缓存读取 / 缓存写入”列出计费 tokens、token 占比、金额与费用占比（带占比条），末行为合计。
 - 表下为“Whole-task cost”提示文案，随后是“Token 趋势”折线图（SVG，x=请求序号，y=每请求 token 总量，一个点一个请求，点带悬停 title）及图下方说明。
-- 面板底部列出按计费模型分组的“价格分组”折叠卡片（模型 · 请求数 · 费用），展开后为对应明细表。
+- 面板底部列出按计费模型分组的“价格分组”折叠卡片（模型 · 请求数 · 费用），默认折叠，展开后为对应明细表；手动展开/折叠状态按任务记忆，面板刷新后保持。
 - 面板内容宽度上限约 760px；中英文界面保持同一布局，金额单位分别使用 ¥ 与 $。
 
 ## 自动化视觉回归约定
