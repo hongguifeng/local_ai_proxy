@@ -127,6 +127,7 @@ const translations = {
     tokensBilled: "已计价 token 数",
     pricePerMillion: "单价（元/M token）",
     amountCny: "金额（元）",
+    tokenShare: "Token 占比",
     costShare: "占比",
     total: "合计",
     activeDuration: "请求总耗时",
@@ -313,6 +314,7 @@ const translations = {
     tokensBilled: "Billed tokens",
     pricePerMillion: "Price ($/M tokens)",
     amountCny: "Amount (USD)",
+    tokenShare: "Token share",
     costShare: "Share",
     total: "Total",
     activeDuration: "Request time",
@@ -1578,6 +1580,7 @@ function taskBreakdownTableHtml(breakdown, totalAmount, price = null) {
     price
       ? `<td>${escapeHtml(value === null || value === undefined ? "—" : String(value))}</td>`
       : "";
+  const totalTokens = taskBreakdownTotalTokens(breakdown);
   const rows = [
     ["input_uncached", "inputUncached", "input_per_million"],
     ["output", "output", "output_per_million"],
@@ -1586,10 +1589,10 @@ function taskBreakdownTableHtml(breakdown, totalAmount, price = null) {
   ]
     .map(([key, label, priceKey]) => {
       const bucket = breakdown?.[key] || {};
-      return `<tr><th>${escapeHtml(t(label))}</th><td>${escapeHtml(formatIntegerValue(bucket.tokens ?? 0))}</td>${priceCell(price?.[priceKey])}<td>${escapeHtml(formatCurrencyAmount(bucket.amount ?? null))}</td>${shareCellHtml(bucket.amount, totalAmount)}</tr>`;
+      return `<tr><th>${escapeHtml(t(label))}</th><td>${escapeHtml(formatIntegerValue(bucket.tokens ?? 0))}</td>${shareCellHtml(bucket.tokens ?? 0, totalTokens)}${priceCell(price?.[priceKey])}<td>${escapeHtml(formatCurrencyAmount(bucket.amount ?? null))}</td>${shareCellHtml(bucket.amount, totalAmount)}</tr>`;
     })
     .join("");
-  return `<div class="table-scroll"><table class="pricing-table task-breakdown"><thead><tr><th></th><th>${escapeHtml(t("tokensBilled"))}</th>${priceHeader}<th>${escapeHtml(t("amountCny"))}</th><th>${escapeHtml(t("costShare"))}</th></tr></thead><tbody>${rows}</tbody><tfoot><tr><th>${escapeHtml(t("total"))}</th><td>${escapeHtml(formatIntegerValue(taskBreakdownTotalTokens(breakdown)))}</td>${price ? "<td></td>" : ""}<td>${escapeHtml(formatCurrencyAmount(totalAmount))}</td><td></td></tr></tfoot></table></div>`;
+  return `<div class="table-scroll"><table class="pricing-table task-breakdown"><thead><tr><th></th><th>${escapeHtml(t("tokensBilled"))}</th><th>${escapeHtml(t("tokenShare"))}</th>${priceHeader}<th>${escapeHtml(t("amountCny"))}</th><th>${escapeHtml(t("costShare"))}</th></tr></thead><tbody>${rows}</tbody><tfoot><tr><th>${escapeHtml(t("total"))}</th><td>${escapeHtml(formatIntegerValue(totalTokens))}</td><td></td>${price ? "<td></td>" : ""}<td>${escapeHtml(formatCurrencyAmount(totalAmount))}</td><td></td></tr></tfoot></table></div>`;
 }
 // Raw SVG line chart for the task-detail token trend: x = request sequence,
 // y = total tokens (request + response) of each finished request. Requests
