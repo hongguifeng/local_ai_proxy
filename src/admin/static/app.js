@@ -2023,6 +2023,12 @@ function formatDuration(milliseconds) {
   // be rendered as 00:00, which looked like a missing/zero measurement.
   if (value < 1_000) return `${Math.round(value)} ms`;
   const totalSeconds = Math.round(value / 1_000);
+  if (totalSeconds >= 3_600) {
+    const hours = Math.floor(totalSeconds / 3_600);
+    const minutes = Math.floor((totalSeconds % 3_600) / 60);
+    const seconds = totalSeconds % 60;
+    return `${hours}:${String(minutes).padStart(2, "0")}:${String(seconds).padStart(2, "0")}`;
+  }
   const minutes = Math.floor(totalSeconds / 60);
   const seconds = String(totalSeconds % 60).padStart(2, "0");
   return `${String(minutes).padStart(2, "0")}:${seconds}`;
