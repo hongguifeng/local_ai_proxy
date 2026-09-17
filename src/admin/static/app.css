@@ -1551,12 +1551,17 @@ label span {
 .pricing-panel > .pricing-note,
 .pricing-panel > h3,
 .pricing-panel > details,
-.pricing-panel > .token-chart {
+.pricing-panel > .token-chart,
+.pricing-panel > .cost-chart {
   max-width: 760px;
 }
-/* Task-detail token trend: raw SVG line chart (request sequence vs total
-   tokens). The svg scales to the panel width via its viewBox. */
-.token-chart svg {
+/* Task-detail token/cost trend: raw SVG line charts (request sequence vs
+   total tokens / cumulative cost). The svgs scale to the panel width via
+   their viewBox and share the token-chart-* element classes; the containers
+   are distinct (.token-chart / .cost-chart) so test selectors stay
+   unambiguous. */
+.token-chart svg,
+.cost-chart svg {
   display: block;
   width: 100%;
   height: auto;
@@ -1591,7 +1596,8 @@ label span {
   stroke-width: 1.5;
   cursor: default;
 }
-.token-chart-empty {
+.token-chart-empty,
+.cost-chart-empty {
   margin: 4px 0 2px;
   padding: 18px;
   border: 1px dashed var(--line);

@@ -335,6 +335,46 @@ describe("TrafficRepository pricing persistence", () => {
     expect(repository.taskTokenSeries("missing")).toBeUndefined();
     repository.close();
   });
+
+  it("lists per-request cumulative costs by sequence, holding the total for unpriced requests", async () => {
+    const root = await mkdtemp(path.join(os.tmpdir(), "llm-proxy-repository-cost-series-"));
+    temporaryDirectories.push(root);
+    const repository = new TrafficRepository(root);
+    repository.upsertTask({ id: "cost-series-task", match_strategy_version: 4 });
+    const write = (id: string, sequence: number, extra: Record<string, unknown> = {}) =>
+      repository.upsertRecord({
+        id,
+        task_id: "cost-series-task",
+        sequence,
+        method: "POST",
+        path: "/v1/chat/completions",
+        ...extra,
+      });
+    write("cost-record-1", 1, {
+      event: "request_finished",
+      pricing: { pricing_status: "priced", cost_nano_cny: "12340000" },
+    });
+    write("cost-record-2", 2, {
+      event: "request_finished",
+      pricing: { pricing_status: "unpriced", pricing_reason: "missing_usage" },
+    });
+    write("cost-record-3", 3, {
+      event: "request_pending_response",
+      pricing: { pricing_status: "pending" },
+    });
+    write("cost-record-4", 4, {
+      event: "request_finished",
+      pricing: { pricing_status: "priced", cost_nano_cny: "500000000" },
+    });
+    expect(repository.taskCostSeries("cost-series-task")).toEqual([
+      { sequence: 1, cost_nano_cny: "12340000" },
+      { sequence: 2, cost_nano_cny: "12340000" },
+      { sequence: 3, cost_nano_cny: "12340000" },
+      { sequence: 4, cost_nano_cny: "512340000" },
+    ]);
+    expect(repository.taskCostSeries("missing")).toBeUndefined();
+    repository.close();
+  });
 });
 
 describe("TrafficRepository.transaction", () => {

@@ -92,6 +92,16 @@ export interface TaskTokenSeriesPoint {
   readonly total_tokens: number | null;
 }
 
+export interface TaskCostSeriesPoint {
+  readonly sequence: number;
+  /**
+   * Cumulative cost in nano-CNY from the task start through this request,
+   * including this request's own cost (unpriced/pending requests count as
+   * zero), so the series is non-decreasing.
+   */
+  readonly cost_nano_cny: string;
+}
+
 export class TrafficRepository {
   get database(): Database.Database {
     return this.#database;
@@ -547,6 +557,30 @@ export class TrafficRepository {
         response_tokens: response,
         total_tokens:
           request === null && response === null ? null : (request ?? 0) + (response ?? 0),
+      };
+    });
+  }
+
+  /**
+   * Per-request cumulative cost for the task-detail chart, ordered by request
+   * sequence. Each point carries the total cost from the task start through
+   * that request; priced requests add their own cost, unpriced/pending
+   * requests keep the running total unchanged.
+   */
+  taskCostSeries(taskId: string): readonly TaskCostSeriesPoint[] | undefined {
+    if (this.getTask(taskId) === undefined) return undefined;
+    const rows = this.#database
+      .prepare(
+        `SELECT sequence, CAST(cost_nano_cny AS TEXT) AS cost_nano_cny
+         FROM records WHERE task_id = ? ORDER BY sequence`,
+      )
+      .all(taskId) as { sequence: number; cost_nano_cny: string | null }[];
+    let running = 0n;
+    return rows.map((row) => {
+      if (row.cost_nano_cny !== null) running += BigInt(row.cost_nano_cny);
+      return {
+        sequence: integerValue(row.sequence, 0),
+        cost_nano_cny: running.toString(),
       };
     });
   }

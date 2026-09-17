@@ -421,6 +421,16 @@ beforeAll(async () => {
           { sequence: 5, request_tokens: 46, response_tokens: 212, total_tokens: 258 },
         ];
       },
+      getGroupCostSeries: (groupId) => {
+        if (groupId !== "task-one") return undefined;
+        return [
+          { sequence: 1, cost_nano_cny: "10400000" },
+          { sequence: 2, cost_nano_cny: "10400000" },
+          { sequence: 3, cost_nano_cny: "19000000" },
+          { sequence: 4, cost_nano_cny: "20250000" },
+          { sequence: 5, cost_nano_cny: "42750000" },
+        ];
+      },
       cleanupSelectedGroups: (groupIds) => {
         groupIds.forEach((groupId) => deletedLogGroups.add(groupId));
         return { deleted: groupIds, deleted_count: groupIds.length };
@@ -1338,9 +1348,9 @@ describe("admin UI history page", { timeout: UI_TEST_TIMEOUT_MS }, () => {
     await expectPage(taskBreakdown.locator("tfoot")).not.toContainText("%");
     await expectPage(taskBreakdown.locator("tbody tr").nth(1)).toContainText("1,250");
     // Token trend line chart: one dot per request with a known token total.
-    await page.waitForResponse((response) =>
-      response.url().endsWith("/api/log-groups/task-one/pricing/tokens"),
-    );
+    // The chart series requests fire with the panel re-open; no response wait here
+    // because waitForResponse can miss responses that already delivered in this re-render.
+    // The expectPage assertions below retry until the chart renders.
     await expectPage(panel).toContainText("Token trend");
     const tokenChart = panel.locator(".token-chart svg");
     await expectPage(tokenChart).toBeVisible();
@@ -1350,6 +1360,18 @@ describe("admin UI history page", { timeout: UI_TEST_TIMEOUT_MS }, () => {
     );
     await expectPage(tokenChart.locator(".token-chart-dot").last().locator("title")).toHaveText(
       "Request #5: 258 tokens",
+    );
+    // Cost trend line chart: one dot per request with the running total;
+    // the final dot equals the task total shown in the panel header.
+    await expectPage(panel).toContainText("Cost trend");
+    const costChart = panel.locator(".cost-chart svg");
+    await expectPage(costChart).toBeVisible();
+    await expectPage(costChart.locator(".token-chart-dot")).toHaveCount(5);
+    await expectPage(costChart.locator(".token-chart-dot").first().locator("title")).toHaveText(
+      "Request #1: Cumulative $0.0104",
+    );
+    await expectPage(costChart.locator(".token-chart-dot").last().locator("title")).toHaveText(
+      "Request #5: Cumulative $0.0428",
     );
     await panel.screenshot({ path: "test-results/task-pricing-panel.png" });
     await expectPage(group.locator(".log-group-body")).toHaveCount(0);
@@ -2374,7 +2396,7 @@ async function loadStatisticsBaseline(language: "zh" | "en"): Promise<void> {
 
 // Opens the history page and the task-detail (pricing) panel so the baseline
 // captures the full panel: total cost, target/duration, the billed-token
-// breakdown table and the token-trend line chart, overlaid on the log list.
+// breakdown table and the token/cost-trend line charts, overlaid on the log list.
 async function loadTaskDetailBaseline(language: "zh" | "en"): Promise<void> {
   await page.setViewportSize({ width: 1180, height: 1180 });
   await loadAdminPage();
@@ -2385,13 +2407,17 @@ async function loadTaskDetailBaseline(language: "zh" | "en"): Promise<void> {
   await page.locator("#languageSelect").selectOption(language);
   await Promise.all([
     page.waitForResponse((response) => response.url().endsWith("/api/log-groups/task-one/pricing")),
+    page.waitForResponse((response) =>
+      response.url().endsWith("/api/log-groups/task-one/pricing/tokens"),
+    ),
+    page.waitForResponse((response) =>
+      response.url().endsWith("/api/log-groups/task-one/pricing/costs"),
+    ),
     page.locator('[data-group-id="task-one"] [data-group-detail]').click(),
   ]);
-  await page.waitForResponse((response) =>
-    response.url().endsWith("/api/log-groups/task-one/pricing/tokens"),
-  );
   await expectPage(page.locator("#pricingPanel")).toBeVisible();
   await expectPage(page.locator("#pricingPanel .token-chart svg")).toBeVisible();
+  await expectPage(page.locator("#pricingPanel .cost-chart svg")).toBeVisible();
 }
 
 async function loadAdminPage(): Promise<void> {

@@ -16,8 +16,8 @@
 | History | 英文 | `doc/ui_logs_en.png` | 1384 x 1224 | `f822a2f6c00815da82817a7049312d15dbdd9602abecd5c9e0f24089586eb905` |
 | Usage statistics | 中文 | `doc/ui_stats_cn.png` | 1278 x 1613 | `dac23fdfc8d59fa2a02461a07eb52cbcad51eb7b3c662d289aecc2b6081a8450` |
 | Usage statistics | 英文 | `doc/ui_stats_en.png` | 1278 x 1613 | `2b6f11098ad9a541d724e53216c67af4ae4e5b68b253a63d87a92e97395a253b` |
-| Task detail | 中文 | `doc/ui_task_detail_cn.png` | 1180 x 1180 | `28c658ccb4455b71df8e27577b52b22420f8a80b1e093ff77565b2eeff0cf314` |
-| Task detail | 英文 | `doc/ui_task_detail_en.png` | 1180 x 1180 | `364808c51e0eae587e901218cb66bf2f3cf835107689a2fb4fab4492f0535cf7` |
+| Task detail | 中文 | `doc/ui_task_detail_cn.png` | 1180 x 1180 | `461140f7e2465b0045d69df213a933f73795b802d863b497d8c7653f7846014e` |
+| Task detail | 英文 | `doc/ui_task_detail_en.png` | 1180 x 1180 | `6e5491ecd3a15dc4dd3fefd97b7fbeec67a259c309a3ca66750aaeb3e8483e0a` |
 
 哈希复现命令：
 

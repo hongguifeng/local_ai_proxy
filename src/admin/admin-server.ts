@@ -55,6 +55,7 @@ export interface LogAdminService {
   readonly getSummary?: (recordId: string) => unknown;
   readonly getGroupPricing?: (groupId: string) => unknown;
   readonly getGroupTokenSeries?: (groupId: string) => unknown;
+  readonly getGroupCostSeries?: (groupId: string) => unknown;
   listGroups(query: string, limit: number, offset: number): LogGroupPage;
 }
 
@@ -205,6 +206,11 @@ export const LOG_GROUP_LOGS_SCHEMA = {
 } as const;
 
 export const LOG_GROUP_TOKEN_SERIES_SCHEMA = {
+  type: "array",
+  items: { type: "object", additionalProperties: true },
+} as const;
+
+export const LOG_GROUP_COST_SERIES_SCHEMA = {
   type: "array",
   items: { type: "object", additionalProperties: true },
 } as const;
@@ -601,6 +607,7 @@ export function createAdminServer(options: AdminServerOptions): FastifyInstance 
     );
     const getGroupLogs = logService.getGroupLogs?.bind(logService);
     const getGroupPricing = logService.getGroupPricing?.bind(logService);
+    const getGroupCostSeries = logService.getGroupCostSeries?.bind(logService);
     if (getGroupPricing !== undefined) {
       server.get<{ Params: { id: string } }>(
         "/api/log-groups/:id/pricing",
@@ -635,6 +642,24 @@ export function createAdminServer(options: AdminServerOptions): FastifyInstance 
         },
         (request, reply) =>
           getGroupTokenSeries(request.params.id) ??
+          reply.code(404).send(adminError("log_group_not_found", "Log group not found.")),
+      );
+    }
+    if (getGroupCostSeries !== undefined) {
+      server.get<{ Params: { id: string } }>(
+        "/api/log-groups/:id/pricing/costs",
+        {
+          schema: {
+            params: {
+              type: "object",
+              required: ["id"],
+              properties: { id: { type: "string", minLength: 1 } },
+            },
+            response: { 200: LOG_GROUP_COST_SERIES_SCHEMA },
+          },
+        },
+        (request, reply) =>
+          getGroupCostSeries(request.params.id) ??
           reply.code(404).send(adminError("log_group_not_found", "Log group not found.")),
       );
     }
