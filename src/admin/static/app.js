@@ -132,12 +132,16 @@ const translations = {
     total: "合计",
     activeDuration: "请求总耗时",
     totalDuration: "任务总耗时",
-    tokenTrend: "Token 趋势",
+    tokenTrend: "Token 总量趋势",
     tokenTrendNote: "每个请求的 token 总量（请求 + 响应），按请求序号；尚无 token 数的请求不显示。",
     tokenTrendNoData: "暂无 token 数据",
     costTrend: "费用趋势",
     costTrendNote: "累计费用（元），从任务开始到每个请求为止的总费用；尚无费用的请求按 0 计入。",
     costTrendNoData: "暂无费用数据",
+    outputTokenTrend: "Token 输出趋势",
+    outputTokenTrendNote:
+      "累计输出 token，从任务开始到每个请求为止的输出 token 总数；尚无输出 token 数的请求按 0 计入。",
+    outputTokenTrendNoData: "暂无输出 token 数据",
     priceGroups: "按模型 / 单价分组",
     priced: "已计价",
     retry: "重试",
@@ -322,7 +326,7 @@ const translations = {
     total: "Total",
     activeDuration: "Request time",
     totalDuration: "Task time",
-    tokenTrend: "Token trend",
+    tokenTrend: "Total token trend",
     tokenTrendNote:
       "Total tokens (request + response) per request, by request sequence; requests without token counts are not shown.",
     tokenTrendNoData: "No token data",
@@ -330,6 +334,10 @@ const translations = {
     costTrendNote:
       "Cumulative cost from the task start through each request; requests without a cost yet count as zero.",
     costTrendNoData: "No cost data",
+    outputTokenTrend: "Token output trend",
+    outputTokenTrendNote:
+      "Cumulative output tokens from the task start through each request; requests without an output token count yet count as zero.",
+    outputTokenTrendNoData: "No output token data",
     priceGroups: "Model / price groups",
     priced: "Priced",
     retry: "Retry",
@@ -411,6 +419,7 @@ const state = {
   taskPricing: null,
   taskTokenSeries: null,
   taskCostSeries: null,
+  taskOutputTokenSeries: null,
   taskPricingAbort: null,
   pricingGroupOpen: {},
   logsLoadedAt: 0,
@@ -1780,6 +1789,88 @@ function taskCostChartHtml(points) {
     .join("");
   return `<div class="cost-chart"><svg viewBox="0 0 ${width} ${height}" role="img" aria-label="${escapeHtml(t("costTrend"))}">${gridLines.join("")}${xLabels}${area}${line}${dots}</svg></div>`;
 }
+// Raw SVG line chart for the task-detail token output trend: x = request
+// sequence, y = cumulative output (response) tokens from the task start
+// through each request. Requests whose output token count is still unknown
+// keep the running total unchanged, so the line is flat between requests
+// with known output tokens; the axis always shows the real sequence numbers.
+function taskOutputTokenChartHtml(points) {
+  const known = (points || []).filter((point) => Number(point?.output_tokens) >= 0);
+  const english = state.language === "en";
+  if (known.length === 0)
+    return `<div class="output-token-chart-empty">${escapeHtml(t("outputTokenTrendNoData"))}</div>`;
+  const width = 728,
+    height = 190,
+    padTop = 14,
+    padRight = 14,
+    padBottom = 26,
+    padLeft = 56;
+  const plotWidth = width - padLeft - padRight;
+  const plotHeight = height - padTop - padBottom;
+  const maxSequence = Math.max(...known.map((point) => Number(point.sequence)));
+  const minSequence = Math.min(...known.map((point) => Number(point.sequence)));
+  const maxTokens = Math.max(...known.map((point) => Number(point.output_tokens)));
+  const niceStep =
+    maxTokens <= 0
+      ? 1
+      : (() => {
+          const rough = maxTokens / 4;
+          const magnitude = 10 ** Math.floor(Math.log10(rough));
+          for (const factor of [1, 2, 5, 10]) {
+            if (rough <= factor * magnitude) return factor * magnitude;
+          }
+          return 10 * magnitude;
+        })();
+  const axisMax = Math.max(niceStep * 4, Math.ceil(maxTokens / niceStep) * niceStep);
+  const xFor = (sequence) =>
+    maxSequence === minSequence
+      ? padLeft + plotWidth / 2
+      : padLeft + ((Number(sequence) - minSequence) / (maxSequence - minSequence)) * plotWidth;
+  const yFor = (tokens) => padTop + (1 - Number(tokens) / axisMax) * plotHeight;
+  const gridLines = [];
+  for (let value = 0; value <= axisMax; value += niceStep) {
+    const y = yFor(value);
+    gridLines.push(
+      `<line x1="${padLeft}" y1="${y}" x2="${width - padRight}" y2="${y}" class="token-chart-grid"/><text x="${padLeft - 8}" y="${y + 4}" text-anchor="end" class="token-chart-tick">${compactNumber(value)}</text>`,
+    );
+  }
+  const labelCount = Math.min(8, known.length, maxSequence - minSequence + 1);
+  const labelSteps = labelCount <= 1 ? [0] : Array.from({ length: labelCount }, (_, i) => i);
+  const xLabels = labelSteps
+    .map((i) => {
+      const index = Math.round((i * (known.length - 1)) / (labelCount - 1 || 1));
+      const point = known[index];
+      return `<text x="${xFor(point.sequence)}" y="${height - 8}" text-anchor="middle" class="token-chart-tick">${Number(point.sequence)}</text>`;
+    })
+    .join("");
+  const area =
+    known.length >= 2
+      ? `<polygon class="token-chart-area" points="${known
+          .map((point) => `${xFor(point.sequence)},${yFor(point.output_tokens)}`)
+          .join(
+            " ",
+          )} ${xFor(known.at(-1).sequence)},${padTop + plotHeight} ${xFor(known[0].sequence)},${padTop + plotHeight}"/>`
+      : "";
+  const line =
+    known.length >= 2
+      ? `<polyline class="token-chart-line" points="${known
+          .map((point) => `${xFor(point.sequence)},${yFor(point.output_tokens)}`)
+          .join(" ")}"/>`
+      : "";
+  const dots = known
+    .map((point) => {
+      const x = xFor(point.sequence);
+      const y = yFor(point.output_tokens);
+      const title = escapeHtml(
+        `${english ? "Request" : "请求"} #${Number(point.sequence)}: ${english ? "Cumulative " : "累计 "}${fullNumber(
+          point.output_tokens,
+        )} ${english ? " output tokens" : " 个输出 token"}`,
+      );
+      return `<circle class="token-chart-dot" cx="${x}" cy="${y}" r="3.5"><title>${title}</title></circle>`;
+    })
+    .join("");
+  return `<div class="output-token-chart"><svg viewBox="0 0 ${width} ${height}" role="img" aria-label="${escapeHtml(t("outputTokenTrend"))}">${gridLines.join("")}${xLabels}${area}${line}${dots}</svg></div>`;
+}
 const pricingGroupOpenStorageKey = "llmProxyPricingGroupOpen";
 function loadPricingGroupOpenState() {
   let parsed = null;
@@ -1860,7 +1951,12 @@ function renderTaskPricingPanel() {
   const costSeries =
     state.taskCostSeries && state.taskCostSeries.id === active ? state.taskCostSeries.points : null;
   const costChart = `<h3>${escapeHtml(t("costTrend"))}</h3>${costSeries === null ? `<p>${escapeHtml(t("loading"))}</p>` : taskCostChartHtml(costSeries)}<p class="pricing-note">${escapeHtml(t("costTrendNote"))}</p>`;
-  panel.innerHTML = `<div class="pricing-panel-head"><strong>${escapeHtml(t("taskPricing"))}</strong><button type="button" data-close-pricing>${escapeHtml(t("close"))}</button></div><div class="pricing-card-head"><strong>${escapeHtml(formatGroupCost(cost))}</strong><span>${escapeHtml(`${t("priced")} ${data.priced_request_count} / ${t("unpriced")} ${data.unpriced_request_count} / ${t("pending")} ${data.pending_request_count}`)}</span></div><p class="pricing-target"><strong>${escapeHtml(t("target"))}:</strong> ${escapeHtml(data.target || "—")}</p>${totalDurationLine}${durationText !== "" ? `<p class="pricing-target"><strong>${escapeHtml(t("activeDuration"))}:</strong> ${escapeHtml(durationText)}</p>` : ""}${data.priced_request_count ? taskBreakdownTableHtml(data.breakdown, pricingDecimalFromNano(data.cost_nano_cny)) : `<p>${escapeHtml(reasons || t("unpriced"))}</p>`}<p class="pricing-note">${escapeHtml(t("taskWholeScope"))}</p>${tokenChart}${costChart}<h3>${escapeHtml(t("priceGroups"))}</h3>${groups || `<p>${escapeHtml(t("unpriced"))}</p>`}`;
+  const outputTokenSeries =
+    state.taskOutputTokenSeries && state.taskOutputTokenSeries.id === active
+      ? state.taskOutputTokenSeries.points
+      : null;
+  const outputTokenChart = `<h3>${escapeHtml(t("outputTokenTrend"))}</h3>${outputTokenSeries === null ? `<p>${escapeHtml(t("loading"))}</p>` : taskOutputTokenChartHtml(outputTokenSeries)}<p class="pricing-note">${escapeHtml(t("outputTokenTrendNote"))}</p>`;
+  panel.innerHTML = `<div class="pricing-panel-head"><strong>${escapeHtml(t("taskPricing"))}</strong><button type="button" data-close-pricing>${escapeHtml(t("close"))}</button></div><div class="pricing-card-head"><strong>${escapeHtml(formatGroupCost(cost))}</strong><span>${escapeHtml(`${t("priced")} ${data.priced_request_count} / ${t("unpriced")} ${data.unpriced_request_count} / ${t("pending")} ${data.pending_request_count}`)}</span></div><p class="pricing-target"><strong>${escapeHtml(t("target"))}:</strong> ${escapeHtml(data.target || "—")}</p>${totalDurationLine}${durationText !== "" ? `<p class="pricing-target"><strong>${escapeHtml(t("activeDuration"))}:</strong> ${escapeHtml(durationText)}</p>` : ""}${data.priced_request_count ? taskBreakdownTableHtml(data.breakdown, pricingDecimalFromNano(data.cost_nano_cny)) : `<p>${escapeHtml(reasons || t("unpriced"))}</p>`}<p class="pricing-note">${escapeHtml(t("taskWholeScope"))}</p>${tokenChart}${outputTokenChart}${costChart}<h3>${escapeHtml(t("priceGroups"))}</h3>${groups || `<p>${escapeHtml(t("unpriced"))}</p>`}`;
 }
 function loadTaskTokenSeries(groupId, signal) {
   return api(`/api/log-groups/${encodeURIComponent(groupId)}/pricing/tokens`, { signal })
@@ -1888,6 +1984,19 @@ function loadTaskCostSeries(groupId, signal) {
       renderTaskPricingPanel();
     });
 }
+function loadTaskOutputTokenSeries(groupId, signal) {
+  return api(`/api/log-groups/${encodeURIComponent(groupId)}/pricing/output-tokens`, { signal })
+    .then((points) => {
+      if (state.activeTaskPricing !== groupId) return;
+      state.taskOutputTokenSeries = { id: groupId, points };
+      renderTaskPricingPanel();
+    })
+    .catch((error) => {
+      if (error?.name === "AbortError" || state.activeTaskPricing !== groupId) return;
+      state.taskOutputTokenSeries = { id: groupId, points: [] };
+      renderTaskPricingPanel();
+    });
+}
 async function showTaskPricing(groupId) {
   state.taskPricingAbort?.abort();
   const controller = new AbortController();
@@ -1896,9 +2005,11 @@ async function showTaskPricing(groupId) {
   state.taskPricing = { id: groupId, loading: true, error: false, data: null };
   state.taskTokenSeries = { id: groupId, points: null };
   state.taskCostSeries = { id: groupId, points: null };
+  state.taskOutputTokenSeries = { id: groupId, points: null };
   renderTaskPricingPanel();
   const series = loadTaskTokenSeries(groupId, controller.signal);
   const costSeries = loadTaskCostSeries(groupId, controller.signal);
+  const outputTokenSeries = loadTaskOutputTokenSeries(groupId, controller.signal);
   try {
     const data = await api(`/api/log-groups/${encodeURIComponent(groupId)}/pricing`, {
       signal: controller.signal,
@@ -1911,7 +2022,7 @@ async function showTaskPricing(groupId) {
     state.taskPricing = { id: groupId, loading: false, error: true, data: null };
   }
   renderTaskPricingPanel();
-  await Promise.all([series, costSeries]);
+  await Promise.all([series, costSeries, outputTokenSeries]);
 }
 function closeTaskPricing() {
   state.taskPricingAbort?.abort();
@@ -1919,6 +2030,7 @@ function closeTaskPricing() {
   state.activeTaskPricing = null;
   state.taskTokenSeries = null;
   state.taskCostSeries = null;
+  state.taskOutputTokenSeries = null;
   renderTaskPricingPanel();
 }
 async function refreshTaskPricingPanel() {
@@ -1928,6 +2040,8 @@ async function refreshTaskPricingPanel() {
   state.taskPricingAbort?.abort();
   state.taskPricingAbort = controller;
   const series = loadTaskTokenSeries(groupId, controller.signal);
+  const costSeries = loadTaskCostSeries(groupId, controller.signal);
+  const outputTokenSeries = loadTaskOutputTokenSeries(groupId, controller.signal);
   try {
     const data = await api(`/api/log-groups/${encodeURIComponent(groupId)}/pricing`, {
       signal: controller.signal,
@@ -1940,7 +2054,7 @@ async function refreshTaskPricingPanel() {
     state.taskPricing = { id: groupId, loading: false, error: true, data: null };
     renderTaskPricingPanel();
   }
-  await series;
+  await Promise.all([series, costSeries, outputTokenSeries]);
 }
 function jsonType(value) {
   if (value === null) return "null";

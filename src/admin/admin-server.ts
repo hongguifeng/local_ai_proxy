@@ -56,6 +56,7 @@ export interface LogAdminService {
   readonly getGroupPricing?: (groupId: string) => unknown;
   readonly getGroupTokenSeries?: (groupId: string) => unknown;
   readonly getGroupCostSeries?: (groupId: string) => unknown;
+  readonly getGroupOutputTokenSeries?: (groupId: string) => unknown;
   listGroups(query: string, limit: number, offset: number): LogGroupPage;
 }
 
@@ -211,6 +212,11 @@ export const LOG_GROUP_TOKEN_SERIES_SCHEMA = {
 } as const;
 
 export const LOG_GROUP_COST_SERIES_SCHEMA = {
+  type: "array",
+  items: { type: "object", additionalProperties: true },
+} as const;
+
+export const LOG_GROUP_OUTPUT_TOKEN_SERIES_SCHEMA = {
   type: "array",
   items: { type: "object", additionalProperties: true },
 } as const;
@@ -660,6 +666,25 @@ export function createAdminServer(options: AdminServerOptions): FastifyInstance 
         },
         (request, reply) =>
           getGroupCostSeries(request.params.id) ??
+          reply.code(404).send(adminError("log_group_not_found", "Log group not found.")),
+      );
+    }
+    const getGroupOutputTokenSeries = logService.getGroupOutputTokenSeries?.bind(logService);
+    if (getGroupOutputTokenSeries !== undefined) {
+      server.get<{ Params: { id: string } }>(
+        "/api/log-groups/:id/pricing/output-tokens",
+        {
+          schema: {
+            params: {
+              type: "object",
+              required: ["id"],
+              properties: { id: { type: "string", minLength: 1 } },
+            },
+            response: { 200: LOG_GROUP_OUTPUT_TOKEN_SERIES_SCHEMA },
+          },
+        },
+        (request, reply) =>
+          getGroupOutputTokenSeries(request.params.id) ??
           reply.code(404).send(adminError("log_group_not_found", "Log group not found.")),
       );
     }

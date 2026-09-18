@@ -5,6 +5,7 @@ import {
   type TaskPricingAggregate,
   type TaskTokenSeriesPoint,
   type TaskCostSeriesPoint,
+  type TaskOutputTokenSeriesPoint,
 } from "../persistence/index.js";
 import { formatLocalTimestamp } from "../shared/index.js";
 import { createLogExportStream } from "./log-export.js";
@@ -385,6 +386,19 @@ export class LogQueryService {
       const repository = new TrafficRepository(root);
       try {
         const series = repository.taskCostSeries(groupId);
+        if (series !== undefined) return series;
+      } finally {
+        repository.close();
+      }
+    }
+    return undefined;
+  }
+
+  getGroupOutputTokenSeries(groupId: string): readonly TaskOutputTokenSeriesPoint[] | undefined {
+    for (const root of [...new Set(this.#logRoots().filter((value) => value !== ""))]) {
+      const repository = new TrafficRepository(root);
+      try {
+        const series = repository.taskOutputTokenSeries(groupId);
         if (series !== undefined) return series;
       } finally {
         repository.close();

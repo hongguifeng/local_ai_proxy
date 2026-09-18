@@ -115,6 +115,15 @@ describe("createNodeApplication", () => {
       const costSeriesBody = (await costSeries.json()) as { error?: { code?: string } };
       expect(costSeriesBody.error?.code).toBe("log_group_not_found");
 
+      const outputTokenSeries = await fetch(
+        `http://127.0.0.1:${adminPort}/api/log-groups/missing-group/pricing/output-tokens`,
+      );
+      expect(outputTokenSeries.status).toBe(404);
+      const outputTokenSeriesBody = (await outputTokenSeries.json()) as {
+        error?: { code?: string };
+      };
+      expect(outputTokenSeriesBody.error?.code).toBe("log_group_not_found");
+
       const exportResponse = await fetch(`http://127.0.0.1:${adminPort}/api/logs/export`);
       expect(exportResponse.status).toBe(200);
       expect(exportResponse.headers.get("content-type")).toBe("application/zip");

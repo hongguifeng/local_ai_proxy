@@ -102,6 +102,16 @@ export interface TaskCostSeriesPoint {
   readonly cost_nano_cny: string;
 }
 
+export interface TaskOutputTokenSeriesPoint {
+  readonly sequence: number;
+  /**
+   * Cumulative output (response) tokens from the task start through this
+   * request; requests whose output token count is unknown (pending or
+   * usage missing) count as zero, so the series is non-decreasing.
+   */
+  readonly output_tokens: number;
+}
+
 export class TrafficRepository {
   get database(): Database.Database {
     return this.#database;
@@ -581,6 +591,29 @@ export class TrafficRepository {
       return {
         sequence: integerValue(row.sequence, 0),
         cost_nano_cny: running.toString(),
+      };
+    });
+  }
+
+  /**
+   * Per-request cumulative output tokens for the task-detail chart, ordered
+   * by request sequence. Each point carries the total output (response)
+   * tokens from the task start through that request; requests without a
+   * known output token count keep the running total unchanged.
+   */
+  taskOutputTokenSeries(taskId: string): readonly TaskOutputTokenSeriesPoint[] | undefined {
+    if (this.getTask(taskId) === undefined) return undefined;
+    const rows = this.#database
+      .prepare(
+        "SELECT sequence, response_token_count FROM records WHERE task_id = ? ORDER BY sequence",
+      )
+      .all(taskId) as { sequence: number; response_token_count: number | null }[];
+    let running = 0;
+    return rows.map((row) => {
+      running += row.response_token_count ?? 0;
+      return {
+        sequence: integerValue(row.sequence, 0),
+        output_tokens: running,
       };
     });
   }

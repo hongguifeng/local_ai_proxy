@@ -1552,16 +1552,18 @@ label span {
 .pricing-panel > h3,
 .pricing-panel > details,
 .pricing-panel > .token-chart,
-.pricing-panel > .cost-chart {
+.pricing-panel > .cost-chart,
+.pricing-panel > .output-token-chart {
   max-width: 760px;
 }
-/* Task-detail token/cost trend: raw SVG line charts (request sequence vs
-   total tokens / cumulative cost). The svgs scale to the panel width via
-   their viewBox and share the token-chart-* element classes; the containers
-   are distinct (.token-chart / .cost-chart) so test selectors stay
-   unambiguous. */
+/* Task-detail token/cost/output-token trends: raw SVG line charts (request
+   sequence vs total tokens / cumulative cost / cumulative output tokens).
+   The svgs scale to the panel width via their viewBox and share the
+   token-chart-* element classes; the containers are distinct (.token-chart /
+   .cost-chart / .output-token-chart) so test selectors stay unambiguous. */
 .token-chart svg,
-.cost-chart svg {
+.cost-chart svg,
+.output-token-chart svg {
   display: block;
   width: 100%;
   height: auto;
@@ -1597,7 +1599,8 @@ label span {
   cursor: default;
 }
 .token-chart-empty,
-.cost-chart-empty {
+.cost-chart-empty,
+.output-token-chart-empty {
   margin: 4px 0 2px;
   padding: 18px;
   border: 1px dashed var(--line);

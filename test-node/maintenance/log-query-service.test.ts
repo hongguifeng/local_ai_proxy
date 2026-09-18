@@ -372,6 +372,51 @@ describe("LogQueryService", () => {
     expect(service.getGroupTokenSeries("missing")).toBeUndefined();
   });
 
+  it("returns the per-request cumulative output-token series of a task across roots", async () => {
+    const firstRoot = await mkdtemp(path.join(os.tmpdir(), "llm-proxy-log-query-output-a-"));
+    const secondRoot = await mkdtemp(path.join(os.tmpdir(), "llm-proxy-log-query-output-b-"));
+    temporaryDirectories.push(firstRoot, secondRoot);
+    const repository = new TrafficRepository(secondRoot);
+    repository.upsertTask(task("output-series-task", "gpt-5", "2026-07-18T12:00:00.000+08:00"));
+    repository.upsertRecord({
+      id: "output-record-1",
+      task_id: "output-series-task",
+      sequence: 1,
+      event: "request_finished",
+      method: "POST",
+      path: "/v1/responses",
+      request_token_count: 30,
+      response_token_count: 12,
+    });
+    repository.upsertRecord({
+      id: "output-record-2",
+      task_id: "output-series-task",
+      sequence: 2,
+      event: "request_pending_response",
+      method: "POST",
+      path: "/v1/responses",
+    });
+    repository.upsertRecord({
+      id: "output-record-3",
+      task_id: "output-series-task",
+      sequence: 3,
+      event: "request_finished",
+      method: "POST",
+      path: "/v1/responses",
+      request_token_count: 5,
+      response_token_count: 21,
+    });
+    repository.close();
+
+    const service = new LogQueryService([firstRoot, secondRoot]);
+    expect(service.getGroupOutputTokenSeries("output-series-task")).toEqual([
+      { sequence: 1, output_tokens: 12 },
+      { sequence: 2, output_tokens: 12 },
+      { sequence: 3, output_tokens: 33 },
+    ]);
+    expect(service.getGroupOutputTokenSeries("missing")).toBeUndefined();
+  });
+
   it("paginates task records after the initial 200 items", async () => {
     const root = await mkdtemp(path.join(os.tmpdir(), "llm-proxy-task-record-limit-"));
     temporaryDirectories.push(root);

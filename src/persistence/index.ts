@@ -49,4 +49,5 @@ export {
   type TaskPricingGroup,
   type TaskTokenSeriesPoint,
   type TaskCostSeriesPoint,
+  type TaskOutputTokenSeriesPoint,
 } from "./repository.js";

@@ -431,6 +431,16 @@ beforeAll(async () => {
           { sequence: 5, cost_nano_cny: "42750000" },
         ];
       },
+      getGroupOutputTokenSeries: (groupId) => {
+        if (groupId !== "task-one") return undefined;
+        return [
+          { sequence: 1, output_tokens: 4 },
+          { sequence: 2, output_tokens: 8 },
+          { sequence: 3, output_tokens: 104 },
+          { sequence: 4, output_tokens: 104 },
+          { sequence: 5, output_tokens: 316 },
+        ];
+      },
       cleanupSelectedGroups: (groupIds) => {
         groupIds.forEach((groupId) => deletedLogGroups.add(groupId));
         return { deleted: groupIds, deleted_count: groupIds.length };
@@ -1347,11 +1357,11 @@ describe("admin UI history page", { timeout: UI_TEST_TIMEOUT_MS }, () => {
     await expectPage(taskBreakdown.locator("tfoot")).toContainText("4,250");
     await expectPage(taskBreakdown.locator("tfoot")).not.toContainText("%");
     await expectPage(taskBreakdown.locator("tbody tr").nth(1)).toContainText("1,250");
-    // Token trend line chart: one dot per request with a known token total.
+    // Total token trend line chart: one dot per request with a known token total.
     // The chart series requests fire with the panel re-open; no response wait here
     // because waitForResponse can miss responses that already delivered in this re-render.
     // The expectPage assertions below retry until the chart renders.
-    await expectPage(panel).toContainText("Token trend");
+    await expectPage(panel).toContainText("Total token trend");
     const tokenChart = panel.locator(".token-chart svg");
     await expectPage(tokenChart).toBeVisible();
     await expectPage(tokenChart.locator(".token-chart-dot")).toHaveCount(5);
@@ -2396,7 +2406,11 @@ async function loadStatisticsBaseline(language: "zh" | "en"): Promise<void> {
 
 // Opens the history page and the task-detail (pricing) panel so the baseline
 // captures the full panel: total cost, target/duration, the billed-token
-// breakdown table and the token/cost-trend line charts, overlaid on the log list.
+// breakdown table and the token / token-output / cost-trend line charts,
+// overlaid on the log list. The three stacked charts no longer fit the fixed
+// 1180px viewport, so like the statistics baseline the viewport height is
+// adapted to the panel's scroll height (the panel is inset:0 with its own
+// scroll, and a too-short viewport would hide the third chart).
 async function loadTaskDetailBaseline(language: "zh" | "en"): Promise<void> {
   await page.setViewportSize({ width: 1180, height: 1180 });
   await loadAdminPage();
@@ -2413,11 +2427,23 @@ async function loadTaskDetailBaseline(language: "zh" | "en"): Promise<void> {
     page.waitForResponse((response) =>
       response.url().endsWith("/api/log-groups/task-one/pricing/costs"),
     ),
+    page.waitForResponse((response) =>
+      response.url().endsWith("/api/log-groups/task-one/pricing/output-tokens"),
+    ),
     page.locator('[data-group-id="task-one"] [data-group-detail]').click(),
   ]);
   await expectPage(page.locator("#pricingPanel")).toBeVisible();
   await expectPage(page.locator("#pricingPanel .token-chart svg")).toBeVisible();
   await expectPage(page.locator("#pricingPanel .cost-chart svg")).toBeVisible();
+  await expectPage(page.locator("#pricingPanel .output-token-chart svg")).toBeVisible();
+  const panelHeight = await page.evaluate(() => {
+    const el = document.querySelector("#pricingPanel");
+    return el ? el.scrollHeight : 0;
+  });
+  await page.setViewportSize({
+    width: 1180,
+    height: Math.min(Math.max(panelHeight + 52, 1180), 4200),
+  });
 }
 
 async function loadAdminPage(): Promise<void> {

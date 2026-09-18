@@ -375,6 +375,50 @@ describe("TrafficRepository pricing persistence", () => {
     expect(repository.taskCostSeries("missing")).toBeUndefined();
     repository.close();
   });
+
+  it("lists per-request cumulative output tokens by sequence, counting unknown as zero", async () => {
+    const root = await mkdtemp(path.join(os.tmpdir(), "llm-proxy-repository-output-token-series-"));
+    temporaryDirectories.push(root);
+    const repository = new TrafficRepository(root);
+    repository.upsertTask({ id: "output-token-series-task", match_strategy_version: 4 });
+    const write = (id: string, sequence: number, extra: Record<string, unknown> = {}) =>
+      repository.upsertRecord({
+        id,
+        task_id: "output-token-series-task",
+        sequence,
+        method: "POST",
+        path: "/v1/chat/completions",
+        ...extra,
+      });
+    write("output-record-1", 1, {
+      event: "request_finished",
+      request_token_count: 100,
+      response_token_count: 40,
+    });
+    write("output-record-2", 2, {
+      event: "request_finished",
+      request_token_count: 25,
+      response_token_count: null,
+    });
+    write("output-record-3", 3, {
+      event: "request_pending_response",
+      request_token_count: null,
+      response_token_count: null,
+    });
+    write("output-record-4", 4, {
+      event: "request_finished",
+      request_token_count: 30,
+      response_token_count: 61,
+    });
+    expect(repository.taskOutputTokenSeries("output-token-series-task")).toEqual([
+      { sequence: 1, output_tokens: 40 },
+      { sequence: 2, output_tokens: 40 },
+      { sequence: 3, output_tokens: 40 },
+      { sequence: 4, output_tokens: 101 },
+    ]);
+    expect(repository.taskOutputTokenSeries("missing")).toBeUndefined();
+    repository.close();
+  });
 });
 
 describe("TrafficRepository.transaction", () => {

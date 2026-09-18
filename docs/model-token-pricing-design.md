@@ -156,9 +156,9 @@ API Key   ••••••••••
 
 面板说明“各项独立舍入，显示值相加可能存在尾差；合计按原始精度汇总”。请求完成、归组变化或清理记录后刷新已打开的 task 面板；任务被删除时显示“任务已删除”，清除旧金额。
 
-### 3.3.1 Token 趋势折线图
+### 3.3.1 Token 总量趋势折线图
 
-在费用汇总表与“按模型 / 单价分组”之间新增“Token 趋势”区段，用一张折线图展示每个请求的 token 总量随请求序号的变化：横轴为请求序号（`sequence`，任务内从 1 递增），纵轴为该请求的 token 总量（`request_token_count + response_token_count`）。数据来自 `GET /api/log-groups/:id/pricing/tokens`（仅该单任务明细面板使用，任务列表页不带此字段以免增大列表响应）；后端逐请求返回 `{ sequence, request_tokens, response_tokens, total_tokens }`，其中任一侧未知（NULL）时该侧为 `null`，两侧皆未知时 `total_tokens` 为 `null`。
+在费用汇总表与“按模型 / 单价分组”之间新增“Token 总量趋势”区段，用一张折线图展示每个请求的 token 总量随请求序号的变化：横轴为请求序号（`sequence`，任务内从 1 递增），纵轴为该请求的 token 总量（`request_token_count + response_token_count`）。数据来自 `GET /api/log-groups/:id/pricing/tokens`（仅该单任务明细面板使用，任务列表页不带此字段以免增大列表响应）；后端逐请求返回 `{ sequence, request_tokens, response_tokens, total_tokens }`，其中任一侧未知（NULL）时该侧为 `null`，两侧皆未知时 `total_tokens` 为 `null`。
 
 绘制规则：
 
@@ -169,7 +169,7 @@ API Key   ••••••••••
 - 面板打开时与费用数据并行拉取；关闭或切换任务时随现有 abort 控制器取消。语言切换、面板数据刷新后按当前语言重渲染。
 
 ```text
-Token 趋势
+Token 总量趋势
   400 ┤
   300 ┤                                       ●
   200 ┤                                  ●   ╱
@@ -178,6 +178,12 @@ Token 趋势
         1         2        3        4      5
 每个请求的 token 总量（请求 + 响应），按请求序号；尚无 token 数的请求不显示。
 ```
+
+### 3.3.2 Token 输出趋势折线图
+
+Token 输出趋势展示一次任务“总共生成了多少输出 token”的累计过程，与费用趋势（见 README 的“任务明细”描述）结构一致：横轴为请求序号（`sequence`），纵轴为从任务第一条请求累计到当前请求的**输出** token（`response_token_count` 求和，未知按 0），折线单调上升。
+
+数据来自 `GET /api/log-groups/:id/pricing/output-tokens`（仅任务明细面板使用），后端返回 `TaskOutputTokenSeriesPoint[] = { sequence, output_tokens }`，`output_tokens` 由持久化层 `TrafficRepository.taskOutputTokenSeries` 从序号 1 起对 `response_token_count` 求和得出。绘制规则与 3.3.1 完全一致：原生 SVG（`<polyline>`/`<polygon>`/`<circle>` + `<title>` 悬停提示“请求 #序号: N 输出 tokens”）、纵轴取整步长、横轴最多 8 个刻度；无已知输出 token 时显示“暂无 token 数据”占位（英文 “No token data”）；面板打开时并行拉取、关闭或切换时随 abort 控制器取消、语言切换与面板刷新后重渲染。容器类名为 `output-token-chart`（与 `token-chart`/`cost-chart` 共享 `token-chart-*` 元素类但容器互不相同，保证选择器无歧义）。
 
 ### 3.4 历史记录二级：请求费用与明细
 
@@ -455,7 +461,7 @@ task 摘要：
 
 性能验证重点是万条记录搜索、单 task 数千请求、多个日志目录，以及长 SSE 的缓冲上限；比较现有基线，确认新增聚合不读取正文、不重复 FTS 查询、不引入 N+1。
 
-按项目要求，实际 UI 实现后、提交前运行 `npm run regen:ui-baselines`，更新 README 引用的 `doc/ui_*.png` 和 `docs/refactoring/ui-visual-baseline.md` 哈希。当前仅新增设计文档，不涉及截图变更。
+按项目要求，实际 UI 实现后、提交前运行 `npm run regen:ui-baselines`，更新 README 引用的 `doc/ui_*.png` 和 `docs/refactoring/ui-visual-baseline.md` 哈希；任务明细面板的 Token 总量趋势、Token 输出趋势与费用趋势折线图均已覆盖在 `doc/ui_task_detail_cn.png`/`doc/ui_task_detail_en.png` 基线中。
 
 ## 9. 评审重点
 
