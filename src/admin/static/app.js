@@ -6,6 +6,8 @@ const translations = {
     tabStatistics: "使用统计",
     usageStatistics: "使用统计",
     request: "请求",
+    requestCount: "请求数量",
+    totalTokens: "总 Token",
     response: "响应",
     firstTokenTime: "首 token",
     totalTime: "总计",
@@ -120,6 +122,7 @@ const translations = {
     pricingUsage: "用量来源",
     pricingReason: "未计价原因",
     target: "转发地址",
+    timeRange: "时间范围",
     inputUncached: "普通输入",
     output: "输出",
     cacheRead: "缓存读取",
@@ -199,6 +202,8 @@ const translations = {
     tabStatistics: "Usage statistics",
     usageStatistics: "Usage statistics",
     request: "Request",
+    requestCount: "Requests",
+    totalTokens: "Total tokens",
     response: "Response",
     firstTokenTime: "First token",
     totalTime: "Total",
@@ -314,6 +319,7 @@ const translations = {
     pricingUsage: "Usage source",
     pricingReason: "Unpriced reason",
     target: "Target",
+    timeRange: "Time range",
     inputUncached: "Uncached input",
     output: "Output",
     cacheRead: "Cache read",
@@ -416,6 +422,7 @@ const state = {
   requestPricing: null,
   requestPricingOpen: false,
   activeTaskPricing: null,
+  activeTaskGroup: null,
   taskPricing: null,
   taskTokenSeries: null,
   taskCostSeries: null,
@@ -1592,6 +1599,20 @@ function taskBreakdownTotalTokens(breakdown) {
     return sum + (Number.isFinite(value) ? value : 0);
   }, 0);
 }
+// Human-readable total for the summary card: >= 1亿 / >= 1万 in Chinese,
+// >= 1B / >= 1M in English, otherwise a plain comma-grouped number.
+function formatTokenCount(n) {
+  const value = Number(n);
+  if (!Number.isFinite(value) || value <= 0) return "0";
+  if (state.language === "en") {
+    if (value >= 1e9) return `${(value / 1e9).toFixed(1).replace(/\.0$/, "")}B`;
+    if (value >= 1e6) return `${(value / 1e6).toFixed(1).replace(/\.0$/, "")}M`;
+  } else {
+    if (value >= 1e8) return `${(value / 1e8).toFixed(1).replace(/\.0$/, "")} 亿`;
+    if (value >= 1e4) return `${(value / 1e4).toFixed(1).replace(/\.0$/, "")} 万`;
+  }
+  return value.toLocaleString(state.language === "en" ? "en-US" : "zh-CN");
+}
 function taskBreakdownTableHtml(breakdown, totalAmount, price = null) {
   const priceHeader = price ? `<th>${escapeHtml(t("pricePerMillion"))}</th>` : "";
   const priceCell = (value) =>
@@ -1885,6 +1906,53 @@ function savePricingGroupOpenState() {
   localStorage.setItem(pricingGroupOpenStorageKey, JSON.stringify(state.pricingGroupOpen));
 }
 loadPricingGroupOpenState();
+// Shrink task-summary values one pixel at a time until they fit on one
+// The model card value wraps at narrow widths; shrink it (to a 12px floor)
+// before it wraps more than necessary, keeping the summary rows compact.
+// Wrapping remains the last-resort fallback.
+function fitTaskSummaryValues(root) {
+  const model = root.querySelector(".task-stat-model > strong");
+  if (!model) return;
+  let fs = parseFloat(getComputedStyle(model).fontSize);
+  while (fs > 12) {
+    const lh = parseFloat(getComputedStyle(model).lineHeight) || fs * 1.35;
+    if (model.scrollHeight <= lh * 1.5) break;
+    fs -= 1;
+    model.style.fontSize = `${fs}px`;
+  }
+}
+// Stacked start/↓/end time range for the task-detail time bar: the “Time
+// range” label shares the start-time row on the left (the user rejected the
+// top-header variant), both the start- and end-date badges always render
+// (even when the range is same-day) so the two time values stay in the same
+// column, and a thin down-arrow row (no badge, time column only) keeps the
+// vertical gap between the two times small.
+function taskTimeRangeHtml(group) {
+  const start = displayTimestampParts(group.started_at);
+  const end = displayTimestampParts(group.last_activity_at);
+  if (!start.time && !end.time && !(start.date && end.date)) {
+    return `<span class="log-group-time-fallback">${escapeHtml(group.id || t("task"))}</span>`;
+  }
+  // The label sits on the start-time row (left side), not as a top header.
+  // Both date badges always render, even for same-day ranges.
+  const showStart = Boolean(start.time || start.date);
+  const showEnd = Boolean(end.time || end.date);
+  const badge = (parts, cls) =>
+    parts.date ? `<span class="log-group-date ${cls}">${escapeHtml(parts.shortDate)}</span>` : "";
+  const arrow =
+    showStart && showEnd ? '<span class="log-time-arrow-down" aria-hidden="true">↓</span>' : "";
+  const inner = [
+    `<small class="task-time-range-label">${t("timeRange")}</small>`,
+    showStart ? badge(start, "task-time-date-start") : "",
+    showStart && start.time ? `<span class="task-time-start">${escapeHtml(start.time)}</span>` : "",
+    arrow,
+    showEnd ? badge(end, "task-time-date-end") : "",
+    showEnd && end.time ? `<span class="task-time-end">${escapeHtml(end.time)}</span>` : "",
+  ].join("");
+  return `<span class="log-group-time" title="${escapeHtml(
+    [group.started_at, group.last_activity_at].filter(Boolean).join(" - "),
+  )}"><span class="task-time-range">${inner}</span></span>`;
+}
 function renderTaskPricingPanel() {
   const panel = $("pricingPanel");
   const detail = $("detail");
@@ -1929,10 +1997,71 @@ function renderTaskPricingPanel() {
   };
   const durationText = formatDuration(data.active_request_ms);
   const totalDurationText = formatDuration(data.total_request_ms);
-  const totalDurationLine =
-    totalDurationText === ""
-      ? ""
-      : `<p class="pricing-target"><strong>${escapeHtml(t("totalDuration"))}:</strong> ${escapeHtml(totalDurationText)}</p>`;
+  const group = state.activeTaskGroup;
+  const decodeSpeed = group ? formatGroupDecodeSpeed(group.decode_speed_tps) : "";
+  const decodeSpeedTip = `${t("avgDecodeSpeed")}: ${t("avgDecodeSpeedTip")}`;
+  const statCard = (label, value, sub, title, accent) =>
+    `<div class="stat-card task-stat${accent ? ` task-stat-${accent}` : ""}"${title ? ` title="${escapeHtml(title)}"` : ""}><small>${escapeHtml(label)}</small><strong>${escapeHtml(value)}</strong>${
+      sub ? `<em>${escapeHtml(sub)}</em>` : ""
+    }</div>`;
+  const taskStats = [];
+  if (group && group.model) {
+    taskStats.push(
+      `<div class="stat-card task-stat-model" title="${escapeHtml(group.model)}"><small>${t("model")}</small><strong title="${escapeHtml(group.model)}">${escapeHtml(group.model)}</strong></div>`,
+    );
+  }
+  // The long time bar sits right of the model on the first row: the time
+  // range takes its top row and the two durations split the second row, so
+  // all the time facts read together instead of as orphan cards.
+  if (group) {
+    const timeItems = [
+      // No header label here: the "Time range" label lives on the same line
+      // as the start timestamp (see taskTimeRangeHtml) instead of floating
+      // above the two stacked time lines.
+      `<span class="task-stat-time-item task-stat-time-period">${taskTimeRangeHtml(group)}</span>`,
+    ];
+    if (totalDurationText !== "") {
+      timeItems.push(
+        `<span class="task-stat-time-item"><small>${t("totalDuration")}</small><strong>${totalDurationText}</strong></span>`,
+      );
+    }
+    if (durationText !== "") {
+      timeItems.push(
+        `<span class="task-stat-time-item"><small>${t("activeDuration")}</small><strong>${durationText}</strong></span>`,
+      );
+    }
+    taskStats.push(`<div class="stat-card task-stat-time">${timeItems.join("")}</div>`);
+  }
+  if (group && group.request_count !== null && group.request_count !== undefined) {
+    taskStats.push(
+      statCard(t("requestCount"), group.request_count.toLocaleString(), null, null, "count"),
+    );
+  }
+  if (data.breakdown) {
+    taskStats.push(
+      statCard(
+        t("totalTokens"),
+        formatTokenCount(taskBreakdownTotalTokens(data.breakdown)),
+        null,
+        null,
+        "tokens",
+      ),
+    );
+  }
+  if (decodeSpeed) {
+    // The card title is the metric itself ("average decode speed"); no
+    // separate sub-line is needed since the label already says what it is.
+    taskStats.push(
+      statCard(t("avgDecodeSpeed"), `${decodeSpeed}t/s`, null, decodeSpeedTip, "speed"),
+    );
+  }
+  // The target address lives in its own full-width line above the cards: it
+  // can be a long URL that a card cell cannot fit without truncating.
+  const targetLine = `<div class="task-summary-target"><span class="task-summary-target-label">${t("target")}</span><span class="task-summary-target-value" title="${escapeHtml(data.target || "")}">${escapeHtml(data.target || "—")}</span></div>`;
+  // The cost card shows only the total; the priced/unpriced/pending split is
+  // a detail the user asked to keep out of the top card.
+  taskStats.push(statCard(t("cost"), formatGroupCost(cost), null, null, "cost"));
+  const summaryCard = `<section class="task-summary">${targetLine}<div class="task-stat-cards">${taskStats.join("")}</div></section>`;
   const tokenSeries =
     state.taskTokenSeries && state.taskTokenSeries.id === active
       ? state.taskTokenSeries.points
@@ -1946,7 +2075,9 @@ function renderTaskPricingPanel() {
       ? state.taskOutputTokenSeries.points
       : null;
   const outputTokenChart = `<h3>${escapeHtml(t("outputTokenTrend"))}</h3>${outputTokenSeries === null ? `<p>${escapeHtml(t("loading"))}</p>` : taskOutputTokenChartHtml(outputTokenSeries)}<p class="pricing-note">${escapeHtml(t("outputTokenTrendNote"))}</p>`;
-  panel.innerHTML = `<div class="pricing-panel-head"><strong>${escapeHtml(t("taskPricing"))}</strong><button type="button" data-close-pricing>${escapeHtml(t("close"))}</button></div><div class="pricing-card-head"><strong>${escapeHtml(formatGroupCost(cost))}</strong><span>${escapeHtml(`${t("priced")} ${data.priced_request_count} / ${t("unpriced")} ${data.unpriced_request_count} / ${t("pending")} ${data.pending_request_count}`)}</span></div><p class="pricing-target"><strong>${escapeHtml(t("target"))}:</strong> ${escapeHtml(data.target || "—")}</p>${totalDurationLine}${durationText !== "" ? `<p class="pricing-target"><strong>${escapeHtml(t("activeDuration"))}:</strong> ${escapeHtml(durationText)}</p>` : ""}${data.priced_request_count ? taskBreakdownTableHtml(data.breakdown, pricingDecimalFromNano(data.cost_nano_cny)) : `<p>${escapeHtml(reasons || t("unpriced"))}</p>`}<p class="pricing-note">${escapeHtml(t("taskWholeScope"))}</p>${tokenChart}${outputTokenChart}${costChart}<h3>${escapeHtml(t("priceGroups"))}</h3>${groups || `<p>${escapeHtml(t("unpriced"))}</p>`}`;
+  panel.innerHTML = `<div class="pricing-panel-head"><strong>${escapeHtml(t("taskPricing"))}</strong><button type="button" data-close-pricing>${escapeHtml(t("close"))}</button></div>${summaryCard}${data.priced_request_count ? taskBreakdownTableHtml(data.breakdown, pricingDecimalFromNano(data.cost_nano_cny)) : `<p>${escapeHtml(reasons || t("unpriced"))}</p>`}<p class="pricing-note">${escapeHtml(t("taskWholeScope"))}</p>${tokenChart}${outputTokenChart}${costChart}<h3>${escapeHtml(t("priceGroups"))}</h3>${groups || `<p>${escapeHtml(t("unpriced"))}</p>`}`;
+  fitTaskSummaryValues(panel);
+  fitTaskSummaryValues(panel);
 }
 function loadTaskTokenSeries(groupId, signal) {
   return api(`/api/log-groups/${encodeURIComponent(groupId)}/pricing/tokens`, { signal })
@@ -1992,6 +2123,22 @@ async function showTaskPricing(groupId) {
   const controller = new AbortController();
   state.taskPricingAbort = controller;
   state.activeTaskPricing = groupId;
+  // Snapshot the list-item summary (model / time range / request count /
+  // decode speed) at open time so the panel card can show the same facts
+  // even after the group leaves state.logGroups (search / pagination).
+  if (!state.activeTaskGroup || state.activeTaskGroup.id !== groupId) {
+    const group = state.logGroups.find((item) => item.id === groupId);
+    state.activeTaskGroup = group
+      ? {
+          id: group.id,
+          started_at: group.started_at ?? null,
+          last_activity_at: group.last_activity_at ?? null,
+          model: group.model ?? null,
+          request_count: group.request_count ?? null,
+          decode_speed_tps: group.decode_speed_tps ?? null,
+        }
+      : null;
+  }
   state.taskPricing = { id: groupId, loading: true, error: false, data: null };
   state.taskTokenSeries = { id: groupId, points: null };
   state.taskCostSeries = { id: groupId, points: null };
@@ -2018,6 +2165,7 @@ function closeTaskPricing() {
   state.taskPricingAbort?.abort();
   state.taskPricingAbort = null;
   state.activeTaskPricing = null;
+  state.activeTaskGroup = null;
   state.taskTokenSeries = null;
   state.taskCostSeries = null;
   state.taskOutputTokenSeries = null;

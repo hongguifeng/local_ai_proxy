@@ -8,16 +8,16 @@
 
 ## 基线文件
 
-| 页面 | 语言 | 文件 | 图片尺寸 | SHA-256 |
-| --- | --- | --- | --- | --- |
-| Proxy | 中文 | `doc/ui_proxy_cn.png` | 1278 x 1215 | `26e670f76d11b113e1e530c4a06615cfca9eb462d3901189d30a0175a60ae2ed` |
-| Proxy | 英文 | `doc/ui_proxy_en.png` | 1278 x 1208 | `647a9ee04a744debe3f7f4983a66ac7a2ea77f1758b78c862672b90edc6e0512` |
-| History | 中文 | `doc/ui_logs_cn.png` | 1384 x 1212 | `c6d9a0c5cf2e52d8ae62e7be5003659a8adf1a58a663141003c52e5926499417` |
-| History | 英文 | `doc/ui_logs_en.png` | 1384 x 1224 | `f822a2f6c00815da82817a7049312d15dbdd9602abecd5c9e0f24089586eb905` |
-| Usage statistics | 中文 | `doc/ui_stats_cn.png` | 1278 x 1613 | `dac23fdfc8d59fa2a02461a07eb52cbcad51eb7b3c662d289aecc2b6081a8450` |
-| Usage statistics | 英文 | `doc/ui_stats_en.png` | 1278 x 1613 | `2b6f11098ad9a541d724e53216c67af4ae4e5b68b253a63d87a92e97395a253b` |
-| Task detail | 中文 | `doc/ui_task_detail_cn.png` | 1180 x 1486 | `01f71a9fda70c51e046a3e14c33cb68c90f382d44f154b4cf6dc384ba39ba419` |
-| Task detail | 英文 | `doc/ui_task_detail_en.png` | 1180 x 1486 | `2a25f51f40a4c9aceb080c75545505dcbd5c1789cf3ad3513fd4e8f37a169da2` |
+| 页面 | 语言 | 文件 | 图片尺寸 | SHA-256 | 说明 |
+| --- | --- | --- | --- | --- | --- |
+| Proxy | 中文 | `doc/ui_proxy_cn.png` | 1278 x 1215 | `26e670f76d11b113e1e530c4a06615cfca9eb462d3901189d30a0175a60ae2ed` | 当前任务卡片与顶部时间范围为 2026-07-18 12:00:00 的静态 fixture(不是测试当前时间);侧栏日志组为 4 个任务 fixture(1 个 3 调用任务 + 1 个长任务)。 |
+| Proxy | 英文 | `doc/ui_proxy_en.png` | 1278 x 1208 | `647a9ee04a744debe3f7f4983a66ac7a2ea77f1758b78c862672b90edc6e0512` | 当前任务卡片与顶部时间范围为 2026-07-18 12:00:00 的静态 fixture(不是测试当前时间);侧栏日志组为 4 个任务 fixture(1 个 3 调用任务 + 1 个长任务)。 |
+| History | 中文 | `doc/ui_logs_cn.png` | 1384 x 1212 | `c6d9a0c5cf2e52d8ae62e7be5003659a8adf1a58a663141003c52e5926499417` | 当前任务卡片与顶部时间范围为 2026-07-18 12:00:00 的静态 fixture(不是测试当前时间);侧栏日志组为 4 个任务 fixture(1 个 3 调用任务 + 1 个长任务)。 |
+| History | 英文 | `doc/ui_logs_en.png` | 1384 x 1224 | `f822a2f6c00815da82817a7049312d15dbdd9602abecd5c9e0f24089586eb905` | 当前任务卡片与顶部时间范围为 2026-07-18 12:00:00 的静态 fixture(不是测试当前时间);侧栏日志组为 4 个任务 fixture(1 个 3 调用任务 + 1 个长任务)。 |
+| Usage statistics | 中文 | `doc/ui_stats_cn.png` | 1278 x 1613 | `4d8e3130932983bb650b1ea92447bc48023303b55b1eae10ec2f941d189540d2` | 趋势图默认:总用量 15 天(不按模型) |
+| Usage statistics | 英文 | `doc/ui_stats_en.png` | 1278 x 1613 | `17b49b28f84523c42c26be7b4cceda118756ec9299d57a56bf91ec0b51fe571c` | 趋势图默认:总用量 15 天(不按模型) |
+| Task detail | 中文 | `doc/ui_task_detail_cn.png` | 1180 x 1597 | `f81eaa20a8d1…` | 任务详情面板顶部:转发地址为独立整行;4 列卡片网格第一行是模型卡片(首格)与横跨 3 列的时间条(3 个子卡:时间范围 + 任务总耗时 + 请求总耗时)。时间范围子卡是三列(标签 | 日期 | 时间)网格:“时间范围”标签与开始时间同一行(左侧,非顶部标题);开始行=[起始日期徽标] 开始时间,结束行=[结束日期徽标] 结束时间(两个日期徽标始终都显示,同天与跨天一致,两日期对齐在同一日期列,两个时间对齐在同一时间列);两时间之间是一行 ↓ 箭头(起止相同不显示,箭头行不占日期列;时间行 line-height 1、箭头行 line-height 0.8,两时间中心距约 30px,这是用户指定的目标值);窄窗口下 app.js 的 fitTaskSummaryValues 先逐像素缩小模型名(下限 12px)再折行;第二行是请求数量、总 Token(人类可读:≥ 1 亿显示 x.x 亿、≥ 1 万显示 x.x 万、否则千分位原值,与明细表合计行同一数据源)、平均 decode 速度、费用(20px 大数值,左缘对齐) |
+| Task detail | 英文 | `doc/ui_task_detail_en.png` | 1180 x 1597 | `3ae194ea4768…` | 任务详情面板顶部:Target 为独立整行;4 列卡片网格第一行是 Model 卡片(首格)与横跨 3 列的时间条(Time range + Task time + Request time)。Time range 子卡是三列(label | date | time)网格:“Time range” 标签与 start time 同一行(左侧,非顶部标题);start 行=[start date badge] start time,end 行=[end date badge] end time(两个日期徽标始终都显示,同天与跨天一致,两日期对齐在同一日期列,两时间对齐在同一时间列);两时间之间是一行 ↓ 箭头(起止相同不显示,箭头行不占日期列;时间行 line-height 1、箭头行 line-height 0.8,两时间中心距约 30px,用户指定值);窄窗口下模型名由 fitTaskSummaryValues 缩小(下限 12px);第二行是 Requests、Total tokens(人类可读:≥ 1B / ≥ 1M 缩写,否则千分位原值,与明细表合计行同一数据源)、Avg decode speed、Cost(20px 大数值,左缘对齐) |
 
 哈希复现命令：
 

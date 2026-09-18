@@ -1317,12 +1317,20 @@ describe("admin UI history page", { timeout: UI_TEST_TIMEOUT_MS }, () => {
     await expectPage(panel).toContainText("00:05");
     await expectPage(panel).toContainText("Request time");
     await expectPage(panel).toContainText("00:25");
-    // Task time renders directly above Request time.
-    await expectPage(panel.locator("p.pricing-target")).toHaveText([
-      "Target: fixture-target",
-      "Task time: 00:05",
-      "Request time: 00:25",
-    ]);
+    // The summary opens with the target line, then a card grid whose first
+    // row is the model card plus the time bar; the time range stacks the
+    // start time above the end time and both durations sit in the bar's
+    // second row.
+    await expectPage(panel.locator(".task-summary-target")).toContainText("fixture-target");
+    await expectPage(panel.locator(".stat-card.task-stat-model")).toContainText("gpt-5");
+    await expectPage(panel.locator(".stat-card.task-stat-time .task-time-range")).toContainText(
+      "12:00:00",
+    );
+    await expectPage(panel.locator(".stat-card.task-stat-time .task-time-range")).toContainText(
+      "12:00:05",
+    );
+    await expectPage(panel.locator(".stat-card.task-stat-time")).toContainText("00:05");
+    await expectPage(panel.locator(".stat-card.task-stat-time")).toContainText("00:25");
     await expectPage(panel).toContainText("gpt-5 · 3 requests · $0.0428");
     const groupDetails = panel.locator("details");
     await expectPage(groupDetails).toBeVisible();

@@ -1469,21 +1469,234 @@ label span {
   padding-bottom: 10px;
   border-bottom: 1px solid var(--line);
 }
-.pricing-panel > .pricing-card-head {
+/* Top of the task-detail panel: a full-width target line (the address may be
+   a long URL, so it lives outside the fixed-width card cells), then a grid of
+   small stat cards that reuse the usage-statistics .stat-card look (label /
+   big value / optional sub line). The model card carries the list identity
+   (name plus the date + time range as its sub line), and every value keeps
+   the list's color semantics (amber model/speed, blue counts, teal cost). */
+.pricing-panel > .task-summary {
   margin-top: 12px;
-  padding: 11px 14px;
-  border: 1px solid #cfe3db;
-  border-left: 3px solid var(--accent);
-  border-radius: 8px;
-  background: var(--accent-soft);
 }
-.pricing-panel > .pricing-card-head > strong {
-  font-size: 20px;
-  letter-spacing: 0.2px;
+.task-summary-target {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 2px 8px;
+  font-size: 13px;
 }
-.pricing-panel > .pricing-card-head > span {
+.task-summary-target-label {
   color: var(--muted);
+  font-size: 11px;
+}
+.task-summary-target-value {
+  min-width: 0;
+  overflow-wrap: anywhere;
+  color: #71828f;
+}
+.task-summary-target-value::before {
+  content: "•";
+  margin-right: 5px;
+  color: #a4b2c0;
+}
+/* The model sits in the first grid cell; its value keeps the log list's
+   amber model color and wraps (shrunk by fitTaskSummaryValues) at narrow
+   widths. */
+.task-stat-cards .task-stat-model {
+  grid-column: 1;
+}
+.task-stat-cards .task-stat-model strong {
+  color: #7a4308;
+  font-weight: 600;
+}
+.task-stat-cards {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  grid-auto-flow: row dense;
+  gap: 10px;
+  margin-top: 10px;
+}
+/* Keep every card left-aligned and vertically centered: the base .stat-card
+   is a centered grid, but the task cards read like data rows, so the
+   label/value/sub-line all stay flush left in the same shape. The value text
+   is sized up and the box hugs the content, so no card is mostly whitespace. */
+.task-stat-cards .stat-card {
+  padding: 10px 14px;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  justify-content: center;
+  gap: 4px;
+}
+.task-stat-cards .stat-card small {
+  color: var(--muted);
+  font-size: 13px;
+  line-height: 1.3;
+}
+.task-stat-cards .stat-card strong {
+  min-width: 0;
+  flex-shrink: 1;
+  overflow: visible;
+  text-overflow: clip;
+  white-space: normal;
+  overflow-wrap: anywhere;
+  font-size: 20px;
+  line-height: 1.3;
+}
+.task-stat-cards .stat-card em {
+  display: block;
+  margin: 0;
+  color: var(--muted);
+  font-style: normal;
+  font-size: 13px;
+  line-height: 1.3;
+}
+/* Values keep the list's semantic colors so the card is at a glance the same
+   "row" as in the log list. */
+.task-stat-cards .task-stat-count strong {
+  color: #315a82;
+}
+.task-stat-cards .task-stat-speed strong {
+  color: #8a5a13;
+}
+.task-stat-cards .task-stat-tokens strong {
+  color: #0e7490;
+}
+.task-stat-cards .task-stat-cost strong {
+  color: #176b52;
+  white-space: nowrap;
+  overflow-wrap: normal;
+}
+/* Long time bar right of the model card: the time range takes its top row
+   and the two durations split the second row, so all the time facts read
+   together instead of as orphan cards. */
+.task-stat-cards .task-stat-time {
+  grid-column: span 3;
+  /* One row of three sub-cards: the range column is widest because a line
+     is "MM-DD HH:MM:SS"; a duration is h:mm:ss. The 54/23/23 split keeps
+     every value on its own line for narrow panels; wider panels simply get
+     more headroom. */
+  padding: 10px 6px;
+  display: grid;
+  grid-template-columns: minmax(0, 54fr) minmax(0, 23fr) minmax(0, 23fr);
+  align-items: center;
+}
+.task-stat-time-item {
+  /* Each sub-card stacks its label above its value, both centered, so the
+     hairline dividers read as three distinct zones. */
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+  padding: 0 14px;
+  min-width: 0;
+}
+.task-stat-time-item + .task-stat-time-item {
+  border-left: 1px solid #e3e9ee;
+}
+.task-stat-time-item small {
+  color: var(--muted);
+  font-size: 13px;
+  line-height: 1.3;
+}
+/* The period sub-card shrinks to the width of its value and is centered in
+   the cell as one unit: the 时间范围 label then sits flush with the left
+   edge of the date badge instead of floating in the middle of the cell.
+   Clamped to the cell so narrow windows degrade to a wrapping two-line
+   value instead of overlapping the neighbouring sub-cards. */
+.task-stat-time-period {
+  width: min(max-content, 100%);
+  justify-self: center;
+  align-items: flex-start;
+  text-align: left;
+}
+.task-stat-time-item strong {
+  font-size: 20px;
+  font-weight: 600;
+  line-height: 1.3;
+  text-align: center;
+  /* Never break a duration mid-number: overflow into the cell padding if a
+     value exceeds its share instead of wrapping. */
+  white-space: nowrap;
+}
+.task-stat-time-period strong {
+  color: #22384c;
+  overflow-wrap: normal;
+}
+/* The range is a three-column (label | date | time) grid. The “Time range”
+   label shares the start-time row on the left; both the start- and
+   end-date badges always render (even for same-day ranges) so the two time
+   values stay in the same column; a thin ↓ arrow row (time column only,
+   no badge) separates the two times, keeping their vertical gap small. */
+.task-stat-time .task-time-range {
+  min-width: 0;
+  display: grid;
+  grid-template-columns: max-content max-content max-content;
+  align-items: center;
+  column-gap: 6px;
+  row-gap: 0;
+  color: #22384c;
+  font-family: ui-monospace, SFMono-Regular, Consolas, monospace;
+  font-size: 21px;
+  font-weight: 600;
+  line-height: 1.2;
+  letter-spacing: 0.02em;
+  white-space: nowrap;
+}
+/* The two time rows use a tight line-height (digits have no ascenders /
+   descenders beyond the em box) so the start and end times sit as close
+   vertically as the arrow row allows; the label keeps the relaxed 1.2 so
+   its descenders are not clipped. */
+.task-stat-time .task-time-range .task-time-start,
+.task-stat-time .task-time-range .task-time-end {
+  line-height: 1;
+}
+.task-stat-time .task-time-range .task-time-range-label {
+  grid-column: 1;
+  grid-row: 1;
+  margin-right: 12px;
+}
+.task-stat-time .task-time-range .task-time-date-start {
+  grid-column: 2;
+  grid-row: 1;
+}
+.task-stat-time .task-time-range .task-time-start {
+  grid-column: 3;
+  grid-row: 1;
+}
+.task-stat-time .task-time-range .log-time-arrow-down {
+  grid-column: 3;
+  grid-row: 2;
+  justify-self: center;
   font-size: 12px;
+  line-height: 0.8;
+  color: #5f7183;
+}
+.task-stat-time .task-time-range .task-time-date-end {
+  grid-column: 2;
+  grid-row: 3;
+}
+.task-stat-time .task-time-range .task-time-end {
+  grid-column: 3;
+  grid-row: 3;
+}
+@media (max-width: 700px) {
+  .task-stat-cards {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+  /* Stacked: the time bar spans both columns and the vertical hairlines
+     switch to horizontal separators. */
+  .task-stat-cards .task-stat-time {
+    grid-column: 1 / -1;
+    grid-template-columns: 1fr;
+  }
+  .task-stat-time-item {
+    padding: 10px 0;
+  }
+  .task-stat-time-item + .task-stat-time-item {
+    border-left: 0;
+    border-top: 1px solid #e3e9ee;
+  }
 }
 .pricing-panel h3 {
   margin: 18px 0 8px;
@@ -1504,14 +1717,8 @@ label span {
   font-weight: 600;
   cursor: pointer;
 }
-.pricing-target,
 .pricing-note {
   overflow-wrap: anywhere;
-}
-.pricing-target {
-  margin: 10px 0 0;
-}
-.pricing-note {
   margin: 10px 0 0;
   color: var(--muted);
   font-size: 12px;
@@ -1545,8 +1752,7 @@ label span {
 /* Cap the pricing content at a comfortable reading width so wide monitors don't
    stretch the table columns (loose spacing hurts readability); narrow viewports
    still fill 100% and scroll. The header row (title + close) stays full-width. */
-.pricing-panel > .pricing-card-head,
-.pricing-panel > .pricing-target,
+.pricing-panel > .task-summary,
 .pricing-panel > .table-scroll,
 .pricing-panel > .pricing-note,
 .pricing-panel > h3,
