@@ -1612,6 +1612,30 @@ function taskBreakdownTableHtml(breakdown, totalAmount, price = null) {
     .join("");
   return `<div class="table-scroll"><table class="pricing-table task-breakdown"><thead><tr><th></th><th>${escapeHtml(t("tokensBilled"))}</th><th>${escapeHtml(t("tokenShare"))}</th>${priceHeader}<th>${escapeHtml(t("amountCny"))}</th><th>${escapeHtml(t("costShare"))}</th></tr></thead><tbody>${rows}</tbody><tfoot><tr><th>${escapeHtml(t("total"))}</th><td>${escapeHtml(formatIntegerValue(totalTokens))}</td><td></td>${price ? "<td></td>" : ""}<td>${escapeHtml(formatCurrencyAmount(totalAmount))}</td><td></td></tr></tfoot></table></div>`;
 }
+// Choose the y-axis step and maximum for the task-detail line charts: the
+// highest data point should sit close to the top gridline.  Among the 1/2/5
+// "nice" steps that leave 3 to 8 gridline intervals, pick the one with the
+// smallest resulting axis maximum (ties prefer the larger step).  A plain
+// "max / 4" round-up can jump to the next 1/2/5 tier (e.g. 8,400 -> 5,000)
+// and then force the axis to 4 steps (20,000), leaving the top of the chart
+// mostly empty.
+function niceAxisScale(maxValue) {
+  const max = Number(maxValue);
+  if (!Number.isFinite(max) || max <= 0) return { step: 1, axisMax: 4 };
+  let best = null;
+  const top = Math.floor(Math.log10(max));
+  for (let exponent = top - 2; exponent <= top + 1; exponent++) {
+    for (const factor of [1, 2, 5]) {
+      const step = factor * 10 ** exponent;
+      const intervals = Math.ceil(max / step - 1e-9);
+      if (intervals < 3 || intervals > 8) continue;
+      const axisMax = step * intervals;
+      if (!best || axisMax < best.axisMax || (axisMax === best.axisMax && step > best.step))
+        best = { step, axisMax };
+    }
+  }
+  return best ?? { step: 1, axisMax: Math.ceil(max) };
+}
 // Raw SVG line chart for the task-detail token trend: x = request sequence,
 // y = total tokens (request + response) of each finished request. Requests
 // whose token counts are still unknown are skipped, so the x positions can be
@@ -1634,19 +1658,7 @@ function taskTokenChartHtml(points) {
   const maxSequence = Math.max(...known.map((point) => Number(point.sequence)));
   const minSequence = Math.min(...known.map((point) => Number(point.sequence)));
   const maxTokens = Math.max(...known.map((point) => Number(point.total_tokens)));
-  // Round the axis maximum up to a nice step so gridline labels stay tidy.
-  const niceStep =
-    maxTokens <= 0
-      ? 1
-      : (() => {
-          const rough = maxTokens / 4;
-          const magnitude = 10 ** Math.floor(Math.log10(rough));
-          for (const factor of [1, 2, 5, 10]) {
-            if (rough <= factor * magnitude) return factor * magnitude;
-          }
-          return 10 * magnitude;
-        })();
-  const axisMax = Math.max(niceStep * 4, Math.ceil(maxTokens / niceStep) * niceStep);
+  const { step: niceStep, axisMax } = niceAxisScale(maxTokens);
   const xFor = (sequence) =>
     maxSequence === minSequence
       ? padLeft + plotWidth / 2
@@ -1728,18 +1740,7 @@ function taskCostChartHtml(points) {
   const maxSequence = Math.max(...known.map((point) => Number(point.sequence)));
   const minSequence = Math.min(...known.map((point) => Number(point.sequence)));
   const maxCost = Math.max(...known.map(valueFor));
-  const niceStep =
-    maxCost <= 0
-      ? 1
-      : (() => {
-          const rough = maxCost / 4;
-          const magnitude = 10 ** Math.floor(Math.log10(rough));
-          for (const factor of [1, 2, 5, 10]) {
-            if (rough <= factor * magnitude) return factor * magnitude;
-          }
-          return 10 * magnitude;
-        })();
-  const axisMax = Math.max(niceStep * 4, Math.ceil(maxCost / niceStep) * niceStep);
+  const { step: niceStep, axisMax } = niceAxisScale(maxCost);
   const xFor = (sequence) =>
     maxSequence === minSequence
       ? padLeft + plotWidth / 2
@@ -1810,18 +1811,7 @@ function taskOutputTokenChartHtml(points) {
   const maxSequence = Math.max(...known.map((point) => Number(point.sequence)));
   const minSequence = Math.min(...known.map((point) => Number(point.sequence)));
   const maxTokens = Math.max(...known.map((point) => Number(point.output_tokens)));
-  const niceStep =
-    maxTokens <= 0
-      ? 1
-      : (() => {
-          const rough = maxTokens / 4;
-          const magnitude = 10 ** Math.floor(Math.log10(rough));
-          for (const factor of [1, 2, 5, 10]) {
-            if (rough <= factor * magnitude) return factor * magnitude;
-          }
-          return 10 * magnitude;
-        })();
-  const axisMax = Math.max(niceStep * 4, Math.ceil(maxTokens / niceStep) * niceStep);
+  const { step: niceStep, axisMax } = niceAxisScale(maxTokens);
   const xFor = (sequence) =>
     maxSequence === minSequence
       ? padLeft + plotWidth / 2
