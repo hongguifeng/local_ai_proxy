@@ -1699,8 +1699,37 @@ label span {
   }
 }
 .pricing-panel h3 {
+  position: relative;
   margin: 18px 0 8px;
+  padding-left: 14px;
   font-size: 14px;
+}
+/* Small colored dot before each section heading: the dot color previews the
+   chart / table semantics of the section it introduces (same palette as the
+   trend lines and stat cards) so the panel reads as a set of grouped,
+   colored sections instead of one flat green block. */
+.pricing-panel h3::before {
+  content: "";
+  position: absolute;
+  left: 0;
+  top: 50%;
+  transform: translateY(-50%);
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--muted);
+}
+.pricing-panel h3.section-token::before {
+  background: #0e7490;
+}
+.pricing-panel h3.section-output::before {
+  background: #315a82;
+}
+.pricing-panel h3.section-cost::before {
+  background: var(--accent);
+}
+.pricing-panel h3.section-groups::before {
+  background: #8a5a13;
 }
 .pricing-panel details {
   margin: 8px 0;
@@ -1716,6 +1745,14 @@ label span {
   border-bottom: 1px solid var(--line);
   font-weight: 600;
   cursor: pointer;
+}
+/* The per-model group summary keeps the list's color semantics: amber model
+   name, green cost value. */
+.pricing-panel details summary .price-group-model {
+  color: #7a4308;
+}
+.pricing-panel details summary .price-group-cost {
+  color: #176b52;
 }
 .pricing-note {
   overflow-wrap: anywhere;
@@ -1803,6 +1840,29 @@ label span {
   stroke: white;
   stroke-width: 1.5;
   cursor: default;
+}
+/* The three trend charts share the element classes above but each keeps the
+   semantic color of the matching stat card / list metric: teal for the
+   per-request total-token trend (token card #0e7490), blue for the
+   cumulative output-token trend (count blue #315a82); the cost trend keeps
+   the default green (green stays reserved for cost). */
+.token-chart .token-chart-line {
+  stroke: #0e7490;
+}
+.token-chart .token-chart-area {
+  fill: #d4ebf1;
+}
+.token-chart .token-chart-dot {
+  fill: #0e7490;
+}
+.output-token-chart .token-chart-line {
+  stroke: #315a82;
+}
+.output-token-chart .token-chart-area {
+  fill: #dbe3ee;
+}
+.output-token-chart .token-chart-dot {
+  fill: #315a82;
 }
 .token-chart-empty,
 .cost-chart-empty,
@@ -1894,6 +1954,16 @@ label span {
   height: 100%;
   background: var(--accent);
   border-radius: 999px;
+}
+/* Token-share bars use the teal token color so the two share columns in the
+   breakdown table are distinguishable at a glance; cost-share bars keep the
+   accent green (default for the single cost-share column of the per-request
+   pricing table). */
+.share-bar-tokens .share-bar-fill {
+  background: #0e7490;
+}
+.share-bar-cost .share-bar-fill {
+  background: var(--accent);
 }
 .pricing-table tfoot .share-bar {
   background: #bce0d2;

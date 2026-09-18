@@ -1492,12 +1492,15 @@ function pricingPercentNumber(amount, totalAmount) {
   if (den === 0n) return null;
   return (Number(toScaled(n)) / Number(den)) * 100;
 }
-function shareCellHtml(amount, totalAmount) {
+function shareCellHtml(amount, totalAmount, kind = null) {
   const pct = pricingPercentNumber(amount, totalAmount);
+  // The bar inherits the metric's semantic color (teal token shares, green
+  // cost shares) instead of always green, matching the chart colors.
+  const barClass = kind === "tokens" ? "share-bar share-bar-tokens" : "share-bar share-bar-cost";
   const bar =
     pct === null
       ? ""
-      : `<span class="share-bar"><span class="share-bar-fill" style="width:${Math.max(
+      : `<span class="${barClass}"><span class="share-bar-fill" style="width:${Math.max(
           0,
           Math.min(100, pct),
         ).toFixed(2)}%"></span></span>`;
@@ -1560,7 +1563,7 @@ function pricingTableHtml(breakdown, price = null, totalAmount = null) {
       const bucket = breakdown?.[usageKey] || breakdown?.[usageKey.replace("Tokens", "")] || {};
       const tokens = bucket.tokens ?? breakdown?.[usageKey] ?? "—";
       const amount = bucket.amount ?? "—";
-      return `<tr><th>${escapeHtml(t(label))}</th><td>${escapeHtml(formatIntegerValue(tokens))}</td><td>${escapeHtml(price?.[priceKey] ?? "—")}</td><td>${escapeHtml(typeof amount === "string" ? formatCurrencyAmount(amount) : String(amount))}</td>${shareCellHtml(amount, totalAmount)}</tr>`;
+      return `<tr><th>${escapeHtml(t(label))}</th><td>${escapeHtml(formatIntegerValue(tokens))}</td><td>${escapeHtml(price?.[priceKey] ?? "—")}</td><td>${escapeHtml(typeof amount === "string" ? formatCurrencyAmount(amount) : String(amount))}</td>${shareCellHtml(amount, totalAmount, "cost")}</tr>`;
     })
     .join("");
   return `<div class="table-scroll"><table class="pricing-table"><thead><tr><th></th><th>${escapeHtml(t("tokensBilled"))}</th><th>${escapeHtml(t("pricePerMillion"))}</th><th>${escapeHtml(t("amountCny"))}</th><th>${escapeHtml(t("costShare"))}</th></tr></thead><tbody>${rows}</tbody><tfoot><tr><th>${escapeHtml(t("total"))}</th><td>${escapeHtml(formatIntegerValue(pricingUsageTotalTokens(breakdown)))}</td><td></td><td>${escapeHtml(formatCurrencyAmount(totalAmount))}</td><td></td></tr></tfoot></table></div>`;
@@ -1628,7 +1631,7 @@ function taskBreakdownTableHtml(breakdown, totalAmount, price = null) {
   ]
     .map(([key, label, priceKey]) => {
       const bucket = breakdown?.[key] || {};
-      return `<tr><th>${escapeHtml(t(label))}</th><td>${escapeHtml(formatIntegerValue(bucket.tokens ?? 0))}</td>${shareCellHtml(bucket.tokens ?? 0, totalTokens)}${priceCell(price?.[priceKey])}<td>${escapeHtml(formatCurrencyAmount(bucket.amount ?? null))}</td>${shareCellHtml(bucket.amount, totalAmount)}</tr>`;
+      return `<tr><th>${escapeHtml(t(label))}</th><td>${escapeHtml(formatIntegerValue(bucket.tokens ?? 0))}</td>${shareCellHtml(bucket.tokens ?? 0, totalTokens, "tokens")}${priceCell(price?.[priceKey])}<td>${escapeHtml(formatCurrencyAmount(bucket.amount ?? null))}</td>${shareCellHtml(bucket.amount, totalAmount, "cost")}</tr>`;
     })
     .join("");
   return `<div class="table-scroll"><table class="pricing-table task-breakdown"><thead><tr><th></th><th>${escapeHtml(t("tokensBilled"))}</th><th>${escapeHtml(t("tokenShare"))}</th>${priceHeader}<th>${escapeHtml(t("amountCny"))}</th><th>${escapeHtml(t("costShare"))}</th></tr></thead><tbody>${rows}</tbody><tfoot><tr><th>${escapeHtml(t("total"))}</th><td>${escapeHtml(formatIntegerValue(totalTokens))}</td><td></td>${price ? "<td></td>" : ""}<td>${escapeHtml(formatCurrencyAmount(totalAmount))}</td><td></td></tr></tfoot></table></div>`;
@@ -1983,7 +1986,7 @@ function renderTaskPricingPanel() {
   const groups = (data.groups || [])
     .map((group) => {
       const model = group.billing_model || "—";
-      return `<details${openGroups[model] ? " open" : ""} data-price-group-model="${escapeHtml(model)}"><summary>${escapeHtml(model)} · ${escapeHtml(String(group.request_count))} ${escapeHtml(t("requests"))} · ${escapeHtml(pricingAmount(group.cost_nano_cny))}</summary>${taskBreakdownTableHtml(group.breakdown, pricingDecimalFromNano(group.cost_nano_cny), group.price)}</details>`;
+      return `<details${openGroups[model] ? " open" : ""} data-price-group-model="${escapeHtml(model)}"><summary><span class="price-group-model">${escapeHtml(model)}</span> · ${escapeHtml(String(group.request_count))} ${escapeHtml(t("requests"))} · <span class="price-group-cost">${escapeHtml(pricingAmount(group.cost_nano_cny))}</span></summary>${taskBreakdownTableHtml(group.breakdown, pricingDecimalFromNano(group.cost_nano_cny), group.price)}</details>`;
     })
     .join("");
   const reasons = Object.entries(data.unpriced_reasons || {})
@@ -2066,16 +2069,16 @@ function renderTaskPricingPanel() {
     state.taskTokenSeries && state.taskTokenSeries.id === active
       ? state.taskTokenSeries.points
       : null;
-  const tokenChart = `<h3>${escapeHtml(t("tokenTrend"))}</h3>${tokenSeries === null ? `<p>${escapeHtml(t("loading"))}</p>` : taskTokenChartHtml(tokenSeries)}<p class="pricing-note">${escapeHtml(t("tokenTrendNote"))}</p>`;
+  const tokenChart = `<h3 class="section-token">${escapeHtml(t("tokenTrend"))}</h3>${tokenSeries === null ? `<p>${escapeHtml(t("loading"))}</p>` : taskTokenChartHtml(tokenSeries)}<p class="pricing-note">${escapeHtml(t("tokenTrendNote"))}</p>`;
   const costSeries =
     state.taskCostSeries && state.taskCostSeries.id === active ? state.taskCostSeries.points : null;
-  const costChart = `<h3>${escapeHtml(t("costTrend"))}</h3>${costSeries === null ? `<p>${escapeHtml(t("loading"))}</p>` : taskCostChartHtml(costSeries)}<p class="pricing-note">${escapeHtml(t("costTrendNote"))}</p>`;
+  const costChart = `<h3 class="section-cost">${escapeHtml(t("costTrend"))}</h3>${costSeries === null ? `<p>${escapeHtml(t("loading"))}</p>` : taskCostChartHtml(costSeries)}<p class="pricing-note">${escapeHtml(t("costTrendNote"))}</p>`;
   const outputTokenSeries =
     state.taskOutputTokenSeries && state.taskOutputTokenSeries.id === active
       ? state.taskOutputTokenSeries.points
       : null;
-  const outputTokenChart = `<h3>${escapeHtml(t("outputTokenTrend"))}</h3>${outputTokenSeries === null ? `<p>${escapeHtml(t("loading"))}</p>` : taskOutputTokenChartHtml(outputTokenSeries)}<p class="pricing-note">${escapeHtml(t("outputTokenTrendNote"))}</p>`;
-  panel.innerHTML = `<div class="pricing-panel-head"><strong>${escapeHtml(t("taskPricing"))}</strong><button type="button" data-close-pricing>${escapeHtml(t("close"))}</button></div>${summaryCard}${data.priced_request_count ? taskBreakdownTableHtml(data.breakdown, pricingDecimalFromNano(data.cost_nano_cny)) : `<p>${escapeHtml(reasons || t("unpriced"))}</p>`}<p class="pricing-note">${escapeHtml(t("taskWholeScope"))}</p>${tokenChart}${outputTokenChart}${costChart}<h3>${escapeHtml(t("priceGroups"))}</h3>${groups || `<p>${escapeHtml(t("unpriced"))}</p>`}`;
+  const outputTokenChart = `<h3 class="section-output">${escapeHtml(t("outputTokenTrend"))}</h3>${outputTokenSeries === null ? `<p>${escapeHtml(t("loading"))}</p>` : taskOutputTokenChartHtml(outputTokenSeries)}<p class="pricing-note">${escapeHtml(t("outputTokenTrendNote"))}</p>`;
+  panel.innerHTML = `<div class="pricing-panel-head"><strong>${escapeHtml(t("taskPricing"))}</strong><button type="button" data-close-pricing>${escapeHtml(t("close"))}</button></div>${summaryCard}${data.priced_request_count ? taskBreakdownTableHtml(data.breakdown, pricingDecimalFromNano(data.cost_nano_cny)) : `<p>${escapeHtml(reasons || t("unpriced"))}</p>`}<p class="pricing-note">${escapeHtml(t("taskWholeScope"))}</p>${tokenChart}${outputTokenChart}${costChart}<h3 class="section-groups">${escapeHtml(t("priceGroups"))}</h3>${groups || `<p>${escapeHtml(t("unpriced"))}</p>`}`;
   fitTaskSummaryValues(panel);
   fitTaskSummaryValues(panel);
 }
