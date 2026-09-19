@@ -1841,6 +1841,29 @@ label span {
   stroke-width: 1.5;
   cursor: default;
 }
+/* Dashed horizontal line marking the average value in the cost and token
+   output trend charts, with its value labeled at the right edge of the plot
+   so the typical per-request size reads at a glance without hovering. Both
+   the line and the label use the UI's amber model color, deliberately
+   distinct from each chart's green/teal/blue data line and from the gray
+   grid, so the average never blends into the series it annotates. The
+   white halo (paint-order stroke) keeps the label legible where the line
+   crosses grid lines or the series. */
+.token-chart-mean {
+  stroke: #7a4308;
+  stroke-width: 1.5;
+  stroke-dasharray: 5 4;
+}
+.token-chart-mean-label {
+  fill: #7a4308;
+  font-size: 11px;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+  paint-order: stroke;
+  stroke: var(--panel);
+  stroke-width: 3;
+  stroke-linejoin: round;
+}
 /* Peak-value label pinned just above the highest dot of each trend chart,
    so the max point can be read without hovering. The white halo (paint-order
    stroke) keeps it legible where it crosses grid lines; color follows the

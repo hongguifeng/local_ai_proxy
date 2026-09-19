@@ -147,6 +147,7 @@ const translations = {
     outputTokenTrend: "Token 输出趋势",
     outputTokenTrendNote: "每个请求自身的输出 token，按请求序号；尚无输出 token 数的请求不显示。",
     outputTokenTrendNoData: "暂无输出 token 数据",
+    trendAvgPrefix: "平均",
     priceGroups: "按模型 / 单价分组",
     priced: "已计价",
     retry: "重试",
@@ -349,6 +350,7 @@ const translations = {
     outputTokenTrendNote:
       "This request's own output tokens, by request sequence; requests without an output token count yet are not shown.",
     outputTokenTrendNoData: "No output token data",
+    trendAvgPrefix: "avg",
     priceGroups: "Model / price groups",
     priced: "Priced",
     retry: "Retry",
@@ -1714,6 +1716,18 @@ function niceAxisScale(maxValue) {
   }
   return best ?? { step: 1, axisMax: Math.ceil(max) };
 }
+// Dashed horizontal line marking a trend chart's average value (used by the
+// cost and token-output charts), drawn across the full plot width and labeled
+// at the right edge so the typical per-request size reads at a glance without
+// hovering. Returns an empty string for a zero mean, which would sit on the
+// x axis and would be indistinguishable from it. The chart renders it after
+// the dots so a dense cluster of points cannot cover the value label.
+function chartMeanLine(yFor, mean, label, padTop, padLeft, padRight, plotHeight, width) {
+  if (mean <= 0) return "";
+  const y = yFor(mean);
+  const above = y > padTop + plotHeight - 18;
+  return `<line x1="${padLeft}" y1="${y}" x2="${width - padRight}" y2="${y}" class="token-chart-mean"/><text x="${width - padRight - 4}" y="${above ? y - 6 : y + 13}" text-anchor="end" class="token-chart-mean-label">${label}</text>`;
+}
 // SVG label pinning the exact value of a trend chart's highest point just
 // above its dot (flipped to the left of the dot when the peak sits close to
 // the right edge, so the text never overflows the viewBox). Shared element
@@ -1836,10 +1850,19 @@ function taskCostChartHtml(points) {
   const plotWidth = width - padLeft - padRight;
   const plotHeight = height - padTop - padBottom;
   const valueFor = (point) => Number(point.cost_nano_cny) / 1e9;
+  const values = known.map(valueFor);
+  // The per-request mean as an exact BigInt division in nano-CNY, so the
+  // label is not affected by floating-point drift in the sum of yuan doubles
+  // (0.01425 would otherwise round to $0.0142).
+  const meanNano =
+    values.length >= 2
+      ? known.reduce((sum, point) => sum + BigInt(String(point.cost_nano_cny)), 0n) /
+        BigInt(known.length)
+      : 0n;
+  const meanCost = Number(meanNano) / 1e9;
   const maxSequence = Math.max(...known.map((point) => Number(point.sequence)));
   const minSequence = Math.min(...known.map((point) => Number(point.sequence)));
-  const maxCost = Math.max(...known.map(valueFor));
-  const { step: niceStep, axisMax } = niceAxisScale(maxCost);
+  const { step: niceStep, axisMax } = niceAxisScale(Math.max(...values));
   const xFor = (sequence) =>
     maxSequence === minSequence
       ? padLeft + plotWidth / 2
@@ -1898,7 +1921,17 @@ function taskCostChartHtml(points) {
     width,
     padRight,
   );
-  return `<div class="cost-chart"><svg viewBox="0 0 ${width} ${height}" role="img" aria-label="${escapeHtml(t("costTrend"))}">${gridLines.join("")}${xLabels}${area}${line}${dots}${peakLabel}</svg></div>`;
+  const meanLine = chartMeanLine(
+    yFor,
+    meanCost,
+    escapeHtml(`${t("trendAvgPrefix")} ${formatCurrencyAmount(pricingDecimalFromNano(meanNano))}`),
+    padTop,
+    padLeft,
+    padRight,
+    plotHeight,
+    width,
+  );
+  return `<div class="cost-chart"><svg viewBox="0 0 ${width} ${height}" role="img" aria-label="${escapeHtml(t("costTrend"))}">${gridLines.join("")}${xLabels}${area}${line}${dots}${meanLine}${peakLabel}</svg></div>`;
 }
 // Raw SVG line chart for the task-detail token output trend: x = request
 // sequence, y = this request's own output (response) tokens. Requests whose
@@ -1921,8 +1954,9 @@ function taskOutputTokenChartHtml(points) {
   const plotHeight = height - padTop - padBottom;
   const maxSequence = Math.max(...known.map((point) => Number(point.sequence)));
   const minSequence = Math.min(...known.map((point) => Number(point.sequence)));
-  const maxTokens = Math.max(...known.map((point) => Number(point.output_tokens)));
-  const { step: niceStep, axisMax } = niceAxisScale(maxTokens);
+  const values = known.map((point) => Number(point.output_tokens));
+  const meanOutput = values.length >= 2 ? values.reduce((sum, v) => sum + v, 0) / values.length : 0;
+  const { step: niceStep, axisMax } = niceAxisScale(Math.max(...values));
   const xFor = (sequence) =>
     maxSequence === minSequence
       ? padLeft + plotWidth / 2
@@ -1981,7 +2015,17 @@ function taskOutputTokenChartHtml(points) {
     width,
     padRight,
   );
-  return `<div class="output-token-chart"><svg viewBox="0 0 ${width} ${height}" role="img" aria-label="${escapeHtml(t("outputTokenTrend"))}">${gridLines.join("")}${xLabels}${area}${line}${dots}${peakLabel}</svg></div>`;
+  const meanLine = chartMeanLine(
+    yFor,
+    meanOutput,
+    escapeHtml(`${t("trendAvgPrefix")} ${fullNumber(Math.round(meanOutput))}`),
+    padTop,
+    padLeft,
+    padRight,
+    plotHeight,
+    width,
+  );
+  return `<div class="output-token-chart"><svg viewBox="0 0 ${width} ${height}" role="img" aria-label="${escapeHtml(t("outputTokenTrend"))}">${gridLines.join("")}${xLabels}${area}${line}${dots}${meanLine}${peakLabel}</svg></div>`;
 }
 const pricingGroupOpenStorageKey = "llmProxyPricingGroupOpen";
 function loadPricingGroupOpenState() {
@@ -2210,7 +2254,7 @@ function renderTaskPricingPanel() {
       ? state.taskOutputTokenSeries.points
       : null;
   const outputTokenChart = `<h3 class="section-output">${escapeHtml(t("outputTokenTrend"))}</h3>${outputTokenSeries === null ? `<p>${escapeHtml(t("loading"))}</p>` : taskOutputTokenChartHtml(outputTokenSeries)}<p class="pricing-note">${escapeHtml(t("outputTokenTrendNote"))}</p>`;
-  panel.innerHTML = `<div class="pricing-panel-head"><strong>${escapeHtml(t("taskPricing"))}</strong><button type="button" data-close-pricing>${escapeHtml(t("close"))}</button></div>${summaryCard}${data.priced_request_count ? taskBreakdownTableHtml(data.breakdown, pricingDecimalFromNano(data.cost_nano_cny)) : `<p>${escapeHtml(reasons || t("unpriced"))}</p>`}<p class="pricing-note">${escapeHtml(t("taskWholeScope"))}</p>${tokenChart}${outputTokenChart}${costChart}<h3 class="section-groups">${escapeHtml(t("priceGroups"))}</h3>${groups || `<p>${escapeHtml(t("unpriced"))}</p>`}`;
+  panel.innerHTML = `<div class="pricing-panel-head"><strong>${escapeHtml(t("taskPricing"))}</strong><button type="button" data-close-pricing>${escapeHtml(t("close"))}</button></div>${summaryCard}${data.priced_request_count ? taskBreakdownTableHtml(data.breakdown, pricingDecimalFromNano(data.cost_nano_cny)) : `<p>${escapeHtml(reasons || t("unpriced"))}</p>`}<p class="pricing-note">${escapeHtml(t("taskWholeScope"))}</p>${costChart}${tokenChart}${outputTokenChart}<h3 class="section-groups">${escapeHtml(t("priceGroups"))}</h3>${groups || `<p>${escapeHtml(t("unpriced"))}</p>`}`;
   fitTaskSummaryValues(panel);
   fitTaskSummaryValues(panel);
 }
