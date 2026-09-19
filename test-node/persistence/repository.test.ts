@@ -374,7 +374,7 @@ describe("TrafficRepository pricing persistence", () => {
     repository.close();
   });
 
-  it("lists per-request cumulative output tokens by sequence, counting unknown as zero", async () => {
+  it("lists per-request output tokens by sequence, skipping unknown counts", async () => {
     const root = await mkdtemp(path.join(os.tmpdir(), "llm-proxy-repository-output-token-series-"));
     temporaryDirectories.push(root);
     const repository = new TrafficRepository(root);
@@ -410,9 +410,7 @@ describe("TrafficRepository pricing persistence", () => {
     });
     expect(repository.taskOutputTokenSeries("output-token-series-task")).toEqual([
       { sequence: 1, output_tokens: 40 },
-      { sequence: 2, output_tokens: 40 },
-      { sequence: 3, output_tokens: 40 },
-      { sequence: 4, output_tokens: 101 },
+      { sequence: 4, output_tokens: 61 },
     ]);
     expect(repository.taskOutputTokenSeries("missing")).toBeUndefined();
     repository.close();

@@ -372,7 +372,7 @@ describe("LogQueryService", () => {
     expect(service.getGroupTokenSeries("missing")).toBeUndefined();
   });
 
-  it("returns the per-request cumulative output-token series of a task across roots", async () => {
+  it("returns the per-request output-token series of a task across roots", async () => {
     const firstRoot = await mkdtemp(path.join(os.tmpdir(), "llm-proxy-log-query-output-a-"));
     const secondRoot = await mkdtemp(path.join(os.tmpdir(), "llm-proxy-log-query-output-b-"));
     temporaryDirectories.push(firstRoot, secondRoot);
@@ -411,8 +411,7 @@ describe("LogQueryService", () => {
     const service = new LogQueryService([firstRoot, secondRoot]);
     expect(service.getGroupOutputTokenSeries("output-series-task")).toEqual([
       { sequence: 1, output_tokens: 12 },
-      { sequence: 2, output_tokens: 12 },
-      { sequence: 3, output_tokens: 33 },
+      { sequence: 3, output_tokens: 21 },
     ]);
     expect(service.getGroupOutputTokenSeries("missing")).toBeUndefined();
   });

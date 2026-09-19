@@ -434,10 +434,8 @@ beforeAll(async () => {
         if (groupId !== "task-one") return undefined;
         return [
           { sequence: 1, output_tokens: 4 },
-          { sequence: 2, output_tokens: 8 },
-          { sequence: 3, output_tokens: 104 },
-          { sequence: 4, output_tokens: 104 },
-          { sequence: 5, output_tokens: 316 },
+          { sequence: 3, output_tokens: 96 },
+          { sequence: 5, output_tokens: 212 },
         ];
       },
       cleanupSelectedGroups: (groupIds) => {
@@ -1421,11 +1419,12 @@ describe("admin UI history page", { timeout: UI_TEST_TIMEOUT_MS }, () => {
     await expectPage(taskBreakdown.locator("tfoot")).toContainText("4,250");
     await expectPage(taskBreakdown.locator("tfoot")).not.toContainText("%");
     await expectPage(taskBreakdown.locator("tbody tr").nth(1)).toContainText("1,250");
-    // Total token trend line chart: one dot per request with a known token total.
-    // The chart series requests fire with the panel re-open; no response wait here
-    // because waitForResponse can miss responses that already delivered in this re-render.
+    // Per-request token count trend line chart: one dot per request with a known
+    // token total (request + response). The chart series requests fire with the
+    // panel re-open; no response wait here because waitForResponse can miss
+    // responses that already delivered in this re-render.
     // The expectPage assertions below retry until the chart renders.
-    await expectPage(panel).toContainText("Total token trend");
+    await expectPage(panel).toContainText("Per-request token count trend");
     const tokenChart = panel.locator(".token-chart svg");
     await expectPage(tokenChart).toBeVisible();
     await expectPage(tokenChart.locator(".token-chart-dot")).toHaveCount(5);
@@ -1446,6 +1445,18 @@ describe("admin UI history page", { timeout: UI_TEST_TIMEOUT_MS }, () => {
     );
     await expectPage(costChart.locator(".token-chart-dot").last().locator("title")).toHaveText(
       "Request #5: $0.0238",
+    );
+    // Token output trend line chart: one dot per request with a known output
+    // token count, each carrying that request's own (non-cumulative) count.
+    await expectPage(panel).toContainText("Token output trend");
+    const outputChart = panel.locator(".output-token-chart svg");
+    await expectPage(outputChart).toBeVisible();
+    await expectPage(outputChart.locator(".token-chart-dot")).toHaveCount(3);
+    await expectPage(outputChart.locator(".token-chart-dot").first().locator("title")).toHaveText(
+      "Request #1: 4 output tokens",
+    );
+    await expectPage(outputChart.locator(".token-chart-dot").last().locator("title")).toHaveText(
+      "Request #5: 212 output tokens",
     );
     await panel.screenshot({ path: "test-results/task-pricing-panel.png" });
     await expectPage(group.locator(".log-group-body")).toHaveCount(0);

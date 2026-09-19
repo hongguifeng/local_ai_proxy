@@ -145,8 +145,7 @@ const translations = {
     costTrendNote: "每个请求自身的费用（元），按请求序号；尚无费用的请求不显示。",
     costTrendNoData: "暂无费用数据",
     outputTokenTrend: "Token 输出趋势",
-    outputTokenTrendNote:
-      "累计输出 token，从任务开始到每个请求为止的输出 token 总数；尚无输出 token 数的请求按 0 计入。",
+    outputTokenTrendNote: "每个请求自身的输出 token，按请求序号；尚无输出 token 数的请求不显示。",
     outputTokenTrendNoData: "暂无输出 token 数据",
     priceGroups: "按模型 / 单价分组",
     priced: "已计价",
@@ -348,7 +347,7 @@ const translations = {
     costTrendNoData: "No cost data",
     outputTokenTrend: "Token output trend",
     outputTokenTrendNote:
-      "Cumulative output tokens from the task start through each request; requests without an output token count yet count as zero.",
+      "This request's own output tokens, by request sequence; requests without an output token count yet are not shown.",
     outputTokenTrendNoData: "No output token data",
     priceGroups: "Model / price groups",
     priced: "Priced",
@@ -1869,12 +1868,13 @@ function taskCostChartHtml(points) {
   return `<div class="cost-chart"><svg viewBox="0 0 ${width} ${height}" role="img" aria-label="${escapeHtml(t("costTrend"))}">${gridLines.join("")}${xLabels}${area}${line}${dots}</svg></div>`;
 }
 // Raw SVG line chart for the task-detail token output trend: x = request
-// sequence, y = cumulative output (response) tokens from the task start
-// through each request. Requests whose output token count is still unknown
-// keep the running total unchanged, so the line is flat between requests
-// with known output tokens; the axis always shows the real sequence numbers.
+// sequence, y = this request's own output (response) tokens. Requests whose
+// output token count is still unknown are not shown, so the x positions can
+// be non-contiguous; the axis always shows the real sequence numbers.
 function taskOutputTokenChartHtml(points) {
-  const known = (points || []).filter((point) => Number(point?.output_tokens) >= 0);
+  const known = (points || []).filter(
+    (point) => point?.output_tokens !== null && point?.output_tokens !== undefined,
+  );
   const english = state.language === "en";
   if (known.length === 0)
     return `<div class="output-token-chart-empty">${escapeHtml(t("outputTokenTrendNoData"))}</div>`;
@@ -1930,7 +1930,7 @@ function taskOutputTokenChartHtml(points) {
       const x = xFor(point.sequence);
       const y = yFor(point.output_tokens);
       const title = escapeHtml(
-        `${english ? "Request" : "请求"} #${Number(point.sequence)}: ${english ? "Cumulative " : "累计 "}${fullNumber(
+        `${english ? "Request" : "请求"} #${Number(point.sequence)}: ${fullNumber(
           point.output_tokens,
         )} ${english ? " output tokens" : " 个输出 token"}`,
       );
