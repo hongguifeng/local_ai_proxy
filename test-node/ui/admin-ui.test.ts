@@ -1434,6 +1434,8 @@ describe("admin UI history page", { timeout: UI_TEST_TIMEOUT_MS }, () => {
     await expectPage(tokenChart.locator(".token-chart-dot").last().locator("title")).toHaveText(
       "Request #5: 258 tokens",
     );
+    // The highest point is labeled with its exact value (request #5 here).
+    await expectPage(tokenChart.locator(".token-chart-peak")).toHaveText("258");
     // Cost trend line chart: one dot per priced request with its own cost;
     // the priced per-request costs sum to the task total in the panel header.
     await expectPage(panel).toContainText("Cost trend");
@@ -1446,6 +1448,9 @@ describe("admin UI history page", { timeout: UI_TEST_TIMEOUT_MS }, () => {
     await expectPage(costChart.locator(".token-chart-dot").last().locator("title")).toHaveText(
       "Request #5: $0.0238",
     );
+    // The highest point is labeled with its exact value (request #5 here),
+    // formatted like the dot tooltips (rounded to 4 decimal places).
+    await expectPage(costChart.locator(".token-chart-peak")).toHaveText("$0.0238");
     // Token output trend line chart: one dot per request with a known output
     // token count, each carrying that request's own (non-cumulative) count.
     await expectPage(panel).toContainText("Token output trend");
@@ -1458,6 +1463,7 @@ describe("admin UI history page", { timeout: UI_TEST_TIMEOUT_MS }, () => {
     await expectPage(outputChart.locator(".token-chart-dot").last().locator("title")).toHaveText(
       "Request #5: 212 output tokens",
     );
+    await expectPage(outputChart.locator(".token-chart-peak")).toHaveText("212");
     await panel.screenshot({ path: "test-results/task-pricing-panel.png" });
     await expectPage(group.locator(".log-group-body")).toHaveCount(0);
     await expectPage(group.locator('[data-select-group="task-one"]')).not.toBeChecked();

@@ -1841,6 +1841,20 @@ label span {
   stroke-width: 1.5;
   cursor: default;
 }
+/* Peak-value label pinned just above the highest dot of each trend chart,
+   so the max point can be read without hovering. The white halo (paint-order
+   stroke) keeps it legible where it crosses grid lines; color follows the
+   chart's dot color (see the overrides below). */
+.token-chart-peak {
+  fill: var(--accent);
+  font-size: 12px;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+  paint-order: stroke;
+  stroke: var(--panel);
+  stroke-width: 3;
+  stroke-linejoin: round;
+}
 /* The three trend charts share the element classes above but each keeps the
    semantic color of the matching stat card / list metric: teal for the
    per-request total-token trend (token card #0e7490), blue for the
@@ -1855,6 +1869,9 @@ label span {
 .token-chart .token-chart-dot {
   fill: #0e7490;
 }
+.token-chart .token-chart-peak {
+  fill: #0e7490;
+}
 .output-token-chart .token-chart-line {
   stroke: #315a82;
 }
@@ -1862,6 +1879,9 @@ label span {
   fill: #dbe3ee;
 }
 .output-token-chart .token-chart-dot {
+  fill: #315a82;
+}
+.output-token-chart .token-chart-peak {
   fill: #315a82;
 }
 .token-chart-empty,

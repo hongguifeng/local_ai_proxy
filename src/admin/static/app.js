@@ -1714,6 +1714,17 @@ function niceAxisScale(maxValue) {
   }
   return best ?? { step: 1, axisMax: Math.ceil(max) };
 }
+// SVG label pinning the exact value of a trend chart's highest point just
+// above its dot (flipped to the left of the dot when the peak sits close to
+// the right edge, so the text never overflows the viewBox). Shared element
+// class .token-chart-peak across the three charts; color follows each
+// chart's dot color.
+function chartPeakLabel(x, y, valueText, width, padRight) {
+  const halfWidth = valueText.length * 3.4 + 4;
+  const toLeft = x + halfWidth > width - padRight;
+  const tx = toLeft ? x - 7 : x;
+  return `<text x="${tx}" y="${Math.max(y - 8, 11)}" text-anchor="${toLeft ? "end" : "middle"}" class="token-chart-peak">${valueText}</text>`;
+}
 // Raw SVG line chart for the task-detail token trend: x = request sequence,
 // y = total tokens (request + response) of each finished request. Requests
 // whose token counts are still unknown are skipped, so the x positions can be
@@ -1782,7 +1793,18 @@ function taskTokenChartHtml(points) {
       return `<circle class="token-chart-dot" cx="${x}" cy="${y}" r="3.5"><title>${title}</title></circle>`;
     })
     .join("");
-  return `<div class="token-chart"><svg viewBox="0 0 ${width} ${height}" role="img" aria-label="${escapeHtml(t("tokenTrend"))}">${gridLines.join("")}${xLabels}${area}${line}${dots}</svg></div>`;
+  const peak = known.reduce(
+    (best, point) => (Number(point.total_tokens) > Number(best.total_tokens) ? point : best),
+    known[0],
+  );
+  const peakLabel = chartPeakLabel(
+    xFor(peak.sequence),
+    yFor(peak.total_tokens),
+    escapeHtml(fullNumber(peak.total_tokens)),
+    width,
+    padRight,
+  );
+  return `<div class="token-chart"><svg viewBox="0 0 ${width} ${height}" role="img" aria-label="${escapeHtml(t("tokenTrend"))}">${gridLines.join("")}${xLabels}${area}${line}${dots}${peakLabel}</svg></div>`;
 }
 // Axis tick labels for yuan values: compact for large amounts, fixed four
 // decimal places (trimmed) for everyday per-request costs, scientific for
@@ -1865,7 +1887,18 @@ function taskCostChartHtml(points) {
       return `<circle class="token-chart-dot" cx="${x}" cy="${y}" r="3.5"><title>${title}</title></circle>`;
     })
     .join("");
-  return `<div class="cost-chart"><svg viewBox="0 0 ${width} ${height}" role="img" aria-label="${escapeHtml(t("costTrend"))}">${gridLines.join("")}${xLabels}${area}${line}${dots}</svg></div>`;
+  const peak = known.reduce(
+    (best, point) => (Number(point.cost_nano_cny) > Number(best.cost_nano_cny) ? point : best),
+    known[0],
+  );
+  const peakLabel = chartPeakLabel(
+    xFor(peak.sequence),
+    yFor(valueFor(peak)),
+    escapeHtml(formatCurrencyAmount(pricingDecimalFromNano(peak.cost_nano_cny))),
+    width,
+    padRight,
+  );
+  return `<div class="cost-chart"><svg viewBox="0 0 ${width} ${height}" role="img" aria-label="${escapeHtml(t("costTrend"))}">${gridLines.join("")}${xLabels}${area}${line}${dots}${peakLabel}</svg></div>`;
 }
 // Raw SVG line chart for the task-detail token output trend: x = request
 // sequence, y = this request's own output (response) tokens. Requests whose
@@ -1937,7 +1970,18 @@ function taskOutputTokenChartHtml(points) {
       return `<circle class="token-chart-dot" cx="${x}" cy="${y}" r="3.5"><title>${title}</title></circle>`;
     })
     .join("");
-  return `<div class="output-token-chart"><svg viewBox="0 0 ${width} ${height}" role="img" aria-label="${escapeHtml(t("outputTokenTrend"))}">${gridLines.join("")}${xLabels}${area}${line}${dots}</svg></div>`;
+  const peak = known.reduce(
+    (best, point) => (Number(point.output_tokens) > Number(best.output_tokens) ? point : best),
+    known[0],
+  );
+  const peakLabel = chartPeakLabel(
+    xFor(peak.sequence),
+    yFor(peak.output_tokens),
+    escapeHtml(fullNumber(peak.output_tokens)),
+    width,
+    padRight,
+  );
+  return `<div class="output-token-chart"><svg viewBox="0 0 ${width} ${height}" role="img" aria-label="${escapeHtml(t("outputTokenTrend"))}">${gridLines.join("")}${xLabels}${area}${line}${dots}${peakLabel}</svg></div>`;
 }
 const pricingGroupOpenStorageKey = "llmProxyPricingGroupOpen";
 function loadPricingGroupOpenState() {
