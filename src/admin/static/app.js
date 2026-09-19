@@ -1098,9 +1098,17 @@ async function cleanupLogs() {
 }
 function scheduleLogRefresh(delay = 3000) {
   clearTimeout(state.refreshTimer);
-  if (!$("autoRefreshLogs").checked || state.logQuery !== "") return;
+  if (!$("autoRefreshLogs").checked) return;
   state.refreshTimer = setTimeout(() => {
     if (state.splitterDragging || document.hidden || !$("logs").classList.contains("active")) {
+      scheduleLogRefresh(delay);
+      return;
+    }
+    // A search query deliberately freezes the result list, but the task-detail
+    // panel describes a single task rather than that result set, so it keeps
+    // refreshing on the same cadence (a no-op when no panel is open).
+    if (state.logQuery !== "") {
+      refreshTaskPricingPanel().catch(() => {});
       scheduleLogRefresh(delay);
       return;
     }
@@ -1956,6 +1964,40 @@ function taskTimeRangeHtml(group) {
     [group.started_at, group.last_activity_at].filter(Boolean).join(" - "),
   )}"><span class="task-time-range">${inner}</span></span>`;
 }
+// The task-detail summary card mirrors the left list facts (model, time range,
+// request count, average decode speed). Both places read the same group
+// summary, so mirror the freshest list entry into the panel on every refresh
+// instead of freezing one snapshot when the panel opens: the counters of a task
+// that is still running then keep moving while the panel stays open. A group
+// that is not part of the current page (search / pagination) keeps the last
+// known values. Returns true when something changed, so the caller can skip a
+// redundant re-render.
+function syncActiveTaskGroup(groupId) {
+  const group = state.logGroups.find((item) => item.id === groupId);
+  if (!group) return false;
+  const next = {
+    id: groupId,
+    started_at: group.started_at ?? null,
+    last_activity_at: group.last_activity_at ?? null,
+    model: group.model ?? null,
+    request_count: group.request_count ?? null,
+    decode_speed_tps: group.decode_speed_tps ?? null,
+  };
+  const previous = state.activeTaskGroup;
+  if (previous && sameTaskGroupSnapshot(previous, next)) return false;
+  state.activeTaskGroup = next;
+  return true;
+}
+function sameTaskGroupSnapshot(a, b) {
+  return (
+    a.id === b.id &&
+    a.started_at === b.started_at &&
+    a.last_activity_at === b.last_activity_at &&
+    a.model === b.model &&
+    a.request_count === b.request_count &&
+    a.decode_speed_tps === b.decode_speed_tps
+  );
+}
 function renderTaskPricingPanel() {
   const panel = $("pricingPanel");
   const detail = $("detail");
@@ -2126,22 +2168,12 @@ async function showTaskPricing(groupId) {
   const controller = new AbortController();
   state.taskPricingAbort = controller;
   state.activeTaskPricing = groupId;
-  // Snapshot the list-item summary (model / time range / request count /
-  // decode speed) at open time so the panel card can show the same facts
-  // even after the group leaves state.logGroups (search / pagination).
-  if (!state.activeTaskGroup || state.activeTaskGroup.id !== groupId) {
-    const group = state.logGroups.find((item) => item.id === groupId);
-    state.activeTaskGroup = group
-      ? {
-          id: group.id,
-          started_at: group.started_at ?? null,
-          last_activity_at: group.last_activity_at ?? null,
-          model: group.model ?? null,
-          request_count: group.request_count ?? null,
-          decode_speed_tps: group.decode_speed_tps ?? null,
-        }
-      : null;
-  }
+  // Reveal the panel for this task: always re-read the current list facts for
+  // it so re-opening a still-running task never shows the counters of an
+  // earlier visit, while a group that has left the list (search / pagination)
+  // keeps the last known snapshot.
+  if (state.activeTaskGroup?.id !== groupId) state.activeTaskGroup = null;
+  syncActiveTaskGroup(groupId);
   state.taskPricing = { id: groupId, loading: true, error: false, data: null };
   state.taskTokenSeries = { id: groupId, points: null };
   state.taskCostSeries = { id: groupId, points: null };
@@ -2177,6 +2209,11 @@ function closeTaskPricing() {
 async function refreshTaskPricingPanel() {
   const groupId = state.activeTaskPricing;
   if (!groupId || state.taskPricing?.loading) return;
+  // The summary card also carries list facts (model / time range / request
+  // count / decode speed); mirror them before the pricing round-trip so a
+  // running task's counters move on screen at the list's cadence instead of
+  // waiting for the cost response.
+  if (syncActiveTaskGroup(groupId)) renderTaskPricingPanel();
   const controller = new AbortController();
   state.taskPricingAbort?.abort();
   state.taskPricingAbort = controller;

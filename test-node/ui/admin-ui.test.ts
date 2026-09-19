@@ -1188,6 +1188,62 @@ describe("admin UI history page", { timeout: UI_TEST_TIMEOUT_MS }, () => {
     await page.unroute("**/api/logs?**");
   });
 
+  it("keeps an open task detail panel in step with a running task", async () => {
+    await loadAdminPage();
+    await Promise.all([
+      page.waitForResponse((response) => response.url().includes("/api/logs?")),
+      page.locator('[data-tab="logs"]').click(),
+    ]);
+    const group = page.locator('[data-group-id="task-one"]');
+    await Promise.all([
+      page.waitForResponse((response) =>
+        response.url().endsWith("/api/log-groups/task-one/pricing"),
+      ),
+      group.locator("[data-group-detail]").click(),
+    ]);
+    const panel = page.locator("#pricingPanel");
+    // The summary card repeats the list facts for the same task.
+    await expectPage(panel.locator(".task-stat-count strong")).toHaveText("5");
+    await expectPage(panel.locator(".task-stat-time .task-time-end")).toHaveText("12:00:05");
+    await expectPage(panel.locator(".task-stat-speed strong")).toHaveText("2.5t/s");
+
+    // The task keeps running while the panel stays open: only the group summary
+    // (request count / last activity / decode speed) moves and the pricing
+    // payload is unchanged, yet the panel has to follow the task.
+    await page.route("**/api/logs?**", async (route) => {
+      const response = await route.fetch();
+      const data = (await response.json()) as { groups: Record<string, unknown>[] };
+      data.groups = data.groups.map((item) =>
+        item["id"] === "task-one"
+          ? {
+              ...item,
+              request_count: 9,
+              last_activity_at: "2026-07-18 12:00:41",
+              decode_speed_tps: 8.5,
+            }
+          : item,
+      );
+      await route.fulfill({ response, json: data });
+    });
+    await Promise.all([
+      page.waitForResponse((response) => response.url().includes("/api/logs?")),
+      page.locator("#refreshLogs").click(),
+    ]);
+    await expectPage(panel.locator(".task-stat-count strong")).toHaveText("9");
+    await expectPage(panel.locator(".task-stat-time .task-time-end")).toHaveText("12:00:41");
+    await expectPage(panel.locator(".task-stat-speed strong")).toHaveText("8.5t/s");
+    // Re-opening the same task re-reads the list facts instead of restoring the
+    // snapshot taken on the first visit.
+    await Promise.all([
+      page.waitForResponse((response) =>
+        response.url().endsWith("/api/log-groups/task-one/pricing"),
+      ),
+      group.locator("[data-group-detail]").press("Enter"),
+    ]);
+    await expectPage(panel.locator(".task-stat-count strong")).toHaveText("9");
+    await page.unroute("**/api/logs?**");
+  });
+
   it("loads task records only when a group is expanded", async () => {
     await loadAdminPage();
     await Promise.all([
