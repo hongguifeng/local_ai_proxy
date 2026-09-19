@@ -336,7 +336,7 @@ describe("TrafficRepository pricing persistence", () => {
     repository.close();
   });
 
-  it("lists per-request cumulative costs by sequence, holding the total for unpriced requests", async () => {
+  it("lists per-request costs by sequence, skipping unpriced requests", async () => {
     const root = await mkdtemp(path.join(os.tmpdir(), "llm-proxy-repository-cost-series-"));
     temporaryDirectories.push(root);
     const repository = new TrafficRepository(root);
@@ -368,9 +368,7 @@ describe("TrafficRepository pricing persistence", () => {
     });
     expect(repository.taskCostSeries("cost-series-task")).toEqual([
       { sequence: 1, cost_nano_cny: "12340000" },
-      { sequence: 2, cost_nano_cny: "12340000" },
-      { sequence: 3, cost_nano_cny: "12340000" },
-      { sequence: 4, cost_nano_cny: "512340000" },
+      { sequence: 4, cost_nano_cny: "500000000" },
     ]);
     expect(repository.taskCostSeries("missing")).toBeUndefined();
     repository.close();

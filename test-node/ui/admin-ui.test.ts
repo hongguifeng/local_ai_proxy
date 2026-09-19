@@ -426,10 +426,8 @@ beforeAll(async () => {
         if (groupId !== "task-one") return undefined;
         return [
           { sequence: 1, cost_nano_cny: "10400000" },
-          { sequence: 2, cost_nano_cny: "10400000" },
-          { sequence: 3, cost_nano_cny: "19000000" },
-          { sequence: 4, cost_nano_cny: "20250000" },
-          { sequence: 5, cost_nano_cny: "42750000" },
+          { sequence: 3, cost_nano_cny: "8600000" },
+          { sequence: 5, cost_nano_cny: "23750000" },
         ];
       },
       getGroupOutputTokenSeries: (groupId) => {
@@ -1437,17 +1435,17 @@ describe("admin UI history page", { timeout: UI_TEST_TIMEOUT_MS }, () => {
     await expectPage(tokenChart.locator(".token-chart-dot").last().locator("title")).toHaveText(
       "Request #5: 258 tokens",
     );
-    // Cost trend line chart: one dot per request with the running total;
-    // the final dot equals the task total shown in the panel header.
+    // Cost trend line chart: one dot per priced request with its own cost;
+    // the priced per-request costs sum to the task total in the panel header.
     await expectPage(panel).toContainText("Cost trend");
     const costChart = panel.locator(".cost-chart svg");
     await expectPage(costChart).toBeVisible();
-    await expectPage(costChart.locator(".token-chart-dot")).toHaveCount(5);
+    await expectPage(costChart.locator(".token-chart-dot")).toHaveCount(3);
     await expectPage(costChart.locator(".token-chart-dot").first().locator("title")).toHaveText(
-      "Request #1: Cumulative $0.0104",
+      "Request #1: $0.0104",
     );
     await expectPage(costChart.locator(".token-chart-dot").last().locator("title")).toHaveText(
-      "Request #5: Cumulative $0.0428",
+      "Request #5: $0.0238",
     );
     await panel.screenshot({ path: "test-results/task-pricing-panel.png" });
     await expectPage(group.locator(".log-group-body")).toHaveCount(0);

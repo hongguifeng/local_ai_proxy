@@ -142,7 +142,7 @@ const translations = {
     tokenTrendNote: "每个请求的 token 总量（请求 + 响应），按请求序号；尚无 token 数的请求不显示。",
     tokenTrendNoData: "暂无 token 数据",
     costTrend: "费用趋势",
-    costTrendNote: "累计费用（元），从任务开始到每个请求为止的总费用；尚无费用的请求按 0 计入。",
+    costTrendNote: "每个请求自身的费用（元），按请求序号；尚无费用的请求不显示。",
     costTrendNoData: "暂无费用数据",
     outputTokenTrend: "Token 输出趋势",
     outputTokenTrendNote:
@@ -344,7 +344,7 @@ const translations = {
     tokenTrendNoData: "No token data",
     costTrend: "Cost trend",
     costTrendNote:
-      "Cumulative cost from the task start through each request; requests without a cost yet count as zero.",
+      "This request's own cost, by request sequence; requests without a cost yet are not shown.",
     costTrendNoData: "No cost data",
     outputTokenTrend: "Token output trend",
     outputTokenTrendNote:
@@ -1796,9 +1796,8 @@ function costAxisLabel(value) {
   return n.toFixed(4).replace(/0+$/, "").replace(/\.$/, "");
 }
 // Raw SVG line chart for the task-detail cost trend: x = request sequence,
-// y = cumulative cost (yuan) from the task start through each request.
-// Unpriced/pending requests keep the running total unchanged, so the line is
-// flat between priced requests; the axis always shows the real sequence
+// y = that request's own cost (yuan). Only priced requests appear, so the x
+// positions can be non-contiguous; the axis always shows the real sequence
 // numbers.
 function taskCostChartHtml(points) {
   const known = (points || []).filter(
@@ -1860,9 +1859,9 @@ function taskCostChartHtml(points) {
       const x = xFor(point.sequence);
       const y = yFor(valueFor(point));
       const title = escapeHtml(
-        `${english ? "Request" : "请求"} #${Number(point.sequence)}: ${
-          english ? "Cumulative " : "累计 "
-        }${formatCurrencyAmount(pricingDecimalFromNano(point.cost_nano_cny))}`,
+        `${english ? "Request" : "请求"} #${Number(point.sequence)}: ${formatCurrencyAmount(
+          pricingDecimalFromNano(point.cost_nano_cny),
+        )}`,
       );
       return `<circle class="token-chart-dot" cx="${x}" cy="${y}" r="3.5"><title>${title}</title></circle>`;
     })
