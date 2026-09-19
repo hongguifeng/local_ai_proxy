@@ -27,6 +27,7 @@ let baseUrl: string;
 const logQueries: string[] = [];
 const groupLogQueries: string[] = [];
 let useLargeLogFixture = false;
+let useLargeLogRequestCount: ((index: number) => number) | null = null;
 let useLargeGroupLogFixture = false;
 let useSummarizedLogFixture = false;
 const deletedLogGroups = new Set<string>();
@@ -175,7 +176,7 @@ beforeAll(async () => {
               started_at: `2026-07-18 12:${String(index % 60).padStart(2, "0")}:00`,
               last_activity_at: `2026-07-18 12:${String(index % 60).padStart(2, "0")}:05`,
               model: "gpt-5",
-              request_count: 1,
+              request_count: useLargeLogRequestCount ? useLargeLogRequestCount(index) : 1,
               target: `target-${index + 1}`,
             }))
           : [
@@ -605,6 +606,7 @@ beforeEach(async () => {
   logQueries.splice(0);
   groupLogQueries.splice(0);
   useLargeLogFixture = false;
+  useLargeLogRequestCount = null;
   useLargeGroupLogFixture = false;
   useSummarizedLogFixture = false;
   deletedLogGroups.clear();
@@ -1073,7 +1075,7 @@ describe("admin UI history page", { timeout: UI_TEST_TIMEOUT_MS }, () => {
       page.waitForResponse((response) => response.url().includes("/api/logs?")),
       page.locator('[data-tab="logs"]').click(),
     ]);
-    const progress = page.locator("#logSearchProgress");
+    const progress = page.locator("#logListProgress");
     await expectPage(progress).toBeHidden();
 
     let releaseSearch: (() => void) | undefined;
@@ -1518,7 +1520,7 @@ describe("admin UI history page", { timeout: UI_TEST_TIMEOUT_MS }, () => {
     await expectPage(page.locator('[data-group-id="task-one"]')).toBeVisible();
     await page.locator("#logSearch").fill("task");
     await page.locator("#searchLogs").click();
-    await expectPage(page.locator("#logSearchProgress")).toBeHidden();
+    await expectPage(page.locator("#logListProgress")).toBeHidden();
     await page.locator('[data-group-id="task-one"] .log-target').click();
     await expectPage(page.locator('[data-log-id="preview-task"]')).toBeVisible();
     expect(groupLogQueries).toEqual([]);
@@ -1648,6 +1650,98 @@ describe("admin UI history page", { timeout: UI_TEST_TIMEOUT_MS }, () => {
     await expectPage(page.locator('[data-group-id="task-one"]')).toHaveCount(0);
     await expectPage(page.locator('[data-group-id="task-needle"]')).toHaveCount(1);
     await expectPage(page.locator("#toast")).toContainText("Logs cleaned: 1");
+  });
+
+  it("cleans every single-request task across all pages of the list", async () => {
+    useLargeLogFixture = true;
+    await loadAdminPage();
+    await Promise.all([
+      page.waitForResponse((response) => response.url().includes("/api/logs?")),
+      page.locator('[data-tab="logs"]').click(),
+    ]);
+    await expectPage(page.locator("#cleanupSingleRequestLogs")).toHaveText("Clean single-request");
+    const cleanupResponse = page.waitForResponse(
+      (response) =>
+        response.url().endsWith("/api/logs/cleanup") && response.request().method() === "POST",
+    );
+    await page.locator("#cleanupSingleRequestLogs").click();
+    const body = (await cleanupResponse).request().postDataJSON() as { group_ids: string[] } | null;
+    if (body === null) throw new Error("cleanup request has no POST body");
+    expect(body.group_ids).toEqual(Array.from({ length: 101 }, (_, index) => `task-${index + 1}`));
+    expect(deletedLogGroups.size).toBe(101);
+    await expectPage(page.locator("#toast")).toContainText("Logs cleaned: 101");
+    await expectPage(page.locator(".log-group")).toHaveCount(0);
+  });
+
+  it("cleans only the tasks whose group holds exactly one request", async () => {
+    useLargeLogFixture = true;
+    useLargeLogRequestCount = (index) => (index % 2 === 0 ? 1 : 3);
+    await loadAdminPage();
+    await Promise.all([
+      page.waitForResponse((response) => response.url().includes("/api/logs?")),
+      page.locator('[data-tab="logs"]').click(),
+    ]);
+    const cleanupResponse = page.waitForResponse(
+      (response) =>
+        response.url().endsWith("/api/logs/cleanup") && response.request().method() === "POST",
+    );
+    await page.locator("#cleanupSingleRequestLogs").click();
+    const body = (await cleanupResponse).request().postDataJSON() as { group_ids: string[] } | null;
+    if (body === null) throw new Error("cleanup request has no POST body");
+    expect(body.group_ids).toEqual(
+      Array.from({ length: 51 }, (_, index) => `task-${index * 2 + 1}`),
+    );
+    expect(deletedLogGroups.size).toBe(51);
+    await expectPage(page.locator("#toast")).toContainText("Logs cleaned: 51");
+    await expectPage(page.locator(".log-group")).toHaveCount(50);
+  });
+
+  it("reports when no task contains a single request", async () => {
+    useLargeLogFixture = true;
+    useLargeLogRequestCount = () => 3;
+    await loadAdminPage();
+    await Promise.all([
+      page.waitForResponse((response) => response.url().includes("/api/logs?")),
+      page.locator('[data-tab="logs"]').click(),
+    ]);
+    await page.locator("#cleanupSingleRequestLogs").click();
+    await expectPage(page.locator("#toast")).toContainText("No single-request tasks");
+    expect(deletedLogGroups.size).toBe(0);
+    await expectPage(page.locator(".log-group")).toHaveCount(100);
+  });
+
+  it("shows the progress bar and a busy button while single-request cleanup is running", async () => {
+    useLargeLogFixture = true;
+    await loadAdminPage();
+    await Promise.all([
+      page.waitForResponse((response) => response.url().includes("/api/logs?")),
+      page.locator('[data-tab="logs"]').click(),
+    ]);
+
+    let releaseCleanup: (() => void) | undefined;
+    const release = new Promise<void>((resolve) => {
+      releaseCleanup = resolve;
+    });
+    await page.route("**/api/logs**", async (route) => {
+      if (route.request().method() !== "GET") return route.continue();
+      const response = await route.fetch();
+      await release;
+      await route.fulfill({ response });
+    });
+
+    const button = page.locator("#cleanupSingleRequestLogs");
+    const progress = page.locator("#logListProgress");
+    await button.click();
+    await expectPage(button).toBeDisabled();
+    await expectPage(button).toHaveText("Cleaning…");
+    await expectPage(progress).toBeVisible();
+
+    releaseCleanup?.();
+    await expectPage(button).toBeEnabled();
+    await expectPage(button).toHaveText("Clean single-request");
+    await expectPage(progress).toBeHidden();
+    await expectPage(page.locator("#toast")).toContainText("Logs cleaned: 101");
+    await page.unroute("**/api/logs**");
   });
 
   it("downloads the log ZIP archive", async () => {
@@ -1905,6 +1999,7 @@ describe("admin UI history page", { timeout: UI_TEST_TIMEOUT_MS }, () => {
     expect(order).toEqual([
       "selectAllLogs",
       "cleanupLogs",
+      "cleanupSingleRequestLogs",
       "exportLogs",
       "summaryModelSettings",
       "refreshLogs",

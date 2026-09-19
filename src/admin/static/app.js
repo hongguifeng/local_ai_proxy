@@ -44,10 +44,13 @@ const translations = {
     statsOverviewHint: "按当前时间范围汇总",
     cleanupLogs: "清理",
     cleanupSelectedLogs: "清理选中",
+    cleanupSingleRequestLogs: "清理单请求",
+    cleaningSingleRequestLogs: "清理中…",
     selectAllLogs: "全选",
     clearSelectedLogs: "取消全选",
     selectLogGroup: "选择任务",
     noSelectedLogs: "请先选择要清理的任务",
+    noSingleRequestLogs: "没有仅含一个请求的任务",
     autoRefresh: "自动刷新",
     toggleWrap: "切换自动换行",
     expandJson: "向下展开一级",
@@ -240,10 +243,13 @@ const translations = {
     statsOverviewHint: "Summary for the selected period",
     cleanupLogs: "Clean",
     cleanupSelectedLogs: "Clean",
+    cleanupSingleRequestLogs: "Clean single-request",
+    cleaningSingleRequestLogs: "Cleaning…",
     selectAllLogs: "Select all",
     clearSelectedLogs: "Deselect all",
     selectLogGroup: "Select task",
     noSelectedLogs: "Select tasks to clean first",
+    noSingleRequestLogs: "No single-request tasks",
     autoRefresh: "Auto refresh",
     toggleWrap: "Toggle line wrap",
     expandJson: "Expand one level",
@@ -1096,6 +1102,47 @@ async function cleanupLogs() {
   await loadLogs();
   toast(`${t("cleanedLogs")}: ${data.deleted_count || 0}`);
 }
+// Removes every task in the whole list (all pages, current search included)
+// whose group contains exactly one request.
+async function cleanupSingleRequestLogs() {
+  const button = $("cleanupSingleRequestLogs");
+  if (button.disabled) return;
+  button.disabled = true;
+  button.textContent = t("cleaningSingleRequestLogs");
+  $("logListProgress").hidden = false;
+  try {
+    const q = encodeURIComponent(state.logQuery);
+    const limit = 100;
+    let offset = 0;
+    const groupIds = [];
+    for (;;) {
+      const data = await api(`/api/logs?q=${q}&limit=${limit}&offset=${offset}`);
+      for (const group of data.groups || []) {
+        if (group.request_count === 1) groupIds.push(group.id);
+      }
+      if (!data.has_more || !data.next_offset) break;
+      offset = data.next_offset;
+    }
+    if (!groupIds.length) {
+      toast(t("noSingleRequestLogs"));
+      return;
+    }
+    const data = await api("/api/logs/cleanup", {
+      method: "POST",
+      body: JSON.stringify({ group_ids: groupIds }),
+    });
+    state.logOffset = 0;
+    state.logGroups = [];
+    state.logs = [];
+    state.selectedLogGroups = {};
+    await loadLogs();
+    toast(`${t("cleanedLogs")}: ${data.deleted_count || 0}`);
+  } finally {
+    $("logListProgress").hidden = true;
+    button.disabled = false;
+    button.textContent = t("cleanupSingleRequestLogs");
+  }
+}
 function scheduleLogRefresh(delay = 3000) {
   clearTimeout(state.refreshTimer);
   if (!$("autoRefreshLogs").checked) return;
@@ -1177,7 +1224,7 @@ async function loadLogs(options = {}) {
   if (state.logsLoading) return;
   state.logsLoading = true;
   const showSearchProgress = Boolean(options.search);
-  if (showSearchProgress) $("logSearchProgress").hidden = false;
+  if (showSearchProgress) $("logListProgress").hidden = false;
   const q = encodeURIComponent(state.logQuery);
   try {
     const offset = options.append ? state.logOffset : 0;
@@ -1243,7 +1290,7 @@ async function loadLogs(options = {}) {
       if (!options.quiet) toast(e.message);
     }
   } finally {
-    if (showSearchProgress) $("logSearchProgress").hidden = true;
+    if (showSearchProgress) $("logListProgress").hidden = true;
     state.logsLoading = false;
     if (q !== encodeURIComponent(state.logQuery)) {
       loadLogs({ search: showSearchProgress }).catch((e) => toast(e.message));
@@ -3567,6 +3614,9 @@ $("logSearch").addEventListener("keydown", (event) => {
 });
 $("exportLogs").addEventListener("click", () => exportLogs().catch((e) => toast(e.message)));
 $("cleanupLogs").addEventListener("click", () => cleanupLogs().catch((e) => toast(e.message)));
+$("cleanupSingleRequestLogs").addEventListener("click", () =>
+  cleanupSingleRequestLogs().catch((e) => toast(e.message)),
+);
 $("summaryModelSettings").addEventListener("click", async () => {
   const current = await api("/api/settings/summary-model").catch(() => null);
   const base = current || {
