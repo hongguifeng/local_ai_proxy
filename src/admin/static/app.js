@@ -138,7 +138,7 @@ const translations = {
     total: "合计",
     activeDuration: "请求总耗时",
     totalDuration: "任务总耗时",
-    tokenTrend: "Token 总量趋势",
+    tokenTrend: "单请求 Token 数趋势",
     tokenTrendNote: "每个请求的 token 总量（请求 + 响应），按请求序号；尚无 token 数的请求不显示。",
     tokenTrendNoData: "暂无 token 数据",
     costTrend: "费用趋势",
@@ -338,7 +338,7 @@ const translations = {
     total: "Total",
     activeDuration: "Request time",
     totalDuration: "Task time",
-    tokenTrend: "Total token trend",
+    tokenTrend: "Per-request token count trend",
     tokenTrendNote:
       "Total tokens (request + response) per request, by request sequence; requests without token counts are not shown.",
     tokenTrendNoData: "No token data",
