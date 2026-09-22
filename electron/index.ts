@@ -1,6 +1,7 @@
 import { app, dialog, Menu, nativeImage, shell, Tray } from "electron";
 
 import { createNodeApplication } from "../src/app/index.js";
+import { createAutoStartController } from "./auto-start.js";
 import { shutdownAndQuit } from "./exit.js";
 import { startHeadlessElectronMain } from "./headless-main.js";
 import { installSmokeExitSignal } from "./smoke-exit.js";
@@ -46,6 +47,11 @@ async function start(): Promise<void> {
   if (trayIcon.isEmpty()) {
     throw new Error("The packaged tray icon could not be loaded.");
   }
+  const autoStart = await createAutoStartController({
+    app,
+    environment: process.env,
+    dataDirectory,
+  });
   tray = new Tray(trayIcon);
   tray.setToolTip("LLM Proxy");
   installOpenAdminActions(
@@ -53,6 +59,7 @@ async function start(): Promise<void> {
     (template) => Menu.buildFromTemplate([...template]),
     openAdmin,
     () => shutdownAndQuit(runtime.application, app),
+    autoStart,
   );
   if (trayOptions.openOnStart) openAdmin();
 }
