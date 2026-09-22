@@ -2879,6 +2879,7 @@ async function loadStatistics() {
     $("statsGranularity")?.querySelector('option[value="month"]')?.replaceChildren("Monthly");
     $("statsGranularity")?.querySelector('option[value="auto"]')?.replaceChildren("Auto");
   }
+  $("statsUnpricedNote").textContent = "";
   $("statsOverview").innerHTML = `<div class="stats-loading">${
     state.language === "en" ? "Loading..." : "加载中…"
   }</div>`;
@@ -3098,6 +3099,12 @@ async function loadStatistics() {
         `<span><b>${statLabels[key]}</b><strong title="${fullNumber(result.totals[key] || 0)}">${compactNumber(result.totals[key] || 0)}</strong></span>`,
     )
     .join("");
+  const unpricedTotal = Object.values(result.unpriced || {}).reduce((a, b) => a + Number(b), 0);
+  $("statsUnpricedNote").textContent = unpricedTotal
+    ? `${english ? " (" : "（"}${english ? "unpriced" : "未计价请求"} ${unpricedTotal.toLocaleString(
+        english ? "en-US" : "zh-CN",
+      )}${english ? ")" : "）"}`
+    : "";
   const primaryStats = ["requests", "tasks"];
   $("statsOverview").innerHTML =
     primaryStats
@@ -3108,13 +3115,6 @@ async function loadStatistics() {
       .join("") +
     `<div class="stat-card stat-card-tokens"><small>${english ? "Token total" : "Token 总量"}</small><div class="stat-card-token-body"><strong title="${fullNumber(totalTokens)}">${tokenTotalDisplay}</strong><div class="token-details">${tokenDetailHtml}</div></div></div>` +
     `<div class="stat-card stat-card-cost" title="${escapeHtml(`${statLabels.cost}: ${statDisplay("cost", result.totals.cost)}`)}"><small>${statLabels.cost}</small><strong>${statDisplay("cost", result.totals.cost)}</strong></div>` +
-    (Object.values(result.unpriced || {}).reduce((a, b) => a + Number(b), 0)
-      ? `<div class="stats-unpriced"><span class="stats-alert-icon">!</span><span>${english ? "Unpriced records are excluded from cost totals" : "有未计价记录，费用合计不包含这些记录"}${
-          english ? " (" : "（"
-        }${Object.values(result.unpriced || {})
-          .reduce((a, b) => a + Number(b), 0)
-          .toLocaleString(english ? "en-US" : "zh-CN")}${english ? ")" : "）"}</span></div>`
-      : "") +
     `<div class="stat-groups"><section class="distribution-card"><div class="distribution-card-title"><h3>${targetTitle}</h3><label class="chart-control"><span>${english ? "Metric" : "指标"}</span><select id="statsMetricTarget" aria-label="${english ? "Target distribution metric" : "转发地址分布指标"}">${metricOptions(targetMetric)}</select></label></div>${pie(targetResult.byTarget, targetMetric)}</section><section class="distribution-card"><div class="distribution-card-title"><h3>${modelTitle}</h3><label class="chart-control"><span>${english ? "Metric" : "指标"}</span><select id="statsMetricModel" aria-label="${english ? "Model distribution metric" : "模型分布指标"}">${metricOptions(modelMetric)}</select></label></div>${pie(modelResult.byModel, modelMetric)}</section></div>`;
   const trend = await fetch(
     `/api/usage-statistics/trend?from=${encodeURIComponent(iso(from))}&to=${encodeURIComponent(to.toISOString())}&granularity=${selectedGranularity}&timezoneOffset=${timezoneOffset}&breakdown=${selectedBreakdown}${extra}`,

@@ -456,11 +456,6 @@ body.drag-target-active {
 .token-details strong {
   font-size: 13px;
 }
-.stats-unpriced {
-  min-height: 38px;
-  padding: 7px 10px;
-  font-size: 12px;
-}
 .stat-groups {
   gap: 10px;
 }
@@ -2653,15 +2648,6 @@ label span {
   font-size: 20px;
   margin-top: 6px;
 }
-.stats-unpriced {
-  grid-column: 1 / -1;
-  padding: 10px 14px;
-  border-radius: 8px;
-  background: #fff7e6;
-  color: #8a5a00;
-  border: 1px solid #f3d08a;
-  font-size: 13px;
-}
 .stat-groups {
   grid-column: 1/-1;
   display: grid;
@@ -3036,21 +3022,16 @@ label span {
   font-style: normal;
   align-self: end;
 }
-.stats-unpriced {
+.stats-section-heading .stats-overview-hint-line {
   display: flex;
-  align-items: center;
-  gap: 9px;
-  min-height: 46px;
+  align-items: baseline;
+  gap: 4px;
 }
-.stats-alert-icon {
-  display: inline-grid;
-  width: 22px;
-  height: 22px;
-  place-items: center;
-  border-radius: 50%;
-  background: #f79009;
-  color: #fff;
-  font-weight: 800;
+.stats-section-heading .stats-overview-hint-line > span {
+  margin-top: 0;
+}
+.stats-section-heading .stats-overview-hint-line > #statsUnpricedNote {
+  color: #8a5a00;
 }
 .stat-groups {
   grid-template-columns: repeat(2, minmax(0, 1fr));

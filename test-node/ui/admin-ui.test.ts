@@ -3198,7 +3198,7 @@ describe("statistics page visual smoke", () => {
     );
     await loadAdminPage();
     await page.locator('[data-tab="statistics"]').click();
-    await expectPage(page.locator(".stats-unpriced")).toContainText("Unpriced");
+    await expectPage(page.locator("#statsUnpricedNote")).toHaveText("(unpriced 2)");
     await expectPage(page.locator(".stat-card-unpriced")).toHaveCount(0);
   });
 
