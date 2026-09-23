@@ -105,8 +105,21 @@ export class ResponseLogCapture {
     }
   }
 
+  /**
+   * Whether the SSE stream has delivered the model's first generated payload
+   * (text, reasoning, or tool-call content). Only meaningful for SSE
+   * captures; plain responses have no stream accumulator.
+   */
   hasSeenTextToken(): boolean {
     return this.#sseAccumulator?.hasSeenTextToken() ?? false;
+  }
+
+  /**
+   * Fraction of the SSE stream that is "decode" (after the first generated
+   * token). Only meaningful for SSE captures; plain responses return 0.
+   */
+  decodeFraction(): number {
+    return this.#sseAccumulator?.decodeFraction() ?? 0;
   }
 
   get usageCapture(): UsageCaptureResult | undefined {

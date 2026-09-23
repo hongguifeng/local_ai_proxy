@@ -404,14 +404,69 @@ describe("IncrementalSseAccumulator", () => {
     expect(accumulator.hasSeenTextToken()).toBe(true);
   });
 
-  it("treats the first reasoning delta as the first token for reasoning streams", () => {
+  it("treats tool-call argument output as the first token when no text is present", () => {
     const accumulator = new IncrementalSseAccumulator();
-    accumulator.addChunk(
-      'data: {"type":"response.reasoning_text.delta","delta":"Thinking..."}\n\n',
-    );
+    accumulator.addChunk('data: {"type":"response.created","response":{"id":"resp_1"}}\n\n');
+    expect(accumulator.hasSeenTextToken()).toBe(false);
+    // Build the data line with JSON.stringify so the argument payload's escaped
+    // quotes stay valid JSON; a hand-quoted single-line literal mangles the backslashes.
+    const data = JSON.stringify({
+      type: "response.function_call_arguments.delta",
+      item_id: "fc_1",
+      delta: '{"a":',
+    });
+    accumulator.addChunk(`data: ${data}` + "\n\n");
     expect(accumulator.hasSeenTextToken()).toBe(true);
   });
 
+  it("estimates the decode fraction from the event structure", () => {
+    const accumulator = new IncrementalSseAccumulator();
+    // 4 events: created, text-delta, text-delta, completed.
+    // First text is set when eventCount = 2 (the 2nd event), so decode
+    // fraction = (4 - 2) / 4 = 0.5.
+    accumulator.addChunk('data: {"type":"response.created","response":{"id":"resp_1"}}\n\n');
+    accumulator.addChunk('data: {"type":"response.output_text.delta","delta":"Hi"}\n\n');
+    accumulator.addChunk('data: {"type":"response.output_text.delta","delta":" there"}\n\n');
+    accumulator.addChunk(
+      'data: {"type":"response.completed","response":{"id":"resp_1","status":"completed"}}\n\n',
+    );
+    expect(accumulator.decodeFraction()).toBeCloseTo(0.5, 6);
+  });
+
+  it("returns zero decode fraction when no content is generated", () => {
+    const accumulator = new IncrementalSseAccumulator();
+    accumulator.addChunk('data: {"type":"response.created","response":{"id":"resp_1"}}\n\n');
+    accumulator.addChunk(
+      'data: {"type":"response.completed","response":{"id":"resp_1","status":"completed"}}\n\n',
+    );
+    expect(accumulator.decodeFraction()).toBe(0);
+  });
+
+  it("returns near-full decode fraction when the first event carries content", () => {
+    const accumulator = new IncrementalSseAccumulator();
+    accumulator.addChunk('data: {"type":"response.output_text.delta","delta":"Hi"}\n\n');
+    accumulator.addChunk(
+      'data: {"type":"response.completed","response":{"id":"resp_1","status":"completed"}}\n\n',
+    );
+    // eventCount=1 when first text is set, total=2, so (2-1)/2 = 0.5.
+    expect(accumulator.decodeFraction()).toBeCloseTo(0.5, 6);
+  });
+
+  it("does not report the first token for tool-call-only chat streams", () => {
+    const accumulator = new IncrementalSseAccumulator();
+    const data = JSON.stringify({
+      choices: [
+        {
+          delta: {
+            role: "assistant",
+            tool_calls: [{ function: { name: "add", arguments: "{}" } }],
+          },
+        },
+      ],
+    });
+    accumulator.addChunk(`data: ${data}` + "\n\n");
+    expect(accumulator.hasSeenTextToken()).toBe(false);
+  });
   it("rejects chunks added after finalization", () => {
     const accumulator = new IncrementalSseAccumulator();
     accumulator.addChunk('data: {"ok":true}\n\n');

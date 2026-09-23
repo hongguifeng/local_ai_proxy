@@ -185,7 +185,7 @@ beforeAll(async () => {
                 started_at: "2026-07-18 12:00:00",
                 last_activity_at: "2026-07-18 12:00:05",
                 model: "gpt-5",
-                request_count: 5,
+                request_count: 6,
                 target: "fixture-target",
                 cost: {
                   currency: "CNY" as const,
@@ -289,12 +289,28 @@ beforeAll(async () => {
         }
         return {
           id: groupId,
-          total: 5,
+          total: 6,
           limit: 200,
           offset: 0,
-          next_offset: 5,
+          next_offset: 6,
           has_more: false,
           logs: [
+            {
+              id: "record-six",
+              timestamp: "2026-07-18 12:00:06",
+              sequence: "6",
+              method: "POST",
+              path: "/v1/responses",
+              endpoint: "/v1/responses",
+              message_count: 1,
+              status: 200,
+              request_token_count: 30,
+              response_token_count: 50,
+              decode_speed_tps: 50,
+              target: "fixture-target",
+              has_summary: false,
+              cost: { currency: "CNY", amount: "0.00002", status: "priced", reason: null },
+            },
             {
               id: "record-five",
               timestamp: "2026-07-18 12:00:05",
@@ -552,6 +568,17 @@ beforeAll(async () => {
             first_token_ms: 2_600,
             duration_ms: 9_032,
           },
+          "record-six": {
+            // A tool-call-only stream that never delivered a generated text
+            // payload: first_token_ms is null and the full duration is the
+            // decode window, so the detail view still shows a speed estimate.
+            status: 200,
+            input: "call the tool",
+            output: null,
+            request_token_count: 30,
+            response_token_count: 50,
+            duration_ms: 1_000,
+          },
         }[recordId];
         if (extra === undefined) {
           return undefined;
@@ -569,8 +596,11 @@ beforeAll(async () => {
             status: extra.status,
             request_token_count: extra.request_token_count,
             response_token_count: extra.response_token_count,
-            first_token_ms: extra.first_token_ms,
+            ...(extra.first_token_ms === undefined ? {} : { first_token_ms: extra.first_token_ms }),
             duration_ms: extra.duration_ms,
+            // The tool-call-only request has no measured first-token time;
+            // the service falls back to the full duration as decode window.
+            ...(recordId === "record-six" ? { decode_window_ms: extra.duration_ms } : {}),
           },
           pricing: fixtureRequestPricing(recordId === "record-four" ? "unpriced" : "priced"),
         };
@@ -1201,7 +1231,7 @@ describe("admin UI history page", { timeout: UI_TEST_TIMEOUT_MS }, () => {
     ]);
     const panel = page.locator("#pricingPanel");
     // The summary card repeats the list facts for the same task.
-    await expectPage(panel.locator(".task-stat-count strong")).toHaveText("5");
+    await expectPage(panel.locator(".task-stat-count strong")).toHaveText("6");
     await expectPage(panel.locator(".task-stat-time .task-time-end")).toHaveText("12:00:05");
     await expectPage(panel.locator(".task-stat-speed strong")).toHaveText("2.5t/s");
 
@@ -1290,7 +1320,7 @@ describe("admin UI history page", { timeout: UI_TEST_TIMEOUT_MS }, () => {
     await expectPage(summary.locator(".log-group-time")).toHaveCount(1);
     await expectPage(summary.locator(".log-group-fact-line")).toHaveCount(2);
     await expectPage(summary.locator(".log-group-fact-line").first()).toContainText("gpt-5");
-    await expectPage(summary.locator(".log-group-fact-line").first()).toContainText("5 requests");
+    await expectPage(summary.locator(".log-group-fact-line").first()).toContainText("6 requests");
     await expectPage(summary.locator(".log-group-cost")).toHaveText("$0.0428");
     await expectPage(summary.locator(".log-group-decode-speed")).toHaveText("2.5t/s");
     await expectPage(summary.locator(".log-target")).toHaveText("fixture-target");
@@ -1312,6 +1342,11 @@ describe("admin UI history page", { timeout: UI_TEST_TIMEOUT_MS }, () => {
     ]);
     await expectPage(page.locator('[data-log-id="record-two"] .decode-speed')).toHaveCount(0);
     await expectPage(page.locator('[data-log-id="record-one"] .decode-speed')).toHaveCount(0);
+    // The tool-call-only request has no measured first-token time, so the
+    // detail falls back to a full-duration decode estimate and skips prefill.
+    await expectPage(
+      page.locator('[data-log-id="record-six"] .decode-speed .log-metric-value'),
+    ).toHaveText("50.0t/s");
     await expectPage(priced.locator(".cost .log-metric-label")).toHaveText("Cost");
     await expectPage(priced.locator(".cost .log-metric-value")).toHaveText("$0.0411");
     await expectPage(page.locator('[data-log-id="record-two"] .cost .log-metric-value')).toHaveText(

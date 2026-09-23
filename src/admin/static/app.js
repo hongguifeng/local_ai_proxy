@@ -2633,19 +2633,26 @@ function updateResponseTiming() {
   ];
   const tokenMs = positiveNumber(meta.first_token_ms);
   const durationMs = positiveNumber(meta.duration_ms);
-  if (tokenMs !== undefined && durationMs !== undefined) {
-    // Prefill is measured until the first generated text token; records without
-    // that timing (e.g. non-streaming responses) do not show speed estimates.
-    // Prompt-cache hits are served by the upstream without a real prefill, so
-    // only the uncached input tokens count toward the prefill speed estimate.
+  const measured = tokenMs !== undefined;
+  // Prefill is measured until the first generated token, so it needs that
+  // timing; the decode estimate does not. Records without a measured
+  // first-token time (short responses that never delivered the first
+  // generated payload, or legacy records) use the full duration as the decode
+  // window, so they keep a displayable speed; non-streaming responses with a
+  // measured near-zero window show no speed estimates at all.
+  // Prompt-cache hits are served by the upstream without a real prefill, so
+  // only the uncached input tokens count toward the prefill speed estimate.
+  const windowMs = measured ? durationMs - tokenMs : positiveNumber(meta.decode_window_ms);
+  if (durationMs !== undefined && (measured || windowMs !== undefined)) {
     const inputTokens = positiveNumber(meta.request_token_count) ?? 0;
     const cachedTokens = Math.min(positiveNumber(meta.cached_token_count) ?? 0, inputTokens);
-    const prefill = formatTokensPerSecond((inputTokens - cachedTokens) * (1000 / tokenMs));
-    const decodeWindowMs = durationMs - tokenMs;
+    const prefill = measured
+      ? formatTokensPerSecond((inputTokens - cachedTokens) * (1000 / tokenMs))
+      : "";
     const decode =
-      decodeWindowMs > 0
+      windowMs !== undefined && windowMs > 0
         ? formatTokensPerSecond(
-            (positiveNumber(meta.response_token_count) ?? 0) * (1000 / decodeWindowMs),
+            (positiveNumber(meta.response_token_count) ?? 0) * (1000 / windowMs),
           )
         : "";
     if (prefill !== "") parts.push(`${t("prefillSpeed")} ${prefill} ${t("tokensPerSecond")}`);

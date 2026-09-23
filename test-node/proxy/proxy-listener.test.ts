@@ -1193,6 +1193,56 @@ describe("ProxyListener", () => {
     await closeServer(upstream);
   });
 
+  it("measures the first token of a tool-call-only SSE response", async () => {
+    const finalRecords: Readonly<Record<string, unknown>>[] = [];
+    const upstream = http.createServer((_request, response) => {
+      response.writeHead(200, { "content-type": "text/event-stream" });
+      response.write(
+        'data: {"type":"response.created","response":{"id":"resp_1"}}\n\n' +
+          'data: {"type":"response.function_call_arguments.delta","item_id":"fc_1","delta":"{\\\"a\\\":1}"}\n\n' +
+          'data: {"type":"response.function_call_arguments.done","item_id":"fc_1","arguments":"{\\\"a\\\":1}"}\n\n' +
+          'data: {"type":"response.completed","response":{"id":"resp_1","status":"completed","usage":{"output_tokens":10}}}\n\n',
+      );
+      response.end();
+    });
+    const upstreamPort = await listenServer(upstream);
+    const trafficLog: TrafficLogWriter = {
+      write(record) {
+        if (record["event"] === "request_finished") finalRecords.push(record);
+        return Promise.resolve();
+      },
+      update: () => Promise.resolve(),
+    };
+    const pipeline = new ProxyRequestPipeline({
+      targets: [
+        {
+          enabled: true,
+          id: "sse-tool-target",
+          modelMappings: [],
+          name: "SSE tool target",
+          targetScheme: "http",
+          targetHost: "127.0.0.1",
+          targetPort: upstreamPort,
+          targetBasePath: "",
+          trafficLog,
+        },
+      ],
+    });
+    const listener = new ProxyListener({
+      host: "127.0.0.1",
+      port: 0,
+      onRequest: (request, response, context) => pipeline.handle(request, response, context),
+    });
+    const address = await listener.start();
+    expect(await requestText(address.port, "/toolstream")).toMatchObject({ status: 200 });
+    expect(finalRecords[0]?.["first_token_ms"]).toEqual(expect.any(Number));
+    expect(Number(finalRecords[0]?.["first_token_ms"])).toBeLessThanOrEqual(
+      Number(finalRecords[0]?.["duration_ms"]),
+    );
+    await listener.close();
+    await closeServer(upstream);
+  });
+
   it("streams ordinary response chunks in order", async () => {
     const upstream = http.createServer((_request, response) => {
       response.writeHead(200, { "content-type": "text/plain" });
@@ -1235,7 +1285,7 @@ describe("ProxyListener", () => {
       body: "first-second",
     });
     expect(plainRecords[0]?.["first_byte_ms"]).toBeUndefined();
-    expect(plainRecords[0]?.["first_token_ms"]).toBeUndefined();
+    expect(plainRecords[0]?.["first_token_ms"]).toEqual(expect.any(Number));
     await listener.close();
     await closeServer(upstream);
   });

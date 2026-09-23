@@ -533,6 +533,25 @@ function recordDetail(record: Readonly<RepositoryRecord>): LogRecordDetail {
     request: record["request_body"] ?? null,
     response: record["response_body"] ?? null,
     pricing: record["pricing"] ?? null,
+    ...(pending
+      ? {}
+      : {
+          // Duration minus the first-token time when it was measured (a
+          // measured near-zero window means the whole body arrived with the
+          // first token, so the decode window is 0 and no speed estimate is
+          // shown). Records without a measured first-token time (short
+          // responses that never delivered the first generated payload, or
+          // legacy records) fall back to the full duration, so they keep a
+          // displayable speed.
+          decode_window_ms:
+            record["first_token_ms"] === null || record["first_token_ms"] === undefined
+              ? (recordDecodeMs(record) ?? 0)
+              : Math.max(
+                  0,
+                  (optionalNumber(record["duration_ms"]) ?? 0) -
+                    (optionalNumber(record["first_token_ms"]) ?? 0),
+                ),
+        }),
     request_meta: compactMeta({
       id: record["id"],
       task_id: record["task_id"],
@@ -617,18 +636,26 @@ function logListItem(record: Readonly<RepositoryRecord>): LogListItem {
 }
 
 /**
- * Per-record decode speed for the second-level log list. Mirrors the group
- * aggregate in taskDecodeSpeedStats: the decode window runs from the first
- * token to the end of the response; only finished requests with output
- * tokens and a window of at least 1ms are measurable.
+ * Per-record decode window in milliseconds for the second-level log list.
+ * Mirrors the group aggregate in taskDecodeSpeedStats: the decode window runs
+ * from the first generated token to the end of the response; only finished
+ * requests with a window of at least 1ms are measurable. Records without a
+ * measured first-token time (e.g. short responses that never delivered the
+ * first generated payload, or legacy records) fall back to the full duration,
+ * so they keep a displayable speed.
  */
-function recordDecodeSpeedTps(record: Readonly<RepositoryRecord>): number | undefined {
+function recordDecodeMs(record: Readonly<RepositoryRecord>): number | undefined {
   if (string(record["event"]) !== "request_finished") return undefined;
-  const outputTokens = optionalInteger(record["response_token_count"]) ?? 0;
   const durationMs = optionalNumber(record["duration_ms"]);
-  if (outputTokens <= 0 || durationMs === null) return undefined;
-  const decodeMs = durationMs - (optionalNumber(record["first_token_ms"]) ?? 0);
-  return decodeMs >= 1 ? outputTokens / (decodeMs / 1000) : undefined;
+  if (durationMs === null || durationMs < 1) return undefined;
+  return durationMs - (optionalNumber(record["first_token_ms"]) ?? 0);
+}
+
+function recordDecodeSpeedTps(record: Readonly<RepositoryRecord>): number | undefined {
+  const outputTokens = optionalInteger(record["response_token_count"]) ?? 0;
+  const decodeMs = recordDecodeMs(record);
+  if (outputTokens <= 0 || decodeMs === undefined || decodeMs < 1) return undefined;
+  return outputTokens / (decodeMs / 1000);
 }
 
 function optionalNumber(value: unknown): number | null {

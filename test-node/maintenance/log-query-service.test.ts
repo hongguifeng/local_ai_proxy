@@ -148,20 +148,19 @@ describe("LogQueryService", () => {
       response_token_count: 240,
     });
     repository.upsertRecord({
-      id: "record-decode-nonstream",
+      id: "record-decode-toolonly",
       task_id: "task-decode",
-      sequence: 2,
+      sequence: 3,
       event: "request_finished",
       method: "POST",
       path: "/v1/responses",
       duration_ms: 300,
-      first_token_ms: 299.5,
       response_token_count: 40,
     });
     repository.upsertRecord({
       id: "record-decode-failed",
       task_id: "task-decode",
-      sequence: 3,
+      sequence: 4,
       event: "request_finished",
       method: "POST",
       path: "/v1/responses",
@@ -172,26 +171,30 @@ describe("LogQueryService", () => {
     repository.close();
 
     const group = new LogQueryService([root]).listGroups().groups[0];
-    expect(group?.decode_speed_tps).toBeCloseTo(240 / 0.975, 6);
+    expect(group?.decode_speed_tps).toBeCloseTo((240 + 40) / (0.975 + 0.3), 6);
 
-    // The second-level list mirrors the group aggregate per record: only the
-    // finished streaming request has a measurable decode window.
+    // The second-level list mirrors the group aggregate per record: the
+    // tool-call-only request without a measured first-token time uses its
+    // full duration as the decode window; the failed request carries no
+    // output tokens and has no speed at all.
     const logs = new LogQueryService([root]).getGroupLogs("task-decode")?.logs ?? [];
     expect(logs.map(({ id }) => id)).toEqual([
       "record-decode-failed",
-      "record-decode-nonstream",
+      "record-decode-toolonly",
       "record-decode-stream",
     ]);
     expect(logs[2]?.decode_speed_tps).toBeCloseTo(240 / 0.975, 6);
+    expect(logs[1]?.decode_speed_tps).toBeCloseTo(40 / 0.3, 6);
     expect("decode_speed_tps" in (logs[0] ?? {})).toBe(false);
-    expect("decode_speed_tps" in (logs[1] ?? {})).toBe(false);
   });
 
-  it("omits the decode speed when the task has no measurable decode window", async () => {
+  it("omits the decode speed when no finished request has a measurable decode window", async () => {
     const root = await mkdtemp(path.join(os.tmpdir(), "llm-proxy-log-query-decode-none-"));
     temporaryDirectories.push(root);
     const repository = new TrafficRepository(root);
     repository.upsertTask(task("task-no-decode", "gpt-5", "2026-07-18T12:00:00.000+08:00"));
+    // A measured near-zero window is a non-streaming response: the whole body
+    // arrived with the first token, so no decode window contributes at all.
     repository.upsertRecord({
       id: "record-no-decode",
       task_id: "task-no-decode",
@@ -200,7 +203,7 @@ describe("LogQueryService", () => {
       method: "POST",
       path: "/v1/responses",
       duration_ms: 200,
-      first_token_ms: 200,
+      first_token_ms: 199.5,
       response_token_count: 60,
     });
     repository.upsertRecord({
@@ -516,6 +519,7 @@ describe("LogQueryService", () => {
         response_token_count: 3,
         cached_token_count: 2,
       },
+      decode_window_ms: 7,
     });
   });
 
@@ -560,6 +564,7 @@ describe("LogQueryService", () => {
       pending: false,
       response: { output: "done" },
       response_meta: { status: 200 },
+      decode_window_ms: 0,
     });
   });
 });

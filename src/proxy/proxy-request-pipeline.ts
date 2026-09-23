@@ -176,6 +176,7 @@ export class ProxyRequestPipeline {
     let responseStatus: number;
     let responseHeaders: Record<string, string[]>;
     let firstTokenMs: number | undefined;
+    let sseResponse = false;
     try {
       const upstream = await openUpstreamResponse({
         target: selectedTarget,
@@ -187,7 +188,8 @@ export class ProxyRequestPipeline {
       });
       responseStatus = upstream.statusCode ?? 502;
       responseHeaders = incomingHeaders(upstream);
-      responseCapture = new ResponseLogCapture(isSseResponse(upstream), {
+      sseResponse = isSseResponse(upstream);
+      responseCapture = new ResponseLogCapture(sseResponse, {
         ...this.#options.responseCapture,
         pricingEndpoint: endpointKind(request.url ?? "/"),
       });
@@ -201,8 +203,20 @@ export class ProxyRequestPipeline {
         response,
         request.method === "HEAD",
         responseCapture,
-        () => {
-          firstTokenMs ??= elapsedMilliseconds(context);
+        // The capture tracks the first token its own way (SSE: the first
+        // generated text payload, so bookkeeping events never count). A
+        // non-SSE response is not parsed at all, so its first chunk is the
+        // first token: a plain JSON body arrives whole, and a chunked body
+        // (e.g. some vLLM responses) still starts generating when the body
+        // starts streaming.
+        (chunk) => {
+          firstTokenMs ??= sseResponse
+            ? responseCapture.hasSeenTextToken()
+              ? elapsedMilliseconds(context)
+              : undefined
+            : chunk.byteLength > 0
+              ? elapsedMilliseconds(context)
+              : undefined;
         },
       );
     } catch (error) {
@@ -230,6 +244,20 @@ export class ProxyRequestPipeline {
       responseJson(responseBody),
       responseCapture.usageCapture,
     );
+    // For SSE responses, chunk-level timing of the first content event is
+    // unreliable: the last TCP chunk often bundles the first text delta with
+    // the completion event, collapsing the measured decode window to ~0 ms.
+    // Instead, estimate the first-token time from the event structure: the
+    // decode fraction is (total_events - first_text_event) / total_events, so
+    // first_token_ms ≈ duration_ms × (1 - decode_fraction). This is a
+    // positional estimate, not a wall-clock measurement, but it avoids the
+    // near-zero-window artefact that makes decode speeds read as thousands
+    // of tokens per second.
+    const totalMs = elapsedMilliseconds(context);
+    if (sseResponse && firstTokenMs !== undefined) {
+      const fraction = responseCapture.decodeFraction();
+      firstTokenMs = totalMs * (1 - fraction);
+    }
     await selectedTarget.trafficLog.write(
       eventRecord(
         baseRecord,
@@ -477,12 +505,12 @@ async function forwardResponseBody(
   response: ServerResponse,
   headRequest: boolean,
   capture: ResponseLogCapture,
-  onFirstToken?: () => void,
+  onChunk?: (chunk: Buffer) => void,
 ): Promise<void> {
   for await (const chunkValue of upstream) {
     const chunk = Buffer.isBuffer(chunkValue) ? chunkValue : Buffer.from(chunkValue as Uint8Array);
     capture.addChunk(chunk);
-    if (capture.hasSeenTextToken() && chunk.byteLength > 0) onFirstToken?.();
+    onChunk?.(chunk);
     if (!headRequest && !response.write(chunk)) {
       await once(response, "drain");
     }

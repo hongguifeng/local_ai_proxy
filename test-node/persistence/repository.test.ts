@@ -1356,8 +1356,8 @@ describe("TrafficRepository.taskDecodeSpeedStats", () => {
       first_token_ms: 100,
       response_token_count: 120,
     });
-    // Non-streaming response: the whole body arrived with the first token,
-    // leaving a sub-millisecond decode window that must not contribute.
+    // Tool-call-only response without a measured first-token time: the whole
+    // duration is the decode window and it must contribute.
     repository.upsertRecord({
       id: "decode-3",
       task_id: "task-1",
@@ -1366,7 +1366,6 @@ describe("TrafficRepository.taskDecodeSpeedStats", () => {
       method: "POST",
       path: "/v1/responses",
       duration_ms: 300,
-      first_token_ms: 299.5,
       response_token_count: 40,
     });
     // Pending records and failed requests are excluded.
@@ -1416,7 +1415,7 @@ describe("TrafficRepository.taskDecodeSpeedStats", () => {
     });
 
     const stats = repository.taskDecodeSpeedStats(["task-1", "task-1", "task-2", ""]);
-    expect(stats.get("task-1")).toEqual({ output_tokens: 360, decode_ms: 1475 });
+    expect(stats.get("task-1")).toEqual({ output_tokens: 400, decode_ms: 975 + 500 + 300 });
     expect(stats.get("task-2")).toEqual({ output_tokens: 300, decode_ms: 500 + 700 });
     expect(stats.has("missing")).toBe(false);
     expect(repository.taskDecodeSpeedStats([])).toEqual(new Map());
