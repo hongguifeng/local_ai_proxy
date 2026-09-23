@@ -98,6 +98,16 @@ npm start
 
 最小 Node.js 示例见 [examples/responses_client.mjs](examples/responses_client.mjs)。
 
+## 构建 Windows 便携版
+
+```powershell
+npm run package:electron:portable
+```
+
+产物位于 `release/LLM-Proxy-<版本>-x64-portable.exe`。该命令执行 TypeScript 编译、SQLite 的 Electron ABI 重建，并且只生成便携版；`npm run package:electron` 仍同时生成安装版与便携版。需要 Node.js 24，首次构建可能需要下载 Electron 和打包工具。
+
+`electron-builder.env` 默认使用 7z 压缩级别 1，优先缩短构建时间。本机对比打包阶段从级别 3 的约 21 秒降至约 14 秒，exe 从约 100 MiB 增至约 107 MiB；实际时间取决于硬件、缓存和下载情况。若更重视体积，可在 PowerShell 中设置 `$env:ELECTRON_BUILDER_COMPRESSION_LEVEL = '3'`（或更高，最高 9）后构建；使用 `Remove-Item Env:ELECTRON_BUILDER_COMPRESSION_LEVEL` 恢复项目默认值。只需本地调试时，`npm run package:electron:dir` 可跳过 exe 压缩，直接运行 `release/win-unpacked/LLM Proxy.exe`。
+
 ## 常见用法
 
 ### 连接本地模型
@@ -117,3 +127,21 @@ npm start
 代理设置会保存到 `logs/proxies.json`，管理页面设置保存在 `llm-proxy.json`。通常无需手动编辑这些文件。
 
 请尽量让管理页面和代理监听地址保持在 `127.0.0.1`。日志可能包含提示词、文档、API key 和工具输出；不要把配置文件或日志目录提交到代码仓库。迁移或升级前请停止代理并备份整个日志目录，包括 `traffic.db-wal` 和 `traffic.db-shm`。详细步骤见 [docs/migration-rollback.md](docs/migration-rollback.md)。
+
+
+### 请求速度的测量口径
+
+流式请求记录首批非空生成内容（正文、推理或工具参数）的到达时间，
+decode 速度按输出 token 总数 ÷ 首批到末批生成内容的时间计算。
+该值是代理观察到的流式输出速率，并非 GPU 内部吞吐量；SSE 分批和网络缓冲仍会影响结果。
+Prefill 为未缓存输入 token ÷ 首批内容延迟的近似值，包含排队和网络时间。
+
+只有一批生成内容、非流式响应或生成窗口不足 1 ms 时，列表和详情改显示
+“端到端”速度（输出 token ÷ 请求总耗时），不混入任务平均 decode。
+缓冲响应不显示 prefill 推断值；真实首批到达时间仍保留。
+任务平均 decode 使用有效请求的输出 token 总和 ÷ 生成窗口总和。
+旧日志缺少新测量字段时沿用历史口径，无法还原曾被估算覆盖的时间。
+
+数据库 v11 新增 `decode_window_ms`：0 表示未观察到可分离的生成窗口，
+NULL 表示旧记录；响应详情 `response_meta` 同步提供此字段。
+列表回退使用独立的 `end_to_end_speed_tps` 字段。

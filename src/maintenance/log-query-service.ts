@@ -50,6 +50,7 @@ export interface LogGroupPage {
 }
 
 export interface LogListItem {
+  readonly end_to_end_speed_tps?: number;
   readonly cost?: LogRequestCost;
   readonly decode_speed_tps?: number;
   readonly endpoint: string;
@@ -536,21 +537,7 @@ function recordDetail(record: Readonly<RepositoryRecord>): LogRecordDetail {
     ...(pending
       ? {}
       : {
-          // Duration minus the first-token time when it was measured (a
-          // measured near-zero window means the whole body arrived with the
-          // first token, so the decode window is 0 and no speed estimate is
-          // shown). Records without a measured first-token time (short
-          // responses that never delivered the first generated payload, or
-          // legacy records) fall back to the full duration, so they keep a
-          // displayable speed.
-          decode_window_ms:
-            record["first_token_ms"] === null || record["first_token_ms"] === undefined
-              ? (recordDecodeMs(record) ?? 0)
-              : Math.max(
-                  0,
-                  (optionalNumber(record["duration_ms"]) ?? 0) -
-                    (optionalNumber(record["first_token_ms"]) ?? 0),
-                ),
+          decode_window_ms: recordDecodeMs(record) ?? 0,
         }),
     request_meta: compactMeta({
       id: record["id"],
@@ -572,6 +559,7 @@ function recordDetail(record: Readonly<RepositoryRecord>): LogRecordDetail {
       headers: record["request_headers"],
     }),
     response_meta: compactMeta({
+      decode_window_ms: pending ? undefined : record["decode_window_ms"],
       status: record["status"],
       first_token_ms: pending ? undefined : record["first_token_ms"],
       duration_ms: pending ? undefined : record["duration_ms"],
@@ -617,8 +605,16 @@ function emptyMetaValue(value: unknown): boolean {
 
 function logListItem(record: Readonly<RepositoryRecord>): LogListItem {
   const decodeSpeed = recordDecodeSpeedTps(record);
+  const totalMs = optionalNumber(record["duration_ms"]) ?? 0;
+  const output = optionalInteger(record["response_token_count"]) ?? 0;
+  const fallback =
+    decodeSpeed === undefined &&
+    string(record["event"]) === "request_finished" &&
+    totalMs > 0 &&
+    output > 0;
   return {
     cost: requestCost(record),
+    ...(fallback ? { end_to_end_speed_tps: (output * 1000) / totalMs } : {}),
     ...(decodeSpeed !== undefined ? { decode_speed_tps: decodeSpeed } : {}),
     has_summary: Number(record["has_summary"]) === 1,
     id: string(record["id"]),
@@ -635,20 +631,15 @@ function logListItem(record: Readonly<RepositoryRecord>): LogListItem {
   };
 }
 
-/**
- * Per-record decode window in milliseconds for the second-level log list.
- * Mirrors the group aggregate in taskDecodeSpeedStats: the decode window runs
- * from the first generated token to the end of the response; only finished
- * requests with a window of at least 1ms are measurable. Records without a
- * measured first-token time (e.g. short responses that never delivered the
- * first generated payload, or legacy records) fall back to the full duration,
- * so they keep a displayable speed.
- */
+/** Observed generation window; only old records fall back to historical timing. */
 function recordDecodeMs(record: Readonly<RepositoryRecord>): number | undefined {
   if (string(record["event"]) !== "request_finished") return undefined;
   const durationMs = optionalNumber(record["duration_ms"]);
   if (durationMs === null || durationMs < 1) return undefined;
-  return durationMs - (optionalNumber(record["first_token_ms"]) ?? 0);
+  return (
+    optionalNumber(record["decode_window_ms"]) ??
+    durationMs - (optionalNumber(record["first_token_ms"]) ?? 0)
+  );
 }
 
 function recordDecodeSpeedTps(record: Readonly<RepositoryRecord>): number | undefined {

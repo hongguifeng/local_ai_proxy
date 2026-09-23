@@ -12,6 +12,7 @@ import { SCHEMA_V6_MIGRATION } from "./schema-v6.js";
 import { SCHEMA_V7_MIGRATION } from "./schema-v7.js";
 import { SCHEMA_V8_MIGRATION } from "./schema-v8.js";
 import { SCHEMA_V9_MIGRATION } from "./schema-v9.js";
+import { SCHEMA_V11_MIGRATION } from "./schema-v11.js";
 import { SCHEMA_V10_MIGRATION } from "./schema-v10.js";
 
 export const TRAFFIC_DB_NAME = "traffic.db";
@@ -58,6 +59,7 @@ export function connectLogDatabase(logRoot: string): Database.Database {
       SCHEMA_V8_MIGRATION,
       SCHEMA_V9_MIGRATION,
       SCHEMA_V10_MIGRATION,
+      SCHEMA_V11_MIGRATION,
     ]);
     return database;
   } catch (error) {

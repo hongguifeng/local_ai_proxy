@@ -98,6 +98,16 @@ In **Proxy**, create a proxy, set a listen address such as `127.0.0.1:1234`, add
 
 See [examples/responses_client.mjs](examples/responses_client.mjs) for a minimal Node.js example.
 
+## Build the Windows Portable Application
+
+```powershell
+npm run package:electron:portable
+```
+
+The output is `release/LLM-Proxy-<version>-x64-portable.exe`. This command compiles TypeScript, rebuilds SQLite for Electron's ABI, and generates only the portable application. `npm run package:electron` still generates both the installer and portable application. Node.js 24 is required; the first build may download Electron and packaging tools.
+
+`electron-builder.env` defaults to 7z compression level 1 for faster builds. In a local comparison, packaging took about 14 seconds versus 21 seconds at level 3, with the exe growing from about 100 MiB to 107 MiB. Actual times depend on hardware, caches, and downloads. For a smaller output, set `$env:ELECTRON_BUILDER_COMPRESSION_LEVEL = '3'` in PowerShell (or a higher level, up to 9) before building; use `Remove-Item Env:ELECTRON_BUILDER_COMPRESSION_LEVEL` to restore the project default. For local debugging, `npm run package:electron:dir` skips exe compression and produces `release/win-unpacked/LLM Proxy.exe` for direct execution.
+
 ## Common Workflows
 
 ### Connect a local model

@@ -25,6 +25,7 @@
     "rebuild:node": "npm rebuild better-sqlite3",
     "rebuild:electron": "electron-rebuild --force --only better-sqlite3",
     "package:electron": "npm run build && npm run rebuild:electron && electron-builder --publish never",
+    "package:electron:portable": "npm run build && npm run rebuild:electron && electron-builder -w portable --publish never",
     "package:electron:dir": "npm run build && npm run rebuild:electron && electron-builder --dir",
     "package:cli": "npm run build && node --enable-source-maps dist-node/scripts/create_cli_archive.js",
     "smoke:database": "node --enable-source-maps dist-node/scripts/database_smoke.js",

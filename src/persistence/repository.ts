@@ -356,6 +356,7 @@ export class TrafficRepository {
         now,
       duration_ms: floatValue(record["duration_ms"], 0),
       first_token_ms: optionalFloat(record["first_token_ms"]),
+      decode_window_ms: optionalFloat(record["decode_window_ms"]),
       proxy_id: optionalString(record["proxy_id"]),
       proxy_name: optionalString(record["proxy_name"]),
       client_host: optionalString(record["client_host"]),
@@ -395,7 +396,7 @@ export class TrafficRepository {
         .prepare(
           `
       INSERT INTO records(
-        id, task_id, sequence, event, timestamp, started_at, duration_ms, first_token_ms,
+        id, task_id, sequence, event, timestamp, started_at, duration_ms, first_token_ms, decode_window_ms,
         proxy_id, proxy_name, client_host, client_port, target_id, target_name, target_url,
         method, path, endpoint, status, error, message_count, token_count,
         request_token_count, response_token_count,
@@ -405,7 +406,7 @@ export class TrafficRepository {
         model_route_json, stripped_fields_json, injected_fields_json, added_upstream_headers_json,
         created_at, updated_at
       ) VALUES (
-        @id, @task_id, @sequence, @event, @timestamp, @started_at, @duration_ms, @first_token_ms,
+        @id, @task_id, @sequence, @event, @timestamp, @started_at, @duration_ms, @first_token_ms, @decode_window_ms,
         @proxy_id, @proxy_name, @client_host, @client_port, @target_id, @target_name, @target_url,
         @method, @path, @endpoint, @status, @error, @message_count, @token_count,
         @request_token_count, @response_token_count,
@@ -418,6 +419,7 @@ export class TrafficRepository {
         task_id=excluded.task_id, sequence=excluded.sequence, event=excluded.event,
         timestamp=excluded.timestamp, started_at=excluded.started_at, duration_ms=excluded.duration_ms,
         first_token_ms=excluded.first_token_ms,
+        decode_window_ms=excluded.decode_window_ms,
         proxy_id=excluded.proxy_id, proxy_name=excluded.proxy_name,
         client_host=excluded.client_host, client_port=excluded.client_port,
         target_id=excluded.target_id, target_name=excluded.target_name, target_url=excluded.target_url,
@@ -614,10 +616,8 @@ export class TrafficRepository {
   }
 
   /**
-   * Aggregate decode timing per task. The decode window runs from the first
-   * token to the end of the response; only finished requests with a window of
-   * at least 1ms contribute, because non-streaming responses arrive in a single
-   * chunk (a near-zero window) and failed requests carry no output tokens.
+   * Aggregate observable generation windows, excluding buffered responses (0).
+   * NULL windows retain the historical calculation for pre-v11 records.
    */
   taskDecodeSpeedStats(taskIds: readonly string[]): Map<string, TaskDecodeSpeedStats> {
     const ids = [...new Set(taskIds.filter((id) => id !== ""))];
@@ -625,10 +625,10 @@ export class TrafficRepository {
     const rows = this.#database
       .prepare(
         `SELECT task_id,
-          SUM(CASE WHEN response_token_count > 0 AND duration_ms - COALESCE(first_token_ms, 0) >= 1
+          SUM(CASE WHEN response_token_count > 0 AND COALESCE(decode_window_ms, duration_ms - COALESCE(first_token_ms, 0)) >= 1
                THEN response_token_count ELSE 0 END) AS output_tokens,
-          SUM(CASE WHEN response_token_count > 0 AND duration_ms - COALESCE(first_token_ms, 0) >= 1
-               THEN duration_ms - COALESCE(first_token_ms, 0) ELSE 0 END) AS decode_ms
+          SUM(CASE WHEN response_token_count > 0 AND COALESCE(decode_window_ms, duration_ms - COALESCE(first_token_ms, 0)) >= 1
+               THEN COALESCE(decode_window_ms, duration_ms - COALESCE(first_token_ms, 0)) ELSE 0 END) AS decode_ms
          FROM records
          WHERE event = 'request_finished'
            AND task_id IN (${ids.map(() => "?").join(",")})
@@ -738,7 +738,7 @@ export class TrafficRepository {
         `
         SELECT id, sequence, timestamp, method, path, endpoint, status,
           message_count, request_token_count, response_token_count, target_url,
-          event, first_token_ms, duration_ms,
+          event, first_token_ms, decode_window_ms, duration_ms,
           pricing_status, pricing_reason, CAST(cost_nano_cny AS TEXT) AS cost_nano_cny,
           EXISTS (
             SELECT 1 FROM history_summaries
@@ -795,7 +795,7 @@ export class TrafficRepository {
         SELECT records.id, records.task_id, records.sequence, records.timestamp,
           records.method, records.path, records.endpoint, records.status,
           records.message_count, records.request_token_count, records.response_token_count,
-          records.event, records.first_token_ms, records.duration_ms,
+          records.event, records.first_token_ms, records.decode_window_ms, records.duration_ms,
           records.target_url, records.pricing_status, records.pricing_reason,
           CAST(records.cost_nano_cny AS TEXT) AS cost_nano_cny, ranked.total,
           EXISTS (

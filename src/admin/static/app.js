@@ -11,6 +11,7 @@ const translations = {
     response: "响应",
     firstTokenTime: "首 token",
     totalTime: "总计",
+    endToEndSpeed: "端到端",
     prefillSpeed: "Prefill",
     decodeSpeed: "Decode",
     tokensPerSecond: "token/s",
@@ -210,6 +211,7 @@ const translations = {
     response: "Response",
     firstTokenTime: "First token",
     totalTime: "Total",
+    endToEndSpeed: "End-to-end",
     prefillSpeed: "Prefill",
     decodeSpeed: "Decode",
     tokensPerSecond: "tok/s",
@@ -634,6 +636,17 @@ function logItemMetricsHtml(item) {
     );
   }
   const decodeSpeed = formatGroupDecodeSpeed(item.decode_speed_tps);
+  const endToEndSpeed = formatGroupDecodeSpeed(item.end_to_end_speed_tps);
+  if (decodeSpeed === "" && endToEndSpeed !== "") {
+    metrics.push(
+      logMetricHtml(
+        "end-to-end-speed",
+        state.language === "en" ? "E2E" : t("endToEndSpeed"),
+        `${endToEndSpeed}t/s`,
+        t("endToEndSpeed"),
+      ),
+    );
+  }
   if (decodeSpeed !== "") {
     metrics.push(logMetricHtml("decode-speed", t("speed"), `${decodeSpeed}t/s`, t("speed")));
   }
@@ -2634,28 +2647,35 @@ function updateResponseTiming() {
   const tokenMs = positiveNumber(meta.first_token_ms);
   const durationMs = positiveNumber(meta.duration_ms);
   const measured = tokenMs !== undefined;
-  // Prefill is measured until the first generated token, so it needs that
-  // timing; the decode estimate does not. Records without a measured
-  // first-token time (short responses that never delivered the first
-  // generated payload, or legacy records) use the full duration as the decode
-  // window, so they keep a displayable speed; non-streaming responses with a
-  // measured near-zero window show no speed estimates at all.
-  // Prompt-cache hits are served by the upstream without a real prefill, so
-  // only the uncached input tokens count toward the prefill speed estimate.
-  const windowMs = measured ? durationMs - tokenMs : positiveNumber(meta.decode_window_ms);
-  if (durationMs !== undefined && (measured || windowMs !== undefined)) {
+  // New records provide an explicit generated-content window. Zero means
+  // buffered/non-streaming output: use end-to-end speed, never invent decode.
+  // Legacy records retain their historical timing convention.
+  const windowMs =
+    meta.decode_window_ms !== undefined && meta.decode_window_ms !== null
+      ? positiveNumber(meta.decode_window_ms)
+      : measured
+        ? durationMs - tokenMs
+        : undefined;
+  if (durationMs !== undefined) {
     const inputTokens = positiveNumber(meta.request_token_count) ?? 0;
     const cachedTokens = Math.min(positiveNumber(meta.cached_token_count) ?? 0, inputTokens);
-    const prefill = measured
-      ? formatTokensPerSecond((inputTokens - cachedTokens) * (1000 / tokenMs))
-      : "";
+    const prefill =
+      measured && (meta.decode_window_ms == null || windowMs !== undefined)
+        ? formatTokensPerSecond((inputTokens - cachedTokens) * (1000 / tokenMs))
+        : "";
     const decode =
-      windowMs !== undefined && windowMs > 0
+      windowMs !== undefined && windowMs >= 1
         ? formatTokensPerSecond(
             (positiveNumber(meta.response_token_count) ?? 0) * (1000 / windowMs),
           )
         : "";
     if (prefill !== "") parts.push(`${t("prefillSpeed")} ${prefill} ${t("tokensPerSecond")}`);
+    if (decode === "") {
+      const speed = formatTokensPerSecond(
+        ((positiveNumber(meta.response_token_count) ?? 0) * 1000) / durationMs,
+      );
+      if (speed !== "") parts.push(`${t("endToEndSpeed")} ${speed} ${t("tokensPerSecond")}`);
+    }
     if (decode !== "") parts.push(`${t("decodeSpeed")} ${decode} ${t("tokensPerSecond")}`);
   }
   element.textContent = parts.join(" · ");

@@ -188,6 +188,64 @@ describe("LogQueryService", () => {
     expect("decode_speed_tps" in (logs[0] ?? {})).toBe(false);
   });
 
+  it("keeps buffered fallback out of measured task decode statistics", async () => {
+    const root = await mkdtemp(path.join(os.tmpdir(), "llm-proxy-log-query-decode-"));
+    temporaryDirectories.push(root);
+    const repository = new TrafficRepository(root);
+    repository.upsertTask(task("task-decode", "gpt-5", "2026-07-18T12:00:00.000+08:00"));
+    repository.upsertRecord({
+      id: "record-decode-stream",
+      task_id: "task-decode",
+      sequence: 1,
+      event: "request_finished",
+      method: "POST",
+      path: "/v1/responses",
+      duration_ms: 1000,
+      first_token_ms: 25,
+      decode_window_ms: 500,
+      response_token_count: 240,
+    });
+    repository.upsertRecord({
+      id: "record-decode-toolonly",
+      task_id: "task-decode",
+      sequence: 3,
+      event: "request_finished",
+      method: "POST",
+      path: "/v1/responses",
+      duration_ms: 300,
+      first_token_ms: 200,
+      decode_window_ms: 0,
+      response_token_count: 40,
+    });
+    repository.upsertRecord({
+      id: "record-decode-failed",
+      task_id: "task-decode",
+      sequence: 4,
+      event: "request_finished",
+      method: "POST",
+      path: "/v1/responses",
+      duration_ms: 500,
+      first_token_ms: 50,
+      error: "upstream failed",
+    });
+    repository.close();
+
+    const group = new LogQueryService([root]).listGroups().groups[0];
+    expect(group?.decode_speed_tps).toBeCloseTo(240 / 0.5, 6);
+
+    // Buffered output has E2E speed but must not contaminate task decode.
+    const logs = new LogQueryService([root]).getGroupLogs("task-decode")?.logs ?? [];
+    expect(logs.map(({ id }) => id)).toEqual([
+      "record-decode-failed",
+      "record-decode-toolonly",
+      "record-decode-stream",
+    ]);
+    expect(logs[2]?.decode_speed_tps).toBeCloseTo(240 / 0.5, 6);
+    expect(logs[1]?.decode_speed_tps).toBeUndefined();
+    expect(logs[1]?.end_to_end_speed_tps).toBeCloseTo(40 / 0.3, 6);
+    expect("decode_speed_tps" in (logs[0] ?? {})).toBe(false);
+  });
+
   it("omits the decode speed when no finished request has a measurable decode window", async () => {
     const root = await mkdtemp(path.join(os.tmpdir(), "llm-proxy-log-query-decode-none-"));
     temporaryDirectories.push(root);

@@ -28,7 +28,7 @@ export class StreamAccumulator {
   #responsePayload: Record<string, unknown> | undefined;
   #usage: unknown;
   #firstTextSeen = false;
-  #firstTextEventIndex = -1;
+  generatedEvents = 0;
 
   constructor(eventCount: number, doneSeen: boolean) {
     this.#eventCount = eventCount;
@@ -41,6 +41,7 @@ export class StreamAccumulator {
       return;
     }
     const eventType = event["type"];
+    if (isGeneratedDelta(event)) this.generatedEvents += 1;
     if (typeof eventType === "string" && eventType.startsWith("response.")) {
       this.#addResponseEvent(eventType, event);
     } else if (
@@ -65,7 +66,6 @@ export class StreamAccumulator {
       (this.#contentParts.length > 0 || this.#reasoningParts.length > 0)
     ) {
       this.#firstTextSeen = true;
-      this.#firstTextEventIndex = this.#eventCount;
     }
   }
 
@@ -79,28 +79,6 @@ export class StreamAccumulator {
     // text; a response that only contains such payloads still has a decode
     // window and must contribute one to speed statistics.
     return this.#firstTextSeen || this.#toolCallArgumentsBytes > 0;
-  }
-
-  /**
-   * Fraction of the stream that is "decode" (after the first generated token).
-   * Returns 0 when no text/tool-call content was seen (pure bookkeeping
-   * stream), 1 when the first event already carried content, and a value
-   * in (0, 1) otherwise: (total_events - first_text_event_index) /
-   * total_events. This is a positional estimate; the real timing can only
-   * be measured per-event, but the last TCP chunk often bundles the first
-   * content event with the completion event, so chunk-level timing gives a
-   * near-zero decode window for the entire stream.
-   */
-  decodeFraction(): number {
-    if (!this.hasSeenTextToken() || this.#eventCount <= 0) return 0;
-    if (this.#firstTextEventIndex < 0) {
-      // Tool-call-only: the first tool-call event is the first generated
-      // payload. We don't track its exact index, so approximate as the
-      // second event (most streams have a created/started event first).
-      return this.#eventCount > 1 ? (this.#eventCount - 1) / this.#eventCount : 1;
-    }
-    const decodeEvents = this.#eventCount - this.#firstTextEventIndex;
-    return Math.min(1, Math.max(0, decodeEvents / this.#eventCount));
   }
 
   markDone(): void {
@@ -418,12 +396,12 @@ export class IncrementalSseAccumulator {
     this.#processCompleteLines();
   }
 
-  hasSeenTextToken(): boolean {
-    return this.#accumulator.hasSeenTextToken();
+  get generatedEvents(): number {
+    return this.#accumulator.generatedEvents;
   }
 
-  decodeFraction(): number {
-    return this.#accumulator.decodeFraction();
+  hasSeenTextToken(): boolean {
+    return this.#accumulator.hasSeenTextToken();
   }
 
   finalize(): StreamSummary | undefined {
@@ -717,4 +695,46 @@ function compareUnicodeCodePoints(left: string, right: string): number {
     }
   }
   return leftCodePoints.length - rightCodePoints.length;
+}
+
+// Count only new generated payloads, never done snapshots or usage/bookkeeping.
+function isGeneratedDelta(event: Readonly<Record<string, unknown>>): boolean {
+  const nonempty = (value: unknown): boolean => typeof value === "string" && value.length > 0;
+  if (
+    [
+      "response.output_text.delta",
+      "response.reasoning_text.delta",
+      "response.reasoning_summary_text.delta",
+      "response.function_call_arguments.delta",
+    ].includes(String(event["type"]))
+  ) {
+    return nonempty(event["delta"]);
+  }
+  if (event["type"] === "content_block_delta" && isRecord(event["delta"])) {
+    const delta = event["delta"];
+    return (
+      nonempty(delta["text"]) || nonempty(delta["thinking"]) || nonempty(delta["partial_json"])
+    );
+  }
+  const choices = event["choices"];
+  return (
+    Array.isArray(choices) &&
+    choices.some((choice: unknown) => {
+      if (!isRecord(choice)) return false;
+      const delta = isRecord(choice["delta"]) ? choice["delta"] : choice;
+      const calls = delta["tool_calls"];
+      return (
+        ["content", "text", "reasoning_content", "reasoning", "reasoning_text"].some((key) =>
+          nonempty(delta[key]),
+        ) ||
+        (Array.isArray(calls) &&
+          calls.some(
+            (call: unknown) =>
+              isRecord(call) &&
+              isRecord(call["function"]) &&
+              nonempty(call["function"]["arguments"]),
+          ))
+      );
+    })
+  );
 }

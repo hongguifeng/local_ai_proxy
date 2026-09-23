@@ -306,7 +306,7 @@ beforeAll(async () => {
               status: 200,
               request_token_count: 30,
               response_token_count: 50,
-              decode_speed_tps: 50,
+              end_to_end_speed_tps: 50,
               target: "fixture-target",
               has_summary: false,
               cost: { currency: "CNY", amount: "0.00002", status: "priced", reason: null },
@@ -600,7 +600,7 @@ beforeAll(async () => {
             duration_ms: extra.duration_ms,
             // The tool-call-only request has no measured first-token time;
             // the service falls back to the full duration as decode window.
-            ...(recordId === "record-six" ? { decode_window_ms: extra.duration_ms } : {}),
+            ...(recordId === "record-six" ? { decode_window_ms: 0 } : {}),
           },
           pricing: fixtureRequestPricing(recordId === "record-four" ? "unpriced" : "priced"),
         };
@@ -1345,8 +1345,12 @@ describe("admin UI history page", { timeout: UI_TEST_TIMEOUT_MS }, () => {
     // The tool-call-only request has no measured first-token time, so the
     // detail falls back to a full-duration decode estimate and skips prefill.
     await expectPage(
-      page.locator('[data-log-id="record-six"] .decode-speed .log-metric-value'),
+      page.locator('[data-log-id="record-six"] .end-to-end-speed .log-metric-value'),
     ).toHaveText("50.0t/s");
+    await page.locator('[data-log-id="record-six"]').click();
+    await expectPage(page.locator("#responseTiming")).toContainText("End-to-end 50.0 tok/s");
+    await expectPage(page.locator("#responseTiming")).not.toContainText("Decode");
+    await expectPage(page.locator("#responseTiming")).not.toContainText("Prefill");
     await expectPage(priced.locator(".cost .log-metric-label")).toHaveText("Cost");
     await expectPage(priced.locator(".cost .log-metric-value")).toHaveText("$0.0411");
     await expectPage(page.locator('[data-log-id="record-two"] .cost .log-metric-value')).toHaveText(

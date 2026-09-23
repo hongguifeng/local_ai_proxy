@@ -419,39 +419,6 @@ describe("IncrementalSseAccumulator", () => {
     expect(accumulator.hasSeenTextToken()).toBe(true);
   });
 
-  it("estimates the decode fraction from the event structure", () => {
-    const accumulator = new IncrementalSseAccumulator();
-    // 4 events: created, text-delta, text-delta, completed.
-    // First text is set when eventCount = 2 (the 2nd event), so decode
-    // fraction = (4 - 2) / 4 = 0.5.
-    accumulator.addChunk('data: {"type":"response.created","response":{"id":"resp_1"}}\n\n');
-    accumulator.addChunk('data: {"type":"response.output_text.delta","delta":"Hi"}\n\n');
-    accumulator.addChunk('data: {"type":"response.output_text.delta","delta":" there"}\n\n');
-    accumulator.addChunk(
-      'data: {"type":"response.completed","response":{"id":"resp_1","status":"completed"}}\n\n',
-    );
-    expect(accumulator.decodeFraction()).toBeCloseTo(0.5, 6);
-  });
-
-  it("returns zero decode fraction when no content is generated", () => {
-    const accumulator = new IncrementalSseAccumulator();
-    accumulator.addChunk('data: {"type":"response.created","response":{"id":"resp_1"}}\n\n');
-    accumulator.addChunk(
-      'data: {"type":"response.completed","response":{"id":"resp_1","status":"completed"}}\n\n',
-    );
-    expect(accumulator.decodeFraction()).toBe(0);
-  });
-
-  it("returns near-full decode fraction when the first event carries content", () => {
-    const accumulator = new IncrementalSseAccumulator();
-    accumulator.addChunk('data: {"type":"response.output_text.delta","delta":"Hi"}\n\n');
-    accumulator.addChunk(
-      'data: {"type":"response.completed","response":{"id":"resp_1","status":"completed"}}\n\n',
-    );
-    // eventCount=1 when first text is set, total=2, so (2-1)/2 = 0.5.
-    expect(accumulator.decodeFraction()).toBeCloseTo(0.5, 6);
-  });
-
   it("does not report the first token for tool-call-only chat streams", () => {
     const accumulator = new IncrementalSseAccumulator();
     const data = JSON.stringify({
@@ -466,6 +433,18 @@ describe("IncrementalSseAccumulator", () => {
     });
     accumulator.addChunk(`data: ${data}` + "\n\n");
     expect(accumulator.hasSeenTextToken()).toBe(false);
+  });
+  it.each([
+    { choices: [{ delta: { tool_calls: [{ function: { arguments: "{}" } }] } }] },
+    { type: "content_block_delta", delta: { type: "input_json_delta", partial_json: "{}" } },
+    { type: "response.function_call_arguments.delta", delta: "{}" },
+    { choices: [{ delta: { reasoning_content: "thinking" } }] },
+  ])("counts generated payloads independently of bookkeeping: %j", (event) => {
+    const accumulator = new IncrementalSseAccumulator();
+    accumulator.addChunk(`data: ${JSON.stringify(event)}\n\n`);
+    expect(accumulator.generatedEvents).toBe(1);
+    accumulator.addChunk('data: {"usage":{"output_tokens":7}}\n\ndata: [DONE]\n\n');
+    expect(accumulator.generatedEvents).toBe(1);
   });
   it("rejects chunks added after finalization", () => {
     const accumulator = new IncrementalSseAccumulator();

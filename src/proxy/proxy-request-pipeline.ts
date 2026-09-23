@@ -177,6 +177,8 @@ export class ProxyRequestPipeline {
     let responseHeaders: Record<string, string[]>;
     let firstTokenMs: number | undefined;
     let sseResponse = false;
+    let generatedEvents = 0;
+    let lastGeneratedMs: number | undefined;
     try {
       const upstream = await openUpstreamResponse({
         target: selectedTarget,
@@ -203,20 +205,14 @@ export class ProxyRequestPipeline {
         response,
         request.method === "HEAD",
         responseCapture,
-        // The capture tracks the first token its own way (SSE: the first
-        // generated text payload, so bookkeeping events never count). A
-        // non-SSE response is not parsed at all, so its first chunk is the
-        // first token: a plain JSON body arrives whole, and a chunked body
-        // (e.g. some vLLM responses) still starts generating when the body
-        // starts streaming.
-        (chunk) => {
-          firstTokenMs ??= sseResponse
-            ? responseCapture.hasSeenTextToken()
-              ? elapsedMilliseconds(context)
-              : undefined
-            : chunk.byteLength > 0
-              ? elapsedMilliseconds(context)
-              : undefined;
+        () => {
+          const count = responseCapture.generatedEvents;
+          if (sseResponse && count > generatedEvents) {
+            const now = elapsedMilliseconds(context);
+            firstTokenMs ??= now;
+            lastGeneratedMs = now;
+          }
+          generatedEvents = count;
         },
       );
     } catch (error) {
@@ -237,6 +233,12 @@ export class ProxyRequestPipeline {
       }
       baseRecord["error"] = formatUpstreamError(error);
     }
+    // Freeze transport timing before parsing, disk spooling and pricing work.
+    const durationMs = elapsedMilliseconds(context);
+    baseRecord["decode_window_ms"] =
+      firstTokenMs !== undefined && lastGeneratedMs !== undefined
+        ? Math.max(0, lastGeneratedMs - firstTokenMs)
+        : 0;
     const responseBody: ResponseLogPayload = await responseCapture.finalize();
     baseRecord["pricing"] = completeRequestPricing(
       pricingContext,
@@ -244,45 +246,11 @@ export class ProxyRequestPipeline {
       responseJson(responseBody),
       responseCapture.usageCapture,
     );
-    // For SSE responses, chunk-level timing of the first content event is
-    // unreliable: the last TCP chunk often bundles the first text delta with
-    // the completion event, collapsing the measured decode window to ~0 ms.
-    // Instead, estimate the first-token time from the event structure: the
-    // decode fraction is (total_events - first_text_event) / total_events, so
-    // first_token_ms ≈ duration_ms × (1 - decode_fraction). This is a
-    // positional estimate, not a wall-clock measurement, but it avoids the
-    // near-zero-window artefact that makes decode speeds read as thousands
-    // of tokens per second.
-    //
-    // The event-based estimate is unreliable for short outputs: a 40-token
-    // tool-call response has only ~10 SSE events, so 2 prefill events look
-    // like 20% of the stream even though prefill is a fixed time cost
-    // independent of output length. To correct this, we also estimate the
-    // prefill as a fraction of the total based on the output token count:
-    //   prefill_fraction = 1 / (1 + output_tokens / K)
-    // where K=200 is the number of decode tokens
-    // that would take the same time as the prefill phase. The final
-    // first-token time is the maximum of the two estimates, so the event
-    // structure still wins when it produces a larger prefill window.
-    const totalMs = elapsedMilliseconds(context);
-    if (sseResponse && firstTokenMs !== undefined) {
-      const fraction = responseCapture.decodeFraction();
-      let estimated = totalMs * (1 - fraction);
-      const usage =
-        responseCapture.usageCapture?.status === "complete"
-          ? responseCapture.usageCapture.usage.outputTokens
-          : undefined;
-      if (typeof usage === "number" && usage > 0) {
-        const tokenPrefillFraction = 1 / (1 + usage / 200);
-        estimated = Math.max(estimated, totalMs * tokenPrefillFraction);
-      }
-      firstTokenMs = estimated;
-    }
     await selectedTarget.trafficLog.write(
       eventRecord(
         baseRecord,
         "request_finished",
-        elapsedMilliseconds(context),
+        durationMs,
         {
           status: responseStatus,
           headers: responseHeaders,

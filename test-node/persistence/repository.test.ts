@@ -608,6 +608,7 @@ describe("TrafficRepository history summaries", () => {
       target_url: null,
       event: "request_finished",
       first_token_ms: null,
+      decode_window_ms: null,
       duration_ms: 0,
       pricing_status: "unpriced",
       pricing_reason: null,
