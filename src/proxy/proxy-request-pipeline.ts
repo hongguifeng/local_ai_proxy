@@ -253,10 +253,30 @@ export class ProxyRequestPipeline {
     // positional estimate, not a wall-clock measurement, but it avoids the
     // near-zero-window artefact that makes decode speeds read as thousands
     // of tokens per second.
+    //
+    // The event-based estimate is unreliable for short outputs: a 40-token
+    // tool-call response has only ~10 SSE events, so 2 prefill events look
+    // like 20% of the stream even though prefill is a fixed time cost
+    // independent of output length. To correct this, we also estimate the
+    // prefill as a fraction of the total based on the output token count:
+    //   prefill_fraction = 1 / (1 + output_tokens / K)
+    // where K=200 is the number of decode tokens
+    // that would take the same time as the prefill phase. The final
+    // first-token time is the maximum of the two estimates, so the event
+    // structure still wins when it produces a larger prefill window.
     const totalMs = elapsedMilliseconds(context);
     if (sseResponse && firstTokenMs !== undefined) {
       const fraction = responseCapture.decodeFraction();
-      firstTokenMs = totalMs * (1 - fraction);
+      let estimated = totalMs * (1 - fraction);
+      const usage =
+        responseCapture.usageCapture?.status === "complete"
+          ? responseCapture.usageCapture.usage.outputTokens
+          : undefined;
+      if (typeof usage === "number" && usage > 0) {
+        const tokenPrefillFraction = 1 / (1 + usage / 200);
+        estimated = Math.max(estimated, totalMs * tokenPrefillFraction);
+      }
+      firstTokenMs = estimated;
     }
     await selectedTarget.trafficLog.write(
       eventRecord(
