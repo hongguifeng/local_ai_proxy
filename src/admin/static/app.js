@@ -3789,6 +3789,11 @@ $("logItems").addEventListener("click", (event) => {
   const group = event.target.closest("[data-group-id]");
   if (group) {
     const groupId = group.dataset.groupId;
+    // Opening the task detail and the body expansion are one gesture: the
+    // click always shows the detail panel and toggles the second level on the
+    // current state. The ⓘ button keeps the old details-only behavior (no
+    // toggle), so an open list can be inspected without collapsing it.
+    showTaskPricing(groupId).catch((e) => toast(e.message));
     if (state.collapsedGroups[groupId]) collapseLogGroup(groupId);
     else {
       state.collapsedGroups[groupId] = true;
@@ -3813,6 +3818,7 @@ $("logItems").addEventListener("keydown", (event) => {
   if (!group) return;
   event.preventDefault();
   const groupId = group.dataset.groupId;
+  showTaskPricing(groupId).catch((e) => toast(e.message));
   if (state.collapsedGroups[groupId]) collapseLogGroup(groupId);
   else {
     state.collapsedGroups[groupId] = true;

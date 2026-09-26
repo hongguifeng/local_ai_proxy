@@ -1547,6 +1547,40 @@ describe("admin UI history page", { timeout: UI_TEST_TIMEOUT_MS }, () => {
     await expectPage(requestPricing).toBeHidden();
   });
 
+  it("opens the task detail panel and toggles the list on a header click", async () => {
+    await loadAdminPage();
+    await Promise.all([
+      page.waitForResponse((response) => response.url().includes("/api/logs?")),
+      page.locator('[data-tab="logs"]').click(),
+    ]);
+    const section = page.locator('.log-group:has([data-group-id="task-one"])');
+    const head = page.locator('[data-group-id="task-one"]');
+    await expectPage(section.locator(".log-group-body")).toHaveCount(0);
+
+    // A header click (unlike the ⓘ button) both opens the task detail panel
+    // and expands the second level.
+    await Promise.all([
+      page.waitForResponse((response) =>
+        response.url().endsWith("/api/log-groups/task-one/pricing"),
+      ),
+      head.click(),
+    ]);
+    const panel = page.locator("#pricingPanel");
+    await expectPage(panel).toBeVisible();
+    await expectPage(panel).toContainText("Task details");
+    await expectPage(section.locator(".log-group-body")).toHaveCount(1);
+
+    // Clicking again reopens the detail panel and collapses the list.
+    await Promise.all([
+      page.waitForResponse((response) =>
+        response.url().endsWith("/api/log-groups/task-one/pricing"),
+      ),
+      head.click(),
+    ]);
+    await expectPage(panel).toBeVisible();
+    await expectPage(section.locator(".log-group-body")).toHaveCount(0);
+  });
+
   it("expands search previews without a second request and replaces them on query changes", async () => {
     await page.route("**/api/logs?**", async (route) => {
       const response = await route.fetch();

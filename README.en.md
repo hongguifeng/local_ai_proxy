@@ -52,14 +52,14 @@ qwen-local => qwen3
 | Task grouping | Groups consecutive Agent requests into tasks for reviewing one workflow. Each task header stacks time range, model and metrics, and target URL: the date badge and target stay neutral, while request count, decode speed, and cost use tinted value chips. |
 | Full-text search | Search by path, method, status, target URL, task ID, or record ID; space-separated terms all apply. |
 | Request details | View request and response JSON side by side with expand, collapse, wrapping, formatting, and copy controls. |
-| Cost tracking | Shows task totals, priced/unpriced requests, pricing rules, and token details; each request shows its share. Missing reliable usage or pricing is marked unpriced, never free. Click the ⓘ icon button in a task header's control column to open the Task details panel with costs. |
+| Cost tracking | Shows task totals, priced/unpriced requests, pricing rules, and token details; each request shows its share. Missing reliable usage or pricing is marked unpriced, never free. Click a task header (or the ⓘ icon button in its control column) to open the Task details panel with costs; clicking the header also expands or collapses that task's request list based on its current state, while the ⓘ icon only opens the panel without changing the list. |
 | Intelligent summaries | Use a configured summary model to summarize individual requests and split consecutive messages into reusable cached phases; summarized requests show a gold star. |
 | Export and cleanup | Export selected tasks as ZIP files or delete tasks and their request records. |
 | Paging and refresh | Browse large log directories with paged loading and automatic refresh. |
 
 ![Task details panel](doc/ui_task_detail_en.png)
 
-The **Task details** panel (open it from the ⓘ button in a task header's control column) summarizes a single task's total cost, per-bucket token breakdown (input / output / cache read / cache write), and a **Token trend** line chart, with model/price groups expanded to show pricing and cost share.
+The **Task details** panel (open it from a task header, or its ⓘ icon button) summarizes a single task's total cost, per-bucket token breakdown (input / output / cache read / cache write), and a **Token trend** line chart, with model/price groups expanded to show pricing and cost share.
 
 History data is stored by default in a `traffic.db` SQLite database under each log directory; proxy settings are stored in `logs/proxies.json`. Exported ZIP files contain readable Markdown, `request.json`, and `response.json`.
 
