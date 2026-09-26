@@ -12,6 +12,7 @@ import type {
   LogRecordDetail,
 } from "../maintenance/index.js";
 import { recordText } from "../persistence/repository.js";
+import type { ModelPriceImportRequest, ModelPriceImportResult } from "../pricing/index.js";
 import type { UsageStatisticsService } from "../maintenance/usage-statistics-service.js";
 import { StructuredLogger } from "../shared/index.js";
 
@@ -31,12 +32,17 @@ export interface AdminServerOptions {
   readonly staticAssets?: AdminStaticAssets | (() => Promise<AdminStaticAssets>);
   readonly targetCheckService?: TargetCheckAdminService;
   readonly summaryModelService?: SummaryModelAdminService;
+  readonly modelCatalogService?: ModelCatalogAdminService;
   readonly usageStatisticsService?: UsageStatisticsService;
 }
 export interface SummaryModelAdminService {
   getConfig(): SummaryModelConfig | undefined;
   setConfig(config: SummaryModelConfig): Promise<SummaryModelConfig>;
   testConfig?(config: SummaryModelConfig): Promise<{ ok: boolean; detail?: string }>;
+}
+
+export interface ModelCatalogAdminService {
+  importModelPrices(request: ModelPriceImportRequest): Promise<ModelPriceImportResult>;
 }
 
 export interface LogAdminService {
@@ -173,6 +179,61 @@ export const TARGET_CHECK_REQUEST_SCHEMA = {
     model: { type: "string", minLength: 1, maxLength: 512 },
     apiType: { type: "string", enum: ["chat", "responses", "anthropic"] },
     apiKey: { type: "string", maxLength: 65_536 },
+  },
+} as const;
+
+export const MODEL_PRICES_IMPORT_REQUEST_SCHEMA = {
+  type: "object",
+  additionalProperties: false,
+  required: ["targetUrl"],
+  properties: {
+    targetUrl: { type: "string", minLength: 1, maxLength: 8_192, pattern: "^https?://" },
+    targetApiKey: { type: "string", maxLength: 65_536 },
+    priceRate: {
+      type: "string",
+      maxLength: 30,
+      pattern: "^(?:0|[1-9]\\d*)(?:\\.\\d{1,6})?$",
+    },
+  },
+} as const;
+
+export const MODEL_PRICES_IMPORT_RESPONSE_SCHEMA = {
+  type: "object",
+  additionalProperties: false,
+  required: ["models", "rules", "unmatched", "catalog"],
+  properties: {
+    models: { type: "array", items: { type: "string", minLength: 1 } },
+    rules: {
+      type: "array",
+      items: {
+        type: "object",
+        additionalProperties: false,
+        required: [
+          "model_pattern",
+          "input_per_million",
+          "output_per_million",
+          "cache_read_per_million",
+          "cache_write_per_million",
+        ],
+        properties: {
+          model_pattern: { type: "string", minLength: 1 },
+          input_per_million: { type: "string" },
+          output_per_million: { type: "string" },
+          cache_read_per_million: { type: "string" },
+          cache_write_per_million: { type: "string" },
+        },
+      },
+    },
+    unmatched: { type: "array", items: { type: "string", minLength: 1 } },
+    catalog: {
+      type: "object",
+      additionalProperties: false,
+      required: ["source", "fetchedAt"],
+      properties: {
+        source: { type: "string", minLength: 1 },
+        fetchedAt: { type: "integer", minimum: 0 },
+      },
+    },
   },
 } as const;
 
@@ -526,6 +587,43 @@ export function createAdminServer(options: AdminServerOptions): FastifyInstance 
             return reply.code(400).send(adminError("invalid_target_url", error.message));
           }
           throw error;
+        }
+      },
+    );
+  }
+  if (options.modelCatalogService !== undefined) {
+    const modelCatalogService = options.modelCatalogService;
+    server.post<{
+      Body: { priceRate?: string; targetApiKey?: string; targetUrl: string };
+    }>(
+      "/api/model-prices/import",
+      {
+        schema: {
+          body: MODEL_PRICES_IMPORT_REQUEST_SCHEMA,
+          response: { 200: MODEL_PRICES_IMPORT_RESPONSE_SCHEMA },
+        },
+      },
+      async (request, reply) => {
+        const priceRate = request.body.priceRate;
+        const targetApiKey = request.body.targetApiKey;
+        try {
+          return await modelCatalogService.importModelPrices({
+            targetUrl: request.body.targetUrl,
+            ...(targetApiKey !== undefined && targetApiKey !== "" ? { targetApiKey } : {}),
+            ...(priceRate !== undefined && priceRate !== "" ? { priceRate } : {}),
+          });
+        } catch (error) {
+          if (error instanceof TypeError || error instanceof RangeError) {
+            return reply.code(400).send(adminError("invalid_model_price_import", error.message));
+          }
+          return reply
+            .code(502)
+            .send(
+              adminError(
+                "model_catalog_fetch_failed",
+                error instanceof Error ? error.message : String(error),
+              ),
+            );
         }
       },
     );

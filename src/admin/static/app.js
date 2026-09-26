@@ -109,6 +109,13 @@ const translations = {
     movePriceUp: "上移规则",
     movePriceDown: "下移规则",
     noModelPrices: "尚未配置模型价格，请求费用将显示为未计价",
+    catalogPriceRate: "models.dev 美元价格 × 汇率（1 = 美元原价）",
+    fetchCatalogPrices: "拉取模型并填价",
+    catalogSourceNote:
+      "价格来自 models.dev 第三方目录，可能过期（例如 DeepSeek 只列空闲时段价）；保存前请对照厂商官方价目表核对。",
+    catalogImportDone:
+      "已添加 {added} 条价格；{existing} 条已有规则未改动；{unmatched} 条未找到价格",
+    catalogManyModels: "上游共列出 {n} 个模型，全部添加为价格规则？",
     testPriceModel: "测试模型名",
     priceNoMatch: "未命中价格规则",
     cost: "费用",
@@ -311,6 +318,13 @@ const translations = {
     movePriceUp: "Move rule up",
     movePriceDown: "Move rule down",
     noModelPrices: "No model prices configured; request cost will be unpriced",
+    catalogPriceRate: "models.dev USD price × rate (1 = raw USD)",
+    fetchCatalogPrices: "Fetch models & fill prices",
+    catalogSourceNote:
+      "Prices come from the models.dev catalog, a third-party source that can be stale (e.g. DeepSeek is listed at its off-peak rate); verify against the vendor's official price list before saving.",
+    catalogImportDone:
+      "Added {added} price rule(s); {existing} existing rule(s) untouched; {unmatched} had no price",
+    catalogManyModels: "The upstream lists {n} models. Add them all as price rules?",
     testPriceModel: "Test model",
     priceNoMatch: "No price rule matched",
     cost: "Cost",
@@ -801,6 +815,11 @@ function renderTarget(target, pair, pairIndex, targetIndex) {
         <p class="price-help">${escapeHtml(t("priceUnit"))}</p>
         <div class="model-price-rules">${(target.model_prices || []).map((_, index) => modelPriceRuleHtml(target, index)).join("") || `<p class="price-empty">${escapeHtml(t("noModelPrices"))}</p>`}</div>
         <div class="price-tools"><button type="button" data-add-price>${escapeHtml(t("addModelPrice"))}</button><label class="price-test"><span>${escapeHtml(t("testPriceModel"))}</span><input data-price-test value="${escapeHtml(target.price_test_model || "")}"><output aria-live="polite">${escapeHtml(localPriceMatch(target))}</output></label></div>
+        <div class="price-catalog">
+          <label class="price-catalog-rate"><span>${escapeHtml(t("catalogPriceRate"))}</span><input data-catalog-rate inputmode="decimal" value="${escapeHtml(target.catalog_rate || "1")}"></label>
+          <button type="button" data-fetch-catalog-prices title="${escapeHtml(t("fetchCatalogPrices"))}">${escapeHtml(t("fetchCatalogPrices"))}</button>
+        </div>
+        <p class="price-help">${escapeHtml(t("catalogSourceNote"))}</p>
       </details>
       <div class="target-controls">
         ${isDefault ? `<span class="target-enabled">${escapeHtml(t("defaultTarget"))}</span>` : `<label class="target-enabled"><input type="checkbox" data-target-enabled ${target.enabled !== false ? "checked" : ""}> <span>${escapeHtml(t("targetEnabled"))}</span></label>`}
@@ -894,6 +913,7 @@ function collectPairs() {
         return value;
       });
       target.price_test_model = targetCard.querySelector("[data-price-test]")?.value || "";
+      target.catalog_rate = targetCard.querySelector("[data-catalog-rate]")?.value || "1";
       target.prices_expanded = targetCard.querySelector(".model-prices")?.open || false;
       if (targetCard.querySelector("[data-default-target]")?.checked)
         pair.default_target_id = target.id;
@@ -3551,6 +3571,56 @@ $("proxyGrid").addEventListener("click", (event) => {
     }
     target.prices_expanded = true;
     renderPairs();
+    return;
+  }
+  if (event.target.matches("[data-fetch-catalog-prices]")) {
+    collectPairs();
+    const targetCard = event.target.closest(".target-card");
+    const target = pairTargets(pair)[Number(targetCard.dataset.targetIndex)];
+    target.catalog_rate = targetCard.querySelector("[data-catalog-rate]")?.value || "1";
+    const button = event.target;
+    button.disabled = true;
+    api("/api/model-prices/import", {
+      method: "POST",
+      body: JSON.stringify({
+        targetUrl: target.target_url || "",
+        targetApiKey: target.target_api_key || "",
+        priceRate: target.catalog_rate,
+      }),
+    })
+      .then((data) => {
+        if (
+          data.models.length > 50 &&
+          !window.confirm(t("catalogManyModels").replace("{n}", String(data.models.length)))
+        ) {
+          return;
+        }
+        collectPairs();
+        const current = pairTargets(pair)[Number(targetCard.dataset.targetIndex)];
+        const rules = current.model_prices || (current.model_prices = []);
+        const patterns = new Set(rules.map((rule) => rule.model_pattern ?? ""));
+        let added = 0;
+        for (const rule of data.rules) {
+          if (patterns.has(rule.model_pattern)) continue;
+          rules.push({ ...rule, price_multiplier: "1" });
+          patterns.add(rule.model_pattern);
+          added += 1;
+        }
+        current.prices_expanded = true;
+        renderPairs();
+        toast(
+          t("catalogImportDone")
+            .replace("{added}", String(added))
+            .replace("{existing}", String(data.rules.length - added))
+            .replace("{unmatched}", String(data.unmatched.length)),
+        );
+      })
+      .catch((error) => {
+        toast(error instanceof Error ? error.message : String(error));
+      })
+      .finally(() => {
+        button.disabled = false;
+      });
     return;
   }
   if (event.target.matches("[data-add-target]")) {

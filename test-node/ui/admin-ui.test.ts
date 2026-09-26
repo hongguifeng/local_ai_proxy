@@ -47,6 +47,30 @@ let targetCheckOutcome: {
   detail?: string;
 } = { ok: true, status: 200, durationMs: 5 };
 
+const modelCatalogCalls: {
+  targetUrl: string;
+  targetApiKey?: string;
+  priceRate?: string;
+}[] = [];
+let modelCatalogError: string | null = null;
+let modelCatalogOutcome: {
+  models: string[];
+  rules: {
+    model_pattern: string;
+    input_per_million: string;
+    output_per_million: string;
+    cache_read_per_million: string;
+    cache_write_per_million: string;
+  }[];
+  unmatched: string[];
+  catalog: { source: string; fetchedAt: number };
+} = {
+  models: [],
+  rules: [],
+  unmatched: [],
+  catalog: { source: "models.dev", fetchedAt: 1_700_000_000 },
+};
+
 const pairs: PublicProxyPair[] = [];
 
 function fixturePair(): PublicProxyPair {
@@ -148,6 +172,15 @@ beforeAll(async () => {
       checkTarget: (request) => {
         targetCheckCalls.push({ ...request });
         return Promise.resolve({ ...targetCheckOutcome });
+      },
+    },
+    modelCatalogService: {
+      importModelPrices: (request) => {
+        modelCatalogCalls.push({ ...request });
+        if (modelCatalogError !== null) {
+          return Promise.reject(new Error(modelCatalogError));
+        }
+        return Promise.resolve({ ...modelCatalogOutcome });
       },
     },
     pairService: {
@@ -639,6 +672,14 @@ beforeEach(async () => {
   detailReads.clear();
   targetCheckCalls.length = 0;
   targetCheckOutcome = { ok: true, status: 200, durationMs: 5 };
+  modelCatalogCalls.length = 0;
+  modelCatalogError = null;
+  modelCatalogOutcome = {
+    models: [],
+    rules: [],
+    unmatched: [],
+    catalog: { source: "models.dev", fetchedAt: 1_700_000_000 },
+  };
 
   page = await browser.newPage();
   await page.addInitScript(() => {
@@ -868,6 +909,118 @@ describe("admin UI proxy page", { timeout: UI_TEST_TIMEOUT_MS }, () => {
     await prices.locator("[data-add-price]").click();
     await expectPage(prices.locator(".model-price-rule")).toHaveCount(2);
     await expectPage(prices.locator("[data-price-up]").last()).toBeEnabled();
+  });
+
+  it("imports model prices from the models.dev catalog into the price rules", async () => {
+    await loadAdminPage();
+    const target = page.locator('.proxy-card[data-index="0"] .target-card').first();
+    const prices = target.locator(".model-prices");
+    await prices.locator("summary").click();
+    await prices.locator("[data-catalog-rate]").fill("7.1");
+    modelCatalogOutcome = {
+      models: ["gpt-5.5", "gpt-5.5-turbo", "weird-model"],
+      rules: [
+        {
+          model_pattern: "gpt-5.5",
+          input_per_million: "2.13",
+          output_per_million: "8.875",
+          cache_read_per_million: "0.213",
+          cache_write_per_million: "0",
+        },
+        {
+          model_pattern: "gpt-5.5-turbo",
+          input_per_million: "1",
+          output_per_million: "2",
+          cache_read_per_million: "0",
+          cache_write_per_million: "0",
+        },
+      ],
+      unmatched: ["weird-model"],
+      catalog: { source: "models.dev", fetchedAt: 1_700_000_000 },
+    };
+    await prices.locator("[data-fetch-catalog-prices]").click();
+
+    const rule = prices.locator(".model-price-rule");
+    await expectPage(rule).toHaveCount(2);
+    await expectPage(rule.nth(0).locator('[data-price-field="model_pattern"]')).toHaveValue(
+      "gpt-5.5",
+    );
+    await expectPage(rule.nth(1).locator('[data-price-field="model_pattern"]')).toHaveValue(
+      "gpt-5.5-turbo",
+    );
+    await expectPage(rule.first().locator('[data-price-field="input_per_million"]')).toHaveValue(
+      "2.13",
+    );
+    await expectPage(page.locator("#toast")).toContainText(
+      "Added 2 price rule(s); 0 existing rule(s) untouched; 1 had no price",
+    );
+    // The import only fills price rules; the model mapping stays empty.
+    await expectPage(target.locator('[data-target-field="model_mappings"]')).not.toHaveValue(
+      /gpt-5\.5/,
+    );
+    expect(modelCatalogCalls).toEqual([
+      { targetUrl: "https://example.test/v1", targetApiKey: "secret-key", priceRate: "7.1" },
+    ]);
+  });
+
+  it("keeps existing price rules when importing catalog prices", async () => {
+    await loadAdminPage();
+    const target = page.locator('.proxy-card[data-index="0"] .target-card').first();
+    const prices = target.locator(".model-prices");
+    await prices.locator("summary").click();
+    await prices.locator("[data-add-price]").click();
+    await prices
+      .locator('[data-price-index="0"] [data-price-field="model_pattern"]')
+      .fill("gpt-5.5");
+    modelCatalogOutcome = {
+      models: ["gpt-5.5", "gpt-5.5-turbo"],
+      rules: [
+        {
+          model_pattern: "gpt-5.5",
+          input_per_million: "2.13",
+          output_per_million: "8.875",
+          cache_read_per_million: "0.213",
+          cache_write_per_million: "0",
+        },
+        {
+          model_pattern: "gpt-5.5-turbo",
+          input_per_million: "1",
+          output_per_million: "2",
+          cache_read_per_million: "0",
+          cache_write_per_million: "0",
+        },
+      ],
+      unmatched: [],
+      catalog: { source: "models.dev", fetchedAt: 1_700_000_000 },
+    };
+    await prices.locator("[data-fetch-catalog-prices]").click();
+
+    const rule = prices.locator(".model-price-rule");
+    await expectPage(rule).toHaveCount(2);
+    await expectPage(rule.nth(0).locator('[data-price-field="model_pattern"]')).toHaveValue(
+      "gpt-5.5",
+    );
+    await expectPage(rule.nth(1).locator('[data-price-field="model_pattern"]')).toHaveValue(
+      "gpt-5.5-turbo",
+    );
+    await expectPage(page.locator("#toast")).toContainText(
+      "Added 1 price rule(s); 1 existing rule(s) untouched",
+    );
+  });
+
+  it("shows a toast and adds no rules when the catalog import fails", async () => {
+    await loadAdminPage();
+    const target = page.locator('.proxy-card[data-index="0"] .target-card').first();
+    const prices = target.locator(".model-prices");
+    await prices.locator("summary").click();
+    modelCatalogError = "The upstream answered 401 for /v1/models.";
+    await prices.locator("[data-fetch-catalog-prices]").click();
+
+    await expectPage(page.locator("#toast")).toContainText(/401/);
+    await expectPage(prices.locator(".model-price-rule")).toHaveCount(0);
+    expect(modelCatalogCalls).toEqual([
+      { targetUrl: "https://example.test/v1", targetApiKey: "secret-key", priceRate: "1" },
+    ]);
   });
 
   it("checks the forwarding target from the target card dialog", async () => {

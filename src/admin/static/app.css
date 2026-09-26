@@ -328,6 +328,23 @@ body.drag-target-active {
   align-items: end;
   margin-top: 9px;
 }
+.price-catalog {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 8px;
+  align-items: end;
+  margin-top: 8px;
+}
+.price-catalog-rate {
+  display: grid;
+  gap: 3px;
+  min-width: 0;
+  font-size: 12px;
+}
+.price-catalog-rate input {
+  min-width: 0;
+  width: 100%;
+}
 .price-test {
   grid-template-columns: auto minmax(7rem, 1fr) minmax(0, 1fr);
   gap: 4px 6px;
@@ -350,6 +367,9 @@ body.drag-target-active {
 }
 @media (max-width: 520px) {
   .price-tools {
+    grid-template-columns: 1fr;
+  }
+  .price-catalog {
     grid-template-columns: 1fr;
   }
   .price-test {

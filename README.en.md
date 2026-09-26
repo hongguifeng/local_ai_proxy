@@ -34,6 +34,7 @@ flowchart LR
 | Authentication and headers | Set an API key and custom headers separately for each upstream. |
 | Log privacy | **Redact logs** masks common API keys, tokens, and passwords when saving logs; forwarded requests are unchanged. |
 | Model pricing | Set per-million-token prices and a multiplier for input, output, and cache read/write. Prices are frozen when a request is forwarded; later edits affect new requests only. |
+| Auto price import | In **Model pricing**, **Fetch models & fill prices** asks the upstream for its model list (`GET /models`, falling back to the Anthropic-style `GET /v1/models` path after a 404), looks each model up in the [models.dev](https://models.dev) catalog, multiplies the prices by the entered rate (1 = raw USD) and adds them as price rules. The fetched model list is used for pricing only and never touches the model mappings; existing rules are left untouched, models without a catalog price are only reported, and the models.dev catalog is cached in memory for 24 hours. Note: most `/models` endpoints (DeepSeek included) do not return prices, so the values come from the third-party models.dev catalog and can be stale (e.g. DeepSeek is listed at its off-peak rate, which its time-of-day pricing halves) — review the filled values against the vendor's official price list before saving. |
 
 Example mappings:
 

@@ -130,6 +130,18 @@ describe("createNodeApplication", () => {
       const zipBytes = new Uint8Array(await exportResponse.arrayBuffer());
       expect([zipBytes[0], zipBytes[1]]).toEqual([0x50, 0x4b]);
 
+      // Guard against the assembled app silently dropping the model price
+      // import route (404 "Route not found."): it is registered only when the
+      // model catalog service is wired in runtime.ts.
+      const importBad = await fetch(`http://127.0.0.1:${adminPort}/api/model-prices/import`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({}),
+      });
+      expect(importBad.status).toBe(400);
+      const importBadBody = (await importBad.json()) as { error?: { code?: string } };
+      expect(importBadBody.error?.code).toBe("FST_ERR_VALIDATION");
+
       const cleanupPayloads = [
         { group_ids: ["missing-group"] },
         { keep_latest: 1 },

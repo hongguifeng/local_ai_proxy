@@ -1,5 +1,19 @@
 export { matchModelPrice, type ModelPriceMatch } from "./model-price-matcher.js";
 export {
+  buildImportedPriceRules,
+  convertUsdPrice,
+  fetchModelsDevCatalog,
+  fetchUpstreamModelIds,
+  importModelPrices,
+  numberToDecimalString,
+  resetCatalogCache,
+  MODELS_DEV_URL,
+  type ImportedPriceRule,
+  type ModelPriceImportRequest,
+  type ModelPriceImportResult,
+  type ModelsDevCost,
+} from "./model-catalog.js";
+export {
   AmountOverflowError,
   calculateCost,
   decimalString,
