@@ -1618,18 +1618,19 @@ label span {
   color: #22384c;
   overflow-wrap: normal;
 }
-/* The range is a three-column (label | date | time) grid. The “Time range”
-   label shares the start-time row on the left; both the start- and
-   end-date badges always render (even for same-day ranges) so the two time
-   values stay in the same column; a thin ↓ arrow row (time column only,
-   no badge) separates the two times, keeping their vertical gap small. */
+/* The range is a three-column (label | date | time) grid with two time
+   rows: each row carries its own left label ("Start time" / "End time"),
+   the two date badges stack in the middle column (both always render,
+   even for same-day ranges) and the two times stack on the right, so the
+   range reads as an upper (start) and a lower (end) row. row-gap keeps the
+   two time rows spaced as widely as the old arrow-separated layout did. */
 .task-stat-time .task-time-range {
   min-width: 0;
   display: grid;
   grid-template-columns: max-content max-content max-content;
   align-items: center;
   column-gap: 6px;
-  row-gap: 0;
+  row-gap: 9px;
   color: #22384c;
   font-family: ui-monospace, SFMono-Regular, Consolas, monospace;
   font-size: 21px;
@@ -1638,18 +1639,23 @@ label span {
   letter-spacing: 0.02em;
   white-space: nowrap;
 }
-/* The two time rows use a tight line-height (digits have no ascenders /
-   descenders beyond the em box) so the start and end times sit as close
-   vertically as the arrow row allows; the label keeps the relaxed 1.2 so
-   its descenders are not clipped. */
+/* The two time values use a tight line-height (digits have no ascenders /
+   descenders beyond the em box); the row-gap above supplies the vertical
+   separation between the two rows. The labels keep the relaxed 1.2 so
+   their descenders are not clipped. */
 .task-stat-time .task-time-range .task-time-start,
 .task-stat-time .task-time-range .task-time-end {
   line-height: 1;
 }
 .task-stat-time .task-time-range .task-time-range-label {
   grid-column: 1;
-  grid-row: 1;
   margin-right: 12px;
+}
+.task-stat-time .task-time-range .task-time-range-label:nth-of-type(1) {
+  grid-row: 1;
+}
+.task-stat-time .task-time-range .task-time-range-label-end {
+  grid-row: 2;
 }
 .task-stat-time .task-time-range .task-time-date-start {
   grid-column: 2;
@@ -1659,21 +1665,13 @@ label span {
   grid-column: 3;
   grid-row: 1;
 }
-.task-stat-time .task-time-range .log-time-arrow-down {
-  grid-column: 3;
-  grid-row: 2;
-  justify-self: center;
-  font-size: 12px;
-  line-height: 0.8;
-  color: #5f7183;
-}
 .task-stat-time .task-time-range .task-time-date-end {
   grid-column: 2;
-  grid-row: 3;
+  grid-row: 2;
 }
 .task-stat-time .task-time-range .task-time-end {
   grid-column: 3;
-  grid-row: 3;
+  grid-row: 2;
 }
 @media (max-width: 700px) {
   .task-stat-cards {

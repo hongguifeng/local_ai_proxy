@@ -126,7 +126,8 @@ const translations = {
     pricingUsage: "用量来源",
     pricingReason: "未计价原因",
     target: "转发地址",
-    timeRange: "时间范围",
+    startTime: "起始时间",
+    endTime: "结束时间",
     inputUncached: "普通输入",
     output: "输出",
     cacheRead: "缓存读取",
@@ -327,7 +328,8 @@ const translations = {
     pricingUsage: "Usage source",
     pricingReason: "Unpriced reason",
     target: "Target",
-    timeRange: "Time range",
+    startTime: "Start time",
+    endTime: "End time",
     inputUncached: "Uncached input",
     output: "Output",
     cacheRead: "Cache read",
@@ -2079,31 +2081,28 @@ function fitTaskSummaryValues(root) {
     model.style.fontSize = `${fs}px`;
   }
 }
-// Stacked start/↓/end time range for the task-detail time bar: the “Time
-// range” label shares the start-time row on the left (the user rejected the
-// top-header variant), both the start- and end-date badges always render
-// (even when the range is same-day) so the two time values stay in the same
-// column, and a thin down-arrow row (no badge, time column only) keeps the
-// vertical gap between the two times small.
+// Stacked start/end time range for the task-detail time bar: each time row
+// carries its own left label (“Start time” / “End time”), so the range reads
+// as an upper (start) and a lower (end) row; the two date badges stack in
+// the middle column and the two times stack on the right.
 function taskTimeRangeHtml(group) {
   const start = displayTimestampParts(group.started_at);
   const end = displayTimestampParts(group.last_activity_at);
   if (!start.time && !end.time && !(start.date && end.date)) {
     return `<span class="log-group-time-fallback">${escapeHtml(group.id || t("task"))}</span>`;
   }
-  // The label sits on the start-time row (left side), not as a top header.
-  // Both date badges always render, even for same-day ranges.
+  // Each time row has its own label (start / end) instead of one shared header.
+  // Both date badges always render, even for same-day ranges, so the two time
+  // values stay in the same column.
   const showStart = Boolean(start.time || start.date);
   const showEnd = Boolean(end.time || end.date);
   const badge = (parts, cls) =>
     parts.date ? `<span class="log-group-date ${cls}">${escapeHtml(parts.shortDate)}</span>` : "";
-  const arrow =
-    showStart && showEnd ? '<span class="log-time-arrow-down" aria-hidden="true">↓</span>' : "";
   const inner = [
-    `<small class="task-time-range-label">${t("timeRange")}</small>`,
+    `<small class="task-time-range-label">${t("startTime")}</small>`,
     showStart ? badge(start, "task-time-date-start") : "",
     showStart && start.time ? `<span class="task-time-start">${escapeHtml(start.time)}</span>` : "",
-    arrow,
+    `<small class="task-time-range-label task-time-range-label-end">${t("endTime")}</small>`,
     showEnd ? badge(end, "task-time-date-end") : "",
     showEnd && end.time ? `<span class="task-time-end">${escapeHtml(end.time)}</span>` : "",
   ].join("");
@@ -2209,7 +2208,7 @@ function renderTaskPricingPanel() {
     const timeItems = [
       // No header label here: the "Time range" label lives on the same line
       // as the start timestamp (see taskTimeRangeHtml) instead of floating
-      // above the two stacked time lines.
+      // above the two stacked time rows.
       `<span class="task-stat-time-item task-stat-time-period">${taskTimeRangeHtml(group)}</span>`,
     ];
     if (totalDurationText !== "") {
