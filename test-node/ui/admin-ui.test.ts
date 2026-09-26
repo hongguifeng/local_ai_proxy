@@ -1262,10 +1262,13 @@ describe("admin UI history page", { timeout: UI_TEST_TIMEOUT_MS }, () => {
       releaseSearch = resolve;
     });
     await page.route("**/api/logs**", async (route) => {
-      if (route.request().method() !== "GET") return route.continue();
-      const response = await route.fetch();
+      // The request can be aborted (page teardown/navigation) while the mock
+      // is in flight; "Route is already handled!" must not escape into vitest.
+      if (route.request().method() !== "GET") return route.continue().catch(() => undefined);
+      const response = await route.fetch().catch(() => undefined);
+      if (response === undefined) return;
       await release;
-      await route.fulfill({ response });
+      await route.fulfill({ response }).catch(() => undefined);
     });
     await page.locator("#searchLogs").click();
     await expectPage(progress).toBeVisible();
@@ -1346,7 +1349,8 @@ describe("admin UI history page", { timeout: UI_TEST_TIMEOUT_MS }, () => {
       page.locator('[data-tab="logs"]').click(),
     ]);
     await page.route("**/api/logs?**", async (route) => {
-      const response = await route.fetch();
+      const response = await route.fetch().catch(() => undefined);
+      if (response === undefined) return;
       const data = (await response.json()) as { groups: { id: string; cost?: unknown }[] };
       data.groups = data.groups.map((group) =>
         group.id === "task-one"
@@ -1362,7 +1366,7 @@ describe("admin UI history page", { timeout: UI_TEST_TIMEOUT_MS }, () => {
             }
           : group,
       );
-      await route.fulfill({ response, json: data });
+      await route.fulfill({ response, json: data }).catch(() => undefined);
     });
     await page.locator("#refreshLogs").click();
     await expectPage(page.locator('[data-group-detail="task-one"]')).toHaveText("ⓘ");
@@ -1392,7 +1396,8 @@ describe("admin UI history page", { timeout: UI_TEST_TIMEOUT_MS }, () => {
     // (request count / last activity / decode speed) moves and the pricing
     // payload is unchanged, yet the panel has to follow the task.
     await page.route("**/api/logs?**", async (route) => {
-      const response = await route.fetch();
+      const response = await route.fetch().catch(() => undefined);
+      if (response === undefined) return;
       const data = (await response.json()) as { groups: Record<string, unknown>[] };
       data.groups = data.groups.map((item) =>
         item["id"] === "task-one"
@@ -1404,7 +1409,7 @@ describe("admin UI history page", { timeout: UI_TEST_TIMEOUT_MS }, () => {
             }
           : item,
       );
-      await route.fulfill({ response, json: data });
+      await route.fulfill({ response, json: data }).catch(() => undefined);
     });
     await Promise.all([
       page.waitForResponse((response) => response.url().includes("/api/logs?")),
@@ -1736,7 +1741,8 @@ describe("admin UI history page", { timeout: UI_TEST_TIMEOUT_MS }, () => {
 
   it("expands search previews without a second request and replaces them on query changes", async () => {
     await page.route("**/api/logs?**", async (route) => {
-      const response = await route.fetch();
+      const response = await route.fetch().catch(() => undefined);
+      if (response === undefined) return;
       const data = (await response.json()) as { groups: { id: string }[] };
       const query = new URL(route.request().url()).searchParams.get("q");
       if (query) {
@@ -1762,7 +1768,7 @@ describe("admin UI history page", { timeout: UI_TEST_TIMEOUT_MS }, () => {
           },
         }));
       }
-      await route.fulfill({ response, json: data });
+      await route.fulfill({ response, json: data }).catch(() => undefined);
     });
     await loadAdminPage();
     await page.locator('[data-tab="logs"]').click();
@@ -1972,10 +1978,11 @@ describe("admin UI history page", { timeout: UI_TEST_TIMEOUT_MS }, () => {
       releaseCleanup = resolve;
     });
     await page.route("**/api/logs**", async (route) => {
-      if (route.request().method() !== "GET") return route.continue();
-      const response = await route.fetch();
+      if (route.request().method() !== "GET") return route.continue().catch(() => undefined);
+      const response = await route.fetch().catch(() => undefined);
+      if (response === undefined) return;
       await release;
-      await route.fulfill({ response });
+      await route.fulfill({ response }).catch(() => undefined);
     });
 
     const button = page.locator("#cleanupSingleRequestLogs");
