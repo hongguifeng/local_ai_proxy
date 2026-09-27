@@ -3,18 +3,32 @@ import os from "node:os";
 import path from "node:path";
 import { describe, expect, it, vi } from "vitest";
 
-import { createAutoStartController, readAutoStartState } from "../../electron/auto-start.js";
+import {
+  createAutoStartController,
+  readAutoStartState,
+  resolveLoginItemPath,
+} from "../../electron/auto-start.js";
+
+// Electron defaults the login-item path to the currently running executable,
+// which for a portable build is the temporary unpacked copy.
+const CURRENT_EXEC = "C:\\Users\\hong\\AppData\\Local\\Temp\\unpack\\LLM Proxy.exe";
 
 function makeApp(overrides: { isPackaged?: boolean; openAtLogin?: boolean } = {}) {
   let openAtLogin = overrides.openAtLogin ?? false;
-  const setLoginItemSettings = vi.fn((options: { openAtLogin: boolean }) => {
+  let registeredPath = CURRENT_EXEC;
+  const setLoginItemSettings = vi.fn((options: { openAtLogin: boolean; path?: string }) => {
     openAtLogin = options.openAtLogin;
+    registeredPath = options.path ?? CURRENT_EXEC;
   });
   return {
     setLoginItemSettings,
     isPackaged: overrides.isPackaged ?? true,
     getAppPath: () => "C:/Program Files/LLM Proxy/LLM Proxy.exe",
-    getLoginItemSettings: () => ({ openAtLogin }),
+    // Electron compares the stored Run entry against the queried path, so a
+    // mismatched (or missing) `path` option reports openAtLogin false.
+    getLoginItemSettings: (options?: { path?: string }) => ({
+      openAtLogin: openAtLogin && (options?.path ?? CURRENT_EXEC) === registeredPath,
+    }),
   };
 }
 
@@ -56,7 +70,67 @@ describe("createAutoStartController", () => {
     });
   });
 
-  it("skips the registry for the portable executable and reports disabled", async () => {
+  it("registers the portable launcher executable instead of the unpacked copy", async () => {
+    await withTempDirectory(async (dataDirectory) => {
+      const portableFile = "D:/Portable Program/llm_proxy/LLM-Proxy-0.4.9-x64-portable.exe";
+      const environment = {
+        PORTABLE_EXECUTABLE_DIR: "D:/Portable Program/llm_proxy",
+        PORTABLE_EXECUTABLE_FILE: portableFile,
+      };
+      const app = makeApp();
+      const controller = await createAutoStartController({
+        app,
+        environment,
+        dataDirectory,
+      });
+      expect(controller.state.autoStart).toBe(false);
+
+      await controller.toggle();
+      expect(app.setLoginItemSettings).toHaveBeenCalledWith({
+        openAtLogin: true,
+        path: portableFile,
+      });
+      expect(controller.state.autoStart).toBe(true);
+      const configPath = path.join(dataDirectory, "auto-start.json");
+      expect(await readFile(configPath, "utf8")).toContain('"autoStart": true');
+
+      // A fresh process re-applies the persisted choice with the same path,
+      // so the read-back matches even though it runs from the temp copy.
+      const reloaded = await createAutoStartController({
+        app: makeApp(),
+        environment,
+        dataDirectory,
+      });
+      expect(reloaded.state.autoStart).toBe(true);
+
+      await reloaded.toggle();
+      expect(reloaded.state.autoStart).toBe(false);
+    });
+  });
+
+  it("falls back to the launcher directory plus app filename when the file env is missing", async () => {
+    await withTempDirectory(async (dataDirectory) => {
+      const environment = {
+        PORTABLE_EXECUTABLE_DIR: "D:/Portable Program/llm-proxy",
+        PORTABLE_EXECUTABLE_APP_FILENAME: "LLM Proxy.exe",
+      };
+      const app = makeApp();
+      const controller = await createAutoStartController({
+        app,
+        environment,
+        dataDirectory,
+      });
+
+      await controller.toggle();
+      expect(app.setLoginItemSettings).toHaveBeenCalledWith({
+        openAtLogin: true,
+        path: path.resolve("D:/Portable Program/llm-proxy", "LLM Proxy.exe"),
+      });
+      expect(controller.state.autoStart).toBe(true);
+    });
+  });
+
+  it("still skips the registry when a portable build exposes no stable path", async () => {
     await withTempDirectory(async (dataDirectory) => {
       const app = makeApp();
       const controller = await createAutoStartController({
@@ -100,5 +174,23 @@ describe("createAutoStartController", () => {
     };
     expect(readAutoStartState(app, true)).toEqual({ autoStart: true });
     expect(readAutoStartState(app, false)).toEqual({ autoStart: false });
+  });
+});
+
+describe("resolveLoginItemPath", () => {
+  it("prefers the portable executable file over the directory plus filename", () => {
+    expect(
+      resolveLoginItemPath({
+        PORTABLE_EXECUTABLE_DIR: "D:/Portable Program/llm-proxy",
+        PORTABLE_EXECUTABLE_FILE: "D:/Portable Program/llm-proxy/LLM-Proxy-portable.exe",
+        PORTABLE_EXECUTABLE_APP_FILENAME: "LLM Proxy.exe",
+      }),
+    ).toBe("D:/Portable Program/llm-proxy/LLM-Proxy-portable.exe");
+  });
+
+  it("trims blank launcher values and returns undefined without portable hints", () => {
+    expect(resolveLoginItemPath({ PORTABLE_EXECUTABLE_FILE: "   " })).toBeUndefined();
+    expect(resolveLoginItemPath({ PORTABLE_EXECUTABLE_DIR: "D:/x" })).toBeUndefined();
+    expect(resolveLoginItemPath({})).toBeUndefined();
   });
 });

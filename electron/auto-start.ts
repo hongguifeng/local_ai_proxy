@@ -1,11 +1,18 @@
 import { readFile, writeFile } from "node:fs/promises";
 import path from "node:path";
 
+export interface LoginItemSettingsOptions {
+  readonly openAtLogin: boolean;
+  readonly path?: string;
+}
+
 export interface LoginItemApp {
   getAppPath(): string;
-  getLoginItemSettings(): { readonly openAtLogin: boolean };
+  getLoginItemSettings(options?: { readonly path?: string }): {
+    readonly openAtLogin: boolean;
+  };
   isPackaged: boolean;
-  setLoginItemSettings(options: { openAtLogin: boolean }): void;
+  setLoginItemSettings(options: LoginItemSettingsOptions): void;
 }
 
 export interface AutoStartState {
@@ -82,24 +89,60 @@ function configureAutoStart(
   if (!dependencies.app.isPackaged) {
     return { autoStart };
   }
-  // The portable executable is unpacked to a temporary directory, so its
-  // resolved path cannot be used as a stable Run entry; skip the registry
-  // and report that startup was not enabled.
-  const openAtLogin = autoStart && !dependencies.environment["PORTABLE_EXECUTABLE_DIR"];
+  const loginItemPath = resolveLoginItemPath(dependencies.environment);
+  // The portable executable unpacks to a temporary directory that is deleted
+  // when the app exits, so Electron's default path (the unpacked copy) would
+  // register a Run entry that points at a file which no longer exists at
+  // login. When the launcher exposes the original executable path, register
+  // that stable path instead; Electron re-launches the portable exe, which
+  // unpacks and runs normally. If the launcher gives us no stable path at all,
+  // keep the historical behaviour of skipping the registry entirely.
+  const portableWithoutPath =
+    loginItemPath === undefined && Boolean(dependencies.environment["PORTABLE_EXECUTABLE_DIR"]);
+  const openAtLogin = autoStart && !portableWithoutPath;
+  const settings: LoginItemSettingsOptions =
+    loginItemPath === undefined ? { openAtLogin } : { openAtLogin, path: loginItemPath };
   try {
-    dependencies.app.setLoginItemSettings({ openAtLogin });
+    dependencies.app.setLoginItemSettings(settings);
   } catch {
     // A failed registry write leaves the previous setting in place.
   }
-  return readAutoStartState(dependencies.app, autoStart);
+  return readAutoStartState(dependencies.app, autoStart, loginItemPath);
 }
 
-export function readAutoStartState(app: LoginItemApp, requested: boolean): AutoStartState {
+export function readAutoStartState(
+  app: LoginItemApp,
+  requested: boolean,
+  loginItemPath?: string,
+): AutoStartState {
   try {
-    return { autoStart: app.getLoginItemSettings().openAtLogin };
+    // Electron compares the stored Run entry against the queried path, so a
+    // custom `path` must be passed here as well or the read reports false.
+    const options = loginItemPath === undefined ? undefined : { path: loginItemPath };
+    return { autoStart: app.getLoginItemSettings(options).openAtLogin };
   } catch {
     return { autoStart: requested };
   }
+}
+
+/**
+ * Resolve the stable executable to register as a login item for a portable
+ * build, or `undefined` for the installer build (Electron then defaults to
+ * the current executable path, which is already stable).
+ */
+export function resolveLoginItemPath(
+  environment: Readonly<Record<string, string | undefined>>,
+): string | undefined {
+  const file = environment["PORTABLE_EXECUTABLE_FILE"]?.trim();
+  if (file) {
+    return file;
+  }
+  const directory = environment["PORTABLE_EXECUTABLE_DIR"]?.trim();
+  const filename = environment["PORTABLE_EXECUTABLE_APP_FILENAME"]?.trim();
+  if (directory && filename) {
+    return path.resolve(directory, filename);
+  }
+  return undefined;
 }
 
 function isMissingFile(value: unknown): boolean {

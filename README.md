@@ -93,7 +93,7 @@ npm run build
 npm start
 ```
 
-控制台默认打开 <http://127.0.0.1:18080>。不想自动打开浏览器时使用 `npm start -- --no-browser`。Windows 用户也可以从 GitHub Release 下载安装包或 portable 版本；启动后应用会驻留在系统托盘中。托盘图标的右键菜单提供 “Start with Windows” 开关，勾选后应用会随 Windows 登录自动启动（写入当前用户的 Run 注册表项，选择保存在数据目录的 `auto-start.json`；portable 版本从临时目录运行，无法写入稳定的启动项，开关保持关闭）。菜单项用前缀符号指示当前状态：✓ 表示已启用，· 表示未启用（Windows 托盘菜单会忽略复选框的勾选状态）。详见 [docs/windows-tray-scope.md](docs/windows-tray-scope.md)。
+控制台默认打开 <http://127.0.0.1:18080>。不想自动打开浏览器时使用 `npm start -- --no-browser`。Windows 用户也可以从 GitHub Release 下载安装包或 portable 版本；启动后应用会驻留在系统托盘中。托盘图标的右键菜单提供 “Start with Windows” 开关，勾选后应用会随 Windows 登录自动启动（写入当前用户的 Run 注册表项，选择保存在数据目录的 `auto-start.json`；portable 版本注册的是便携 exe 自身的完整路径，开机时由它重新解压运行；移动 exe 后下次启动会自动改写启动项，删除 exe 则启动项失效）。菜单项用前缀符号指示当前状态：✓ 表示已启用，· 表示未启用（Windows 托盘菜单会忽略复选框的勾选状态）。详见 [docs/windows-tray-scope.md](docs/windows-tray-scope.md)。
 
 在 **Proxy** 页面新建代理，设置监听地址（例如 `127.0.0.1:1234`），添加上游地址（例如 `http://127.0.0.1:1235` 或 `https://openrouter.ai/api/v1`），填写 API Key（如需要）并启用。然后把客户端的 API base URL 改为 `http://127.0.0.1:1234`。
 
