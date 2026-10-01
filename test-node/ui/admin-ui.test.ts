@@ -1313,7 +1313,7 @@ describe("admin UI history page", { timeout: UI_TEST_TIMEOUT_MS }, () => {
     ]);
     await Promise.all([
       page.waitForResponse((response) => response.url().includes("/api/log-groups/task-one/logs")),
-      page.locator('[data-group-id="task-one"] .log-target').click(),
+      page.locator('[data-group-toggle="task-one"]').click(),
     ]);
     const pendingItem = page.locator('[data-log-id="record-one"]');
     await expectPage(pendingItem).toContainText("pending");
@@ -1369,7 +1369,9 @@ describe("admin UI history page", { timeout: UI_TEST_TIMEOUT_MS }, () => {
       await route.fulfill({ response, json: data }).catch(() => undefined);
     });
     await page.locator("#refreshLogs").click();
-    await expectPage(page.locator('[data-group-detail="task-one"]')).toHaveText("ⓘ");
+    await expectPage(
+      page.locator('.log-group:has([data-group-id="task-one"]) .log-group-cost'),
+    ).toHaveText("$5");
     await page.unroute("**/api/logs?**");
   });
 
@@ -1384,7 +1386,7 @@ describe("admin UI history page", { timeout: UI_TEST_TIMEOUT_MS }, () => {
       page.waitForResponse((response) =>
         response.url().endsWith("/api/log-groups/task-one/pricing"),
       ),
-      group.locator("[data-group-detail]").click(),
+      group.click(),
     ]);
     const panel = page.locator("#pricingPanel");
     // The summary card repeats the list facts for the same task.
@@ -1424,7 +1426,7 @@ describe("admin UI history page", { timeout: UI_TEST_TIMEOUT_MS }, () => {
       page.waitForResponse((response) =>
         response.url().endsWith("/api/log-groups/task-one/pricing"),
       ),
-      group.locator("[data-group-detail]").press("Enter"),
+      group.press("Enter"),
     ]);
     await expectPage(panel.locator(".task-stat-count strong")).toHaveText("9");
     await page.unroute("**/api/logs?**");
@@ -1439,9 +1441,10 @@ describe("admin UI history page", { timeout: UI_TEST_TIMEOUT_MS }, () => {
     await expectPage(page.locator(".log-item")).toHaveCount(0);
     expect(groupLogQueries).toEqual([]);
 
+    // Expanding through the caret button fetches the group's records once.
     await Promise.all([
       page.waitForResponse((response) => response.url().includes("/api/log-groups/task-one/logs")),
-      page.locator('[data-group-id="task-one"] .log-target').click(),
+      page.locator('[data-group-toggle="task-one"]').click(),
     ]);
     expect(groupLogQueries).toEqual(["task-one:"]);
     const completedItem = page.locator('[data-log-id="record-two"]');
@@ -1486,7 +1489,7 @@ describe("admin UI history page", { timeout: UI_TEST_TIMEOUT_MS }, () => {
 
     await Promise.all([
       page.waitForResponse((response) => response.url().includes("/api/log-groups/task-one/logs")),
-      summary.locator(".log-target").click(),
+      group.locator(".log-group-caret").click(),
     ]);
     const priced = page.locator('[data-log-id="record-three"]');
     await expectPage(priced.locator(".decode-speed .log-metric-label")).toHaveText("Speed");
@@ -1521,9 +1524,19 @@ describe("admin UI history page", { timeout: UI_TEST_TIMEOUT_MS }, () => {
       page.locator('[data-log-id="record-four"] .cost .log-metric-value'),
     ).toHaveText("—");
 
-    await group.locator(".log-group-head").press("Enter");
+    // Keyboard: Enter/Space on the header only opens the task detail panel;
+    // the caret button is the toggle for the second level.
+    await Promise.all([
+      page.waitForResponse((response) =>
+        response.url().endsWith("/api/log-groups/task-one/pricing"),
+      ),
+      group.locator(".log-group-head").press("Enter"),
+    ]);
+    await expectPage(page.locator("#pricingPanel")).toBeVisible();
+    await expectPage(group.locator(".log-group-body")).toHaveCount(1);
+    await group.locator(".log-group-caret").press(" ");
     await expectPage(group.locator(".log-group-body")).toHaveCount(0);
-    await group.locator(".log-group-head").press(" ");
+    await group.locator(".log-group-caret").press("Enter");
     await expectPage(group.locator(".log-group-body")).toHaveCount(1);
   });
 
@@ -1536,7 +1549,7 @@ describe("admin UI history page", { timeout: UI_TEST_TIMEOUT_MS }, () => {
     ]);
     await Promise.all([
       page.waitForResponse((response) => response.url().includes("/api/log-groups/task-one/logs")),
-      page.locator('[data-group-id="task-one"] .log-target').click(),
+      page.locator('[data-group-toggle="task-one"]').click(),
     ]);
     const starred = page.locator('[data-log-id="record-five"] .log-summary-star');
     await expectPage(starred).toHaveCount(1);
@@ -1557,7 +1570,7 @@ describe("admin UI history page", { timeout: UI_TEST_TIMEOUT_MS }, () => {
       page.waitForResponse((response) =>
         response.url().endsWith("/api/log-groups/task-one/pricing"),
       ),
-      group.locator("[data-group-detail]").press("Enter"),
+      group.locator(".log-group-head").press("Enter"),
     ]);
     const panel = page.locator("#pricingPanel");
     await expectPage(panel).toBeVisible();
@@ -1597,7 +1610,7 @@ describe("admin UI history page", { timeout: UI_TEST_TIMEOUT_MS }, () => {
       page.waitForResponse((response) =>
         response.url().endsWith("/api/log-groups/task-one/pricing"),
       ),
-      group.locator("[data-group-detail]").press("Enter"),
+      group.locator(".log-group-head").press("Enter"),
     ]);
     await expectPage(groupBreakdown).toBeVisible();
     await groupDetails.locator("summary").click();
@@ -1606,7 +1619,7 @@ describe("admin UI history page", { timeout: UI_TEST_TIMEOUT_MS }, () => {
       page.waitForResponse((response) =>
         response.url().endsWith("/api/log-groups/task-one/pricing"),
       ),
-      group.locator("[data-group-detail]").press("Enter"),
+      group.locator(".log-group-head").press("Enter"),
     ]);
     await expectPage(groupBreakdown).toBeHidden();
     const taskBreakdown = panel.locator(".task-breakdown").first();
@@ -1677,7 +1690,7 @@ describe("admin UI history page", { timeout: UI_TEST_TIMEOUT_MS }, () => {
 
     await Promise.all([
       page.waitForResponse((response) => response.url().includes("/api/log-groups/task-one/logs")),
-      group.locator(".log-target").click(),
+      group.locator(".log-group-caret").click(),
     ]);
     await Promise.all([
       page.waitForResponse((response) => response.url().endsWith("/api/logs/record-two")),
@@ -1705,7 +1718,7 @@ describe("admin UI history page", { timeout: UI_TEST_TIMEOUT_MS }, () => {
     await expectPage(requestPricing).toBeHidden();
   });
 
-  it("opens the task detail panel and toggles the list on a header click", async () => {
+  it("opens the task detail panel on a header click and toggles the list on the caret button", async () => {
     await loadAdminPage();
     await Promise.all([
       page.waitForResponse((response) => response.url().includes("/api/logs?")),
@@ -1713,10 +1726,11 @@ describe("admin UI history page", { timeout: UI_TEST_TIMEOUT_MS }, () => {
     ]);
     const section = page.locator('.log-group:has([data-group-id="task-one"])');
     const head = page.locator('[data-group-id="task-one"]');
+    const caret = page.locator('[data-group-toggle="task-one"]');
     await expectPage(section.locator(".log-group-body")).toHaveCount(0);
 
-    // A header click (unlike the ⓘ button) both opens the task detail panel
-    // and expands the second level.
+    // A header click only opens the task detail panel; unlike the old
+    // one-gesture behavior the second level stays collapsed.
     await Promise.all([
       page.waitForResponse((response) =>
         response.url().endsWith("/api/log-groups/task-one/pricing"),
@@ -1726,17 +1740,21 @@ describe("admin UI history page", { timeout: UI_TEST_TIMEOUT_MS }, () => {
     const panel = page.locator("#pricingPanel");
     await expectPage(panel).toBeVisible();
     await expectPage(panel).toContainText("Task details");
-    await expectPage(section.locator(".log-group-body")).toHaveCount(1);
-
-    // Clicking again reopens the detail panel and collapses the list.
-    await Promise.all([
-      page.waitForResponse((response) =>
-        response.url().endsWith("/api/log-groups/task-one/pricing"),
-      ),
-      head.click(),
-    ]);
-    await expectPage(panel).toBeVisible();
     await expectPage(section.locator(".log-group-body")).toHaveCount(0);
+    await expectPage(caret).toHaveAttribute("aria-expanded", "false");
+
+    // The caret button expands the list and fetches its records; pressing it
+    // again collapses the list while the detail panel stays open.
+    await Promise.all([
+      page.waitForResponse((response) => response.url().includes("/api/log-groups/task-one/logs")),
+      caret.click(),
+    ]);
+    await expectPage(section.locator(".log-group-body")).toHaveCount(1);
+    await expectPage(caret).toHaveAttribute("aria-expanded", "true");
+    await caret.click();
+    await expectPage(section.locator(".log-group-body")).toHaveCount(0);
+    await expectPage(caret).toHaveAttribute("aria-expanded", "false");
+    await expectPage(panel).toBeVisible();
   });
 
   it("expands search previews without a second request and replaces them on query changes", async () => {
@@ -1776,7 +1794,7 @@ describe("admin UI history page", { timeout: UI_TEST_TIMEOUT_MS }, () => {
     await page.locator("#logSearch").fill("task");
     await page.locator("#searchLogs").click();
     await expectPage(page.locator("#logListProgress")).toBeHidden();
-    await page.locator('[data-group-id="task-one"] .log-target').click();
+    await page.locator('[data-group-toggle="task-one"]').click();
     await expectPage(page.locator('[data-log-id="preview-task"]')).toBeVisible();
     expect(groupLogQueries).toEqual([]);
     await page.locator("#logSearch").fill("task-one");
@@ -1797,7 +1815,7 @@ describe("admin UI history page", { timeout: UI_TEST_TIMEOUT_MS }, () => {
     ]);
     await Promise.all([
       page.waitForResponse((response) => response.url().includes("/api/log-groups/task-one/logs")),
-      page.locator('[data-group-id="task-one"] .log-target').click(),
+      page.locator('[data-group-toggle="task-one"]').click(),
     ]);
     expect(groupLogQueries).toEqual(["task-one:"]);
 
@@ -1828,7 +1846,7 @@ describe("admin UI history page", { timeout: UI_TEST_TIMEOUT_MS }, () => {
       page.waitForResponse((response) =>
         response.url().includes("/api/log-groups/task-needle/logs"),
       ),
-      page.locator('[data-group-id="task-needle"] .log-target').click(),
+      page.locator('[data-group-toggle="task-needle"]').click(),
     ]);
     const placeholder = page.locator(".log-group-empty");
     await expectPage(placeholder).toHaveCount(1);
@@ -1846,7 +1864,7 @@ describe("admin UI history page", { timeout: UI_TEST_TIMEOUT_MS }, () => {
       page.waitForResponse((response) =>
         response.url().includes("/api/log-groups/task-one/logs?q=&limit=200&offset=0"),
       ),
-      page.locator('[data-group-id="task-one"] .log-target').click(),
+      page.locator('[data-group-toggle="task-one"]').click(),
     ]);
     await expectPage(page.locator('[data-log-id^="record-"]')).toHaveCount(200);
     await expectPage(page.locator('[data-load-more-records="task-one"]')).toContainText("200/301");
@@ -2024,7 +2042,7 @@ describe("admin UI history page", { timeout: UI_TEST_TIMEOUT_MS }, () => {
     ]);
     await Promise.all([
       page.waitForResponse((response) => response.url().includes("/api/log-groups/task-one/logs")),
-      page.locator('[data-group-id="task-one"] .log-target').click(),
+      page.locator('[data-group-toggle="task-one"]').click(),
     ]);
     await Promise.all([
       page.waitForResponse((response) => response.url().endsWith("/api/logs/record-one")),
@@ -2410,7 +2428,7 @@ async function openRecordDetail(recordId: string): Promise<void> {
   ]);
   await Promise.all([
     page.waitForResponse((response) => response.url().includes("/api/log-groups/task-one/logs")),
-    page.locator('[data-group-id="task-one"] .log-target').click(),
+    page.locator('[data-group-toggle="task-one"]').click(),
   ]);
   await Promise.all([
     page.waitForResponse((response) => response.url().endsWith(`/api/logs/${recordId}`)),
@@ -2845,7 +2863,7 @@ async function loadTaskDetailBaseline(language: "zh" | "en"): Promise<void> {
     page.waitForResponse((response) =>
       response.url().endsWith("/api/log-groups/task-one/pricing/output-tokens"),
     ),
-    page.locator('[data-group-id="task-one"] [data-group-detail]').click(),
+    page.locator('[data-group-id="task-one"]').click(),
   ]);
   await expectPage(page.locator("#pricingPanel")).toBeVisible();
   await expectPage(page.locator("#pricingPanel .token-chart svg")).toBeVisible();

@@ -124,6 +124,7 @@ const translations = {
     unpriced: "未计价",
     taskPricing: "任务明细",
     viewTaskPricing: "查看任务明细",
+    toggleTaskRecords: "展开/折叠请求列表",
     costEstimate: "费用估算",
     showCostDetails: "显示费用明细",
     hideCostDetails: "隐藏费用明细",
@@ -333,6 +334,7 @@ const translations = {
     unpriced: "Unpriced",
     taskPricing: "Task details",
     viewTaskPricing: "View task details",
+    toggleTaskRecords: "Expand or collapse the request list",
     costEstimate: "Cost estimate",
     showCostDetails: "Show cost details",
     hideCostDetails: "Hide cost details",
@@ -1437,11 +1439,10 @@ function renderLogs() {
       .map(
         (group) => `
     <section class="log-group">
-      <div class="log-group-head" data-group-id="${escapeHtml(group.id || "")}" role="button" tabindex="0" aria-expanded="${state.collapsedGroups[group.id] ? "true" : "false"}" aria-label="${escapeHtml(t("task"))}">
+      <div class="log-group-head" data-group-id="${escapeHtml(group.id || "")}" role="button" tabindex="0" aria-label="${escapeHtml(t("viewTaskPricing"))}">
         <div class="log-group-controls">
           <input class="log-group-select" type="checkbox" data-select-group="${escapeHtml(group.id || "")}" title="${escapeHtml(t("selectLogGroup"))}" ${state.selectedLogGroups[group.id] ? "checked" : ""}>
-          <button type="button" class="log-group-detail-btn" data-group-detail="${escapeHtml(group.id || "")}" title="${escapeHtml(t("viewTaskPricing"))}" aria-label="${escapeHtml(t("viewTaskPricing"))}">ⓘ</button>
-          <span class="log-group-caret" aria-hidden="true">${!state.collapsedGroups[group.id] ? "▸" : "▾"}</span>
+          <button type="button" class="log-group-caret" data-group-toggle="${escapeHtml(group.id || "")}" title="${escapeHtml(t("toggleTaskRecords"))}" aria-label="${escapeHtml(t("toggleTaskRecords"))}" aria-expanded="${state.collapsedGroups[group.id] ? "true" : "false"}">${!state.collapsedGroups[group.id] ? "▸" : "▾"}</button>
         </div>
         <div class="log-group-summary">
           ${logGroupTimeHtml(group)}
@@ -1490,6 +1491,18 @@ function renderLogs() {
     ? `<button class="load-more" data-load-more>${escapeHtml(t("loadMore"))} (${state.logGroups.length}/${state.logsTotal})</button>`
     : "";
   $("logItems").innerHTML = groupsHtml + moreHtml;
+}
+// Caret button handler: expands the second level (lazily fetching that
+// group's records when they are not loaded yet) or collapses it back to the
+// summary row. Header clicks never call this; they only open the detail panel.
+async function toggleLogGroupBody(groupId) {
+  if (state.collapsedGroups[groupId]) {
+    collapseLogGroup(groupId);
+    return;
+  }
+  state.collapsedGroups[groupId] = true;
+  renderLogs();
+  await loadLogGroup(groupId);
 }
 // When a group is collapsed while its header is pinned to the top of the log
 // list, removing the body would shift the whole list up; compensate by
@@ -3849,25 +3862,18 @@ $("logItems").addEventListener("click", (event) => {
     updateSelectAllLogsButton();
     return;
   }
-  const groupDetail = event.target.closest("[data-group-detail]");
-  if (groupDetail) {
-    event.stopPropagation();
-    showTaskPricing(groupDetail.dataset.groupDetail).catch((e) => toast(e.message));
+  const groupToggle = event.target.closest("[data-group-toggle]");
+  if (groupToggle) {
+    // The caret button is the only entry point for expanding/collapsing the
+    // second-level request list.
+    toggleLogGroupBody(groupToggle.dataset.groupToggle).catch((e) => toast(e.message));
     return;
   }
   const group = event.target.closest("[data-group-id]");
   if (group) {
-    const groupId = group.dataset.groupId;
-    // Opening the task detail and the body expansion are one gesture: the
-    // click always shows the detail panel and toggles the second level on the
-    // current state. The ⓘ button keeps the old details-only behavior (no
-    // toggle), so an open list can be inspected without collapsing it.
-    showTaskPricing(groupId).catch((e) => toast(e.message));
-    if (state.collapsedGroups[groupId]) collapseLogGroup(groupId);
-    else {
-      state.collapsedGroups[groupId] = true;
-      renderLogs();
-    }
+    // A header click (or Enter/Space on it) only opens the task detail panel;
+    // it never touches the body expansion.
+    showTaskPricing(group.dataset.groupId).catch((e) => toast(e.message));
     return;
   }
   const item = event.target.closest("[data-log-id]");
@@ -3886,13 +3892,10 @@ $("logItems").addEventListener("keydown", (event) => {
   const group = event.target.closest(".log-group-head[data-group-id]");
   if (!group) return;
   event.preventDefault();
-  const groupId = group.dataset.groupId;
-  showTaskPricing(groupId).catch((e) => toast(e.message));
-  if (state.collapsedGroups[groupId]) collapseLogGroup(groupId);
-  else {
-    state.collapsedGroups[groupId] = true;
-    renderLogs();
-  }
+  // The header only opens the task detail panel; the caret button toggles the
+  // list and, being a real <button>, activates natively on Enter/Space and
+  // reaches the delegated click handler above.
+  showTaskPricing(group.dataset.groupId).catch((e) => toast(e.message));
 });
 $("pricingPanel").addEventListener("click", (event) => {
   const summary = event.target.closest("summary");
@@ -3916,17 +3919,6 @@ $("pricingPanel").addEventListener("click", (event) => {
   if (event.target.closest("[data-retry-pricing]") && state.activeTaskPricing) {
     showTaskPricing(state.activeTaskPricing).catch((e) => toast(e.message));
   }
-});
-$("logItems").addEventListener("click", (event) => {
-  const group = event.target.closest("[data-group-id]");
-  if (
-    !group ||
-    event.target.matches("[data-select-group]") ||
-    event.target.closest("[data-group-detail]")
-  )
-    return;
-  const groupId = group.dataset.groupId;
-  if (state.collapsedGroups[groupId]) loadLogGroup(groupId).catch((e) => toast(e.message));
 });
 document.querySelectorAll("[data-wrap]").forEach((button) =>
   button.addEventListener("click", () => {

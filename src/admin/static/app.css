@@ -1109,35 +1109,34 @@ label span {
   justify-items: center;
   align-items: center;
 }
-.log-group-detail-btn {
+.log-group-caret {
+  /* A real <button>: reset the UA defaults, then keep the ⓘ button's old
+     visual family (light rounded border) so the toggle reads as a control,
+     not an indicator. Stays on the third header row (the target line) where
+     the old caret sat; the checkbox keeps auto-placing on row 1. */
+  grid-row: 3;
   width: 22px;
   height: 22px;
   display: flex;
   align-items: center;
   justify-content: center;
-  border: 1px solid #9db6cb;
+  border: 1px solid #b3c6d8;
   border-radius: 5px;
-  background: #eaf2f8;
-  color: #315a82;
+  background: #eef4fa;
+  color: #5b7391;
   font: inherit;
-  font-size: 13px;
-  font-weight: 700;
+  font-size: 14px;
   line-height: 1;
   cursor: pointer;
   padding: 0;
 }
-.log-group-detail-btn:hover {
+.log-group-caret:hover {
   background: #d9e7f1;
+  color: #315a82;
 }
-.log-group-detail-btn:focus-visible {
+.log-group-caret:focus-visible {
   outline: 2px solid #315a82;
   outline-offset: 1px;
-}
-.log-group-caret {
-  display: block;
-  font-size: 20px;
-  line-height: 1;
-  color: var(--muted);
 }
 .log-group-summary {
   grid-column: 2;
