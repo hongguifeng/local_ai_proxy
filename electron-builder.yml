@@ -4,6 +4,7 @@ directories:
   output: release
 files:
   - dist-node/**/*
+  - "!dist-node/test-node/**/*"
   - package.json
 asar: true
 asarUnpack:
