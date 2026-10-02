@@ -127,4 +127,6 @@ Enter fields such as `temperature, top_p, top_k` under **Request fields to remov
 
 Proxy settings are saved in `logs/proxies.json`; console settings are saved in `llm-proxy.json`. You usually do not need to edit these files manually.
 
+Saving proxy settings does not interrupt requests that are already being processed. While a proxy stays enabled and its listen address does not change, saving only swaps the configuration on the same port: requests that were already sent keep using the upstream, model mapping, and log store they started with, and only later requests use the new configuration. Requests in flight are interrupted only when the listen address changes, the proxy is disabled, or the proxy is deleted.
+
 Keep the console and proxy listeners bound to `127.0.0.1` where possible. Logs may contain prompts, documents, API keys, and tool output; do not commit configuration files or log directories. Stop the proxy and back up the entire log directory before migration or upgrades, including `traffic.db-wal` and `traffic.db-shm`. See [docs/migration-rollback.md](docs/migration-rollback.md) for details.

@@ -11,7 +11,7 @@ import { ProxyRuntimeRegistry } from "./proxy-runtime-registry.js";
 import type { StartEnabledResult } from "./proxy-runtime-registry.js";
 
 export type ProxyManagerState = "degraded" | "ready";
-export type ConfigurationApplyStage = "save" | "start" | "stop";
+export type ConfigurationApplyStage = "reload" | "save" | "start" | "stop";
 
 export interface ProxyConfigSaver {
   save(config: ProxyConfigFile): Promise<void>;
@@ -147,14 +147,21 @@ export class ProxyManager {
   async #applyValidated(next: ProxyConfigFile): Promise<readonly PublicProxyPair[]> {
     const current = this.#config;
     const diff = diffProxyPairs(current.pairs, next.pairs);
-    const oldAffected = [...diff.removed, ...diff.updated.map(({ before }) => before)];
-    const newAffected = [...diff.added, ...diff.updated.map(({ after }) => after)];
+    // Updated pairs whose listener has to move: disabled, or bound to another host/port.
+    const rebound = diff.updated.filter(({ before, after }) =>
+      requiresListenerRestart(before, after),
+    );
+    // Updated pairs that keep their listener and only swap the request pipeline.
+    const reloaded = diff.updated.filter(
+      ({ before, after }) => !requiresListenerRestart(before, after),
+    );
     const stoppedOld: ProxyPair[] = [];
     const startedNew: ProxyPair[] = [];
+    const reloadedOld: ProxyPair[] = [];
     let stage: ConfigurationApplyStage = "stop";
     let failedPairId: string | undefined;
     try {
-      for (const pair of oldAffected) {
+      for (const pair of [...diff.removed, ...rebound.map(({ before }) => before)]) {
         if (this.#registry.status(pair.id).running) {
           failedPairId = pair.id;
           await this.#registry.stopPair(pair.id);
@@ -162,12 +169,18 @@ export class ProxyManager {
         }
       }
       stage = "start";
-      for (const pair of newAffected) {
+      for (const pair of [...diff.added, ...rebound.map(({ after }) => after)]) {
         if (pair.enabled) {
           failedPairId = pair.id;
           await this.#registry.startPair(this.#runtimePair(pair));
           startedNew.push(pair);
         }
+      }
+      stage = "reload";
+      for (const { before, after } of reloaded) {
+        failedPairId = after.id;
+        await this.#registry.reloadPair(this.#runtimePair(after));
+        reloadedOld.push(before);
       }
       stage = "save";
       failedPairId = undefined;
@@ -176,7 +189,7 @@ export class ProxyManager {
       this.#state = "ready";
       return this.listPairs();
     } catch (error) {
-      const rollbackFailures = await this.#rollback(startedNew, stoppedOld);
+      const rollbackFailures = await this.#rollback(startedNew, stoppedOld, reloadedOld);
       this.#state = rollbackFailures.length === 0 ? "ready" : "degraded";
       throw new ProxyConfigurationApplyError(stage, failedPairId, error, rollbackFailures);
     }
@@ -185,11 +198,19 @@ export class ProxyManager {
   async #rollback(
     startedNew: readonly ProxyPair[],
     stoppedOld: readonly ProxyPair[],
+    reloadedOld: readonly ProxyPair[],
   ): Promise<string[]> {
     const failures: string[] = [];
     for (const pair of [...startedNew].reverse()) {
       try {
         await this.#registry.stopPair(pair.id);
+      } catch {
+        failures.push(pair.id);
+      }
+    }
+    for (const pair of reloadedOld) {
+      try {
+        await this.#registry.reloadPair(this.#runtimePair(pair));
       } catch {
         failures.push(pair.id);
       }
@@ -311,4 +332,23 @@ function hostsConflict(left: string, right: string): boolean {
 
 function isWildcardHost(host: string): boolean {
   return host === "0.0.0.0" || host === "::";
+}
+
+/**
+ * A pair keeps its listener when it stays enabled and its listen address does not move. Such
+ * pairs are reloaded in place, which leaves requests that are already in flight untouched.
+ */
+export function requiresListenerRestart(before: ProxyPair, after: ProxyPair): boolean {
+  return !after.enabled || !listenAddressesMatch(before, after);
+}
+
+function listenAddressesMatch(before: ProxyPair, after: ProxyPair): boolean {
+  return (
+    normalizeListenHost(before.listen_host) === normalizeListenHost(after.listen_host) &&
+    before.listen_port === after.listen_port
+  );
+}
+
+function normalizeListenHost(host: string): string {
+  return host.trim().toLowerCase();
 }

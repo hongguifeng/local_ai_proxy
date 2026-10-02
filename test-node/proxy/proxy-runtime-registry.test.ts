@@ -1,4 +1,4 @@
-import http from "node:http";
+import http, { type ServerResponse } from "node:http";
 import { access, mkdtemp, rm } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
@@ -8,6 +8,8 @@ import { describe, expect, it } from "vitest";
 
 import type { ProxyPair } from "../../src/config/index.js";
 import { ProxyRuntimeRegistry } from "../../src/proxy/index.js";
+import { TrafficRepository } from "../../src/persistence/index.js";
+import { isRecord } from "../../src/shared/index.js";
 
 describe("ProxyRuntimeRegistry", () => {
   it("starts a pair and serves traffic on its actual port", async () => {
@@ -79,6 +81,195 @@ describe("ProxyRuntimeRegistry", () => {
     } finally {
       await registry.stopPair(firstPair.id);
       await Promise.all([close(firstUpstream), close(secondUpstream)]);
+    }
+  });
+
+  it("reloads a pair in place and keeps in-flight requests on the old configuration", async () => {
+    let markStarted: (() => void) | undefined;
+    const started = new Promise<void>((resolve) => {
+      markStarted = resolve;
+    });
+    let release: (() => void) | undefined;
+    const gate = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    const firstUpstream = http.createServer((_request, response) => {
+      markStarted?.();
+      void gate.then(() => {
+        response.writeHead(200, { "content-type": "text/plain" });
+        response.end("old upstream");
+      });
+    });
+    const secondUpstream = http.createServer((_request, response) => response.end("new upstream"));
+    const [firstPort, secondPort] = await Promise.all([
+      listen(firstUpstream),
+      listen(secondUpstream),
+    ]);
+    const logRoot = await mkdtemp(path.join(os.tmpdir(), "llm-proxy-runtime-reload-"));
+    const registry = new ProxyRuntimeRegistry();
+    const pair = withLogRoot(pairFixture(firstPort, "reload-pair"), logRoot);
+    const runtime = await registry.startPair(pair);
+    const listenPort = runtime.actualListenPort ?? 0;
+    const inFlight = requestText(listenPort, "/reload-inflight");
+
+    try {
+      await started;
+      expect(registry.diagnostics()).toEqual({
+        activeRequests: 1,
+        resourcePairs: 1,
+        runningPairs: 1,
+      });
+
+      const reloaded = await registry.reloadPair(
+        withLogRoot(pairFixture(secondPort, "reload-pair"), logRoot),
+      );
+      expect(reloaded).toEqual({
+        state: "running",
+        running: true,
+        actualListenPort: listenPort,
+        error: undefined,
+      });
+      await expect(requestText(listenPort, "/reload-new")).resolves.toBe("new upstream");
+      // The request that started before the reload is still running on the superseded pipeline.
+      await expect
+        .poll(() => registry.diagnostics(), { timeout: 5_000 })
+        .toEqual({ activeRequests: 1, resourcePairs: 1, runningPairs: 1 });
+
+      release?.();
+      await expect(inFlight).resolves.toBe("old upstream");
+      await expect.poll(() => registry.diagnostics().activeRequests, { timeout: 5_000 }).toBe(0);
+
+      const repository = new TrafficRepository(logRoot);
+      try {
+        const events = new Set(
+          [...repository.recentTasks(10)].flatMap((task) => {
+            const taskId = task["id"];
+            return typeof taskId === "string"
+              ? repository.listTaskRecords(taskId).items.map((record) => String(record["event"]))
+              : [];
+          }),
+        );
+        expect(events).toContain("request_finished");
+      } finally {
+        repository.close();
+      }
+    } finally {
+      await registry.stopAll();
+      await Promise.all([close(firstUpstream), close(secondUpstream)]);
+      await rm(logRoot, { force: true, recursive: true });
+    }
+  });
+
+  it("closes the superseded log store once a reload drains", async () => {
+    const upstream = http.createServer((_request, response) => response.end("drained"));
+    const upstreamPort = await listen(upstream);
+    const firstRoot = await mkdtemp(path.join(os.tmpdir(), "llm-proxy-drain-first-"));
+    const secondRoot = await mkdtemp(path.join(os.tmpdir(), "llm-proxy-drain-second-"));
+    const registry = new ProxyRuntimeRegistry();
+    const pair = withLogRoot(pairFixture(upstreamPort, "drain-pair"), firstRoot);
+    const runtime = await registry.startPair(pair);
+    const listenPort = runtime.actualListenPort ?? 0;
+
+    try {
+      await expect(requestText(listenPort, "/drain-a")).resolves.toBe("drained");
+      await registry.reloadPair(withLogRoot(pairFixture(upstreamPort, "drain-pair"), secondRoot));
+      await expect(requestText(listenPort, "/drain-b")).resolves.toBe("drained");
+      expect(registry.diagnostics()).toEqual({
+        activeRequests: 0,
+        resourcePairs: 1,
+        runningPairs: 1,
+      });
+      await expect
+        .poll(
+          async () => {
+            try {
+              await rm(firstRoot, { force: true, recursive: true });
+              return true;
+            } catch {
+              return false;
+            }
+          },
+          { timeout: 5_000 },
+        )
+        .toBe(true);
+      await expect(access(path.join(secondRoot, "traffic.db"))).resolves.toBeUndefined();
+    } finally {
+      await registry.stopAll();
+      await close(upstream);
+      await rm(firstRoot, { force: true, recursive: true });
+      await rm(secondRoot, { force: true, recursive: true });
+    }
+  });
+
+  it("keeps a pending priced request untouched when a reload reuses its log store", async () => {
+    let markStarted: (() => void) | undefined;
+    const started = new Promise<void>((resolve) => {
+      markStarted = resolve;
+    });
+    let release: (() => void) | undefined;
+    const gate = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    const firstUpstream = http.createServer((_request, response) => {
+      markStarted?.();
+      void gate.then(() => sendChatCompletion(response));
+    });
+    const secondUpstream = http.createServer((_request, response) => {
+      sendChatCompletion(response);
+    });
+    const [firstPort, secondPort] = await Promise.all([
+      listen(firstUpstream),
+      listen(secondUpstream),
+    ]);
+    const logRoot = await mkdtemp(path.join(os.tmpdir(), "llm-proxy-reload-pricing-"));
+    const registry = new ProxyRuntimeRegistry();
+    const pair = withPricing(withLogRoot(pairFixture(firstPort, "pricing-pair"), logRoot));
+    const runtime = await registry.startPair(pair);
+    const listenPort = runtime.actualListenPort ?? 0;
+    const inFlight = postJson(listenPort, "/chat/completions", {
+      model: "gpt-reuse",
+      messages: [{ role: "user", content: "hello" }],
+    });
+
+    try {
+      await started;
+      const repository = new TrafficRepository(logRoot);
+      try {
+        await expect.poll(() => pricingStatus(repository), { timeout: 5_000 }).toBe("pending");
+        await registry.reloadPair(
+          withPricing(withLogRoot(pairFixture(secondPort, "pricing-pair"), logRoot)),
+        );
+        // The store was reused, so the in-flight row was not marked as interrupted.
+        expect(pricingStatus(repository)).toBe("pending");
+        release?.();
+        await expect(inFlight).resolves.toContain("gpt-reuse");
+        await expect.poll(() => pricingStatus(repository), { timeout: 5_000 }).toBe("priced");
+      } finally {
+        repository.close();
+      }
+    } finally {
+      await registry.stopAll();
+      await Promise.all([close(firstUpstream), close(secondUpstream)]);
+      await rm(logRoot, { force: true, recursive: true });
+    }
+  });
+
+  it("starts a stopped pair when it is reloaded", async () => {
+    const upstream = http.createServer((_request, response) => response.end("cold reload"));
+    const upstreamPort = await listen(upstream);
+    const registry = new ProxyRuntimeRegistry();
+    const pair = pairFixture(upstreamPort, "cold-reload-pair");
+
+    try {
+      expect(registry.status(pair.id).state).toBe("stopped");
+      const reloaded = await registry.reloadPair(pair);
+      expect(reloaded).toMatchObject({ state: "running", running: true });
+      await expect(requestText(reloaded.actualListenPort ?? 0, "/cold")).resolves.toBe(
+        "cold reload",
+      );
+    } finally {
+      await registry.stopAll();
+      await close(upstream);
     }
   });
 
@@ -264,6 +455,89 @@ function pairFixture(upstreamPort: number, pairId = "runtime-pair"): ProxyPair {
       },
     ],
   };
+}
+
+function withLogRoot(pair: ProxyPair, logRoot: string): ProxyPair {
+  return {
+    ...pair,
+    targets: pair.targets.map((target) => ({ ...target, log_root: logRoot })),
+  };
+}
+
+function withPricing(pair: ProxyPair): ProxyPair {
+  return {
+    ...pair,
+    targets: pair.targets.map((target) => ({
+      ...target,
+      model_prices: [
+        {
+          model_pattern: "gpt-reuse",
+          input_per_million: "1",
+          output_per_million: "1",
+          cache_read_per_million: "1",
+          cache_write_per_million: "1",
+        },
+      ],
+    })),
+  };
+}
+
+function sendChatCompletion(response: ServerResponse): void {
+  response.writeHead(200, { "content-type": "application/json" });
+  response.end(
+    JSON.stringify({
+      id: "chatcmpl-reload",
+      object: "chat.completion",
+      model: "gpt-reuse",
+      choices: [
+        {
+          index: 0,
+          message: { role: "assistant", content: "reloaded" },
+          finish_reason: "stop",
+        },
+      ],
+      usage: { prompt_tokens: 10, completion_tokens: 5, total_tokens: 15 },
+    }),
+  );
+}
+
+function postJson(port: number, requestPath: string, body: unknown): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const payload = Buffer.from(JSON.stringify(body), "utf8");
+    const request = http.request(
+      {
+        host: "127.0.0.1",
+        port,
+        path: requestPath,
+        method: "POST",
+        headers: {
+          "content-type": "application/json",
+          "content-length": String(payload.byteLength),
+        },
+      },
+      (response) => {
+        const chunks: Buffer[] = [];
+        response.on("data", (chunk: Buffer) => chunks.push(chunk));
+        response.once("end", () => resolve(Buffer.concat(chunks).toString("utf8")));
+      },
+    );
+    request.once("error", reject);
+    request.end(payload);
+  });
+}
+
+/** Pricing status of the newest record of the most recently seen task. */
+function pricingStatus(repository: TrafficRepository): string {
+  const taskId = repository.recentTasks(1)[0]?.["id"];
+  if (typeof taskId !== "string") {
+    return "no-task";
+  }
+  const pricing = repository.listTaskRecords(taskId).items[0]?.["pricing"];
+  if (!isRecord(pricing)) {
+    return "no-pricing";
+  }
+  const status = pricing["pricing_status"];
+  return typeof status === "string" ? status : "no-status";
 }
 
 function requestText(port: number, requestPath: string): Promise<string> {

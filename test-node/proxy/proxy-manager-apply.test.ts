@@ -39,6 +39,88 @@ describe("ProxyManager configuration apply", () => {
     expect(manager.listPairs()).toMatchObject([{ name: "Current pair" }]);
   });
 
+  it("applies a target change without moving the listener or interrupting requests", async () => {
+    let markStarted: (() => void) | undefined;
+    const started = new Promise<void>((resolve) => {
+      markStarted = resolve;
+    });
+    let release: (() => void) | undefined;
+    const gate = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    const firstUpstream = http.createServer((_request, response) => {
+      markStarted?.();
+      void gate.then(() => response.end("old"));
+    });
+    const secondUpstream = http.createServer((_request, response) => response.end("new"));
+    const [firstPort, secondPort] = await Promise.all([
+      listen(firstUpstream),
+      listen(secondUpstream),
+    ]);
+    const oldPair = pairFixture(firstPort, "Old pair");
+    const newPair = pairFixture(secondPort, "New pair");
+    const registry = new ProxyRuntimeRegistry();
+    await registry.startPair(oldPair);
+    const manager = new ProxyManager(
+      { pairs: [oldPair] },
+      { save: () => Promise.resolve() },
+      { registry },
+    );
+    const listenPort = registry.status(oldPair.id).actualListenPort ?? 0;
+    const inFlight = requestText(listenPort, "/managed");
+
+    try {
+      await started;
+      const pairs = await manager.applyConfiguration({ pairs: [newPair] });
+      expect(pairs[0]).toMatchObject({
+        name: "New pair",
+        running: true,
+        actual_listen_port: listenPort,
+      });
+      await expect(requestText(listenPort, "/managed")).resolves.toBe("new");
+
+      release?.();
+      await expect(inFlight).resolves.toBe("old");
+      expect(manager.state).toBe("ready");
+    } finally {
+      await manager.stopAll();
+      await Promise.all([close(firstUpstream), close(secondUpstream)]);
+    }
+  });
+
+  it("moves the listener when the listen address changes", async () => {
+    const upstream = http.createServer((_request, response) => response.end("rebound"));
+    const upstreamPort = await listen(upstream);
+    const reserved = http.createServer();
+    const fixedPort = await listen(reserved);
+    await close(reserved);
+    const registry = new ProxyRuntimeRegistry();
+    const before: ProxyPair = pairFixture(upstreamPort, "Before");
+    const firstRuntime = await registry.startPair(before);
+    const manager = new ProxyManager(
+      { pairs: [before] },
+      { save: () => Promise.resolve() },
+      { registry },
+    );
+    const oldPort = firstRuntime.actualListenPort ?? 0;
+    const after: ProxyPair = { ...before, name: "After", listen_port: fixedPort };
+
+    try {
+      await expect(requestText(oldPort, "/managed")).resolves.toBe("rebound");
+      const pairs = await manager.applyConfiguration({ pairs: [after] });
+      expect(pairs[0]).toMatchObject({
+        name: "After",
+        running: true,
+        actual_listen_port: fixedPort,
+      });
+      await expect(requestText(fixedPort, "/managed")).resolves.toBe("rebound");
+      await expect(requestText(oldPort, "/managed")).rejects.toBeDefined();
+    } finally {
+      await manager.stopAll();
+      await close(upstream);
+    }
+  });
+
   it("restores old config and runtime when saving the replacement fails", async () => {
     const firstUpstream = http.createServer((_request, response) => response.end("old"));
     const secondUpstream = http.createServer((_request, response) => response.end("new"));
@@ -104,9 +186,9 @@ function pairFixture(upstreamPort: number, name: string): ProxyPair {
   };
 }
 
-function requestText(port: number): Promise<string> {
+function requestText(port: number, requestPath = "/managed"): Promise<string> {
   return new Promise((resolve, reject) => {
-    const request = http.get({ host: "127.0.0.1", port, path: "/managed" }, (response) => {
+    const request = http.get({ host: "127.0.0.1", port, path: requestPath }, (response) => {
       const chunks: Buffer[] = [];
       response.on("data", (chunk: Buffer) => chunks.push(chunk));
       response.once("end", () => resolve(Buffer.concat(chunks).toString("utf8")));

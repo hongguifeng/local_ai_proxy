@@ -7,6 +7,7 @@ export interface ActiveRequest {
 
 export class ActiveRequestRegistry {
   readonly #requests = new Map<string, ActiveRequest>();
+  readonly #idleWaiters: (() => void)[] = [];
 
   begin(context: ProxyRequestContext): AbortSignal {
     if (this.#requests.has(context.id)) {
@@ -19,6 +20,7 @@ export class ActiveRequestRegistry {
 
   end(requestId: string): void {
     this.#requests.delete(requestId);
+    this.#flushIdle();
   }
 
   get(requestId: string): ActiveRequest | undefined {
@@ -33,9 +35,29 @@ export class ActiveRequestRegistry {
     return [...this.#requests.keys()];
   }
 
+  /** Resolves once every tracked request has released its slot. */
+  idle(): Promise<void> {
+    if (this.#requests.size === 0) {
+      return Promise.resolve();
+    }
+    return new Promise<void>((resolve) => {
+      this.#idleWaiters.push(resolve);
+    });
+  }
+
   abortAll(reason: unknown = new Error("Proxy shutdown")): void {
     for (const { controller } of this.#requests.values()) {
       controller.abort(reason);
+    }
+  }
+
+  #flushIdle(): void {
+    if (this.#requests.size !== 0) {
+      return;
+    }
+    const waiters = this.#idleWaiters.splice(0, this.#idleWaiters.length);
+    for (const resolve of waiters) {
+      resolve();
     }
   }
 }

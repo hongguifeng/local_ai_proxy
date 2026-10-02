@@ -667,7 +667,8 @@ tests/
 - Registry 管理实际 listener 资源。
 - `applyConfiguration()` 先验证所有配置，再计算 add/update/remove diff。
 - 对同地址冲突提前检查。
-- 失败时返回逐代理结果；是否回滚由计划阶段 ADR 决定。
+- 监听地址不变且仍启用的 pair 通过 `reloadPair()` 原地换掉 pipeline；listener、端口和已在途的请求保持不变，只有被替换掉的一代资源进入 drain（见 ADR-011）。
+- 失败时按 ADR-004 整体回滚，返回带阶段的 `ProxyConfigurationApplyError`。
 
 #### ProxyRequestPipeline
 
