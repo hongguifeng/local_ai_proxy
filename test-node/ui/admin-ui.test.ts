@@ -1336,6 +1336,9 @@ describe("admin UI proxy page", { timeout: UI_TEST_TIMEOUT_MS }, () => {
 
     const dialog = page.locator("#metricsDialog");
     await expectPage(dialog.locator("#metricsDashboard")).toBeVisible();
+    // Opening fires an immediate request; wait until it settles, otherwise a
+    // timer tick that lands while it is still in flight is skipped by design.
+    await expectPage(dialog.locator("#metricsRefresh")).toBeEnabled();
     expect(targetMetricsCalls).toHaveLength(1);
 
     const interval = dialog.locator("#metricsRefreshInterval");
@@ -1358,6 +1361,7 @@ describe("admin UI proxy page", { timeout: UI_TEST_TIMEOUT_MS }, () => {
       return element.scrollTop;
     });
     expect(scrolled).toBeGreaterThan(0);
+    await expectPage(dialog.locator("#metricsRefresh")).toBeEnabled();
     await page.clock.runFor(5000);
     await expectPage.poll(() => targetMetricsCalls.length).toBe(3);
     await expectPage(dashboard).toHaveJSProperty("scrollTop", scrolled);
@@ -1371,6 +1375,7 @@ describe("admin UI proxy page", { timeout: UI_TEST_TIMEOUT_MS }, () => {
     await target.locator("[data-metrics-target]").click();
     await expectPage(interval).toHaveValue("5000");
     await expectPage(dialog.locator("#metricsRefreshCountdown")).toHaveText("5 s");
+    await expectPage(dialog.locator("#metricsRefresh")).toBeEnabled();
     await page.clock.runFor(5000);
     await expectPage.poll(() => targetMetricsCalls.length).toBe(5);
     await dialog.locator("#metricsClose").click();
