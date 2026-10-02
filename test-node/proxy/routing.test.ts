@@ -11,9 +11,9 @@ import {
 describe("modelPatternMatches", () => {
   it.each([
     ["gpt-5.5", "gpt-5.5", true],
-    ["gpt-5.5", "hyper-gpt-5.5", false],
-    ["*gpt-5.5*", "hyper-gpt-5.5", true],
-    ["*gpt-5.5*", "hyper-gpt-5.5-test", true],
+    ["gpt-5.5", "or-gpt-5.5", false],
+    ["*gpt-5.5*", "or-gpt-5.5", true],
+    ["*gpt-5.5*", "or-gpt-5.5-test", true],
     ["gpt-*-mini", "gpt-5.5-mini", true],
     ["gpt-*-mini", "prefix-gpt-5.5-mini", false],
     ["*", "any-model", true],
@@ -123,7 +123,7 @@ describe("selectTargetByModel", () => {
     const wildcard = target("wildcard", true, [{ listen: "*gpt-5.5*", upstream: "gpt-5.5" }]);
     const fallback = target("fallback", true, []);
 
-    for (const model of ["hyper-gpt-5.5", "hyper-gpt-5.5-test"]) {
+    for (const model of ["or-gpt-5.5", "or-gpt-5.5-test"]) {
       const selection = selectTargetByModel(
         [wildcard, fallback],
         "fallback",

@@ -3266,14 +3266,14 @@ function visualPairs(): PublicProxyPair[] {
       listen_host: "127.0.0.1",
       listen_port: 12346,
       access_log: false,
-      default_target_id: "visual-hyperapi",
+      default_target_id: "visual-openrouter",
       targets: [
         target(
-          "visual-hyperapi",
-          "hyperapi",
-          "https://hyperapi.cc/v1",
+          "visual-openrouter",
+          "openrouter",
+          "https://openrouter.ai/api/v1",
           "sk-...",
-          "hyper-gpt-5.5 => gpt-5.5",
+          "or-gpt-5.5 => gpt-5.5",
           true,
         ),
         target(
@@ -3287,7 +3287,7 @@ function visualPairs(): PublicProxyPair[] {
         target(
           "visual-target",
           "Target",
-          "https://api2.aigcbest.top/v1",
+          "https://api.example.com/v1",
           "sk-abcdefghijklmnopqrstuvwxyz-0123456789-abcdef",
           "gpt-4o-mini",
           true,
@@ -3720,7 +3720,7 @@ describe("statistics page visual smoke", () => {
         json: {
           totals: {},
           byTarget: [
-            { id: "hyperapi", value: "26189600000", cost: "26.189600000" },
+            { id: "openrouter", value: "26189600000", cost: "26.189600000" },
             { id: "vllm", value: "7450700000", cost: "7.450700000" },
             { id: "deepseek", value: "11400000", cost: "0.011400000" },
           ],
