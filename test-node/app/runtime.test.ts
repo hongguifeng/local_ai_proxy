@@ -142,6 +142,44 @@ describe("createNodeApplication", () => {
       const importBadBody = (await importBad.json()) as { error?: { code?: string } };
       expect(importBadBody.error?.code).toBe("FST_ERR_VALIDATION");
 
+      // Guard against the assembled app silently dropping the target metrics
+      // route (404 "Route not found."): it is registered only when the
+      // metrics service is wired in runtime.ts.
+      const metricsBad = await fetch(`http://127.0.0.1:${adminPort}/api/target-metrics`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({}),
+      });
+      expect(metricsBad.status).toBe(400);
+      const metricsBadBody = (await metricsBad.json()) as { error?: { code?: string } };
+      expect(metricsBadBody.error?.code).toBe("FST_ERR_VALIDATION");
+
+      const metricsInvalidUrl = await fetch(`http://127.0.0.1:${adminPort}/api/target-metrics`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ targetUrl: "http://" }),
+      });
+      expect(metricsInvalidUrl.status).toBe(400);
+      const metricsInvalidBody = (await metricsInvalidUrl.json()) as {
+        error?: { code?: string };
+      };
+      expect(metricsInvalidBody.error?.code).toBe("invalid_target_url");
+
+      const metricsUnreachable = await fetch(`http://127.0.0.1:${adminPort}/api/target-metrics`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ targetUrl: "http://127.0.0.1:9" }),
+      });
+      expect(metricsUnreachable.status).toBe(200);
+      const metricsBody = (await metricsUnreachable.json()) as {
+        ok: boolean;
+        error?: string;
+        durationMs: number;
+      };
+      expect(metricsBody.ok).toBe(false);
+      expect(metricsBody.error).toBeTruthy();
+      expect(metricsBody.durationMs).toBeGreaterThanOrEqual(0);
+
       const cleanupPayloads = [
         { group_ids: ["missing-group"] },
         { keep_latest: 1 },

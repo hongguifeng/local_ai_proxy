@@ -283,6 +283,72 @@
         </div>
       </form>
     </dialog>
+    <dialog id="metricsDialog" class="metrics-dialog">
+      <section>
+        <div class="metrics-dialog-head">
+          <strong data-i18n="metricsDialogTitle">上游指标</strong>
+          <div>
+            <button id="metricsRefresh" type="button" data-i18n="metricsRefresh">刷新</button>
+            <button id="metricsClose" type="button" data-i18n="close">关闭</button>
+          </div>
+        </div>
+        <div class="metrics-filter-row">
+          <span id="metricsDialogUrl" class="metrics-url"></span>
+          <div class="metrics-auto-refresh">
+            <label for="metricsRefreshInterval" data-i18n="metricsAutoRefresh">自动刷新</label>
+            <select id="metricsRefreshInterval">
+              <option value="0" data-i18n="metricsRefreshOff">关闭</option>
+              <option value="5000" data-i18n="metricsRefreshEvery5s">每 5 秒</option>
+              <option value="10000" data-i18n="metricsRefreshEvery10s">每 10 秒</option>
+              <option value="30000" data-i18n="metricsRefreshEvery30s">每 30 秒</option>
+              <option value="60000" data-i18n="metricsRefreshEvery60s">每 60 秒</option>
+            </select>
+            <span
+              id="metricsRefreshCountdown"
+              class="metrics-refresh-countdown"
+              aria-live="polite"
+              hidden
+            ></span>
+          </div>
+          <div class="metrics-view-switch">
+            <button
+              id="metricsViewDashboard"
+              type="button"
+              class="primary"
+              data-i18n-title="metricsViewSwitch"
+              data-i18n="metricsViewDashboard"
+            >
+              看板
+            </button>
+            <button
+              id="metricsViewList"
+              type="button"
+              data-i18n-title="metricsViewSwitch"
+              data-i18n="metricsViewList"
+            >
+              全部指标
+            </button>
+          </div>
+        </div>
+        <div id="metricsResult" class="target-check-result" hidden></div>
+        <div id="metricsDashboard" class="metrics-body"></div>
+        <div id="metricsList" class="metrics-body" hidden>
+          <div class="metrics-list-tools">
+            <input
+              id="metricsFilter"
+              placeholder="vllm"
+              autocomplete="off"
+              data-i18n-placeholder="metricsFilterPlaceholder"
+            />
+          </div>
+          <div id="metricsListBody"></div>
+          <details class="metrics-raw">
+            <summary data-i18n="metricsRaw">原始文本</summary>
+            <pre id="metricsRawPre"></pre>
+          </details>
+        </div>
+      </section>
+    </dialog>
     <dialog id="summaryModelDialog" class="target-check-dialog">
       <form id="summaryModelForm" class="target-check-form">
         <h2 data-i18n="summaryModelSettings">总结模型配置</h2>

@@ -31,6 +31,7 @@ export interface AdminServerOptions {
   readonly pairService?: PairAdminService;
   readonly staticAssets?: AdminStaticAssets | (() => Promise<AdminStaticAssets>);
   readonly targetCheckService?: TargetCheckAdminService;
+  readonly targetMetricsService?: TargetMetricsAdminService;
   readonly summaryModelService?: SummaryModelAdminService;
   readonly modelCatalogService?: ModelCatalogAdminService;
   readonly usageStatisticsService?: UsageStatisticsService;
@@ -91,6 +92,24 @@ export interface TargetCheckResponse {
 
 export interface TargetCheckAdminService {
   checkTarget(request: TargetCheckRequest): Promise<TargetCheckResponse>;
+}
+
+export interface TargetMetricsRequest {
+  readonly targetUrl: string;
+  readonly apiKey?: string;
+}
+
+export interface TargetMetricsResponse {
+  readonly ok: boolean;
+  readonly status?: number;
+  readonly durationMs: number;
+  readonly text?: string;
+  readonly truncated?: boolean;
+  readonly error?: string;
+}
+
+export interface TargetMetricsAdminService {
+  fetchTargetMetrics(request: TargetMetricsRequest): Promise<TargetMetricsResponse>;
 }
 
 export interface AdminRequestLogger {
@@ -247,6 +266,30 @@ export const TARGET_CHECK_RESPONSE_SCHEMA = {
     durationMs: { type: "number", minimum: 0 },
     error: { type: "string", maxLength: 8_192 },
     detail: { type: "string", maxLength: 8_192 },
+  },
+} as const;
+
+export const TARGET_METRICS_REQUEST_SCHEMA = {
+  type: "object",
+  additionalProperties: false,
+  required: ["targetUrl"],
+  properties: {
+    targetUrl: { type: "string", minLength: 1, maxLength: 8_192, pattern: "^https?://" },
+    apiKey: { type: "string", maxLength: 65_536 },
+  },
+} as const;
+
+export const TARGET_METRICS_RESPONSE_SCHEMA = {
+  type: "object",
+  additionalProperties: false,
+  required: ["ok", "durationMs"],
+  properties: {
+    ok: { type: "boolean" },
+    status: { type: "integer", minimum: 100, maximum: 599 },
+    durationMs: { type: "number", minimum: 0 },
+    text: { type: "string", maxLength: 1_048_576 },
+    truncated: { type: "boolean" },
+    error: { type: "string", maxLength: 8_192 },
   },
 } as const;
 
@@ -582,6 +625,33 @@ export function createAdminServer(options: AdminServerOptions): FastifyInstance 
         };
         try {
           return await targetCheckService.checkTarget(checkRequest);
+        } catch (error) {
+          if (error instanceof TypeError) {
+            return reply.code(400).send(adminError("invalid_target_url", error.message));
+          }
+          throw error;
+        }
+      },
+    );
+  }
+  if (options.targetMetricsService !== undefined) {
+    const targetMetricsService = options.targetMetricsService;
+    server.post<{ Body: { apiKey?: string; targetUrl: string } }>(
+      "/api/target-metrics",
+      {
+        schema: {
+          body: TARGET_METRICS_REQUEST_SCHEMA,
+          response: { 200: TARGET_METRICS_RESPONSE_SCHEMA },
+        },
+      },
+      async (request, reply) => {
+        const apiKey = request.body.apiKey;
+        const metricsRequest: TargetMetricsRequest = {
+          targetUrl: request.body.targetUrl,
+          ...(apiKey ? { apiKey } : {}),
+        };
+        try {
+          return await targetMetricsService.fetchTargetMetrics(metricsRequest);
         } catch (error) {
           if (error instanceof TypeError) {
             return reply.code(400).send(adminError("invalid_target_url", error.message));

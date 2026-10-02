@@ -12,7 +12,7 @@ import {
   type SummaryModelConfig,
 } from "../config/index.js";
 import { LogQueryService } from "../maintenance/index.js";
-import { ProxyManager, checkTarget } from "../proxy/index.js";
+import { ProxyManager, checkTarget, fetchTargetMetrics } from "../proxy/index.js";
 import { importModelPrices } from "../pricing/index.js";
 import { joinTargetPath } from "../proxy/target.js";
 import { Application } from "./application.js";
@@ -91,6 +91,7 @@ export function createNodeApplication(options: NodeApplicationOptions): NodeAppl
             return usageStatisticsService === undefined ? {} : { usageStatisticsService };
           })(),
           targetCheckService: { checkTarget },
+          targetMetricsService: { fetchTargetMetrics },
           modelCatalogService: { importModelPrices },
           summaryModelService: {
             getConfig: () => config.summary_model,

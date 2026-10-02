@@ -799,7 +799,7 @@ body.drag-target-active {
 .target-title {
   min-width: 0;
   display: grid;
-  grid-template-columns: auto minmax(0, 1fr) auto;
+  grid-template-columns: auto minmax(0, 1fr);
   align-items: center;
   gap: 8px;
   font-weight: 650;
@@ -837,6 +837,15 @@ body.drag-target-active {
   gap: 8px;
   align-items: center;
   justify-content: space-between;
+}
+.target-flags {
+  display: inline-flex;
+  align-items: center;
+  gap: 14px;
+  min-width: 0;
+}
+.target-flags .default-target input:disabled ~ span {
+  color: var(--muted);
 }
 .target-enabled {
   display: inline-flex;
@@ -3676,4 +3685,441 @@ label span {
     text-overflow: ellipsis;
     white-space: nowrap;
   }
+}
+
+/* Upstream /metrics viewer (metricsDialog): a wide resizable dialog that
+   lists Prometheus metric families parsed from the exposition text. */
+.metrics-dialog {
+  width: min(1080px, calc(100vw - 48px));
+  height: min(680px, calc(100vh - 80px));
+  min-width: min(420px, calc(100vw - 48px));
+  min-height: 260px;
+  max-width: calc(100vw - 32px);
+  max-height: calc(100vh - 32px);
+  padding: 0;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: var(--panel);
+  color: var(--ink);
+  box-shadow: 0 20px 50px rgba(23, 32, 42, 0.18);
+  overflow: hidden;
+  resize: both;
+}
+/* Scope the flex layout to the open state so the UA rule for closed
+   dialogs (display: none) keeps applying. */
+.metrics-dialog[open] {
+  display: flex;
+  flex-direction: column;
+}
+.metrics-dialog::backdrop {
+  background: rgba(23, 32, 42, 0.35);
+}
+.metrics-dialog > section {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  padding: 14px;
+  box-sizing: border-box;
+}
+.metrics-dialog-head {
+  flex: none;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 10px;
+  padding-bottom: 8px;
+  border-bottom: 1px solid var(--line);
+}
+.metrics-dialog-head strong {
+  font-size: 16px;
+}
+.metrics-dialog-head div {
+  display: flex;
+  gap: 8px;
+}
+.metrics-filter-row {
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 8px;
+  font-size: 12px;
+}
+.metrics-url {
+  flex: 0 1 auto;
+  min-width: 0;
+  color: var(--muted);
+  overflow-wrap: anywhere;
+}
+.metrics-view-switch {
+  flex: none;
+  display: flex;
+  gap: 6px;
+  margin-left: auto;
+}
+.metrics-auto-refresh {
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--muted);
+}
+.metrics-auto-refresh select {
+  padding: 3px 6px;
+  font-size: 12px;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  background: var(--control);
+  color: var(--ink);
+}
+.metrics-refresh-countdown {
+  min-width: 34px;
+  text-align: right;
+  color: var(--muted);
+  font-variant-numeric: tabular-nums;
+}
+.metrics-list-tools {
+  flex: none;
+  display: flex;
+  margin-bottom: 8px;
+}
+.metrics-list-tools input {
+  flex: 1;
+  min-width: 0;
+  padding: 6px 8px;
+  font-size: 12px;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  background: var(--control);
+  color: var(--ink);
+}
+.metrics-body {
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+  font-size: 12px;
+}
+.metrics-meta {
+  margin: 0 0 8px;
+  color: var(--muted);
+}
+.metrics-note {
+  margin: 0 0 8px;
+  color: var(--muted);
+  font-size: 12px;
+}
+.metrics-family {
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--control);
+  margin-bottom: 6px;
+}
+.metrics-family > summary {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 10px;
+  cursor: pointer;
+}
+.metrics-family-name {
+  font-size: 12px;
+  color: var(--ink);
+  overflow-wrap: anywhere;
+}
+.metrics-type {
+  flex: none;
+  background: var(--accent-soft);
+  color: var(--accent);
+  border-radius: 5px;
+  padding: 1px 6px;
+  font-size: 11px;
+}
+.metrics-family-count {
+  flex: none;
+  margin-left: auto;
+  color: var(--muted);
+}
+.metrics-family-help {
+  margin: 0 10px 6px;
+  color: var(--muted);
+}
+.metrics-table {
+  width: 100%;
+  border-collapse: collapse;
+  margin: 0 0 8px;
+}
+.metrics-table td {
+  padding: 3px 10px;
+  border-top: 1px solid var(--line);
+  vertical-align: top;
+}
+.metrics-labels {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  min-width: 0;
+}
+.metrics-label {
+  background: #eef2f7;
+  border: 1px solid var(--line);
+  border-radius: 5px;
+  padding: 0 5px;
+  font-size: 11px;
+  max-width: 100%;
+  overflow-wrap: anywhere;
+}
+.metrics-label-empty {
+  color: var(--muted);
+}
+.metrics-value {
+  text-align: right;
+  white-space: nowrap;
+  font-variant-numeric: tabular-nums;
+}
+.metrics-raw {
+  margin-top: 8px;
+}
+.metrics-raw > summary {
+  cursor: pointer;
+  color: var(--muted);
+  margin-bottom: 4px;
+}
+.metrics-raw pre {
+  max-height: 360px;
+  overflow: auto;
+  background: var(--control);
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 8px 10px;
+  font-size: 11px;
+  line-height: 1.5;
+  white-space: pre-wrap;
+  margin: 0;
+}
+
+/* vLLM dashboard view: derived stat cards, KV/pressure bars, latency
+   percentile panels with histogram bucket bars and token-source stacked
+   bars. Only vllm: families feed this view; other servers keep the list. */
+.metrics-dashboard {
+  display: grid;
+  gap: 14px;
+  align-content: start;
+}
+.mds-section {
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: var(--panel);
+  padding: 10px 12px;
+}
+.mds-section h3 {
+  margin: 0 0 2px;
+  font-size: 13px;
+}
+.mds-note {
+  margin: 0 0 8px;
+  font-size: 11px;
+  color: var(--muted);
+}
+.mds-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(170px, 1fr));
+  gap: 8px;
+}
+.mds-stat {
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--control);
+  padding: 8px 10px;
+  display: grid;
+  gap: 3px;
+  min-width: 0;
+  cursor: help;
+}
+.mds-stat small {
+  font-size: 11px;
+  color: var(--muted);
+}
+.mds-stat strong {
+  font-size: 16px;
+  overflow-wrap: anywhere;
+}
+.mds-stat em {
+  font-style: normal;
+  font-size: 11px;
+  color: var(--muted);
+}
+.mds-empty {
+  color: var(--muted);
+  font-size: 13px;
+}
+.mds-bar {
+  display: block;
+  height: 6px;
+  border-radius: 3px;
+  background: #eef2f7;
+  overflow: hidden;
+}
+.mds-bar-fill {
+  display: block;
+  height: 100%;
+  border-radius: 3px;
+}
+.mds-bar-fill.ok {
+  background: var(--accent);
+}
+.mds-bar-fill.warn {
+  background: #e0a03a;
+}
+.mds-bar-fill.danger {
+  background: var(--danger);
+}
+.mds-pill {
+  justify-self: start;
+  border-radius: 999px;
+  padding: 2px 10px;
+  font-size: 12px;
+}
+.mds-pill-ok {
+  background: var(--accent-soft);
+  color: var(--accent);
+}
+.mds-pill-warn {
+  background: #fff4e5;
+  color: #8a5a14;
+}
+.mds-pill-danger {
+  background: #fdeceb;
+  color: var(--danger);
+}
+.mds-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+}
+.mds-chip {
+  border: 1px solid var(--line);
+  background: #eef2f7;
+  border-radius: 5px;
+  padding: 1px 6px;
+  font-size: 11px;
+}
+.mds-chip-danger {
+  background: #fdeceb;
+  border-color: var(--danger);
+  color: var(--danger);
+}
+.mds-stack {
+  display: flex;
+  width: 100%;
+  height: 10px;
+  border-radius: 5px;
+  overflow: hidden;
+  background: #eef2f7;
+}
+.mds-stack-segment {
+  min-width: 2px;
+}
+.mds-legend {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 11px;
+  color: var(--muted);
+}
+.mds-legend i {
+  width: 8px;
+  height: 8px;
+  border-radius: 2px;
+  display: inline-block;
+}
+.mds-latency {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+  gap: 8px;
+}
+.mds-panel {
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--control);
+  padding: 8px 10px;
+  display: grid;
+  gap: 6px;
+  min-width: 0;
+  cursor: help;
+}
+.mds-panel-head {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+}
+.mds-panel-head strong {
+  font-size: 13px;
+}
+.mds-panel-count {
+  margin-left: auto;
+  font-size: 11px;
+  color: var(--muted);
+}
+.mds-quantiles {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 6px;
+}
+.mds-quantile {
+  display: grid;
+  gap: 2px;
+  min-width: 0;
+}
+.mds-quantile small {
+  font-size: 10px;
+  color: var(--muted);
+}
+.mds-quantile strong {
+  font-size: 13px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.mds-quantile-mean strong {
+  color: var(--accent);
+}
+.mds-buckets {
+  display: grid;
+  gap: 2px;
+}
+.mds-bucket {
+  display: grid;
+  grid-template-columns: 64px 1fr 48px;
+  align-items: center;
+  gap: 6px;
+  font-size: 10px;
+  color: var(--muted);
+  min-width: 0;
+}
+.mds-bucket-le {
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  text-align: right;
+}
+.mds-bucket-track {
+  height: 7px;
+  background: #eef2f7;
+  border-radius: 3px;
+  overflow: hidden;
+  min-width: 0;
+}
+.mds-bucket-fill {
+  display: block;
+  height: 100%;
+  background: var(--accent);
+  opacity: 0.75;
+  border-radius: 3px;
+}
+.mds-bucket-count {
+  text-align: right;
+  font-variant-numeric: tabular-nums;
 }

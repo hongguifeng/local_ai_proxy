@@ -47,6 +47,136 @@ let targetCheckOutcome: {
   detail?: string;
 } = { ok: true, status: 200, durationMs: 5 };
 
+const targetMetricsCalls: { targetUrl: string; apiKey?: string }[] = [];
+const TARGET_METRICS_FIXTURE_TEXT = [
+  "# TYPE process_start_time_seconds gauge",
+  "process_start_time_seconds 1790000000.0",
+  "# TYPE process_resident_memory_bytes gauge",
+  "process_resident_memory_bytes 2.1e+09",
+  "# TYPE process_virtual_memory_bytes gauge",
+  "process_virtual_memory_bytes 1.2e+11",
+  "# TYPE process_cpu_seconds_total counter",
+  "process_cpu_seconds_total 100.0",
+  "# TYPE process_open_fds gauge",
+  "process_open_fds 64.0",
+  "# TYPE process_max_fds gauge",
+  "process_max_fds 1024.0",
+  "# TYPE vllm:num_requests_running gauge",
+  'vllm:num_requests_running{engine="0",model_name="fixture-model"} 2.0',
+  "# TYPE vllm:num_requests_waiting gauge",
+  'vllm:num_requests_waiting{engine="0",model_name="fixture-model"} 3.0',
+  "# TYPE vllm:num_requests_waiting_by_reason gauge",
+  'vllm:num_requests_waiting_by_reason{engine="0",model_name="fixture-model",reason="capacity"} 2.0',
+  'vllm:num_requests_waiting_by_reason{engine="0",model_name="fixture-model",reason="deferred"} 1.0',
+  "# TYPE vllm:engine_sleep_state gauge",
+  'vllm:engine_sleep_state{engine="0",model_name="fixture-model",sleep_state="awake"} 1.0',
+  'vllm:engine_sleep_state{engine="0",model_name="fixture-model",sleep_state="weights_offloaded"} 0.0',
+  'vllm:engine_sleep_state{engine="0",model_name="fixture-model",sleep_state="discard_all"} 0.0',
+  "# TYPE vllm:kv_cache_usage_perc gauge",
+  'vllm:kv_cache_usage_perc{engine="0",model_name="fixture-model"} 0.42',
+  "# TYPE vllm:num_preemptions_total counter",
+  'vllm:num_preemptions_total{engine="0",model_name="fixture-model"} 4.0',
+  "# TYPE vllm:prefix_cache_queries_total counter",
+  'vllm:prefix_cache_queries_total{engine="0",model_name="fixture-model"} 1000.0',
+  "# TYPE vllm:prefix_cache_hits_total counter",
+  'vllm:prefix_cache_hits_total{engine="0",model_name="fixture-model"} 750.0',
+  "# TYPE vllm:external_prefix_cache_queries_total counter",
+  'vllm:external_prefix_cache_queries_total{engine="0",model_name="fixture-model"} 0.0',
+  "# TYPE vllm:external_prefix_cache_hits_total counter",
+  'vllm:external_prefix_cache_hits_total{engine="0",model_name="fixture-model"} 0.0',
+  "# TYPE vllm:mm_cache_queries_total counter",
+  'vllm:mm_cache_queries_total{engine="0",model_name="fixture-model"} 0.0',
+  "# TYPE vllm:mm_cache_hits_total counter",
+  'vllm:mm_cache_hits_total{engine="0",model_name="fixture-model"} 0.0',
+  "# TYPE vllm:spec_decode_num_draft_tokens_total counter",
+  'vllm:spec_decode_num_draft_tokens_total{engine="0",model_name="fixture-model"} 200.0',
+  "# TYPE vllm:spec_decode_num_accepted_tokens_total counter",
+  'vllm:spec_decode_num_accepted_tokens_total{engine="0",model_name="fixture-model"} 150.0',
+  "# TYPE vllm:cache_config_info gauge",
+  'vllm:cache_config_info{block_size="16",cache_dtype="auto",enable_prefix_caching="true",engine="0",gpu_memory_utilization="0.9",kv_cache_size_tokens="1600",model_name="fixture-model",num_gpu_blocks="100"} 1.0',
+  "# TYPE vllm:prompt_tokens_total counter",
+  'vllm:prompt_tokens_total{engine="0",model_name="fixture-model"} 10000.0',
+  "# TYPE vllm:prompt_tokens_cached_total counter",
+  'vllm:prompt_tokens_cached_total{engine="0",model_name="fixture-model"} 7500.0',
+  "# TYPE vllm:prompt_tokens_by_source_total counter",
+  'vllm:prompt_tokens_by_source_total{engine="0",model_name="fixture-model",source="local_compute"} 2500.0',
+  'vllm:prompt_tokens_by_source_total{engine="0",model_name="fixture-model",source="local_cache_hit"} 7500.0',
+  "# TYPE vllm:generation_tokens_total counter",
+  'vllm:generation_tokens_total{engine="0",model_name="fixture-model"} 5000.0',
+  "# TYPE vllm:request_success_total counter",
+  'vllm:request_success_total{engine="0",finished_reason="stop",model_name="fixture-model"} 900.0',
+  'vllm:request_success_total{engine="0",finished_reason="length",model_name="fixture-model"} 100.0',
+  'vllm:request_success_total{engine="0",finished_reason="abort",model_name="fixture-model"} 5.0',
+  'vllm:request_success_total{engine="0",finished_reason="error",model_name="fixture-model"} 3.0',
+  "# TYPE vllm:time_to_first_token_seconds histogram",
+  'vllm:time_to_first_token_seconds_bucket{engine="0",le="0.1",model_name="fixture-model"} 500.0',
+  'vllm:time_to_first_token_seconds_bucket{engine="0",le="0.25",model_name="fixture-model"} 800.0',
+  'vllm:time_to_first_token_seconds_bucket{engine="0",le="1.0",model_name="fixture-model"} 950.0',
+  'vllm:time_to_first_token_seconds_bucket{engine="0",le="+Inf",model_name="fixture-model"} 1000.0',
+  'vllm:time_to_first_token_seconds_count{engine="0",model_name="fixture-model"} 1000.0',
+  'vllm:time_to_first_token_seconds_sum{engine="0",model_name="fixture-model"} 120.0',
+  "# TYPE vllm:inter_token_latency_seconds histogram",
+  'vllm:inter_token_latency_seconds_bucket{engine="0",le="0.05",model_name="fixture-model"} 600.0',
+  'vllm:inter_token_latency_seconds_bucket{engine="0",le="0.1",model_name="fixture-model"} 900.0',
+  'vllm:inter_token_latency_seconds_bucket{engine="0",le="+Inf",model_name="fixture-model"} 1000.0',
+  'vllm:inter_token_latency_seconds_count{engine="0",model_name="fixture-model"} 1000.0',
+  'vllm:inter_token_latency_seconds_sum{engine="0",model_name="fixture-model"} 62.0',
+  "# TYPE vllm:request_queue_time_seconds histogram",
+  'vllm:request_queue_time_seconds_bucket{engine="0",le="0.1",model_name="fixture-model"} 1000.0',
+  'vllm:request_queue_time_seconds_bucket{engine="0",le="+Inf",model_name="fixture-model"} 1000.0',
+  'vllm:request_queue_time_seconds_count{engine="0",model_name="fixture-model"} 1000.0',
+  'vllm:request_queue_time_seconds_sum{engine="0",model_name="fixture-model"} 10.0',
+  "# TYPE vllm:request_prefill_time_seconds histogram",
+  'vllm:request_prefill_time_seconds_bucket{engine="0",le="1.0",model_name="fixture-model"} 1000.0',
+  'vllm:request_prefill_time_seconds_bucket{engine="0",le="+Inf",model_name="fixture-model"} 1000.0',
+  'vllm:request_prefill_time_seconds_count{engine="0",model_name="fixture-model"} 1000.0',
+  'vllm:request_prefill_time_seconds_sum{engine="0",model_name="fixture-model"} 200.0',
+  "# TYPE vllm:request_decode_time_seconds histogram",
+  'vllm:request_decode_time_seconds_bucket{engine="0",le="1.0",model_name="fixture-model"} 600.0',
+  'vllm:request_decode_time_seconds_bucket{engine="0",le="10.0",model_name="fixture-model"} 1000.0',
+  'vllm:request_decode_time_seconds_bucket{engine="0",le="+Inf",model_name="fixture-model"} 1000.0',
+  'vllm:request_decode_time_seconds_count{engine="0",model_name="fixture-model"} 1000.0',
+  'vllm:request_decode_time_seconds_sum{engine="0",model_name="fixture-model"} 4500.0',
+  "# TYPE vllm:e2e_request_latency_seconds histogram",
+  'vllm:e2e_request_latency_seconds_bucket{engine="0",le="1.0",model_name="fixture-model"} 500.0',
+  'vllm:e2e_request_latency_seconds_bucket{engine="0",le="10.0",model_name="fixture-model"} 900.0',
+  'vllm:e2e_request_latency_seconds_bucket{engine="0",le="+Inf",model_name="fixture-model"} 1000.0',
+  'vllm:e2e_request_latency_seconds_count{engine="0",model_name="fixture-model"} 1000.0',
+  'vllm:e2e_request_latency_seconds_sum{engine="0",model_name="fixture-model"} 2000.0',
+  "# TYPE vllm:request_prompt_tokens histogram",
+  'vllm:request_prompt_tokens_bucket{engine="0",le="512",model_name="fixture-model"} 400.0',
+  'vllm:request_prompt_tokens_bucket{engine="0",le="2048",model_name="fixture-model"} 1000.0',
+  'vllm:request_prompt_tokens_bucket{engine="0",le="+Inf",model_name="fixture-model"} 1000.0',
+  'vllm:request_prompt_tokens_count{engine="0",model_name="fixture-model"} 1000.0',
+  'vllm:request_prompt_tokens_sum{engine="0",model_name="fixture-model"} 100000.0',
+  "# TYPE vllm:request_generation_tokens histogram",
+  'vllm:request_generation_tokens_bucket{engine="0",le="100",model_name="fixture-model"} 500.0',
+  'vllm:request_generation_tokens_bucket{engine="0",le="500",model_name="fixture-model"} 1000.0',
+  'vllm:request_generation_tokens_bucket{engine="0",le="+Inf",model_name="fixture-model"} 1000.0',
+  'vllm:request_generation_tokens_count{engine="0",model_name="fixture-model"} 1000.0',
+  'vllm:request_generation_tokens_sum{engine="0",model_name="fixture-model"} 50000.0',
+].join("\n");
+const NON_VLLM_FIXTURE_TEXT = [
+  "# HELP vllm_cache_config_usage Percent of KV cache in use.",
+  "# TYPE vllm_cache_config_usage gauge",
+  "vllm_cache_config_usage 0.25",
+  "# HELP process_resident_memory_bytes Resident memory size in bytes.",
+  "# TYPE process_resident_memory_bytes gauge",
+  "process_resident_memory_bytes 3.013369856e+09",
+].join("\n");
+// Families in the fixture above: 6 process + 20 vllm gauges/counters +
+// 8 histogram families, each split into the TYPE family plus its _bucket,
+// _count and _sum companions (4 per histogram) = 58.
+const FIXTURE_METRIC_FAMILY_COUNT = 58;
+let targetMetricsOutcome: {
+  ok: boolean;
+  status?: number;
+  durationMs: number;
+  text?: string;
+  truncated?: boolean;
+  error?: string;
+} = { ok: true, status: 200, durationMs: 5, text: TARGET_METRICS_FIXTURE_TEXT };
+
 const modelCatalogCalls: {
   targetUrl: string;
   targetApiKey?: string;
@@ -172,6 +302,12 @@ beforeAll(async () => {
       checkTarget: (request) => {
         targetCheckCalls.push({ ...request });
         return Promise.resolve({ ...targetCheckOutcome });
+      },
+    },
+    targetMetricsService: {
+      fetchTargetMetrics: (request) => {
+        targetMetricsCalls.push({ ...request });
+        return Promise.resolve({ ...targetMetricsOutcome });
       },
     },
     modelCatalogService: {
@@ -672,6 +808,13 @@ beforeEach(async () => {
   detailReads.clear();
   targetCheckCalls.length = 0;
   targetCheckOutcome = { ok: true, status: 200, durationMs: 5 };
+  targetMetricsCalls.length = 0;
+  targetMetricsOutcome = {
+    ok: true,
+    status: 200,
+    durationMs: 5,
+    text: TARGET_METRICS_FIXTURE_TEXT,
+  };
   modelCatalogCalls.length = 0;
   modelCatalogError = null;
   modelCatalogOutcome = {
@@ -815,7 +958,8 @@ describe("admin UI proxy page", { timeout: UI_TEST_TIMEOUT_MS }, () => {
     // Changing the default target updates both target controls immediately.
     targets = card.locator(".target-card");
     await expectPage(targets.nth(1).locator("[data-default-target]")).toBeChecked();
-    await expectPage(targets.nth(1).locator("[data-target-enabled]")).toHaveCount(0);
+    await expectPage(targets.nth(1).locator("[data-target-enabled]")).toBeChecked();
+    await expectPage(targets.nth(1).locator("[data-target-enabled]")).toBeDisabled();
     await expectPage(targets.nth(0).locator("[data-target-enabled]")).toBeChecked();
 
     // Adding another target collects the form and rerenders from the current default selection.
@@ -823,7 +967,8 @@ describe("admin UI proxy page", { timeout: UI_TEST_TIMEOUT_MS }, () => {
     targets = card.locator(".target-card");
     await expectPage(targets).toHaveCount(3);
     await expectPage(targets.nth(1).locator("[data-default-target]")).toBeChecked();
-    await expectPage(targets.nth(1).locator("[data-target-enabled]")).toHaveCount(0);
+    await expectPage(targets.nth(1).locator("[data-target-enabled]")).toBeChecked();
+    await expectPage(targets.nth(1).locator("[data-target-enabled]")).toBeDisabled();
     await expectPage(targets.nth(0).locator("[data-target-enabled]")).toBeChecked();
     await targets.nth(0).locator("[data-target-enabled]").uncheck();
     await expectPage(targets.nth(0).locator("[data-target-enabled]")).not.toBeChecked();
@@ -1110,6 +1255,192 @@ describe("admin UI proxy page", { timeout: UI_TEST_TIMEOUT_MS }, () => {
     const result = dialog.locator("#targetCheckResult");
     await expectPage(result).toHaveClass(/failure/);
     await expectPage(result).toHaveText(/ECONNREFUSED/);
+  });
+
+  it("renders the vLLM dashboard with derived stats by default", async () => {
+    await loadAdminPage();
+    const target = page.locator('.proxy-card[data-index="0"] .target-card').first();
+    await target.locator("[data-metrics-target]").click();
+
+    const dialog = page.locator("#metricsDialog");
+    await expectPage(dialog).toBeVisible();
+    await expectPage(dialog.locator("#metricsDashboard")).toBeVisible();
+    await expectPage(dialog.locator("#metricsList")).toBeHidden();
+    await expectPage(dialog.locator("#metricsDialogUrl")).toHaveText("https://example.test/v1");
+
+    const card = (label: string) =>
+      dialog.locator("#metricsDashboard .mds-stat", { hasText: label });
+    await expectPage(card("Model").locator("strong")).toHaveText("fixture-model");
+    await expectPage(card("Uptime").locator("strong")).toHaveText(/\d+:\d{2}:\d{2}/);
+    await expectPage(dialog.locator(".mds-pill-ok")).toHaveText(/Awake/);
+    await expectPage(card("Running requests").locator("strong")).toHaveText("2");
+    await expectPage(card("Waiting requests").locator("strong")).toHaveText("3");
+    await expectPage(card("Waiting requests").locator("em")).toHaveText("capacity=2 deferred=1");
+    await expectPage(card("KV cache usage").locator("strong")).toHaveText("42.0%");
+    await expectPage(card("Preemptions").locator("strong")).toHaveText("4");
+    await expectPage(card("Prefix cache hit ratio").locator("strong")).toHaveText("75.0%");
+    await expectPage(card("Speculative acceptance").locator("strong")).toHaveText("75.0%");
+    await expectPage(card("GPU blocks").locator("strong")).toHaveText("100");
+    await expectPage(card("KV capacity (tokens)").locator("strong")).toHaveText("1,600");
+    await expectPage(card("Completed requests").locator("strong")).toHaveText("1,008");
+    await expectPage(card("Decode speed (est.)").locator("strong")).toHaveText("1.1 t/s");
+    await expectPage(card("Prompt tokens (total)").locator("strong")).toHaveText("10,000");
+    await expectPage(card("Avg prompt length").locator("strong")).toHaveText("100");
+    await expectPage(card("Resident memory").locator("strong")).toHaveText(/GB/);
+
+    // Histogram percentiles are interpolated from buckets: p50 lands exactly
+    // on the 0.1 s boundary, p99 falls back to the last finite bound.
+    const ttftPanel = dialog.locator(".mds-panel", { hasText: "Time to first token" });
+    await expectPage(ttftPanel.locator(".mds-quantile").nth(0).locator("strong")).toHaveText(
+      "100.0 ms",
+    );
+    await expectPage(ttftPanel.locator(".mds-quantile").nth(1).locator("strong")).toHaveText(
+      "1.00 s",
+    );
+    await expectPage(ttftPanel.locator(".mds-quantile").nth(2).locator("strong")).toHaveText(
+      "1.00 s",
+    );
+    await expectPage(ttftPanel.locator(".mds-quantile-mean strong")).toHaveText("120.0 ms");
+    await expectPage(ttftPanel.locator(".mds-bucket")).toHaveCount(4);
+
+    // Prompt-token sources render as a stacked bar with a legend.
+    await expectPage(dialog.locator(".mds-stack-segment")).toHaveCount(2);
+    await expectPage(dialog.locator(".mds-legend").first()).toContainText("Local cache hit 75.0%");
+
+    // Abort/error finish reasons are highlighted as danger chips.
+    const dangerChips = dialog.locator(".mds-chip.mds-chip-danger");
+    await expectPage(dangerChips).toHaveCount(2);
+    await expectPage(dangerChips.first()).toHaveText(/abort 5/);
+
+    // The latency section is pinned last, after process resources.
+    const sectionTitles = await dialog.locator(".mds-section h3").allTextContents();
+    expect(sectionTitles).toEqual([
+      "Engine status",
+      "Live load",
+      "Cache & spec decoding",
+      "Token throughput",
+      "Process resources",
+      "Latency distribution",
+    ]);
+
+    expect(targetMetricsCalls).toEqual([
+      { targetUrl: "https://example.test/v1", apiKey: "secret-key" },
+    ]);
+  });
+
+  it("auto-refreshes metrics on the selected interval and stops when closed", async () => {
+    await page.clock.install();
+    await loadAdminPage();
+    const target = page.locator('.proxy-card[data-index="0"] .target-card').first();
+    await target.locator("[data-metrics-target]").click();
+
+    const dialog = page.locator("#metricsDialog");
+    await expectPage(dialog.locator("#metricsDashboard")).toBeVisible();
+    expect(targetMetricsCalls).toHaveLength(1);
+
+    const interval = dialog.locator("#metricsRefreshInterval");
+    await expectPage(interval).toHaveValue("0");
+    await expectPage(dialog.locator("#metricsRefreshCountdown")).toBeHidden();
+    await interval.selectOption("5000");
+    await expectPage(dialog.locator("#metricsRefreshCountdown")).toBeVisible();
+    await expectPage(dialog.locator("#metricsRefreshCountdown")).toHaveText("5 s");
+
+    // Selecting the interval does not fire an immediate request; the timer does.
+    await expectPage.poll(() => targetMetricsCalls.length).toBe(1);
+    await page.clock.runFor(5000);
+    await expectPage.poll(() => targetMetricsCalls.length).toBe(2);
+
+    // The scroll position survives the timed re-render (no loading flash,
+    // and the re-render restores the captured scrollTop).
+    const dashboard = dialog.locator("#metricsDashboard");
+    const scrolled = await dashboard.evaluate((element) => {
+      element.scrollTop = 400;
+      return element.scrollTop;
+    });
+    expect(scrolled).toBeGreaterThan(0);
+    await page.clock.runFor(5000);
+    await expectPage.poll(() => targetMetricsCalls.length).toBe(3);
+    await expectPage(dashboard).toHaveJSProperty("scrollTop", scrolled);
+
+    await dialog.locator("#metricsClose").click();
+    await expectPage(dialog).toBeHidden();
+    await page.clock.runFor(20000);
+    expect(targetMetricsCalls).toHaveLength(3);
+
+    // Reopening resumes the selection that is still shown in the select.
+    await target.locator("[data-metrics-target]").click();
+    await expectPage(interval).toHaveValue("5000");
+    await expectPage(dialog.locator("#metricsRefreshCountdown")).toHaveText("5 s");
+    await page.clock.runFor(5000);
+    await expectPage.poll(() => targetMetricsCalls.length).toBe(5);
+    await dialog.locator("#metricsClose").click();
+
+    // Switching back to "off" stops the timer without stopping the manual refresh.
+    await target.locator("[data-metrics-target]").click();
+    await interval.selectOption("0");
+    await expectPage(dialog.locator("#metricsRefreshCountdown")).toBeHidden();
+    const callsBeforeManual = targetMetricsCalls.length;
+    await dialog.locator("#metricsRefresh").click();
+    await expectPage.poll(() => targetMetricsCalls.length).toBe(callsBeforeManual + 1);
+    await page.clock.runFor(20000);
+    expect(targetMetricsCalls).toHaveLength(callsBeforeManual + 1);
+    await dialog.locator("#metricsClose").click();
+  });
+
+  it("switches to the full metric list with filter and raw text", async () => {
+    await loadAdminPage();
+    const target = page.locator('.proxy-card[data-index="0"] .target-card').first();
+    await target.locator("[data-metrics-target]").click();
+
+    const dialog = page.locator("#metricsDialog");
+    await dialog.locator("#metricsViewList").click();
+    await expectPage(dialog.locator("#metricsList")).toBeVisible();
+    await expectPage(dialog.locator("#metricsDashboard")).toBeHidden();
+    await expectPage(dialog.locator(".metrics-family")).toHaveCount(FIXTURE_METRIC_FAMILY_COUNT);
+    await expectPage(dialog.locator("#metricsRawPre")).toContainText("vllm:kv_cache_usage_perc");
+
+    await dialog.locator("#metricsFilter").fill("vllm:prefix_cache");
+    await expectPage(dialog.locator(".metrics-family")).toHaveCount(2);
+    await expectPage(dialog.locator(".metrics-meta")).toHaveText(/2 \/ 58/);
+    await dialog.locator("#metricsFilter").fill("nonexistent");
+    await expectPage(dialog.locator(".metrics-family")).toHaveCount(0);
+    await dialog.locator("#metricsFilter").fill("");
+    await expectPage(dialog.locator(".metrics-family")).toHaveCount(FIXTURE_METRIC_FAMILY_COUNT);
+
+    await dialog.locator("#metricsClose").click();
+    await expectPage(dialog).toBeHidden();
+  });
+
+  it("falls back to the list view when the exposition has no vllm metrics", async () => {
+    targetMetricsOutcome = {
+      ok: true,
+      status: 200,
+      durationMs: 5,
+      text: NON_VLLM_FIXTURE_TEXT,
+    };
+    await loadAdminPage();
+    const target = page.locator('.proxy-card[data-index="0"] .target-card').first();
+    await target.locator("[data-metrics-target]").click();
+
+    const dialog = page.locator("#metricsDialog");
+    await expectPage(dialog.locator("#metricsList")).toBeVisible();
+    await expectPage(dialog.locator("#metricsDashboard")).toBeHidden();
+    await expectPage(dialog.locator(".metrics-note")).toHaveText(/no vllm/i);
+    await expectPage(dialog.locator(".metrics-family")).toHaveCount(2);
+  });
+
+  it("shows a failure when the metrics endpoint cannot be reached", async () => {
+    targetMetricsOutcome = { ok: false, durationMs: 8, error: "connect ECONNREFUSED" };
+    await loadAdminPage();
+    const target = page.locator('.proxy-card[data-index="0"] .target-card').first();
+    await target.locator("[data-metrics-target]").click();
+
+    const dialog = page.locator("#metricsDialog");
+    const result = dialog.locator("#metricsResult");
+    await expectPage(result).toHaveClass(/failure/);
+    await expectPage(result).toHaveText(/ECONNREFUSED/);
+    await expectPage(dialog.locator("#metricsDashboard")).toBeEmpty();
+    await expectPage(dialog.locator(".metrics-family")).toHaveCount(0);
   });
 
   it("saves form changes and toggles the proxy enabled state", async () => {

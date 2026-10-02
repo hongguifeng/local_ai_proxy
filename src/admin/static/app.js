@@ -93,6 +93,136 @@ const translations = {
     checkOk: "成功：转发地址已正常响应",
     checkBadStatus: "收到响应，但状态码为 {status}（API Key 或模型 ID 可能无效）",
     checkFail: "失败：未收到响应",
+    targetMetrics: "指标",
+    targetMetricsTitle: "读取并展示上游 /metrics 指标",
+    metricsDialogTitle: "上游指标",
+    metricsRefresh: "刷新",
+    metricsAutoRefresh: "自动刷新",
+    metricsRefreshOff: "关闭",
+    metricsRefreshEvery5s: "每 5 秒",
+    metricsRefreshEvery10s: "每 10 秒",
+    metricsRefreshEvery30s: "每 30 秒",
+    metricsRefreshEvery60s: "每 60 秒",
+    metricsFilterPlaceholder: "按名称筛选指标",
+    metricsLoading: "读取中…",
+    metricsFail: "失败：{error}",
+    metricsTruncated: "指标文本过大，仅展示前 1 MB",
+    metricsRaw: "原始文本",
+    metricsFamilies: "{n} 个指标族",
+    metricsViewSwitch: "在看板与全部指标列表之间切换",
+    metricsViewDashboard: "看板",
+    metricsViewList: "全部指标",
+    metricsNotVllm: "未检测到 vllm: 指标，已自动切换到全部指标列表。",
+    metricsSectionStatus: "引擎状态",
+    metricsSectionStatusNote: "模型、运行时长与引擎睡眠状态；指标自进程启动起累计。",
+    metricsSectionLoad: "实时负载",
+    metricsSectionLoadNote:
+      "当前正在执行与排队的请求、KV 显存占用；占用接近满时新请求会排队或被抢占。",
+    metricsSectionCache: "缓存与投机解码",
+    metricsSectionCacheNote: "自启动以来的前缀缓存命中、投机接受率与缓存配置。",
+    metricsSectionLatency: "延迟分布",
+    metricsSectionLatencyNote:
+      "由 histogram 桶估算的百分位（分桶插值，为近似值）；均值 = sum / count。",
+    metricsSectionTokens: "Token 吞吐",
+    metricsSectionTokensNote: "自启动以来的输入/输出 token 统计与请求结束原因。",
+    metricsSectionProcess: "进程资源",
+    metricsSectionProcessNote: "Python 进程自身占用的内存与 CPU，不含显存。",
+    metricsModelName: "模型",
+    metricsUptime: "运行时长",
+    metricsUptimeTip: "自进程启动（process_start_time_seconds）以来的时间。",
+    metricsEngineAwake: "运行中 (awake)",
+    metricsEngineSleeping: "权重已换出 (weights_offloaded)",
+    metricsEngineDiscarded: "缓存已丢弃 (discard_all)",
+    metricsEngineSleepTip:
+      "vLLM sleep 模式：awake = 正常服务；weights_offloaded = 权重换出到内存以释放显存；discard_all = 全部缓存丢弃。",
+    metricsRequestsRunning: "运行中请求",
+    metricsRequestsWaiting: "排队请求",
+    metricsWaitingReasons: "排队原因",
+    metricsLoadTip: "num_requests_running / waiting 为瞬时 gauge；等待中的请求尚未开始推理。",
+    metricsKvUsage: "KV 缓存占用",
+    metricsKvUsageTip:
+      "kv_cache_usage_perc：GPU 上 KV 缓存 block 的使用比例；长期接近 100% 说明并发已超出显存容量。",
+    metricsPreemptions: "抢占次数",
+    metricsPreemptionsTip:
+      "num_preemptions_total：因显存不足被中断并重新调度的请求次数（每次抢占都会重算 prefill）。",
+    metricsPrefixHit: "前缀缓存命中率",
+    metricsPrefixHitTip:
+      "prefix_cache_hits_total / prefix_cache_queries_total（token 计）；命中率越高，重复前缀的 prefill 开销越低。",
+    metricsExternalPrefixHit: "跨实例前缀命中",
+    metricsExternalPrefixHitTip:
+      "从外部 KV 传输（connector）命中的前缀比例，仅多实例部署时有意义。",
+    metricsMmCacheHit: "多模态缓存命中",
+    metricsMmCacheHitTip: "图像/音频等多模态输入的缓存命中率（mm_cache_hits / mm_cache_queries）。",
+    metricsSpecAccept: "投机解码接受率",
+    metricsSpecAcceptTip:
+      "spec_decode_num_accepted_tokens_total / num_draft_tokens_total；接受率越高投机解码加速越明显，未启用时此卡隐藏。",
+    metricsCacheConfig: "缓存配置",
+    metricsCacheConfigTip:
+      "引擎启动时的 cache_config 快照；kv_cache_size_tokens 为全部 GPU block 可容纳的 token 上限。",
+    metricsCacheBlocks: "GPU block 数",
+    metricsCacheSizeTokens: "KV 容量（token）",
+    metricsCacheBlockSize: "block 大小（token）",
+    metricsPrefixCaching: "前缀缓存",
+    metricsGpuMemoryUtil: "显存利用率上限",
+    metricsOn: "开启",
+    metricsOff: "关闭",
+    metricsTtft: "首 token 延迟 (TTFT)",
+    metricsTtftTip:
+      "从请求到达到吐出第一个 token 的时间；p50 为典型值，长输入或排队会推高 p95/p99。",
+    metricsItl: "token 间隔延迟 (ITL)",
+    metricsItlTip: "相邻两个输出 token 的平均间隔（解码阶段）；约 1/ITL 即单请求解码速度。",
+    metricsQueueTime: "排队等待",
+    metricsQueueTimeTip: "请求在队列中等待调度的时间；持续增大说明算力不足。",
+    metricsPrefillTime: "prefill 耗时",
+    metricsPrefillTimeTip: "提示词前向计算阶段的耗时；长上下文请求占主导。",
+    metricsDecodeTime: "decode 耗时",
+    metricsDecodeTimeTip: "逐 token 生成阶段的耗时（不含排队与 prefill）。",
+    metricsE2e: "端到端耗时",
+    metricsE2eTip: "从请求到达到生成结束的全部时间（排队 + prefill + decode）。",
+    metricsAvg: "均值",
+    metricsP50: "p50",
+    metricsP95: "p95",
+    metricsP99: "p99",
+    metricsObservations: "样本数",
+    metricsPercentilesApprox: "百分位为分桶插值近似",
+    metricsDecodeSpeed: "解码速度（估算）",
+    metricsDecodeSpeedTip:
+      "generation_tokens_total / request_decode_time_seconds_sum：自启动以来的平均输出速度（token/秒），忽略排队与 prefill。",
+    metricsRequestsCompleted: "已完成请求",
+    metricsRequestsCompletedTip:
+      "request_success_total 按结束原因分类的自启动累计值；abort/error 非零时值得关注。",
+    metricsReasonStop: "正常结束 stop",
+    metricsReasonLength: "触顶 length",
+    metricsReasonAbort: "中断 abort",
+    metricsReasonError: "错误 error",
+    metricsReasonRepetition: "重复 repetition",
+    metricsPromptTokensTotal: "输入 token 累计",
+    metricsPromptTokensTotalTip: "prompt_tokens_total：自启动以来转发的提示词 token 总量。",
+    metricsGenerationTokensTotal: "输出 token 累计",
+    metricsGenerationTokensTotalTip: "generation_tokens_total：自启动以来生成的 token 总量。",
+    metricsAvgPromptLength: "平均输入长度",
+    metricsAvgPromptLengthTip: "request_prompt_tokens 直方图均值：单请求平均提示词 token 数。",
+    metricsAvgGenerationLength: "平均输出长度",
+    metricsAvgGenerationLengthTip:
+      "request_generation_tokens 直方图均值：单请求平均生成 token 数。",
+    metricsPromptSources: "输入 token 来源",
+    metricsPromptSourcesTip:
+      "prompt_tokens_by_source_total：local_cache_hit 为命中缓存直接复用，local_compute 为实际重算；cached 占比越高 prefill 越省。",
+    metricsSourceLocalCompute: "实际计算",
+    metricsSourceLocalCacheHit: "本地缓存命中",
+    metricsSourceExternalKvTransfer: "外部 KV 传输",
+    metricsPromptCached: "缓存复用输入",
+    metricsPromptCachedTip: "prompt_tokens_cached_total：命中前缀缓存而免去计算的输入 token 总量。",
+    metricsMemoryRss: "常驻内存",
+    metricsMemoryRssTip: "process_resident_memory_bytes：进程当前占用的物理内存（不含显存）。",
+    metricsVirtualMemory: "虚拟内存",
+    metricsVirtualMemoryTip: "process_virtual_memory_bytes：进程申请的虚拟地址空间总量。",
+    metricsCpuTime: "CPU 时间",
+    metricsCpuTimeTip: "process_cpu_seconds_total：累计占用的用户 + 系统 CPU 时间。",
+    metricsOpenFds: "打开的文件描述符",
+    metricsOpenFdsTip: "process_open_fds / process_max_fds：接近上限时可能无法再接受连接。",
+    metricsUptimeUnknown: "未知",
+    metricsNoData: "无数据",
     defaultTarget: "默认",
     targetEnabled: "启用",
     modelMappings: "模型映射，每行一个 监听模型 => 转发模型；监听模型支持 * 通配符",
@@ -304,6 +434,147 @@ const translations = {
     checkBadStatus:
       "A response was received, but with status {status} (the API key or model ID may be invalid)",
     checkFail: "Failed: no response was received",
+    targetMetrics: "Metrics",
+    targetMetricsTitle: "Read and display the upstream /metrics exposition",
+    metricsDialogTitle: "Upstream metrics",
+    metricsRefresh: "Refresh",
+    metricsAutoRefresh: "Auto refresh",
+    metricsRefreshOff: "Off",
+    metricsRefreshEvery5s: "Every 5 s",
+    metricsRefreshEvery10s: "Every 10 s",
+    metricsRefreshEvery30s: "Every 30 s",
+    metricsRefreshEvery60s: "Every 60 s",
+    metricsFilterPlaceholder: "Filter metric names",
+    metricsLoading: "Loading…",
+    metricsFail: "Failed: {error}",
+    metricsTruncated: "Metrics text is too large; the first 1 MB is shown",
+    metricsRaw: "Raw text",
+    metricsFamilies: "{n} metric families",
+    metricsViewSwitch: "Switch between the dashboard and the full metric list",
+    metricsViewDashboard: "Dashboard",
+    metricsViewList: "All metrics",
+    metricsNotVllm: "No vllm: metrics detected; switched to the full metric list.",
+    metricsSectionStatus: "Engine status",
+    metricsSectionStatusNote:
+      "Model, uptime and engine sleep state; all metrics accumulate since process start.",
+    metricsSectionLoad: "Live load",
+    metricsSectionLoadNote:
+      "Requests running and waiting right now plus KV cache pressure; near full means new requests queue or get preempted.",
+    metricsSectionCache: "Cache & spec decoding",
+    metricsSectionCacheNote:
+      "Prefix cache hit ratios, speculative acceptance and cache configuration since start.",
+    metricsSectionLatency: "Latency distribution",
+    metricsSectionLatencyNote:
+      "Percentiles estimated from histogram buckets (linear interpolation, approximate); mean = sum / count.",
+    metricsSectionTokens: "Token throughput",
+    metricsSectionTokensNote:
+      "Prompt/generation token totals since start and request finish reasons.",
+    metricsSectionProcess: "Process resources",
+    metricsSectionProcessNote: "Memory and CPU used by the Python process itself, not GPU memory.",
+    metricsModelName: "Model",
+    metricsUptime: "Uptime",
+    metricsUptimeTip: "Time since the process started (process_start_time_seconds).",
+    metricsEngineAwake: "Awake (serving)",
+    metricsEngineSleeping: "Weights offloaded",
+    metricsEngineDiscarded: "Caches discarded",
+    metricsEngineSleepTip:
+      "vLLM sleep modes: awake = serving; weights_offloaded = weights moved to host RAM to free GPU memory; discard_all = all caches dropped.",
+    metricsRequestsRunning: "Running requests",
+    metricsRequestsWaiting: "Waiting requests",
+    metricsWaitingReasons: "Waiting reasons",
+    metricsLoadTip:
+      "num_requests_running / waiting are instant gauges; waiting requests have not started inference.",
+    metricsKvUsage: "KV cache usage",
+    metricsKvUsageTip:
+      "kv_cache_usage_perc: fraction of GPU KV cache blocks in use; sustained values near 100% mean concurrency exceeds capacity.",
+    metricsPreemptions: "Preemptions",
+    metricsPreemptionsTip:
+      "num_preemptions_total: requests interrupted and rescheduled because the KV cache ran out; each preemption recomputes the prefill.",
+    metricsPrefixHit: "Prefix cache hit ratio",
+    metricsPrefixHitTip:
+      "prefix_cache_hits_total / prefix_cache_queries_total (token based); a higher ratio means repeated prefixes skip prefill.",
+    metricsExternalPrefixHit: "Cross-instance prefix hit",
+    metricsExternalPrefixHitTip:
+      "Prefix hits served through an external KV connector; only meaningful in multi-instance deployments.",
+    metricsMmCacheHit: "Multimodal cache hit",
+    metricsMmCacheHitTip:
+      "mm_cache_hits / mm_cache_queries: cache hit ratio for image/audio inputs.",
+    metricsSpecAccept: "Speculative acceptance",
+    metricsSpecAcceptTip:
+      "spec_decode_num_accepted_tokens_total / num_draft_tokens_total; higher acceptance means more speedup. Hidden when speculative decoding is off.",
+    metricsCacheConfig: "Cache configuration",
+    metricsCacheConfigTip:
+      "cache_config snapshot taken at engine start; kv_cache_size_tokens is the token capacity of all GPU blocks.",
+    metricsCacheBlocks: "GPU blocks",
+    metricsCacheSizeTokens: "KV capacity (tokens)",
+    metricsCacheBlockSize: "Block size (tokens)",
+    metricsPrefixCaching: "Prefix caching",
+    metricsGpuMemoryUtil: "GPU memory limit",
+    metricsOn: "On",
+    metricsOff: "Off",
+    metricsTtft: "Time to first token (TTFT)",
+    metricsTtftTip:
+      "Time until the first token is emitted; p50 is typical, long prompts or queueing push p95/p99 up.",
+    metricsItl: "Inter-token latency (ITL)",
+    metricsItlTip:
+      "Average gap between output tokens during decode; ~1/ITL is the per-request decode speed.",
+    metricsQueueTime: "Queue time",
+    metricsQueueTimeTip:
+      "Time requests wait in the queue before being scheduled; growth means insufficient capacity.",
+    metricsPrefillTime: "Prefill time",
+    metricsPrefillTimeTip: "Duration of the prefill pass; long-context requests dominate.",
+    metricsDecodeTime: "Decode time",
+    metricsDecodeTimeTip: "Token-by-token generation duration (excluding queue and prefill).",
+    metricsE2e: "End-to-end latency",
+    metricsE2eTip: "Full request duration from arrival to completion (queue + prefill + decode).",
+    metricsAvg: "Mean",
+    metricsP50: "p50",
+    metricsP95: "p95",
+    metricsP99: "p99",
+    metricsObservations: "Observations",
+    metricsPercentilesApprox: "percentiles are bucket-interpolated",
+    metricsDecodeSpeed: "Decode speed (est.)",
+    metricsDecodeSpeedTip:
+      "generation_tokens_total / request_decode_time_seconds_sum: average output speed since start (tokens/s), ignoring queue and prefill.",
+    metricsRequestsCompleted: "Completed requests",
+    metricsRequestsCompletedTip:
+      "request_success_total split by finish reason since start; non-zero abort/error values deserve attention.",
+    metricsReasonStop: "stop",
+    metricsReasonLength: "length",
+    metricsReasonAbort: "abort",
+    metricsReasonError: "error",
+    metricsReasonRepetition: "repetition",
+    metricsPromptTokensTotal: "Prompt tokens (total)",
+    metricsPromptTokensTotalTip: "prompt_tokens_total: prompt tokens forwarded since start.",
+    metricsGenerationTokensTotal: "Generation tokens (total)",
+    metricsGenerationTokensTotalTip: "generation_tokens_total: tokens generated since start.",
+    metricsAvgPromptLength: "Avg prompt length",
+    metricsAvgPromptLengthTip:
+      "Mean of the request_prompt_tokens histogram: average prompt tokens per request.",
+    metricsAvgGenerationLength: "Avg generation length",
+    metricsAvgGenerationLengthTip:
+      "Mean of the request_generation_tokens histogram: average generated tokens per request.",
+    metricsPromptSources: "Prompt token sources",
+    metricsPromptSourcesTip:
+      "prompt_tokens_by_source_total: local_cache_hit reuses cached prefixes, local_compute recomputes them; a higher cached share saves prefill.",
+    metricsSourceLocalCompute: "Recomputed",
+    metricsSourceLocalCacheHit: "Local cache hit",
+    metricsSourceExternalKvTransfer: "External KV transfer",
+    metricsPromptCached: "Cached prompt tokens",
+    metricsPromptCachedTip:
+      "prompt_tokens_cached_total: input tokens that skipped computation thanks to the prefix cache.",
+    metricsMemoryRss: "Resident memory",
+    metricsMemoryRssTip:
+      "process_resident_memory_bytes: physical memory used by the process (host RAM, not GPU).",
+    metricsVirtualMemory: "Virtual memory",
+    metricsVirtualMemoryTip: "process_virtual_memory_bytes: virtual address space requested.",
+    metricsCpuTime: "CPU time",
+    metricsCpuTimeTip: "process_cpu_seconds_total: cumulative user + system CPU time.",
+    metricsOpenFds: "Open file descriptors",
+    metricsOpenFdsTip:
+      "process_open_fds / process_max_fds: near the limit new connections may be refused.",
+    metricsUptimeUnknown: "unknown",
+    metricsNoData: "no data",
     defaultTarget: "Default",
     targetEnabled: "Enabled",
     modelPrices: "Model pricing",
@@ -531,6 +802,7 @@ function setLanguage(language) {
   renderMetaPane("response");
   renderRequestPricing();
   renderTaskPricingPanel();
+  if ($("metricsDialog")?.open) renderMetricsDialog();
   // The statistics page is rendered on demand; re-render it if it was loaded so
   // its inline (non data-i18n) labels follow the new language without a refresh.
   if ($("statsOverview")?.innerHTML)
@@ -797,9 +1069,9 @@ function renderTarget(target, pair, pairIndex, targetIndex) {
         <div class="target-title">
           <button type="button" class="target-drag-handle" data-drag-target title="${escapeHtml(t("dragTarget"))}" aria-label="${escapeHtml(t("dragTarget"))}" ${canReorder ? "" : "disabled"}>⠿</button>
           <input data-target-field="name" value="${escapeHtml(target.name || "")}" placeholder="${escapeHtml(t("targetName"))}">
-          <label class="default-target"><input type="radio" name="default-target-${pairIndex}" data-default-target ${isDefault ? "checked" : ""}> <span>${escapeHtml(t("defaultTarget"))}</span></label>
         </div>
         <button data-check-target title="${escapeHtml(t("checkTarget"))}">${escapeHtml(t("checkTarget"))}</button>
+        <button data-metrics-target title="${escapeHtml(t("targetMetricsTitle"))}">${escapeHtml(t("targetMetrics"))}</button>
         <button data-remove-target>${escapeHtml(t("delete"))}</button>
       </div>
       <label><span>${escapeHtml(t("targetUrl"))}</span><input data-target-field="target_url" value="${escapeHtml(target.target_url || "")}" placeholder="https://api.example.com/v1"></label>
@@ -824,7 +1096,10 @@ function renderTarget(target, pair, pairIndex, targetIndex) {
         <p class="price-help">${escapeHtml(t("catalogSourceNote"))}</p>
       </details>
       <div class="target-controls">
-        ${isDefault ? `<span class="target-enabled">${escapeHtml(t("defaultTarget"))}</span>` : `<label class="target-enabled"><input type="checkbox" data-target-enabled ${target.enabled !== false ? "checked" : ""}> <span>${escapeHtml(t("targetEnabled"))}</span></label>`}
+        <div class="target-flags">
+          <label class="default-target"><input type="radio" name="default-target-${pairIndex}" data-default-target ${isDefault ? "checked" : ""}> <span>${escapeHtml(t("defaultTarget"))}</span></label>
+          <label class="target-enabled"><input type="checkbox" data-target-enabled ${isDefault || target.enabled !== false ? "checked" : ""} ${isDefault ? "disabled" : ""}> <span>${escapeHtml(t("targetEnabled"))}</span></label>
+        </div>
         <button data-toggle-target-options>${escapeHtml(t(expanded ? "lessTargetOptions" : "moreTargetOptions"))}</button>
       </div>
       <div class="target-options" ${expanded ? "" : "hidden"}>
@@ -3679,6 +3954,13 @@ $("proxyGrid").addEventListener("click", (event) => {
     openTargetCheckDialog(target);
     return;
   }
+  if (event.target.matches("[data-metrics-target]")) {
+    collectPairs();
+    const targetCard = event.target.closest(".target-card");
+    const target = pairTargets(pair)[Number(targetCard.dataset.targetIndex)];
+    openTargetMetricsDialog(target);
+    return;
+  }
   if (event.target.matches("[data-remove-target]")) {
     collectPairs();
     const targetCard = event.target.closest(".target-card");
@@ -3750,6 +4032,808 @@ $("targetCheckForm").addEventListener("submit", async (event) => {
     targetCheckStart.textContent = t("startCheck");
   }
 });
+const metricsState = {
+  url: "",
+  apiKey: "",
+  loading: false,
+  error: null,
+  text: "",
+  truncated: false,
+  status: 0,
+  durationMs: 0,
+  filter: "",
+  view: "dashboard",
+  openFamilies: {},
+  families: [],
+  familyByName: new Map(),
+  refreshMs: 0,
+  refreshTimer: null,
+  refreshTicks: 0,
+  scrollY: { dashboard: 0, list: 0 },
+};
+const PROMETHEUS_COMMENT = /^#\s*(HELP|TYPE)\s+(\S+)(?:\s+(.*))?$/;
+const PROMETHEUS_SAMPLE = /^([A-Za-z_:][A-Za-z0-9_:]*)(?:\{([^}]*)\})?\s+(\S+)(?:\s+\d+)?$/;
+const PROMETHEUS_LABEL = /(\w+)="((?:[^"\\]|\\.)*)"/g;
+function parseMetricLabels(text) {
+  if (text === undefined || text === "") return [];
+  const labels = [];
+  for (const match of text.matchAll(PROMETHEUS_LABEL)) {
+    labels.push({
+      name: match[1],
+      value: match[2].replace(/\\(.)/g, (_, ch) => (ch === "n" ? "\n" : ch)),
+    });
+  }
+  return labels;
+}
+// Parse the Prometheus exposition format into metric families: HELP/TYPE
+// comments open or update a family, sample lines attach label sets and
+// values. Families keep file order so related vLLM metrics stay grouped.
+function parsePrometheusMetrics(text) {
+  const families = [];
+  const byName = new Map();
+  const familyFor = (name) => {
+    let family = byName.get(name);
+    if (family === undefined) {
+      family = { name, type: "", help: "", samples: [] };
+      byName.set(name, family);
+      families.push(family);
+    }
+    return family;
+  };
+  for (const raw of String(text).split(/\r?\n/)) {
+    const line = raw.trim();
+    if (line === "") continue;
+    if (line.startsWith("#")) {
+      const comment = PROMETHEUS_COMMENT.exec(line);
+      if (comment === null) continue;
+      const family = familyFor(comment[2]);
+      if (comment[1] === "TYPE") family.type = (comment[3] || "").trim();
+      else if (family.help === "") family.help = (comment[3] || "").trim();
+      continue;
+    }
+    const sample = PROMETHEUS_SAMPLE.exec(line);
+    if (sample === null) continue;
+    familyFor(sample[1]).samples.push({
+      labels: parseMetricLabels(sample[2]),
+      value: sample[3],
+    });
+  }
+  return families;
+}
+function formatMetricBytes(value) {
+  const units = ["B", "KB", "MB", "GB", "TB", "PB"];
+  let n = Number(value);
+  if (!Number.isFinite(n)) return String(value);
+  const sign = n < 0 ? "-" : "";
+  n = Math.abs(n);
+  let unit = 0;
+  while (n >= 1024 && unit < units.length - 1) {
+    n /= 1024;
+    unit += 1;
+  }
+  return `${sign}${n.toFixed(unit === 0 ? 0 : 2)} ${units[unit]}`;
+}
+function formatMetricSeconds(value) {
+  const n = Number(value);
+  if (!Number.isFinite(n)) return String(value);
+  if (Math.abs(n) < 1) return `${(n * 1000).toFixed(1)} ms`;
+  if (n < 60) return `${n.toFixed(2)} s`;
+  return formatDuration(n * 1000);
+}
+function formatMetricValue(familyName, raw) {
+  const n = Number(raw);
+  if (!Number.isFinite(n)) return String(raw);
+  if (familyName.endsWith("_bytes")) return formatMetricBytes(n);
+  if (familyName.endsWith("_seconds")) return formatMetricSeconds(n);
+  if (familyName.endsWith("_created")) {
+    const date = new Date(n * 1000);
+    return Number.isFinite(date.getTime()) ? date.toLocaleString() : String(raw);
+  }
+  if (Number.isInteger(n)) return formatIntegerValue(n);
+  return n.toLocaleString(state.language === "en" ? "en-US" : "zh-CN", {
+    maximumFractionDigits: 6,
+  });
+}
+function metricFamilyHtml(family) {
+  const open = Boolean(metricsState.openFamilies[family.name]);
+  const typeBadge =
+    family.type === "" ? "" : `<span class="metrics-type">${escapeHtml(family.type)}</span>`;
+  const rows = family.samples
+    .map((sample) => {
+      const labels =
+        sample.labels.length === 0
+          ? `<span class="metrics-label-empty">—</span>`
+          : sample.labels
+              .map(
+                (label) =>
+                  `<span class="metrics-label" title="${escapeHtml(`${label.name}=${label.value}`)}">${escapeHtml(label.name)}=${escapeHtml(label.value)}</span>`,
+              )
+              .join("");
+      return `<tr><td class="metrics-labels">${labels}</td><td class="metrics-value">${escapeHtml(formatMetricValue(family.name, sample.value))}</td></tr>`;
+    })
+    .join("");
+  return `<details class="metrics-family"${open ? " open" : ""} data-metrics-family="${escapeHtml(family.name)}"><summary><code class="metrics-family-name">${escapeHtml(family.name)}</code>${typeBadge}<span class="metrics-family-count">${family.samples.length}</span></summary>${family.help === "" ? "" : `<p class="metrics-family-help">${escapeHtml(family.help)}</p>`}<table class="metrics-table"><tbody>${rows}</tbody></table></details>`;
+}
+// --- vLLM dashboard helpers -------------------------------------------------
+// The dashboard turns the raw exposition into a small set of derived numbers:
+// counters are summed across engines, gauges read the first sample, and
+// latency percentiles are interpolated from histogram buckets (approximate).
+function metricCounterTotal(name) {
+  const family = metricsState.familyByName.get(name);
+  if (family === undefined) return undefined;
+  let total = 0;
+  let seen = false;
+  family.samples.forEach((sample) => {
+    const n = Number(sample.value);
+    if (Number.isFinite(n)) {
+      total += n;
+      seen = true;
+    }
+  });
+  return seen ? total : undefined;
+}
+function metricGauge(name) {
+  const family = metricsState.familyByName.get(name);
+  if (family === undefined) return undefined;
+  for (const sample of family.samples) {
+    const n = Number(sample.value);
+    if (Number.isFinite(n)) return n;
+  }
+  return undefined;
+}
+function metricLabel(name, labelName) {
+  const family = metricsState.familyByName.get(name);
+  if (family === undefined) return undefined;
+  for (const sample of family.samples) {
+    const label = sample.labels.find((entry) => entry.name === labelName);
+    if (label !== undefined) return label.value;
+  }
+  return undefined;
+}
+function histogramBuckets(name) {
+  // The TYPE comment names the histogram family but the samples live in its
+  // `_bucket` companion family, so read the buckets from there.
+  const family = metricsState.familyByName.get(`${name}_bucket`);
+  if (family === undefined) return undefined;
+  const cumulative = [];
+  family.samples.forEach((sample) => {
+    const le = sample.labels.find((entry) => entry.name === "le");
+    if (le === undefined) return;
+    const count = Number(sample.value);
+    if (!Number.isFinite(count)) return;
+    cumulative.push({
+      upper: le.value === "+Inf" ? Infinity : Number(le.value),
+      count,
+    });
+  });
+  if (cumulative.length === 0) return undefined;
+  cumulative.sort((a, b) => a.upper - b.upper);
+  return cumulative;
+}
+// Linear interpolation inside the bucket that contains the target rank; the
+// +Inf bucket has no width so its quantile falls back to the previous bound.
+function histogramQuantile(name, q) {
+  const cumulative = histogramBuckets(name);
+  if (cumulative === undefined) return undefined;
+  const total = cumulative[cumulative.length - 1].count;
+  if (total <= 0) return undefined;
+  const target = q * total;
+  let prevUpper = 0;
+  let prevCount = 0;
+  for (const bucket of cumulative) {
+    if (bucket.count >= target) {
+      if (!Number.isFinite(bucket.upper)) return prevUpper;
+      const span = bucket.count - prevCount;
+      if (span <= 0) return bucket.upper;
+      return prevUpper + ((target - prevCount) / span) * (bucket.upper - prevUpper);
+    }
+    prevUpper = bucket.upper;
+    prevCount = bucket.count;
+  }
+  const last = cumulative[cumulative.length - 1];
+  return Number.isFinite(last.upper) ? last.upper : prevUpper;
+}
+function histogramObservations(name) {
+  return metricCounterTotal(`${name}_count`);
+}
+function histogramMean(name) {
+  const sum = metricCounterTotal(`${name}_sum`);
+  const count = histogramObservations(name);
+  if (sum === undefined || count === undefined || count === 0) return undefined;
+  return sum / count;
+}
+function histogramBarHtml(name) {
+  const cumulative = histogramBuckets(name);
+  if (cumulative === undefined) return "";
+  const buckets = cumulative.map((bucket, index) => ({
+    upper: bucket.upper,
+    count: index === 0 ? bucket.count : bucket.count - cumulative[index - 1].count,
+  }));
+  const max = Math.max(1, ...buckets.map((bucket) => bucket.count));
+  return `<div class="mds-buckets">${buckets
+    .map((bucket) => {
+      const width = Math.max(1.5, (bucket.count / max) * 100);
+      const label = Number.isFinite(bucket.upper) ? formatMetricSeconds(bucket.upper) : "\u221e";
+      return `<div class="mds-bucket" title="${escapeHtml(`${label}: ${bucket.count}`)}"><span class="mds-bucket-le">${escapeHtml(label)}</span><span class="mds-bucket-track"><span class="mds-bucket-fill" style="width:${width.toFixed(1)}%"></span></span><span class="mds-bucket-count">${escapeHtml(formatIntegerValue(bucket.count))}</span></div>`;
+    })
+    .join("")}</div>`;
+}
+function mdsStat(labelKey, value, sub, tipKey) {
+  const tip = tipKey === undefined ? "" : ` title="${escapeHtml(t(tipKey))}"`;
+  const subHtml = sub === undefined || sub === "" ? "" : `<em>${sub}</em>`;
+  return `<div class="mds-stat"${tip}><small>${escapeHtml(t(labelKey))}</small><strong>${value}</strong>${subHtml}</div>`;
+}
+function mdsNoData() {
+  return `<strong class="mds-empty">${escapeHtml(t("metricsNoData"))}</strong>`;
+}
+function mdsBar(ratio, cls) {
+  if (ratio === undefined) return "";
+  const width = Math.max(0, Math.min(100, ratio * 100)).toFixed(1);
+  return `<span class="mds-bar"><span class="mds-bar-fill ${cls}" style="width:${width}%"></span></span>`;
+}
+function mdsSection(titleKey, noteKey, inner) {
+  return `<section class="mds-section"><h3>${escapeHtml(t(titleKey))}</h3><p class="mds-note">${escapeHtml(t(noteKey))}</p>${inner}</section>`;
+}
+function mdsLatencyPanel(name, titleKey, tipKey) {
+  const observations = histogramObservations(name);
+  const mean = histogramMean(name);
+  const quantileHtml = [0.5, 0.95, 0.99]
+    .map((q, index) => {
+      const label = t(index === 0 ? "metricsP50" : index === 1 ? "metricsP95" : "metricsP99");
+      const value = histogramQuantile(name, q);
+      return `<div class="mds-quantile"><small>${escapeHtml(label)}</small><strong>${value === undefined ? escapeHtml(t("metricsNoData")) : escapeHtml(formatMetricSeconds(value))}</strong></div>`;
+    })
+    .join("");
+  const meanHtml =
+    mean === undefined
+      ? ""
+      : `<div class="mds-quantile mds-quantile-mean"><small>${escapeHtml(t("metricsAvg"))}</small><strong>${escapeHtml(formatMetricSeconds(mean))}</strong></div>`;
+  const countHtml =
+    observations === undefined
+      ? ""
+      : `<span class="mds-panel-count" title="${escapeHtml(t("metricsObservations"))}">${escapeHtml(formatIntegerValue(observations))}</span>`;
+  return `<div class="mds-panel" title="${escapeHtml(t(tipKey))}"><div class="mds-panel-head"><strong>${escapeHtml(t(titleKey))}</strong>${countHtml}</div><div class="mds-quantiles">${quantileHtml}${meanHtml}</div>${histogramBarHtml(name)}</div>`;
+}
+function vllmDashboardHtml() {
+  // Engine status: model, uptime and the sleep-mode pill.
+  const modelName = metricLabel("vllm:num_requests_running", "model_name");
+  const startTime = metricGauge("process_start_time_seconds");
+  const uptimeMs = startTime === undefined ? undefined : Math.max(0, Date.now() - startTime * 1000);
+  let engineStateKey = "metricsUptimeUnknown";
+  const sleepFamily = metricsState.familyByName.get("vllm:engine_sleep_state");
+  if (sleepFamily !== undefined) {
+    for (const sample of sleepFamily.samples) {
+      if (Number(sample.value) > 0) {
+        const state = sample.labels.find((entry) => entry.name === "sleep_state")?.value;
+        if (state === "awake") engineStateKey = "metricsEngineAwake";
+        else if (state === "weights_offloaded") engineStateKey = "metricsEngineSleeping";
+        else if (state === "discard_all") engineStateKey = "metricsEngineDiscarded";
+        break;
+      }
+    }
+  }
+  const statusCards = `<div class="mds-grid">${mdsStat(
+    "metricsModelName",
+    modelName === undefined ? mdsNoData() : escapeHtml(modelName),
+    "",
+    undefined,
+  )}${mdsStat(
+    "metricsUptime",
+    uptimeMs === undefined ? mdsNoData() : escapeHtml(formatDuration(uptimeMs)),
+    "",
+    "metricsUptimeTip",
+  )}<div class="mds-stat" title="${escapeHtml(t("metricsEngineSleepTip"))}"><small>${escapeHtml(t("metricsEngineAwake"))} / ${escapeHtml(t("metricsEngineSleeping"))}</small><strong class="mds-pill mds-pill-${engineStateKey === "metricsEngineAwake" ? "ok" : engineStateKey === "metricsEngineSleeping" ? "warn" : "danger"}">${escapeHtml(t(engineStateKey))}</strong></div></div>`;
+
+  // Live load: running/waiting gauges, KV pressure and preemptions.
+  const running = metricGauge("vllm:num_requests_running");
+  const waiting = metricGauge("vllm:num_requests_waiting");
+  const waitingReasons = metricsState.familyByName.get("vllm:num_requests_waiting_by_reason");
+  const reasonsSub =
+    waitingReasons === undefined || waitingReasons.samples.length === 0
+      ? ""
+      : escapeHtml(
+          waitingReasons.samples
+            .map(
+              (sample) =>
+                `${sample.labels.find((entry) => entry.name === "reason")?.value ?? "?"}=${formatIntegerValue(Number(sample.value))}`,
+            )
+            .join(" "),
+        );
+  const kvUsage = metricGauge("vllm:kv_cache_usage_perc");
+  const kvCls =
+    kvUsage === undefined ? "" : kvUsage < 0.7 ? "ok" : kvUsage < 0.9 ? "warn" : "danger";
+  const loadCards = `<div class="mds-grid">${mdsStat(
+    "metricsRequestsRunning",
+    running === undefined ? mdsNoData() : escapeHtml(formatIntegerValue(running)),
+    "",
+    "metricsLoadTip",
+  )}${mdsStat(
+    "metricsRequestsWaiting",
+    waiting === undefined ? mdsNoData() : escapeHtml(formatIntegerValue(waiting)),
+    reasonsSub,
+    "metricsLoadTip",
+  )}${mdsStat(
+    "metricsKvUsage",
+    kvUsage === undefined ? mdsNoData() : `${(kvUsage * 100).toFixed(1)}%`,
+    mdsBar(kvUsage, kvCls),
+    "metricsKvUsageTip",
+  )}${mdsStat(
+    "metricsPreemptions",
+    (() => {
+      const total = metricCounterTotal("vllm:num_preemptions_total");
+      return total === undefined ? mdsNoData() : escapeHtml(formatIntegerValue(total));
+    })(),
+    "",
+    "metricsPreemptionsTip",
+  )}</div>`;
+
+  // Cache & speculative decoding ratios since start.
+  const ratioStat = (labelKey, tipKey, hitsName, queriesName) => {
+    const hits = metricCounterTotal(hitsName);
+    const queries = metricCounterTotal(queriesName);
+    if (hits === undefined || queries === undefined || queries === 0)
+      return mdsStat(labelKey, mdsNoData(), "", tipKey);
+    const ratio = hits / queries;
+    return mdsStat(labelKey, `${(ratio * 100).toFixed(1)}%`, mdsBar(ratio, "ok"), tipKey);
+  };
+  const specDraft = metricCounterTotal("vllm:spec_decode_num_draft_tokens_total") ?? 0;
+  const mmQueries = metricCounterTotal("vllm:mm_cache_queries_total") ?? 0;
+  const externalQueries = metricCounterTotal("vllm:external_prefix_cache_queries_total") ?? 0;
+  const specHtml =
+    specDraft > 0
+      ? (() => {
+          const accepted = metricCounterTotal("vllm:spec_decode_num_accepted_tokens_total") ?? 0;
+          const ratio = accepted / specDraft;
+          return mdsStat(
+            "metricsSpecAccept",
+            `${(ratio * 100).toFixed(1)}%`,
+            mdsBar(ratio, "ok"),
+            "metricsSpecAcceptTip",
+          );
+        })()
+      : "";
+  const mmHtml =
+    mmQueries > 0
+      ? ratioStat(
+          "metricsMmCacheHit",
+          "metricsMmCacheHitTip",
+          "vllm:mm_cache_hits_total",
+          "vllm:mm_cache_queries_total",
+        )
+      : "";
+  const externalHtml =
+    externalQueries > 0
+      ? ratioStat(
+          "metricsExternalPrefixHit",
+          "metricsExternalPrefixHitTip",
+          "vllm:external_prefix_cache_hits_total",
+          "vllm:external_prefix_cache_queries_total",
+        )
+      : "";
+  const configCards = (() => {
+    const card = (labelKey, value, tipKey) => mdsStat(labelKey, value, "", tipKey);
+    const pick = (labelName) => metricLabel("vllm:cache_config_info", labelName);
+    const sizeTokens = pick("kv_cache_size_tokens");
+    const blocks = pick("num_gpu_blocks");
+    const blockSize = pick("block_size");
+    const prefix = pick("enable_prefix_caching");
+    const utilization = pick("gpu_memory_utilization");
+    const numberish = (value) => {
+      if (value === undefined || value === "None") return mdsNoData();
+      return escapeHtml(formatIntegerValue(value));
+    };
+    return [
+      card("metricsCacheBlocks", numberish(blocks), "metricsCacheConfigTip"),
+      card("metricsCacheSizeTokens", numberish(sizeTokens), "metricsCacheConfigTip"),
+      card("metricsCacheBlockSize", numberish(blockSize), "metricsCacheConfigTip"),
+      card(
+        "metricsPrefixCaching",
+        prefix === undefined
+          ? mdsNoData()
+          : `<span class="mds-pill mds-pill-${prefix === "True" ? "ok" : "danger"}">${escapeHtml(t(prefix === "True" ? "metricsOn" : "metricsOff"))}</span>`,
+        "metricsCacheConfigTip",
+      ),
+      card(
+        "metricsGpuMemoryUtil",
+        utilization === undefined || utilization === "None"
+          ? mdsNoData()
+          : escapeHtml(`${(Number(utilization) * 100).toFixed(0)}%`),
+        "metricsCacheConfigTip",
+      ),
+    ].join("");
+  })();
+  const cacheCards = `<div class="mds-grid">${ratioStat(
+    "metricsPrefixHit",
+    "metricsPrefixHitTip",
+    "vllm:prefix_cache_hits_total",
+    "vllm:prefix_cache_queries_total",
+  )}${externalHtml}${mmHtml}${specHtml}${configCards}</div>`;
+
+  // Latency panels with interpolated percentiles and bucket bars.
+  const latencyPanels = `<div class="mds-latency">${[
+    mdsLatencyPanel("vllm:time_to_first_token_seconds", "metricsTtft", "metricsTtftTip"),
+    mdsLatencyPanel("vllm:inter_token_latency_seconds", "metricsItl", "metricsItlTip"),
+    mdsLatencyPanel("vllm:request_queue_time_seconds", "metricsQueueTime", "metricsQueueTimeTip"),
+    mdsLatencyPanel(
+      "vllm:request_prefill_time_seconds",
+      "metricsPrefillTime",
+      "metricsPrefillTimeTip",
+    ),
+    mdsLatencyPanel(
+      "vllm:request_decode_time_seconds",
+      "metricsDecodeTime",
+      "metricsDecodeTimeTip",
+    ),
+    mdsLatencyPanel("vllm:e2e_request_latency_seconds", "metricsE2e", "metricsE2eTip"),
+  ].join("")}</div>`;
+
+  // Token throughput: lifetime totals, per-request averages, decode speed and
+  // the prompt-source split (falls back to the cached-total ratio).
+  const promptTotal = metricCounterTotal("vllm:prompt_tokens_total");
+  const generationTotal = metricCounterTotal("vllm:generation_tokens_total");
+  const decodeSum = metricCounterTotal("vllm:request_decode_time_seconds_sum");
+  const decodeSpeed =
+    generationTotal !== undefined && decodeSum !== undefined && decodeSum > 0
+      ? `${(generationTotal / decodeSum).toFixed(1)} t/s`
+      : undefined;
+  const reasons = metricsState.familyByName.get("vllm:request_success_total");
+  const reasonLabels = {
+    stop: "metricsReasonStop",
+    length: "metricsReasonLength",
+    abort: "metricsReasonAbort",
+    error: "metricsReasonError",
+    repetition: "metricsReasonRepetition",
+  };
+  const reasonHtml =
+    reasons === undefined
+      ? ""
+      : `<div class="mds-chips">${reasons.samples
+          .map((sample) => {
+            const reason =
+              sample.labels.find((entry) => entry.name === "finished_reason")?.value ?? "?";
+            const labelKey = reasonLabels[reason] ?? "metricsNoData";
+            const count = Number(sample.value);
+            const bad = (reason === "abort" || reason === "error") && count > 0;
+            return `<span class="mds-chip${bad ? " mds-chip-danger" : ""}">${escapeHtml(t(labelKey))} ${escapeHtml(formatIntegerValue(count))}</span>`;
+          })
+          .join("")}</div>`;
+  const sources = metricsState.familyByName.get("vllm:prompt_tokens_by_source_total");
+  const sourceLabels = {
+    local_compute: "metricsSourceLocalCompute",
+    local_cache_hit: "metricsSourceLocalCacheHit",
+    external_kv_transfer: "metricsSourceExternalKvTransfer",
+  };
+  const sourceTotal =
+    sources === undefined
+      ? 0
+      : sources.samples.reduce((sum, sample) => sum + Number(sample.value || 0), 0);
+  let sourceHtml = "";
+  if (sourceTotal > 0) {
+    const colors = {
+      local_cache_hit: "var(--accent)",
+      local_compute: "#e0a03a",
+      external_kv_transfer: "#3b82f6",
+    };
+    const sorted = sources.samples
+      .map((sample) => ({
+        source: sample.labels.find((entry) => entry.name === "source")?.value ?? "?",
+        value: Number(sample.value || 0),
+      }))
+      .sort((a, b) => b.value - a.value);
+    const segments = sorted
+      .filter((entry) => entry.value > 0)
+      .map(
+        (entry) =>
+          `<span class="mds-stack-segment" style="flex:${entry.value};background:${colors[entry.source] ?? "var(--line)"}" title="${escapeHtml(`${entry.source}: ${formatIntegerValue(entry.value)} (${((entry.value / sourceTotal) * 100).toFixed(1)}%)`)}"></span>`,
+      )
+      .join("");
+    const legend = sorted
+      .map(
+        (entry) =>
+          `<span class="mds-legend"><i style="background:${colors[entry.source] ?? "var(--line)"}"></i>${escapeHtml(t(sourceLabels[entry.source] ?? "metricsNoData"))} ${escapeHtml(`${((entry.value / sourceTotal) * 100).toFixed(1)}%`)}</span>`,
+      )
+      .join("");
+    sourceHtml = mdsStat(
+      "metricsPromptSources",
+      `<span class="mds-stack">${segments}</span>`,
+      legend,
+      "metricsPromptSourcesTip",
+    );
+  } else {
+    const cached = metricCounterTotal("vllm:prompt_tokens_cached_total");
+    if (cached !== undefined && promptTotal !== undefined && promptTotal > 0) {
+      const ratio = cached / promptTotal;
+      sourceHtml = mdsStat(
+        "metricsPromptSources",
+        `${(ratio * 100).toFixed(1)}%`,
+        mdsBar(ratio, "ok"),
+        "metricsPromptSourcesTip",
+      );
+    }
+  }
+  const avgStat = (labelKey, name, tipKey) => {
+    const mean = histogramMean(name);
+    return mdsStat(
+      labelKey,
+      mean === undefined ? mdsNoData() : escapeHtml(formatIntegerValue(Math.round(mean))),
+      "",
+      tipKey,
+    );
+  };
+  const cachedStat = (() => {
+    const cached = metricCounterTotal("vllm:prompt_tokens_cached_total");
+    return mdsStat(
+      "metricsPromptCached",
+      cached === undefined ? mdsNoData() : escapeHtml(formatIntegerValue(cached)),
+      "",
+      "metricsPromptCachedTip",
+    );
+  })();
+  const tokenCards = `<div class="mds-grid">${mdsStat(
+    "metricsRequestsCompleted",
+    (() => {
+      const total = metricCounterTotal("vllm:request_success_total");
+      return total === undefined ? mdsNoData() : escapeHtml(formatIntegerValue(total));
+    })(),
+    reasonHtml,
+    "metricsRequestsCompletedTip",
+  )}${mdsStat(
+    "metricsDecodeSpeed",
+    decodeSpeed === undefined ? mdsNoData() : escapeHtml(decodeSpeed),
+    "",
+    "metricsDecodeSpeedTip",
+  )}${mdsStat(
+    "metricsPromptTokensTotal",
+    promptTotal === undefined ? mdsNoData() : escapeHtml(formatIntegerValue(promptTotal)),
+    "",
+    "metricsPromptTokensTotalTip",
+  )}${mdsStat(
+    "metricsGenerationTokensTotal",
+    generationTotal === undefined ? mdsNoData() : escapeHtml(formatIntegerValue(generationTotal)),
+    "",
+    "metricsGenerationTokensTotalTip",
+  )}${avgStat("metricsAvgPromptLength", "vllm:request_prompt_tokens", "metricsAvgPromptLengthTip")}${avgStat(
+    "metricsAvgGenerationLength",
+    "vllm:request_generation_tokens",
+    "metricsAvgGenerationLengthTip",
+  )}${cachedStat}${sourceHtml}</div>`;
+
+  // Process resources: host memory, CPU and file descriptors.
+  const openFds = metricGauge("process_open_fds");
+  const maxFds = metricGauge("process_max_fds");
+  const processCards = `<div class="mds-grid">${mdsStat(
+    "metricsMemoryRss",
+    (() => {
+      const rss = metricGauge("process_resident_memory_bytes");
+      return rss === undefined ? mdsNoData() : escapeHtml(formatMetricBytes(rss));
+    })(),
+    "",
+    "metricsMemoryRssTip",
+  )}${mdsStat(
+    "metricsVirtualMemory",
+    (() => {
+      const value = metricGauge("process_virtual_memory_bytes");
+      return value === undefined ? mdsNoData() : escapeHtml(formatMetricBytes(value));
+    })(),
+    "",
+    "metricsVirtualMemoryTip",
+  )}${mdsStat(
+    "metricsCpuTime",
+    (() => {
+      const value = metricCounterTotal("process_cpu_seconds_total");
+      return value === undefined ? mdsNoData() : escapeHtml(formatMetricSeconds(value));
+    })(),
+    "",
+    "metricsCpuTimeTip",
+  )}${mdsStat(
+    "metricsOpenFds",
+    openFds === undefined || maxFds === undefined
+      ? mdsNoData()
+      : escapeHtml(`${formatIntegerValue(openFds)} / ${formatIntegerValue(maxFds)}`),
+    "",
+    "metricsOpenFdsTip",
+  )}</div>`;
+
+  return `<div class="metrics-dashboard">${[
+    mdsSection("metricsSectionStatus", "metricsSectionStatusNote", statusCards),
+    mdsSection("metricsSectionLoad", "metricsSectionLoadNote", loadCards),
+    mdsSection("metricsSectionCache", "metricsSectionCacheNote", cacheCards),
+    mdsSection("metricsSectionTokens", "metricsSectionTokensNote", tokenCards),
+    mdsSection("metricsSectionProcess", "metricsSectionProcessNote", processCards),
+    mdsSection("metricsSectionLatency", "metricsSectionLatencyNote", latencyPanels),
+  ].join("")}</div>`;
+}
+function renderMetricsDialog() {
+  const result = $("metricsResult");
+  const dashboard = $("metricsDashboard");
+  const list = $("metricsList");
+  $("metricsDialogUrl").textContent = metricsState.url;
+  $("metricsRefresh").disabled = metricsState.loading || metricsState.url === "";
+  result.hidden = true;
+  result.textContent = "";
+  result.className = "target-check-result";
+  if (metricsState.loading) {
+    result.hidden = false;
+    result.className = "target-check-result testing";
+    result.textContent = t("metricsLoading");
+    dashboard.innerHTML = "";
+    $("metricsListBody").innerHTML = "";
+    return;
+  }
+  if (metricsState.error !== null) {
+    result.hidden = false;
+    result.className = "target-check-result failure";
+    result.textContent = t("metricsFail").replace("{error}", metricsState.error);
+    dashboard.innerHTML = "";
+    $("metricsListBody").innerHTML = "";
+    return;
+  }
+  const isVllm = metricsState.families.some((family) => family.name.startsWith("vllm:"));
+  const view = isVllm ? metricsState.view : "list";
+  dashboard.hidden = view !== "dashboard";
+  list.hidden = view !== "list";
+  $("metricsViewDashboard").classList.toggle("primary", view === "dashboard");
+  $("metricsViewList").classList.toggle("primary", view === "list");
+  if (view === "dashboard") {
+    dashboard.innerHTML = vllmDashboardHtml();
+    return;
+  }
+  const filter = metricsState.filter.trim().toLowerCase();
+  const families = metricsState.families.filter(
+    (family) => filter === "" || family.name.toLowerCase().includes(filter),
+  );
+  const meta = [
+    `HTTP ${metricsState.status}`,
+    `${Math.round(metricsState.durationMs)} ms`,
+    filter === ""
+      ? t("metricsFamilies").replace("{n}", String(metricsState.families.length))
+      : `${families.length} / ${metricsState.families.length}`,
+  ];
+  if (metricsState.truncated) meta.push(t("metricsTruncated"));
+  $("metricsListBody").innerHTML =
+    `<p class="metrics-meta">${meta.map(escapeHtml).join(" · ")}</p>${isVllm ? "" : `<p class="metrics-note">${escapeHtml(t("metricsNotVllm"))}</p>`}${families
+      .map(metricFamilyHtml)
+      .join("")}`;
+  $("metricsRawPre").textContent = metricsState.text;
+}
+function openTargetMetricsDialog(target) {
+  metricsState.url = target.target_url || "";
+  metricsState.apiKey = target.target_api_key || "";
+  metricsState.filter = "";
+  $("metricsFilter").value = "";
+  metricsState.text = "";
+  metricsState.families = [];
+  metricsState.error = null;
+  metricsState.truncated = false;
+  metricsState.status = 0;
+  metricsState.durationMs = 0;
+  metricsState.loading = true;
+  metricsState.openFamilies = {};
+  metricsState.view = "dashboard";
+  renderMetricsDialog();
+  $("metricsDialog").showModal();
+  loadTargetMetrics();
+  const intervalSelect = $("metricsRefreshInterval");
+  if (intervalSelect) startMetricsAutoRefresh(Number(intervalSelect.value) || 0);
+  syncMetricsRefreshCountdown();
+}
+function startMetricsAutoRefresh(intervalMs) {
+  if (metricsState.refreshTimer !== null) {
+    clearInterval(metricsState.refreshTimer);
+    metricsState.refreshTimer = null;
+  }
+  metricsState.refreshMs = intervalMs;
+  metricsState.refreshTicks = intervalMs;
+  if (intervalMs <= 0) return;
+  metricsState.refreshTimer = setInterval(() => {
+    metricsState.refreshTicks -= 1000;
+    if (metricsState.refreshTicks > 0) {
+      syncMetricsRefreshCountdown();
+      return;
+    }
+    metricsState.refreshTicks = intervalMs;
+    if (!$("metricsDialog")?.open) return;
+    if (metricsState.loading) return;
+    loadTargetMetrics({ showLoading: false });
+  }, 1000);
+}
+function stopMetricsAutoRefresh() {
+  if (metricsState.refreshTimer !== null) {
+    clearInterval(metricsState.refreshTimer);
+    metricsState.refreshTimer = null;
+  }
+  syncMetricsRefreshCountdown();
+}
+function syncMetricsRefreshCountdown() {
+  const countdown = $("metricsRefreshCountdown");
+  if (!countdown) return;
+  if (metricsState.refreshTimer === null) {
+    countdown.hidden = true;
+    countdown.textContent = "";
+    return;
+  }
+  countdown.hidden = false;
+  countdown.textContent = `${Math.max(1, Math.round(metricsState.refreshTicks / 1000))} s`;
+}
+function loadTargetMetrics(options = {}) {
+  // Capture the scroll positions before any re-render: the loading state
+  // empties both bodies, which would otherwise collapse them to the top.
+  metricsState.scrollY = {
+    dashboard: $("metricsDashboard")?.scrollTop ?? 0,
+    list: $("metricsList")?.scrollTop ?? 0,
+  };
+  metricsState.loading = true;
+  // Auto-refresh skips the loading flash so the page stays visually stable.
+  if (options.showLoading !== false) renderMetricsDialog();
+  api("/api/target-metrics", {
+    method: "POST",
+    body: JSON.stringify({
+      targetUrl: metricsState.url,
+      ...(metricsState.apiKey === "" ? {} : { apiKey: metricsState.apiKey }),
+    }),
+  })
+    .then((data) => {
+      metricsState.loading = false;
+      metricsState.status = data.status ?? 0;
+      metricsState.durationMs = data.durationMs ?? 0;
+      metricsState.truncated = data.truncated === true;
+      metricsState.error = data.ok ? null : data.error || "unknown error";
+      metricsState.text = data.ok ? data.text || "" : "";
+      metricsState.families = data.ok ? parsePrometheusMetrics(metricsState.text) : [];
+      metricsState.familyByName = new Map(metricsState.families.map((f) => [f.name, f]));
+    })
+    .catch((error) => {
+      metricsState.loading = false;
+      metricsState.error = error instanceof Error ? error.message : String(error);
+      metricsState.text = "";
+      metricsState.families = [];
+      metricsState.familyByName = new Map();
+    })
+    .finally(() => {
+      renderMetricsDialog();
+      // Re-rendering replaces the bodies; put the user back where they were.
+      const dashboard = $("metricsDashboard");
+      const list = $("metricsList");
+      if (dashboard) dashboard.scrollTop = metricsState.scrollY.dashboard;
+      if (list) list.scrollTop = metricsState.scrollY.list;
+      syncMetricsRefreshCountdown();
+    });
+}
+$("metricsClose").addEventListener("click", () => $("metricsDialog").close());
+$("metricsDialog").addEventListener("close", stopMetricsAutoRefresh);
+$("metricsRefresh").addEventListener("click", () => loadTargetMetrics());
+$("metricsRefreshInterval")?.addEventListener("change", (event) => {
+  const select = event.target;
+  if (!(select instanceof HTMLSelectElement)) return;
+  startMetricsAutoRefresh(Number(select.value) || 0);
+  syncMetricsRefreshCountdown();
+});
+$("metricsViewDashboard").addEventListener("click", () => {
+  metricsState.view = "dashboard";
+  renderMetricsDialog();
+});
+$("metricsViewList").addEventListener("click", () => {
+  metricsState.view = "list";
+  renderMetricsDialog();
+});
+$("metricsFilter").addEventListener("input", (event) => {
+  metricsState.filter = event.target.value;
+  renderMetricsDialog();
+});
+// The `toggle` event does not bubble, so family open/collapse state must be
+// captured (not bubbled) on the container to survive filter re-renders.
+$("metricsListBody").addEventListener(
+  "toggle",
+  (event) => {
+    const el = event.target;
+    if (!(el instanceof HTMLDetailsElement)) return;
+    const name = el.dataset.metricsFamily;
+    if (typeof name !== "string" || name === "") return;
+    if (el.open) metricsState.openFamilies[name] = true;
+    else delete metricsState.openFamilies[name];
+  },
+  true,
+);
 $("proxyGrid").addEventListener("change", async (event) => {
   if (event.target.matches("[data-default-target]")) {
     collectPairs();

@@ -126,6 +126,13 @@ export {
   type TargetCheckResponse,
 } from "./target-check.js";
 export {
+  DEFAULT_TARGET_METRICS_TIMEOUT_MS,
+  fetchTargetMetrics,
+  MAX_TARGET_METRICS_BYTES,
+  type TargetMetricsRequest,
+  type TargetMetricsResponse,
+} from "./target-metrics.js";
+export {
   openUpstreamResponse,
   type OpenUpstreamResponseOptions,
   type UpstreamTarget,
