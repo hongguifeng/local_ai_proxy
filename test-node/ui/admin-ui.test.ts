@@ -3805,8 +3805,11 @@ describe("statistics page visual smoke", () => {
     );
     await loadAdminPage();
     await page.locator('[data-tab="statistics"]').click();
+    // Token peak is 100 tokens, so the nice tick step is 25 and the axis ends
+    // on the first multiple of it above the peak (100), not a round 200 or 500.
     await expectPage(page.locator(".trend-yaxis span")).toHaveCount(5);
     await expectPage(page.locator(".trend-gridline")).toHaveCount(5);
+    await expectPage(page.locator(".trend-yaxis span").last()).toHaveText(/^100$/);
     // The trend grouping defaults to the stacked by-model breakdown.
     await expectPage(page.locator("#statsBreakdown")).toHaveValue("model");
     await expectPage(page.locator(".trend-item").first().locator(".trend-segment")).toHaveCount(2);
@@ -3814,6 +3817,19 @@ describe("statistics page visual smoke", () => {
     await expectPage(page.locator(".trend-item").first().locator(".trend-segment")).toHaveCount(4);
     await page.locator("#statsMetricTrend").selectOption("cost");
     await expectPage(page.locator("#statsMetricTrend")).toHaveValue("cost");
+    // Cost peak is ¥0.1, so the step is ¥0.025 and the axis stops at the peak.
+    await expectPage(page.locator(".trend-yaxis span")).toHaveCount(5);
+    await expectPage(page.locator(".trend-gridline")).toHaveCount(5);
+    await expectPage(page.locator(".trend-yaxis span").last()).toHaveText(/0\.1$/);
+    // The axis must also stay clear of the old ¥1 floor, which shrank every
+    // cheap task to a tenth of the plot.
+    const costPeakFill = await page.evaluate(() => {
+      const heights = [...document.querySelectorAll(".trend-bar")].map(
+        (bar) => (bar as HTMLElement).getBoundingClientRect().height,
+      );
+      return Math.max(...heights) / 200;
+    });
+    expect(costPeakFill).toBeGreaterThan(0.9);
     await expectPage(page.locator(".trend-segment.cost")).toHaveCount(2);
     await page.locator("#statsBreakdown").selectOption("model");
     await expectPage(page.locator(".trend-item").first().locator(".trend-segment")).toHaveCount(2);
@@ -3823,6 +3839,64 @@ describe("statistics page visual smoke", () => {
       .locator(".trend-segment")
       .evaluateAll((els) => els.map((el) => (el as HTMLElement).style.backgroundColor));
     expect(new Set(costSegmentColors).size).toBe(2);
+  });
+  it("keeps a cost trend peak filling the plot instead of a round axis ceiling", async () => {
+    // A ¥25.37 daily peak used to be rounded up to a ¥50 axis, so the tallest
+    // bar covered half the chart and the statistics view looked half empty.
+    const costPoint = (bucket: string, model: string, costNano: string, tokens: string) => ({
+      bucket,
+      requests: 10,
+      tasks: 2,
+      input: tokens,
+      output: "0",
+      cache_read: "0",
+      cache_write: "0",
+      cost: costNano,
+      unpriced: 0,
+      by_model: [
+        {
+          id: model,
+          input: tokens,
+          output: "0",
+          cache_read: "0",
+          cache_write: "0",
+          cost: costNano,
+        },
+      ],
+    });
+    await page.route("**/api/usage-statistics/options*", (route) =>
+      route.fulfill({ json: { targets: [], models: [] } }),
+    );
+    await page.route("**/api/usage-statistics/overview*", (route) =>
+      route.fulfill({
+        json: { totals: {}, byTarget: [], byModel: [], unpriced: {}, dataVersion: 1 },
+      }),
+    );
+    await page.route("**/api/usage-statistics/trend*", (route) =>
+      route.fulfill({
+        json: {
+          dataVersion: 1,
+          granularity: "day",
+          points: [
+            costPoint("2026-09-27", "model-a", "8642700000", "1000"),
+            costPoint("2026-09-28", "model-b", "25370506208", "2000"),
+            costPoint("2026-09-29", "model-a", "18693000000", "3000"),
+          ],
+        },
+      }),
+    );
+    await loadAdminPage();
+    await page.locator('[data-tab="statistics"]').click();
+    await page.locator("#statsMetricTrend").selectOption("cost");
+    await expectPage(page.locator(".trend-yaxis span").last()).toHaveText(/30$/);
+    await expectPage(page.locator(".trend-gridline")).toHaveCount(4);
+    const peakFill = await page.evaluate(() => {
+      const heights = [...document.querySelectorAll(".trend-bar")].map(
+        (bar) => (bar as HTMLElement).getBoundingClientRect().height,
+      );
+      return Math.max(...heights) / 200;
+    });
+    expect(peakFill).toBeGreaterThan(0.8);
   });
   it("switches each distribution chart to cost independently with consistent controls", async () => {
     await page.route("**/api/usage-statistics/options*", (route) =>

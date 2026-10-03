@@ -3870,19 +3870,36 @@ async function loadStatistics() {
   ];
   const groupColorMap = new Map(groupIds.map((id, index) => [id, colors[index % colors.length]]));
   const groupColor = (id) => groupColorMap.get(String(id)) || colors[0];
+  // A token axis never drops below one token, but a cost axis must not: the
+  // old `Math.max(1, …)` floor pinned every cheap task onto a ¥1 axis, so a
+  // ¥0.10 peak drew a bar one tenth of the plot height.
   const maxRequests = Math.max(
-    1,
+    costMode ? 1e-9 : 1,
     ...trend.points.map((point) =>
       displayGroupsFor(point).reduce((sum, group) => sum + valueOf(group), 0),
     ),
   );
+  // The axis is rounded up to the first multiple of a nice tick step that
+  // clears the tallest bar, not to a bare `niceCeil` of the peak.  Rounding
+  // the peak itself jumps a ¥25 maximum onto a ¥50 axis, which leaves the
+  // whole upper half of the chart empty the moment the metric switches to
+  // cost.  Deriving the step from a fixed interval target keeps the labels
+  // round while the bars keep filling the plot.
+  const trendTickIntervals = 4;
   const niceCeil = (value) => {
     const exp = 10 ** Math.floor(Math.log10(Math.max(1e-9, value)));
     const f = value / exp;
-    return (f <= 1 ? 1 : f <= 2 ? 2 : f <= 5 ? 5 : 10) * exp;
+    return (f <= 1 ? 1 : f <= 2 ? 2 : f <= 2.5 ? 2.5 : f <= 5 ? 5 : 10) * exp;
   };
-  const niceMax = niceCeil(maxRequests);
-  const formatTick = (v) => compactNumber(v);
+  const tickStep = niceCeil(maxRequests / trendTickIntervals) || 1;
+  const tickIntervals = Math.max(1, Math.ceil(maxRequests / tickStep));
+  const niceMax = tickStep * tickIntervals;
+  const trendTicks = Array.from({ length: tickIntervals + 1 }, (_unused, index) => ({
+    fraction: index / tickIntervals,
+    value: tickStep * index,
+  }));
+  const formatTick = (value) =>
+    costMode ? pricingAmount(Math.round(value * 1e9)) : compactNumber(value);
   const tokenNames = {
     input: english ? "Input" : "输入",
     output: english ? "Output" : "输出",
@@ -3940,15 +3957,17 @@ async function loadStatistics() {
   const trendContent = trend.points.length
     ? trendBars
     : `<div class="stats-empty">${english ? "No trend data" : "暂无趋势数据"}</div>`;
-  const tickFractions = [0, 0.25, 0.5, 0.75, 1];
-  const trendGrid = tickFractions
+  const trendGrid = trendTicks
     .map(
-      (f) =>
-        `<i class="trend-gridline${f === 0 ? " base" : ""}" style="bottom:${22 + 200 * f}px"></i>`,
+      (tick) =>
+        `<i class="trend-gridline${tick.fraction === 0 ? " base" : ""}" style="bottom:${22 + 200 * tick.fraction}px"></i>`,
     )
     .join("");
-  const trendYaxis = `<div class="trend-yaxis" aria-hidden="true">${tickFractions
-    .map((f) => `<span style="bottom:${15 + 200 * f}px">${formatTick(niceMax * f)}</span>`)
+  const trendYaxis = `<div class="trend-yaxis" aria-hidden="true">${trendTicks
+    .map(
+      (tick) =>
+        `<span style="bottom:${15 + 200 * tick.fraction}px">${formatTick(tick.value)}</span>`,
+    )
     .join("")}</div>`;
   const headers = english
     ? [

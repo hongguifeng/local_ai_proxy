@@ -74,7 +74,7 @@ The Usage statistics tab reads the same local history data as History and summar
 | --- | --- |
 | Time range and filters | Pick a start and end time (or 7/14/30-day and today shortcuts), optionally follow the current time, and filter by forwarding target and model. |
 | Overview | Request count, task count, token totals (input / output / cache read / cache write), and total cost. |
-| Trends and breakdowns | Trend charts over time (auto / daily / weekly / monthly granularity, by total, model, or target) plus per-target and per-model distributions with donut charts. |
+| Trends and breakdowns | Trend charts over time (auto / daily / weekly / monthly granularity, by total, model, or target) plus per-target and per-model distributions with donut charts. The vertical axis rounds up to the first multiple of a round tick step that clears the tallest bar (cost ticks carry the currency symbol), so the bars fill the plot instead of leaving the upper half empty. |
 | Task counting | A task counts toward the Task totals only when it has more than five priced requests within the displayed scope (overview total, distribution rows, and trend buckets alike). |
 | Unpriced requests | Requests with missing usage or a missing price are flagged as unpriced, never free, and can be reviewed in detail. |
 | CSV export | Export the current filter scope as CSV. |
