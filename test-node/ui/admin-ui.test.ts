@@ -521,7 +521,7 @@ beforeAll(async () => {
             logs: [],
           };
         }
-        if (groupId !== "task-one") {
+        if (groupId !== "task-one" && !useLargeGroupLogFixture) {
           return undefined;
         }
         if (useLargeGroupLogFixture) {
@@ -2215,6 +2215,37 @@ describe("admin UI history page", { timeout: UI_TEST_TIMEOUT_MS }, () => {
     const placeholder = page.locator(".log-group-empty");
     await expectPage(placeholder).toHaveCount(1);
     await expectPage(placeholder).toHaveText("No matching records in this group");
+  });
+
+  it("keeps the second level below a header pinned to the top of the list", async () => {
+    useLargeLogFixture = true;
+    useLargeGroupLogFixture = true;
+    await loadAdminPage();
+    await Promise.all([
+      page.waitForResponse((response) => response.url().includes("offset=0")),
+      page.locator('[data-tab="logs"]').click(),
+    ]);
+    await expectPage(page.locator(".log-group")).toHaveCount(100);
+    const logItems = page.locator("#logItems");
+    // A single pixel of scroll puts the first header exactly on the scrollport's
+    // content top. Chromium ignores a node inside that top gap as a scroll
+    // anchor, so it used to compensate the inserted body by scrolling down by
+    // its full height and throw the whole second level above the viewport.
+    expect(await setScrollTop(logItems, 1)).toBe(1);
+    await Promise.all([
+      page.waitForResponse((response) =>
+        response.url().includes("/api/log-groups/task-1/logs?q=&limit=200&offset=0"),
+      ),
+      page.locator('[data-group-toggle="task-1"]').click(),
+    ]);
+    await expectPage(page.locator('[data-log-id^="record-"]')).toHaveCount(200);
+    expect(await scrollTop(logItems)).toBe(1);
+    const firstRow = await requiredBox(
+      page.locator('.log-group:has([data-group-id="task-1"]) .log-item').first(),
+    );
+    const itemsBox = await requiredBox(logItems);
+    expect(firstRow.y).toBeGreaterThanOrEqual(itemsBox.y);
+    expect(firstRow.y).toBeLessThan(itemsBox.y + itemsBox.height);
   });
 
   it("loads 100 more records within an expanded task", async () => {

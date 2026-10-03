@@ -1049,6 +1049,13 @@ label span {
 }
 .log-items {
   overflow: auto;
+  overflow-anchor: none;
+  /* No scroll anchoring: an incremental render replaces one task section while
+     every neighbouring node stays put, so Chromium picks an anchor node in the
+     viewport and "compensates" the newly inserted body by scrolling down by its
+     full height - expanding a task whose header is pinned to the top throws the
+     whole second level above the scrollport. A full innerHTML replace used to
+     destroy the anchor node, which is why this never showed up before. */
   padding: 10px 12px;
   background: #eef2f6;
 }
