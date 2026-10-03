@@ -706,6 +706,7 @@ const state = {
   selected: null,
   selectedLogGroups: {},
   raw: { request: null, response: null },
+  jsonPaneHtml: {},
   meta: { request: null, response: null },
   metaOpen: { request: false, response: false },
   wrap: { request: false, response: false },
@@ -3091,10 +3092,14 @@ function renderJsonPane(key, options = {}) {
   const viewState = options.preserveView ? collectJsonPaneViewState(el) : null;
   el.classList.toggle("wrap", state.wrap[key]);
   el.classList.toggle("nowrap", !state.wrap[key]);
+  const rendered = state.jsonPaneHtml[key];
+  // Parsing the tree is what costs: a several-hundred-kilobyte request body is
+  // tens of thousands of nodes. Building the markup is cheap, so a refresh that
+  // produced the same markup keeps the existing DOM instead of re-parsing it.
   if (state.tree[key]) {
     const lineWidth = el.clientWidth > 24 ? el.clientWidth - 24 : 0;
     if (state.formatStrings[key]) prepareJsonMeasurements(state.raw[key], lineWidth);
-    el.innerHTML = renderJsonValue(
+    const html = renderJsonValue(
       state.raw[key],
       "",
       true,
@@ -3103,9 +3108,17 @@ function renderJsonPane(key, options = {}) {
       [],
       lineWidth,
     );
-    restoreJsonPaneViewState(el, viewState);
+    if (html !== rendered) {
+      state.jsonPaneHtml[key] = html;
+      el.innerHTML = html;
+      restoreJsonPaneViewState(el, viewState);
+    }
   } else {
-    el.textContent = jsonText(state.raw[key]);
+    const text = jsonText(state.raw[key]);
+    if (text !== rendered) {
+      state.jsonPaneHtml[key] = text;
+      el.textContent = text;
+    }
   }
   updateExpandButton(key);
   updatePaneButtons(key);
