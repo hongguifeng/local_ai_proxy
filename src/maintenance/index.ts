@@ -1,11 +1,13 @@
 export {
   LogQueryService,
   TASK_RECORD_LIMIT,
+  PENDING_RECORD_LIMIT,
   type LogGroupLogs,
   type LogGroupPage,
   type LogGroupSummary,
   type LogTaskCost,
   type LogListItem,
+  type LogPendingRecord,
   type LogRequestCost,
   type LogRecordDetail,
 } from "./log-query-service.js";

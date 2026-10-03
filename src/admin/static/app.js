@@ -1656,7 +1656,6 @@ async function loadLogs(options = {}) {
 // wire every few seconds whenever a large task was expanded, which saturated the
 // browser's per-host connection pool and left the user's own clicks waiting.
 const PENDING_REFRESH_BATCH = 24;
-const PENDING_REFRESH_CONCURRENCY = 3;
 function nextPendingRefreshBatch(pendingItems) {
   const size = Math.min(PENDING_REFRESH_BATCH, pendingItems.length);
   if (size === 0) {
@@ -1670,17 +1669,6 @@ function nextPendingRefreshBatch(pendingItems) {
   state.pendingSweepCursor = (cursor + size) % pendingItems.length;
   return batch;
 }
-async function runWithConcurrency(items, limit, worker) {
-  let index = 0;
-  const runners = Array.from({ length: Math.min(limit, items.length) }, async () => {
-    while (index < items.length) {
-      const item = items[index];
-      index += 1;
-      await worker(item);
-    }
-  });
-  await Promise.all(runners);
-}
 async function refreshPendingLogItems() {
   const pendingItems = state.logGroups
     .filter((group) => group.logsLoaded && state.collapsedGroups[group.id])
@@ -1689,20 +1677,38 @@ async function refreshPendingLogItems() {
   const batch = nextPendingRefreshBatch(pendingItems);
   const refreshedIds = new Set();
   let listChanged = false;
-  await runWithConcurrency(batch, PENDING_REFRESH_CONCURRENCY, async (item) => {
-    const data = await api(`/api/logs/${encodeURIComponent(item.id)}`);
-    refreshedIds.add(item.id);
-    if (state.selected === item.id) applySelectedLogDetail(data, { resetView: false });
-    if (data.pending) return;
-    const requestMeta = data.request_meta || {};
-    const responseMeta = data.response_meta || {};
-    item.message_count = requestMeta.message_count ?? item.message_count;
-    item.status = responseMeta.status ?? item.status;
-    item.request_token_count = responseMeta.request_token_count ?? item.request_token_count;
-    item.response_token_count = responseMeta.response_token_count ?? item.response_token_count;
-    item.cost = logRequestCost(data.pricing);
+  if (batch.length === 0) return refreshedIds;
+  // One batched read instead of one detail request per row: the detail endpoint
+  // inflates every stored body chunk of a record, which blocked the event loop
+  // for 14-23 ms per row while requests were in flight.
+  let records = [];
+  try {
+    const query = new URLSearchParams({ ids: batch.map((item) => item.id).join(",") }).toString();
+    const data = await api(`/api/logs/records?${query}`);
+    records = Array.isArray(data?.records) ? data.records : [];
+  } catch (error) {
+    console.warn("pending records refresh failed", error);
+    return refreshedIds;
+  }
+  const rowsById = new Map(batch.map((item) => [item.id, item]));
+  records.forEach((record) => {
+    if (!record || typeof record.id !== "string") return;
+    refreshedIds.add(record.id);
+    const item = rowsById.get(record.id);
+    if (!item || record.pending) return;
+    item.message_count = record.message_count ?? item.message_count;
+    item.status = record.status ?? item.status;
+    item.request_token_count = record.request_token_count ?? item.request_token_count;
+    item.response_token_count = record.response_token_count ?? item.response_token_count;
+    item.decode_speed_tps = record.decode_speed_tps ?? item.decode_speed_tps;
+    item.end_to_end_speed_tps = record.end_to_end_speed_tps ?? item.end_to_end_speed_tps;
+    item.cost = record.cost ?? item.cost;
     listChanged = true;
   });
+  // The selected record still needs its own detail request: batch rows carry no
+  // bodies, and only the detail endpoint can grow or replace the JSON panes
+  // while a request is in flight.
+  refreshedIds.delete(state.selected);
   if (listChanged) {
     state.logs = state.logGroups.flatMap((group) => group.logs || []);
     renderLogs();
@@ -2902,6 +2908,73 @@ function jsonType(value) {
   return typeof value;
 }
 const defaultJsonExpandedDepth = 2;
+// Trees with more entries than this render lazily: a node that starts collapsed
+// keeps only its summary in the DOM and fills its children when the user opens
+// it. Assigning a fully built multi-megabyte tree blocks the main thread for
+// seconds, and an automatic refresh re-assigns it while a request is in flight.
+const lazyJsonEntryLimit = 1500;
+function jsonEntryCount(value, limit) {
+  let count = 0;
+  const stack = [value];
+  while (stack.length) {
+    const current = stack.pop();
+    if (current === null || typeof current !== "object") continue;
+    const entries = Array.isArray(current) ? current : Object.values(current);
+    for (const entry of entries) stack.push(entry);
+    count += entries.length;
+    if (count > limit) return count;
+  }
+  return count;
+}
+function resolveJsonPathValue(raw, path) {
+  let current = raw;
+  for (const key of path) {
+    if (Array.isArray(current)) {
+      const index = Number(key);
+      if (!Number.isInteger(index) || index < 0 || index >= current.length) return undefined;
+      current = current[index];
+      continue;
+    }
+    if (current !== null && typeof current === "object") {
+      current = current[key];
+      continue;
+    }
+    return undefined;
+  }
+  return current;
+}
+/** Fills the children of a node that the lazy first render left empty. */
+function materializeJsonNode(el, detail) {
+  if (detail.dataset.jsonLazy !== "1" || detail.dataset.jsonLazyDone === "1") return;
+  const key = el.dataset.jsonPaneKey;
+  const raw = key === "response" ? state.raw.response : state.raw.request;
+  const path = JSON.parse(detail.dataset.jsonNodePath || "[]");
+  const value = resolveJsonPathValue(raw, path);
+  const depth = Number(detail.dataset.jsonDepth) || 0;
+  const lineWidth = el.clientWidth > 24 ? el.clientWidth - 24 : 0;
+  const entries = Array.isArray(value)
+    ? value.map((item, index) => [index, item])
+    : Object.entries(value || {});
+  const html = entries
+    .map(
+      ([childKey, childValue]) =>
+        `<div class="json-row">${renderJsonValue(
+          childValue,
+          String(childKey),
+          false,
+          state.formatStrings[key],
+          depth + 1,
+          path.concat([childKey]),
+          lineWidth,
+          true,
+        )}</div>`,
+    )
+    .join("");
+  const children = detail.querySelector(":scope > .json-children");
+  if (children) children.innerHTML = html;
+  else detail.insertAdjacentHTML("beforeend", `<div class="json-children">${html}</div>`);
+  detail.dataset.jsonLazyDone = "1";
+}
 function jsonContentOffset(container, el) {
   let top = 0;
   let node = el;
@@ -2934,6 +3007,7 @@ function restoreJsonPaneViewState(el, viewState) {
     const saved = viewState.nodeState.get(detail.dataset.jsonNodePath);
     if (!saved) return;
     detail.open = saved.open;
+    if (detail.open && detail.dataset.jsonLazy === "1") materializeJsonNode(el, detail);
     if (!detail.classList.contains("json-str-detail")) return;
     const body = detail.querySelector(".json-str-body");
     if (!body) return;
@@ -2951,6 +3025,7 @@ function renderJsonValue(
   depth = 0,
   path = [],
   lineWidth = 0,
+  lazy = false,
 ) {
   const type = jsonType(value);
   const keyHtml =
@@ -2961,22 +3036,30 @@ function renderJsonValue(
     const start = type === "array" ? "[" : "{";
     const end = type === "array" ? "]" : "}";
     const summary = `${keyHtml}${start}<span class="json-muted">${entries.length ? ` ${entries.length} ${t("items")} ` : ""}</span>${end}`;
-    const childrenHtml = `<div class="json-children">${entries
-      .map(
-        ([childKey, childValue]) =>
-          `<div class="json-row">${renderJsonValue(
-            childValue,
-            String(childKey),
-            false,
-            formatMode,
-            depth + 1,
-            path.concat([childKey]),
-            lineWidth,
-          )}</div>`,
-      )
-      .join("")}</div>`;
-    const openAttr = depth < defaultJsonExpandedDepth ? " open" : "";
-    return `<details${openAttr} class="json-node${root ? " root" : ""}" data-json-depth="${depth}" style="--json-sticky-depth: ${depth}" data-json-node-path="${jsonNodePathAttr(path)}"><summary>${summary}</summary>${childrenHtml}<div class="json-muted">${end}</div></details>`;
+    // A node that starts collapsed in a lazy tree renders its children only
+    // when the user opens it, so the first paint pays for the visible levels.
+    const open = depth < defaultJsonExpandedDepth;
+    const childrenHtml =
+      lazy && !open
+        ? `<div class="json-children"></div>`
+        : `<div class="json-children">${entries
+            .map(
+              ([childKey, childValue]) =>
+                `<div class="json-row">${renderJsonValue(
+                  childValue,
+                  String(childKey),
+                  false,
+                  formatMode,
+                  depth + 1,
+                  path.concat([childKey]),
+                  lineWidth,
+                  lazy,
+                )}</div>`,
+            )
+            .join("")}</div>`;
+    const openAttr = open ? " open" : "";
+    const lazyAttr = lazy && !open ? ' data-json-lazy="1"' : "";
+    return `<details${openAttr} class="json-node${root ? " root" : ""}" data-json-depth="${depth}" style="--json-sticky-depth: ${depth}" data-json-node-path="${jsonNodePathAttr(path)}"${lazyAttr}><summary>${summary}</summary>${childrenHtml}<div class="json-muted">${end}</div></details>`;
   }
   if (type === "string") {
     const plain = `${keyHtml}<span class="json-string">${escapeHtml(JSON.stringify(value))}</span>`;
@@ -3097,6 +3180,7 @@ function renderJsonPane(key, options = {}) {
   // tens of thousands of nodes. Building the markup is cheap, so a refresh that
   // produced the same markup keeps the existing DOM instead of re-parsing it.
   if (state.tree[key]) {
+    el.dataset.jsonPaneKey = key;
     const lineWidth = el.clientWidth > 24 ? el.clientWidth - 24 : 0;
     if (state.formatStrings[key]) prepareJsonMeasurements(state.raw[key], lineWidth);
     const html = renderJsonValue(
@@ -3107,6 +3191,7 @@ function renderJsonPane(key, options = {}) {
       0,
       [],
       lineWidth,
+      jsonEntryCount(state.raw[key], lazyJsonEntryLimit) > lazyJsonEntryLimit,
     );
     if (html !== rendered) {
       state.jsonPaneHtml[key] = html;
@@ -5282,7 +5367,11 @@ document.querySelectorAll("[data-expand]").forEach((button) =>
 ["request", "response"].forEach((key) => {
   $(key + "Json").addEventListener(
     "toggle",
-    () => {
+    (event) => {
+      const detail = event.target;
+      if (detail instanceof HTMLElement && detail.open && detail.dataset.jsonLazy === "1") {
+        materializeJsonNode($(key + "Json"), detail);
+      }
       updateExpandButton(key);
       updatePaneButtons(key);
     },

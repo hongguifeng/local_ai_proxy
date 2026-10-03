@@ -2,6 +2,7 @@ import { afterEach, describe, expect, it } from "vitest";
 import { Readable } from "node:stream";
 
 import { applicationHealth, createAdminServer } from "../../src/admin/index.js";
+import type { LogPendingRecord } from "../../src/maintenance/index.js";
 
 const servers: ReturnType<typeof createAdminServer>[] = [];
 
@@ -250,5 +251,85 @@ describe("GET /api/logs", () => {
     expect(missing.json()).toEqual({
       error: { code: "log_record_not_found", message: "Log record not found." },
     });
+  });
+
+  it("reads many records in one body-free batch request", async () => {
+    const calls: (readonly string[])[] = [];
+    const pendingRecord: LogPendingRecord = {
+      id: "in-flight",
+      pending: true,
+      timestamp: "pending",
+      sequence: "1",
+      method: "POST",
+      path: "/v1/responses",
+      endpoint: "/v1/responses",
+      message_count: null,
+      status: null,
+      request_token_count: null,
+      response_token_count: null,
+      target: "fixture-target",
+      has_summary: false,
+      cost: { currency: "CNY", amount: null, status: "pending", reason: null },
+    };
+    const finishedRecord = { ...pendingRecord, id: "done", pending: false, status: 200 };
+    const server = createAdminServer({
+      getHealth: () => applicationHealth("running"),
+      logService: {
+        listGroups: () => ({
+          groups: [],
+          total: 0,
+          limit: 100,
+          offset: 0,
+          next_offset: 0,
+          has_more: false,
+        }),
+        listRecordsByIds: (ids) => {
+          calls.push(ids);
+          return { records: [pendingRecord, finishedRecord].filter((r) => ids.includes(r.id)) };
+        },
+      },
+    });
+    servers.push(server);
+
+    const response = await server.inject({
+      method: "GET",
+      url: "/api/logs/records?ids=in-flight,done,in-flight",
+    });
+    expect(response.statusCode).toBe(200);
+    expect(response.json()).toEqual({ records: [pendingRecord, finishedRecord] });
+    // Repeated ids are collapsed and surrounding whitespace is trimmed.
+    expect(calls).toEqual([["in-flight", "done"]]);
+
+    const noIds = await server.inject({ method: "GET", url: "/api/logs/records?ids=%20" });
+    expect(noIds.statusCode).toBe(400);
+    expect(noIds.json()).toEqual({
+      error: { code: "invalid_request", message: "At least one record id is required." },
+    });
+
+    const missingParam = await server.inject({ method: "GET", url: "/api/logs/records" });
+    expect(missingParam.statusCode).toBe(400);
+    expect(missingParam.json()).toMatchObject({
+      error: { code: "FST_ERR_VALIDATION" },
+    });
+  });
+
+  it("omits the batch route when the log service cannot read by ids", async () => {
+    const server = createAdminServer({
+      getHealth: () => applicationHealth("running"),
+      logService: {
+        listGroups: () => ({
+          groups: [],
+          total: 0,
+          limit: 100,
+          offset: 0,
+          next_offset: 0,
+          has_more: false,
+        }),
+      },
+    });
+    servers.push(server);
+
+    const response = await server.inject({ method: "GET", url: "/api/logs/records?ids=any" });
+    expect(response.statusCode).toBe(404);
   });
 });

@@ -94,6 +94,14 @@ describe("createNodeApplication", () => {
       const list = await fetch(`http://127.0.0.1:${adminPort}/api/logs`);
       expect(list.status).toBe(200);
 
+      // The pending sweep depends on this route: without it the admin UI falls
+      // back to one detail request per in-flight record.
+      const records = await fetch(
+        `http://127.0.0.1:${adminPort}/api/logs/records?ids=missing-record`,
+      );
+      expect(records.status).toBe(200);
+      expect(await records.json()).toEqual({ records: [] });
+
       const pricing = await fetch(
         `http://127.0.0.1:${adminPort}/api/log-groups/missing-group/pricing`,
       );

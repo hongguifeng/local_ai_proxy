@@ -67,6 +67,7 @@ export function createNodeApplication(options: NodeApplicationOptions): NodeAppl
             return {
               listGroups: logs.listGroups.bind(logs),
               getGroupLogs: logs.getGroupLogs.bind(logs),
+              listRecordsByIds: logs.listRecordsByIds.bind(logs),
               getRecordDetail: logs.getRecordDetail.bind(logs),
               getGroupPricing: logs.getGroupPricing.bind(logs),
               getGroupTokenSeries: logs.getGroupTokenSeries.bind(logs),

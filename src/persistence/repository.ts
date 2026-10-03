@@ -763,6 +763,36 @@ export class TrafficRepository {
     };
   }
 
+  /**
+   * Returns body-free rows for the given record ids. The admin pending sweep
+   * uses this instead of `getRecord`: decoding a record loads its streamed
+   * body chunks from disk and inflates them, which blocks the event loop for
+   * tens of milliseconds per record while requests are in flight.
+   */
+  listRecordsByIds(ids: readonly string[], limit = 200): readonly RepositoryRecord[] {
+    const boundedIds = ids.slice(0, Math.max(1, integerValue(limit, 200)));
+    if (boundedIds.length === 0) return [];
+    const placeholders = boundedIds.map(() => "?").join(", ");
+    return this.#database
+      .prepare(
+        `
+        SELECT id, sequence, timestamp, method, path, endpoint, status,
+          message_count, request_token_count, response_token_count, target_url,
+          event, first_token_ms, decode_window_ms, duration_ms,
+          pricing_status, pricing_reason, CAST(cost_nano_cny AS TEXT) AS cost_nano_cny,
+          EXISTS (
+            SELECT 1 FROM history_summaries
+            WHERE history_summaries.record_id = records.id
+              AND history_summaries.status = 'ready'
+          ) AS has_summary
+        FROM records
+        WHERE id IN (${placeholders})
+        ORDER BY sequence DESC
+      `,
+      )
+      .all(...boundedIds) as RepositoryRecord[];
+  }
+
   listTaskSearchPreviews(
     taskIds: readonly string[],
     query: string,

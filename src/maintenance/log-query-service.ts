@@ -67,6 +67,10 @@ export interface LogListItem {
   readonly response_token_count: number | null;
 }
 
+export interface LogPendingRecord extends LogListItem {
+  readonly pending: boolean;
+}
+
 export interface LogRequestCost {
   readonly amount: string | null;
   readonly currency: "CNY";
@@ -186,6 +190,38 @@ export class LogQueryService {
       }
     }
     return undefined;
+  }
+
+  /**
+   * Body-free rows for the given record ids, in descending sequence order, so
+   * the admin UI can refresh in-flight records without decoding their bodies.
+   * Ids that are not present in any log root are simply omitted.
+   */
+  listRecordsByIds(
+    ids: readonly string[],
+    limit = PENDING_RECORD_LIMIT,
+  ): { records: readonly LogPendingRecord[] } {
+    const boundedIds = ids.slice(0, Math.max(1, integer(limit, PENDING_RECORD_LIMIT)));
+    if (boundedIds.length === 0) return { records: [] };
+    const records: LogPendingRecord[] = [];
+    const seen = new Set<string>();
+    for (const root of [...new Set(this.#logRoots().filter((value) => value !== ""))]) {
+      const repository = new TrafficRepository(root);
+      try {
+        for (const row of repository.listRecordsByIds(boundedIds)) {
+          const id = string(row["id"]);
+          if (seen.has(id)) continue;
+          seen.add(id);
+          records.push({
+            ...logListItem(row),
+            pending: string(row["event"]) === "request_pending_response",
+          });
+        }
+      } finally {
+        repository.close();
+      }
+    }
+    return { records };
   }
 
   getRecordDetail(recordId: string): LogRecordDetail | undefined {
@@ -493,6 +529,7 @@ export class LogQueryService {
 }
 
 export const TASK_RECORD_LIMIT = 200;
+export const PENDING_RECORD_LIMIT = 200;
 
 function groupsWithPreviews(
   repository: TrafficRepository,

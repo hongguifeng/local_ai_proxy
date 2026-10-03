@@ -60,7 +60,7 @@ LLM Proxy 是面向本地开发和调试场景的 LLM HTTP 代理与流量审查
 | F-13 | 任务归并 | 按 response id、上下文 key、请求指纹和消息序列归并多轮请求 |
 | F-14 | 日志搜索 | 搜索任务、请求、响应、Header、状态、时间、ID、目标和错误 |
 | F-15 | 日志分页 | 任务列表支持 limit/offset，单页上限 500 |
-| F-16 | 日志详情 | 请求/响应 JSON 树、元信息、换行、展开、格式化和复制 |
+| F-16 | 日志详情 | 请求/响应 JSON 树、元信息、换行、展开、格式化和复制；条目数超过 1500 的大请求体首次只渲染可见层级，折叠节点在展开时才补齐子节点（`GET /api/logs/records` 批量刷新进行中的行，避免逐条详情解出请求体） |
 | F-17 | 日志导出 | 所有日志按任务导出 ZIP，包含 Markdown、request.json、response.json |
 | F-18 | 日志清理 | 可按选中任务、保留最近 N 项或早于 N 天删除 |
 | F-19 | 日志脱敏 | 可按上游目标开启 Header 和常见 JSON 密钥字段脱敏 |
@@ -520,6 +520,7 @@ ZIP 当前整体在内存中生成后一次性返回。
 | GET | `/api/logs` | task 分页 | query: `q`,`limit`,`offset` |
 | GET | `/api/log-groups/{id}/logs` | task 请求列表 | query: `q` |
 | GET | `/api/logs/{id}` | 单条详情 | request/response/meta |
+| GET | `/api/logs/records` | 按 id 批量读取记录（不含请求/响应体） | query: `ids`（逗号分隔，最多 200 个），返回 `{records: [...]}`，每条含 `pending` |
 | GET | `/api/logs/export` | 导出全部日志 | ZIP 下载 |
 | POST | `/api/logs/cleanup` | 清理日志 | `group_ids` / `older_than_days` / `keep_latest` |
 

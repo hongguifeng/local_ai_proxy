@@ -516,6 +516,43 @@ describe("LogQueryService", () => {
     expect(nextPage?.logs.map(({ sequence }) => sequence)).toEqual(["1"]);
   });
 
+  it("reads records by id without decoding their stored bodies", async () => {
+    const root = await mkdtemp(path.join(os.tmpdir(), "llm-proxy-log-records-by-id-"));
+    temporaryDirectories.push(root);
+    const repository = new TrafficRepository(root);
+    repository.upsertTask(task("batch-task", "gpt-5", "2026-07-18T12:00:00.000+08:00"));
+    repository.upsertRecord({
+      id: "batch-record-1",
+      task_id: "batch-task",
+      sequence: 1,
+      event: "request_finished",
+      method: "POST",
+      path: "/v1/responses",
+      request_token_count: 8,
+      response_token_count: 4,
+      response_body_json: { output: "x".repeat(200_000) },
+    });
+    repository.upsertRecord({
+      id: "batch-record-2",
+      task_id: "batch-task",
+      sequence: 2,
+      event: "request_pending_response",
+      method: "POST",
+      path: "/v1/responses",
+    });
+    repository.close();
+
+    const service = new LogQueryService([root]);
+    const batch = service.listRecordsByIds(["batch-record-1", "missing-id", "batch-record-2"]);
+    // Same rows the task list renders, so the UI can patch a pending row from a
+    // batch read without ever inflating the record's stored body chunks.
+    const group = service.getGroupLogs("batch-task");
+    expect(batch.records).toEqual(
+      (group?.logs ?? []).map((log) => ({ ...log, pending: log.id === "batch-record-2" })),
+    );
+    expect(service.listRecordsByIds([])).toEqual({ records: [] });
+  });
+
   it("returns request and response detail with compact metadata", async () => {
     const root = await mkdtemp(path.join(os.tmpdir(), "llm-proxy-log-detail-"));
     temporaryDirectories.push(root);

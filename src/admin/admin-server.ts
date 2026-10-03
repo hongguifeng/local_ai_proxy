@@ -9,6 +9,7 @@ import type {
   LogCleanupResult,
   LogGroupLogs,
   LogGroupPage,
+  LogPendingRecord,
   LogRecordDetail,
 } from "../maintenance/index.js";
 import { recordText } from "../persistence/repository.js";
@@ -57,6 +58,9 @@ export interface LogAdminService {
     limit: number,
     offset: number,
   ) => LogGroupLogs | undefined;
+  readonly listRecordsByIds?: (
+    ids: readonly string[],
+  ) => { records: readonly LogPendingRecord[] } | undefined;
   readonly getRecordDetail?: (recordId: string) => LogRecordDetail | undefined;
   readonly summarizeRecord?: (recordId: string) => Promise<unknown>;
   readonly getSummary?: (recordId: string) => unknown;
@@ -326,6 +330,11 @@ export const LOG_GROUP_OUTPUT_TOKEN_SERIES_SCHEMA = {
 } as const;
 
 export const LOG_RECORD_DETAIL_SCHEMA = {
+  type: "object",
+  additionalProperties: true,
+} as const;
+
+export const LOG_RECORDS_SCHEMA = {
   type: "object",
   additionalProperties: true,
 } as const;
@@ -891,6 +900,43 @@ export function createAdminServer(options: AdminServerOptions): FastifyInstance 
           return (
             group ?? reply.code(404).send(adminError("log_group_not_found", "Log group not found."))
           );
+        },
+      );
+    }
+    const listRecordsByIds = logService.listRecordsByIds?.bind(logService);
+    if (listRecordsByIds !== undefined) {
+      server.get<{ Querystring: { ids?: string } }>(
+        "/api/logs/records",
+        {
+          schema: {
+            querystring: {
+              type: "object",
+              required: ["ids"],
+              properties: {
+                ids: { type: "string", minLength: 1, maxLength: 16_384 },
+              },
+            },
+            response: { 200: LOG_RECORDS_SCHEMA },
+          },
+        },
+        (request, reply) => {
+          // Comma-separated ids: a repeated query key parses as an array only
+          // when it appears more than once, which would make a single-id
+          // request fail validation.
+          const ids = [
+            ...new Set(
+              (request.query.ids ?? "")
+                .split(",")
+                .map((value) => value.trim())
+                .filter((value) => value !== ""),
+            ),
+          ].slice(0, 200);
+          if (ids.length === 0) {
+            return reply
+              .code(400)
+              .send(adminError("invalid_request", "At least one record id is required."));
+          }
+          return listRecordsByIds(ids) ?? { records: [] };
         },
       );
     }

@@ -19,6 +19,7 @@ import {
   loadAdminStaticAssets,
 } from "../../src/admin/index.js";
 import type { ProxyPair, PublicProxyPair } from "../../src/config/index.js";
+import type { LogListItem, LogPendingRecord } from "../../src/maintenance/index.js";
 
 let browser: Browser;
 let page: Page;
@@ -295,6 +296,103 @@ function fixtureRequestPricing(status: "pending" | "priced" | "unpriced" = "pric
   };
 }
 
+function taskOneLogFixture(): readonly LogListItem[] {
+  return [
+    {
+      id: "record-six",
+      timestamp: "2026-07-18 12:00:06",
+      sequence: "6",
+      method: "POST",
+      path: "/v1/responses",
+      endpoint: "/v1/responses",
+      message_count: 1,
+      status: 200,
+      request_token_count: 30,
+      response_token_count: 50,
+      end_to_end_speed_tps: 50,
+      target: "fixture-target",
+      has_summary: false,
+      cost: { currency: "CNY", amount: "0.00002", status: "priced", reason: null },
+    },
+    {
+      id: "record-five",
+      timestamp: "2026-07-18 12:00:05",
+      sequence: "5",
+      method: "POST",
+      path: "/v1/responses",
+      endpoint: "/v1/responses",
+      message_count: 3,
+      status: 200,
+      request_token_count: 46,
+      response_token_count: 212,
+      target: "fixture-target",
+      has_summary: useSummarizedLogFixture,
+      cost: { currency: "CNY", amount: "5", status: "priced", reason: null },
+    },
+    {
+      id: "record-four",
+      timestamp: "2026-07-18 12:00:04",
+      sequence: "4",
+      method: "POST",
+      path: "/v1/responses",
+      endpoint: "/v1/responses",
+      message_count: 1,
+      status: 400,
+      request_token_count: 12,
+      response_token_count: 0,
+      target: "fixture-target",
+      has_summary: false,
+      cost: { currency: "CNY", amount: null, status: "unpriced", reason: "missing_usage" },
+    },
+    {
+      id: "record-three",
+      timestamp: "2026-07-18 12:00:03",
+      sequence: "3",
+      method: "POST",
+      path: "/v1/responses",
+      endpoint: "/v1/responses",
+      message_count: 2,
+      status: 200,
+      request_token_count: 24,
+      response_token_count: 96,
+      decode_speed_tps: 30.07,
+      target: "fixture-target",
+      has_summary: false,
+      cost: { currency: "CNY", amount: "0.041125", status: "priced", reason: null },
+    },
+    {
+      id: "record-two",
+      timestamp: "2026-07-18 12:00:02",
+      sequence: "2",
+      method: "POST",
+      path: "/v1/responses",
+      endpoint: "/v1/responses",
+      message_count: 2,
+      status: 200,
+      request_token_count: 8,
+      response_token_count: 4,
+      target: "fixture-target",
+      has_summary: false,
+      cost: { currency: "CNY", amount: "0.00001", status: "priced", reason: null },
+    },
+    {
+      id: "record-one",
+      timestamp: "2026-07-18 12:00:01",
+      sequence: "1",
+      method: "POST",
+      path: "/v1/responses",
+      endpoint: "/v1/responses",
+      message_count: 1,
+      status: null,
+      request_token_count: null,
+      response_token_count: null,
+      target: "fixture-target",
+      has_summary: false,
+      cost: { currency: "CNY", amount: null, status: "pending", reason: null },
+    },
+  ];
+}
+
 beforeAll(async () => {
   server = createAdminServer({
     getHealth: () => applicationHealth("running"),
@@ -463,100 +561,7 @@ beforeAll(async () => {
           offset: 0,
           next_offset: 6,
           has_more: false,
-          logs: [
-            {
-              id: "record-six",
-              timestamp: "2026-07-18 12:00:06",
-              sequence: "6",
-              method: "POST",
-              path: "/v1/responses",
-              endpoint: "/v1/responses",
-              message_count: 1,
-              status: 200,
-              request_token_count: 30,
-              response_token_count: 50,
-              end_to_end_speed_tps: 50,
-              target: "fixture-target",
-              has_summary: false,
-              cost: { currency: "CNY", amount: "0.00002", status: "priced", reason: null },
-            },
-            {
-              id: "record-five",
-              timestamp: "2026-07-18 12:00:05",
-              sequence: "5",
-              method: "POST",
-              path: "/v1/responses",
-              endpoint: "/v1/responses",
-              message_count: 3,
-              status: 200,
-              request_token_count: 46,
-              response_token_count: 212,
-              target: "fixture-target",
-              has_summary: useSummarizedLogFixture,
-              cost: { currency: "CNY", amount: "5", status: "priced", reason: null },
-            },
-            {
-              id: "record-four",
-              timestamp: "2026-07-18 12:00:04",
-              sequence: "4",
-              method: "POST",
-              path: "/v1/responses",
-              endpoint: "/v1/responses",
-              message_count: 1,
-              status: 400,
-              request_token_count: 12,
-              response_token_count: 0,
-              target: "fixture-target",
-              has_summary: false,
-              cost: { currency: "CNY", amount: null, status: "unpriced", reason: "missing_usage" },
-            },
-            {
-              id: "record-three",
-              timestamp: "2026-07-18 12:00:03",
-              sequence: "3",
-              method: "POST",
-              path: "/v1/responses",
-              endpoint: "/v1/responses",
-              message_count: 2,
-              status: 200,
-              request_token_count: 24,
-              response_token_count: 96,
-              decode_speed_tps: 30.07,
-              target: "fixture-target",
-              has_summary: false,
-              cost: { currency: "CNY", amount: "0.041125", status: "priced", reason: null },
-            },
-            {
-              id: "record-two",
-              timestamp: "2026-07-18 12:00:02",
-              sequence: "2",
-              method: "POST",
-              path: "/v1/responses",
-              endpoint: "/v1/responses",
-              message_count: 2,
-              status: 200,
-              request_token_count: 8,
-              response_token_count: 4,
-              target: "fixture-target",
-              has_summary: false,
-              cost: { currency: "CNY", amount: "0.00001", status: "priced", reason: null },
-            },
-            {
-              id: "record-one",
-              timestamp: "2026-07-18 12:00:01",
-              sequence: "1",
-              method: "POST",
-              path: "/v1/responses",
-              endpoint: "/v1/responses",
-              message_count: 1,
-              status: null,
-              request_token_count: null,
-              response_token_count: null,
-              target: "fixture-target",
-              has_summary: false,
-              cost: { currency: "CNY", amount: null, status: "pending", reason: null },
-            },
-          ],
+          logs: taskOneLogFixture(),
         };
       },
       getGroupPricing: (groupId) => {
@@ -628,6 +633,27 @@ beforeAll(async () => {
         return { deleted: groupIds, deleted_count: groupIds.length };
       },
       exportLogs: () => Readable.from([Buffer.from("zip-fixture")]),
+      listRecordsByIds: (ids): { records: readonly LogPendingRecord[] } => ({
+        records: taskOneLogFixture()
+          .filter((record) => ids.includes(record.id))
+          .map((record) => {
+            // Only record-one is still in flight in this fixture; every other
+            // row is already finished, so the batch read mirrors the list.
+            const pending = record.id === "record-one" && (detailReads.get(record.id) ?? 0) === 0;
+            if (pending) return { ...record, pending };
+            return {
+              ...record,
+              pending: false,
+              message_count: record.message_count ?? 1,
+              status: record.status ?? 200,
+              request_token_count: record.request_token_count ?? 8,
+              response_token_count: record.response_token_count ?? 4,
+              cost: record.cost?.amount
+                ? record.cost
+                : { currency: "CNY", amount: "0.041125", status: "priced", reason: null },
+            };
+          }),
+      }),
       getRecordDetail: (recordId) => {
         const reads = (detailReads.get(recordId) ?? 0) + 1;
         detailReads.set(recordId, reads);
@@ -1657,11 +1683,13 @@ describe("admin UI history page", { timeout: UI_TEST_TIMEOUT_MS }, () => {
     detailReads.set("record-one", 1);
     const autoRefresh = page.locator("#autoRefreshLogs");
     await autoRefresh.uncheck();
-    const finishedDetail = page.waitForResponse((response) =>
-      response.url().endsWith("/api/logs/record-one"),
+    // The sweep now reads finished rows in one batched body-free request; the
+    // per-record detail endpoint is only used for the selected record.
+    const batchSweep = page.waitForResponse((response) =>
+      response.url().includes("/api/logs/records?"),
     );
     await autoRefresh.check();
-    await finishedDetail;
+    await batchSweep;
 
     await expectPage(pendingItem.locator(".request-tokens .log-metric-value")).toHaveText("8");
     await expectPage(pendingItem.locator(".response-tokens .log-metric-value")).toHaveText("4");
