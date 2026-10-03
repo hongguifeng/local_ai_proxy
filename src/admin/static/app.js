@@ -1950,6 +1950,16 @@ function renderLogs() {
   const tail = list.querySelector("[data-load-more]");
   if (tail !== null && list.lastElementChild !== tail) list.appendChild(tail);
 }
+// Top of the log list's scrollport content: border box + client border + the
+// container's own padding. A header exactly on this line is neither clipped by
+// the scrollport nor offset by sticky positioning.
+function logListContentTop(list) {
+  return (
+    list.getBoundingClientRect().top +
+    list.clientTop +
+    parseFloat(getComputedStyle(list).paddingTop)
+  );
+}
 // Caret button handler: expands the second level (lazily fetching that
 // group's records when they are not loaded yet) or collapses it back to the
 // summary row. Header clicks never call this; they only open the detail panel.
@@ -1957,6 +1967,18 @@ async function toggleLogGroupBody(groupId) {
   if (state.collapsedGroups[groupId]) {
     collapseLogGroup(groupId);
     return;
+  }
+  const list = $("logItems");
+  const head = list.querySelector(`.log-group-head[data-group-id="${CSS.escape(groupId)}"]`);
+  if (head !== null) {
+    // A header that is partly scrolled out cannot stick yet - its collapsed
+    // section is too short for the sticky constraint to allow the offset. Once
+    // the body is inserted the section is tall enough, the header sticks at the
+    // scrollport top, and it paints over the first record by exactly the amount
+    // it was clipped. Aligning it with the content top first makes the sticky
+    // offset zero, so the second level starts right below the header.
+    const clipped = logListContentTop(list) - head.getBoundingClientRect().top;
+    if (clipped > 0.5) list.scrollTop -= clipped;
   }
   state.collapsedGroups[groupId] = true;
   renderLogs();
@@ -1977,10 +1999,7 @@ function collapseLogGroup(groupId) {
   // state is worth compensating.
   const wasPinned = (() => {
     if (!head) return false;
-    const contentTop =
-      list.getBoundingClientRect().top +
-      list.clientTop +
-      parseFloat(getComputedStyle(list).paddingTop);
+    const contentTop = logListContentTop(list);
     const headTop = head.getBoundingClientRect().top;
     return headTop >= contentTop - 0.5 && headTop <= contentTop + 0.75;
   })();

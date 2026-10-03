@@ -2248,6 +2248,55 @@ describe("admin UI history page", { timeout: UI_TEST_TIMEOUT_MS }, () => {
     expect(firstRow.y).toBeLessThan(itemsBox.y + itemsBox.height);
   });
 
+  it("keeps the first record below the header when a half-scrolled task expands", async () => {
+    useLargeLogFixture = true;
+    useLargeGroupLogFixture = true;
+    await loadAdminPage();
+    await Promise.all([
+      page.waitForResponse((response) => response.url().includes("offset=0")),
+      page.locator('[data-tab="logs"]').click(),
+    ]);
+    await expectPage(page.locator(".log-group")).toHaveCount(100);
+    const logItems = page.locator("#logItems");
+    // Half of the first header sits above the scrollport. A collapsed section is
+    // too short for the sticky constraint, so the header is simply clipped - but
+    // the body it grows makes it stick at the top, and it used to paint over the
+    // first record by the height it had been clipped.
+    const halfOutScroll = await logItems.evaluate((element) => {
+      const head = element.querySelector(".log-group-head[data-group-id]");
+      if (head === null) throw new Error("no task header");
+      const contentTop =
+        element.getBoundingClientRect().top +
+        element.clientTop +
+        parseFloat(getComputedStyle(element).paddingTop);
+      return (
+        element.scrollTop +
+        head.getBoundingClientRect().top -
+        contentTop +
+        Math.round(head.getBoundingClientRect().height / 2)
+      );
+    });
+    expect(await setScrollTop(logItems, halfOutScroll)).toBe(halfOutScroll);
+    await Promise.all([
+      page.waitForResponse((response) =>
+        response.url().includes("/api/log-groups/task-1/logs?q=&limit=200&offset=0"),
+      ),
+      page.locator('[data-group-toggle="task-1"]').click(),
+    ]);
+    await expectPage(page.locator('[data-log-id^="record-"]')).toHaveCount(200);
+    const headerBox = await requiredBox(
+      page.locator('.log-group:has([data-group-id="task-1"]) .log-group-head'),
+    );
+    const firstRow = await requiredBox(
+      page.locator('.log-group:has([data-group-id="task-1"]) .log-item').first(),
+    );
+    const itemsBox = await requiredBox(logItems);
+    // The header sticks at the content top, so the first record has to start
+    // below it instead of being hidden behind it.
+    expect(firstRow.y).toBeGreaterThanOrEqual(headerBox.y + headerBox.height - 1);
+    expect(firstRow.y).toBeLessThan(itemsBox.y + itemsBox.height);
+  });
+
   it("loads 100 more records within an expanded task", async () => {
     useLargeGroupLogFixture = true;
     await loadAdminPage();
