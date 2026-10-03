@@ -81,4 +81,81 @@ describe("request pricing lifecycle", () => {
       pricing_reason: "no_matching_price",
     });
   });
+
+  it("keeps measured usage on unpriced records so cache counts survive", () => {
+    const usage = {
+      usage: {
+        prompt_tokens: 1500,
+        completion_tokens: 1000,
+        prompt_tokens_details: { cached_tokens: 1000 },
+      },
+    };
+    for (const model of [undefined, "other"]) {
+      const result = completeRequestPricing(
+        freezeRequestPricing(model, prices),
+        "chat",
+        usage,
+        undefined,
+      );
+      expect(result).toMatchObject({
+        pricing_status: "unpriced",
+        pricing_reason: model === undefined ? "missing_model" : "no_matching_price",
+        cost_nano_cny: null,
+        pricing_snapshot: null,
+        usage: {
+          source: "chat",
+          inputUncachedTokens: 500,
+          outputTokens: 1000,
+          cacheReadTokens: 1000,
+          cacheWriteTokens: 0,
+          totalInputTokens: 1500,
+        },
+      });
+    }
+  });
+
+  it("prefers the completed SSE capture over the buffered payload for unpriced usage", () => {
+    const result = completeRequestPricing(
+      freezeRequestPricing("other", prices),
+      "responses",
+      { usage: { input_tokens: 10, output_tokens: 5 } },
+      {
+        status: "complete",
+        usage: {
+          source: "responses",
+          inputUncachedTokens: 4,
+          outputTokens: 5,
+          cacheReadTokens: 6,
+          cacheWriteTokens: 0,
+          totalInputTokens: 10,
+        },
+        terminalSeen: true,
+        eventTruncated: false,
+      },
+    );
+    expect(result.usage).toMatchObject({ cacheReadTokens: 6, inputUncachedTokens: 4 });
+  });
+
+  it("leaves usage absent when an unpriced record has no usable usage", () => {
+    expect(
+      completeRequestPricing(freezeRequestPricing("other", prices), "chat", {}, undefined),
+    ).toMatchObject({ pricing_status: "unpriced", usage: null });
+    expect(
+      completeRequestPricing(
+        freezeRequestPricing("other", prices),
+        "chat",
+        {},
+        {
+          status: "unavailable",
+          reason: "incomplete_usage",
+          terminalSeen: false,
+          eventTruncated: false,
+        },
+      ),
+    ).toMatchObject({
+      pricing_status: "unpriced",
+      pricing_reason: "no_matching_price",
+      usage: null,
+    });
+  });
 });

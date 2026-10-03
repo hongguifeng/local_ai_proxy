@@ -113,6 +113,113 @@ describe("TrafficRepository pricing persistence", () => {
     reopened.close();
   });
 
+  it("persists measured usage on unpriced records without inventing a cost", async () => {
+    const root = await mkdtemp(path.join(os.tmpdir(), "llm-proxy-repository-pricing-unpriced-"));
+    temporaryDirectories.push(root);
+    const repository = new TrafficRepository(root);
+    repository.upsertTask({ id: "unpriced-usage-task", match_strategy_version: 4 });
+    repository.upsertRecord({
+      id: "unpriced-usage-record",
+      task_id: "unpriced-usage-task",
+      sequence: 1,
+      method: "POST",
+      path: "/v1/responses",
+      pricing: { pricing_status: "pending", billing_model: "Qwen3.8-Flash-Next-G1" },
+    });
+    repository.upsertRecord({
+      id: "unpriced-usage-record",
+      task_id: "unpriced-usage-task",
+      sequence: 1,
+      method: "POST",
+      path: "/v1/responses",
+      pricing: {
+        pricing_status: "unpriced",
+        pricing_reason: "no_matching_price",
+        billing_model: "Qwen3.8-Flash-Next-G1",
+        usage: {
+          source: "responses",
+          inputUncachedTokens: 2015,
+          outputTokens: 116,
+          cacheReadTokens: 147056,
+          cacheWriteTokens: 1616,
+          totalInputTokens: 150687,
+        },
+      },
+    });
+    expect(repository.getRecord("unpriced-usage-record")).toMatchObject({
+      pricing: {
+        pricing_status: "unpriced",
+        pricing_reason: "no_matching_price",
+        cost_nano_cny: null,
+        pricing_snapshot: null,
+        usage: { cacheReadTokens: 147056, inputUncachedTokens: 2015, outputTokens: 116 },
+      },
+    });
+
+    // A priced row keeps its billing facts when a later update is unpriced.
+    repository.upsertRecord({
+      id: "priced-then-unpriced",
+      task_id: "unpriced-usage-task",
+      sequence: 2,
+      method: "POST",
+      path: "/v1/responses",
+      pricing: {
+        pricing_status: "priced",
+        billing_model: "gpt-5",
+        pricing_snapshot: {
+          model_pattern: "gpt-5",
+          algorithm_version: 2,
+          input_per_million: "5",
+          output_per_million: "30",
+          cache_read_per_million: "0.5",
+          cache_write_per_million: "6.25",
+        },
+        usage: {
+          inputUncachedTokens: 10,
+          outputTokens: 5,
+          cacheReadTokens: 0,
+          cacheWriteTokens: 0,
+        },
+        cost_nano_cny: "75000",
+      },
+    });
+    repository.upsertRecord({
+      id: "priced-then-unpriced",
+      task_id: "unpriced-usage-task",
+      sequence: 2,
+      method: "POST",
+      path: "/v1/responses",
+      pricing: {
+        pricing_status: "unpriced",
+        pricing_reason: "no_matching_price",
+        usage: { inputUncachedTokens: 20, outputTokens: 5 },
+      },
+    });
+    repository.close();
+
+    const reopened = new TrafficRepository(root);
+    expect(reopened.getRecord("unpriced-usage-record")).toMatchObject({
+      pricing: { usage: { cacheReadTokens: 147056, totalInputTokens: 150687 } },
+    });
+    expect(reopened.getRecord("priced-then-unpriced")).toMatchObject({
+      pricing: { pricing_status: "priced", usage: { inputUncachedTokens: 10 } },
+    });
+    // Usage on an unpriced record never enters the task cost aggregate.
+    expect(reopened.taskPricing("unpriced-usage-task")).toMatchObject({
+      cost_nano_cny: "75000",
+      priced_request_count: 1,
+      unpriced_request_count: 1,
+      unpriced_reasons: { no_matching_price: 1 },
+      breakdown: {
+        input_uncached: { tokens: "10" },
+        output: { tokens: "5" },
+        cache_read: { tokens: "0" },
+        cache_write: { tokens: "0" },
+      },
+    });
+    reopened.close();
+  });
+
   it("marks pending pricing as interrupted when a new runtime opens the log", async () => {
     const root = await mkdtemp(path.join(os.tmpdir(), "llm-proxy-repository-pricing-pending-"));
     temporaryDirectories.push(root);

@@ -64,13 +64,16 @@ export function completeRequestPricing(
   streamCapture: UsageCaptureResult | undefined,
 ): RequestPricingResult {
   const pending = pendingRequestPricing(context);
-  if (context.reason !== undefined) return { ...pending, pricing_status: "unpriced" };
-  const normalized =
-    streamCapture?.status === "complete"
-      ? { status: "complete" as const, usage: streamCapture.usage }
-      : streamCapture === undefined
-        ? normalizeUsage(endpoint, responsePayload)
-        : { status: "unavailable" as const, reason: streamCapture.reason };
+  const normalized = resolveUsage(endpoint, responsePayload, streamCapture);
+  // A missing price rule means nothing is billed, not that usage is unknown. The
+  // measured buckets stay on the record so cache statistics and the history
+  // prefill speed can use them; without this an unpriced record has no cached
+  // token count and a prefix-cached prompt looks entirely recomputed.
+  if (context.reason !== undefined) {
+    return normalized.status === "complete"
+      ? { ...pending, pricing_status: "unpriced", usage: { ...normalized.usage } }
+      : { ...pending, pricing_status: "unpriced" };
+  }
   if (normalized.status !== "complete") {
     return { ...pending, pricing_status: "unpriced", pricing_reason: normalized.reason };
   }
@@ -100,6 +103,20 @@ export function completeRequestPricing(
     }
     throw error;
   }
+}
+
+/** Prefer the SSE capture; fall back to the buffered payload only when there is no capture. */
+function resolveUsage(
+  endpoint: PricingEndpointKind,
+  responsePayload: unknown,
+  streamCapture: UsageCaptureResult | undefined,
+) {
+  if (streamCapture?.status === "complete") {
+    return { status: "complete" as const, usage: streamCapture.usage };
+  }
+  return streamCapture === undefined
+    ? normalizeUsage(endpoint, responsePayload)
+    : { status: "unavailable" as const, reason: streamCapture.reason };
 }
 
 function snapshot(context: RequestPricingContext): Record<string, unknown> | null {

@@ -305,6 +305,7 @@ Responses 读取终态事件（包括携带完整 usage 的 incomplete 事件）
 - 客户端断开，但终态 usage 已完整捕获：可以计费；只收到部分 usage 则 `incomplete_usage`。
 - 未收到 usage 的超时、失败、中断：未计价，不自动推断免费。
 - 显式四桶全为零、或匹配到四项零单价，且 usage 完整：金额可为零。
+- 缺价格规则（`no_matching_price`/`missing_model`）只表示不计费，不表示 usage 未知：usage 完整时四桶仍写入 `billing_usage_json`，`cost_nano_cny` 继续为 NULL。缓存命中量和历史 prefill 速度依赖这份 usage，缺失会把命中前缀缓存的长 prompt 当成全量重算。
 - 首版不计算单条请求的部分小计；task 的“已知费用”仅包含完整计价请求。
 - 未启用流量日志的 target 不产生历史费用；应用被强制终止留下的 pending 记录不能推算最终费用，UI 应结合活动请求状态标为中断/未完成。
 
@@ -354,7 +355,7 @@ SQLite 使用 64 位 INTEGER，金额相关语句开启安全整数读取，序�
 | `pricing_reason` | TEXT NULL | 未计价原因；旧记录默认为 `legacy_record` |
 | `billing_model` | TEXT NULL | 实际发出模型名 |
 | `pricing_snapshot_json` | TEXT NULL | 命中 pattern、四项乘后实际单价、CNY、计价时间、算法版本 |
-| `billing_usage_json` | TEXT NULL | 四桶 token、协议来源、完整性及诊断信息 |
+| `billing_usage_json` | TEXT NULL | 四桶 token、协议来源、完整性及诊断信息；只要 usage 完整就写入，与是否计价无关 |
 | `cost_nano_cny` | INTEGER NULL | 只有 priced 可非空，零元是有效值 |
 
 已有 `target_id`、`target_name`、`target_url`、`proxy_id` 继续用于追溯；快照不包含 API Key。详情快照和 usage 不参与列表 JSON 解析，列表只取状态和金额。

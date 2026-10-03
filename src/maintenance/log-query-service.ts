@@ -574,7 +574,8 @@ function recordDetail(record: Readonly<RepositoryRecord>): LogRecordDetail {
 
 /**
  * Returns the part of the request prompt that hit the upstream prompt cache, or
- * undefined when the record has no usable billing usage (unpriced records).
+ * undefined when the record has no persisted usage. Unpriced records keep their
+ * measured usage, so a missing price rule no longer hides the cache hit.
  */
 function cachedTokenCount(record: Readonly<RepositoryRecord>): number | undefined {
   const pricing = isRecord(record["pricing"]) ? record["pricing"] : undefined;

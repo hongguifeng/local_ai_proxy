@@ -581,6 +581,56 @@ describe("LogQueryService", () => {
     });
   });
 
+  it("reports cached prompt tokens kept on an unpriced record", async () => {
+    const root = await mkdtemp(path.join(os.tmpdir(), "llm-proxy-log-detail-unpriced-"));
+    temporaryDirectories.push(root);
+    const repository = new TrafficRepository(root);
+    repository.upsertTask(task("unpriced-detail-task", "gpt-5", "2026-07-18T12:00:00.000+08:00"));
+    repository.upsertRecord({
+      id: "unpriced-detail-record",
+      task_id: "unpriced-detail-task",
+      sequence: 1,
+      event: "request_finished",
+      timestamp: "2026-07-18T12:00:01.000+08:00",
+      duration_ms: 2659,
+      first_token_ms: 1849,
+      decode_window_ms: 781,
+      method: "POST",
+      path: "/v1/responses",
+      endpoint: "/v1/responses",
+      status: 200,
+      request_token_count: 150687,
+      response_token_count: 116,
+      pricing: {
+        pricing_status: "unpriced",
+        pricing_reason: "no_matching_price",
+        billing_model: "Qwen3.8-Flash-Next-G1",
+        usage: {
+          source: "responses",
+          inputUncachedTokens: 2015,
+          outputTokens: 116,
+          cacheReadTokens: 147056,
+          cacheWriteTokens: 1616,
+          totalInputTokens: 150687,
+        },
+      },
+    });
+    repository.close();
+
+    const detail = new LogQueryService([root]).getRecordDetail("unpriced-detail-record");
+    // The cache hit is now visible, so the prefill chip divides only the tokens
+    // that actually needed recomputation instead of the whole prompt.
+    expect(detail?.response_meta).toMatchObject({
+      request_token_count: 150687,
+      cached_token_count: 147056,
+    });
+    expect(detail?.pricing).toMatchObject({
+      pricing_status: "unpriced",
+      pricing_reason: "no_matching_price",
+      cost_nano_cny: null,
+    });
+  });
+
   it("returns fresh detail data while a pending record is completed in place", async () => {
     const root = await mkdtemp(path.join(os.tmpdir(), "llm-proxy-log-detail-refresh-"));
     temporaryDirectories.push(root);
