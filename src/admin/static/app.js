@@ -715,6 +715,10 @@ const state = {
   loadingLogGroups: {},
   loadingMoreLogGroups: {},
   logsLoading: false,
+  logsQueued: null,
+  logSections: new Map(),
+  logTailHtml: "",
+  pendingSweepCursor: 0,
   selectedLogLoading: false,
   selectedLogRefreshLoading: false,
   requestPricing: null,
@@ -726,6 +730,7 @@ const state = {
   taskCostSeries: null,
   taskOutputTokenSeries: null,
   taskPricingAbort: null,
+  taskPricingRendered: "",
   pricingGroupOpen: {},
   logsLoadedAt: 0,
   logLimit: 100,
@@ -1514,9 +1519,9 @@ function logGroupSummarySignature(group) {
 function sameLogGroups(nextGroups) {
   return logGroupsSignature(state.logGroups) === logGroupsSignature(nextGroups);
 }
-function mergeLogGroupSummaries(currentGroups, nextGroups, query = "") {
+function mergeLogGroupSummaries(currentGroups, nextGroups, query = "", options = {}) {
   const currentById = new Map(currentGroups.map((group) => [group.id, group]));
-  return nextGroups.map((group) => {
+  const merged = nextGroups.map((group) => {
     const existing = currentById.get(group.id);
     if (!existing) return group;
     const summaryChanged =
@@ -1532,18 +1537,40 @@ function mergeLogGroupSummaries(currentGroups, nextGroups, query = "") {
       searchQuery: summaryChanged ? group.searchQuery : existing.searchQuery,
     };
   });
+  // A truncated page only describes the first rows of the list; the groups the
+  // user already paged past have to be carried over instead of dropped.
+  if (options.keepMissing) {
+    const returnedIds = new Set(nextGroups.map((group) => group.id));
+    merged.push(...currentGroups.filter((group) => !returnedIds.has(group.id)));
+  }
+  return merged;
 }
+// The /api/logs page schema rejects a limit above this, so an automatic refresh
+// must never ask for more rows than the API can return in one page.
+const LOG_GROUP_PAGE_MAX_LIMIT = 500;
 async function loadLogs(options = {}) {
-  if (state.logsLoading) return;
+  if (state.logsLoading) {
+    // Coalesce instead of dropping: a click on 刷新/加载更多 while a (possibly
+    // slow) load is in flight still runs as soon as that load settles, so the
+    // list never looks dead. An explicit request outranks a queued automatic
+    // tick, but an automatic tick never replaces an explicit one.
+    if (state.logsQueued === null || options.append || options.search) state.logsQueued = options;
+    return;
+  }
   state.logsLoading = true;
-  const showSearchProgress = Boolean(options.search);
+  const showSearchProgress = Boolean(options.search) || !options.quiet;
   if (showSearchProgress) $("logListProgress").hidden = false;
   const q = encodeURIComponent(state.logQuery);
   try {
     const offset = options.append ? state.logOffset : 0;
+    // An automatic refresh has to re-read every group already on screen so it
+    // never drops the pages the user loaded, but the API caps a page at 500.
     const limit =
       options.quiet && !options.append
-        ? Math.max(state.logLimit, state.logOffset || state.logGroups.length)
+        ? Math.min(
+            LOG_GROUP_PAGE_MAX_LIMIT,
+            Math.max(state.logLimit, state.logOffset || state.logGroups.length),
+          )
         : state.logLimit;
     const data = await api(`/api/logs?q=${q}&limit=${limit}&offset=${offset}`);
     if (q !== encodeURIComponent(state.logQuery)) return;
@@ -1571,7 +1598,13 @@ async function loadLogs(options = {}) {
       renderLogs();
       rendered = true;
     } else if (state.lastLogQuery !== state.logQuery || !sameLogGroups(nextGroups)) {
-      state.logGroups = mergeLogGroupSummaries(state.logGroups, nextGroups, state.logQuery);
+      const keepMissing = options.quiet === true && Boolean(data.has_more);
+      state.logGroups = mergeLogGroupSummaries(state.logGroups, nextGroups, state.logQuery, {
+        keepMissing,
+      });
+      // A page that stopped at the cap continues after everything the list
+      // already holds, not after the rows the API returned.
+      if (keepMissing) state.logOffset = state.logGroups.length;
       state.logs = state.logGroups.flatMap((group) => group.logs || []);
       renderLogs();
       rendered = true;
@@ -1607,34 +1640,68 @@ async function loadLogs(options = {}) {
     state.logsLoading = false;
     if (q !== encodeURIComponent(state.logQuery)) {
       loadLogs({ search: showSearchProgress }).catch((e) => toast(e.message));
+    } else if (state.logsQueued !== null) {
+      const queued = state.logsQueued;
+      state.logsQueued = null;
+      loadLogs(queued).catch((e) => toast(e.message));
     } else {
       scheduleLogRefresh();
     }
   }
+}
+// A refresh tick re-reads one bounded slice of the pending rows with only a few
+// requests in flight, and rotates through the whole pending set across ticks.
+// Re-reading every pending row at once put hundreds of detail requests on the
+// wire every few seconds whenever a large task was expanded, which saturated the
+// browser's per-host connection pool and left the user's own clicks waiting.
+const PENDING_REFRESH_BATCH = 24;
+const PENDING_REFRESH_CONCURRENCY = 3;
+function nextPendingRefreshBatch(pendingItems) {
+  const size = Math.min(PENDING_REFRESH_BATCH, pendingItems.length);
+  if (size === 0) {
+    state.pendingSweepCursor = 0;
+    return [];
+  }
+  const cursor = state.pendingSweepCursor % pendingItems.length;
+  const batch = Array.from({ length: size }, (_, index) => {
+    return pendingItems[(cursor + index) % pendingItems.length];
+  });
+  state.pendingSweepCursor = (cursor + size) % pendingItems.length;
+  return batch;
+}
+async function runWithConcurrency(items, limit, worker) {
+  let index = 0;
+  const runners = Array.from({ length: Math.min(limit, items.length) }, async () => {
+    while (index < items.length) {
+      const item = items[index];
+      index += 1;
+      await worker(item);
+    }
+  });
+  await Promise.all(runners);
 }
 async function refreshPendingLogItems() {
   const pendingItems = state.logGroups
     .filter((group) => group.logsLoaded && state.collapsedGroups[group.id])
     .flatMap((group) => group.logs || [])
     .filter((item) => isPendingStatus(item.status));
+  const batch = nextPendingRefreshBatch(pendingItems);
   const refreshedIds = new Set();
   let listChanged = false;
-  await Promise.all(
-    pendingItems.map(async (item) => {
-      const data = await api(`/api/logs/${encodeURIComponent(item.id)}`);
-      refreshedIds.add(item.id);
-      if (state.selected === item.id) applySelectedLogDetail(data, { resetView: false });
-      if (data.pending) return;
-      const requestMeta = data.request_meta || {};
-      const responseMeta = data.response_meta || {};
-      item.message_count = requestMeta.message_count ?? item.message_count;
-      item.status = responseMeta.status ?? item.status;
-      item.request_token_count = responseMeta.request_token_count ?? item.request_token_count;
-      item.response_token_count = responseMeta.response_token_count ?? item.response_token_count;
-      item.cost = logRequestCost(data.pricing);
-      listChanged = true;
-    }),
-  );
+  await runWithConcurrency(batch, PENDING_REFRESH_CONCURRENCY, async (item) => {
+    const data = await api(`/api/logs/${encodeURIComponent(item.id)}`);
+    refreshedIds.add(item.id);
+    if (state.selected === item.id) applySelectedLogDetail(data, { resetView: false });
+    if (data.pending) return;
+    const requestMeta = data.request_meta || {};
+    const responseMeta = data.response_meta || {};
+    item.message_count = requestMeta.message_count ?? item.message_count;
+    item.status = responseMeta.status ?? item.status;
+    item.request_token_count = responseMeta.request_token_count ?? item.request_token_count;
+    item.response_token_count = responseMeta.response_token_count ?? item.response_token_count;
+    item.cost = logRequestCost(data.pricing);
+    listChanged = true;
+  });
   if (listChanged) {
     state.logs = state.logGroups.flatMap((group) => group.logs || []);
     renderLogs();
@@ -1708,11 +1775,37 @@ async function loadMoreLogGroup(groupId) {
     renderLogs();
   }
 }
-function renderLogs() {
-  const groupsHtml =
-    state.logGroups
-      .map(
-        (group) => `
+function logGroupBodyHtml(group) {
+  const logs = group.logs || [];
+  return state.loadingLogGroups[group.id] || (!group.logsLoaded && !logs.length)
+    ? `<div class="log-item log-loading">${escapeHtml(t("loading"))}</div>`
+    : logs.length
+      ? logs
+          .map(
+            (item) => `
+        <button class="log-item ${state.selected === item.id ? "active" : ""}" data-log-id="${escapeHtml(item.id)}">
+          <span class="log-sequence">${escapeHtml(item.sequence ? `#${item.sequence}` : "-")}</span>
+          <span class="log-item-content">
+            <span class="log-item-metrics">${logItemMetricsHtml(item)}</span>
+            <span class="log-item-subline">
+              <span class="log-timestamp">${escapeHtml(item.timestamp || "")}</span>${item.has_summary ? `<span class="log-summary-star" title="${escapeHtml(t("summaryStar"))}" aria-label="${escapeHtml(t("summaryStar"))}">★</span>` : ""}${(() => {
+                const statusClass = logStatusClass(item.status);
+                const statusLabel = formatStatus(item.status);
+                if (statusClass === "success") return "";
+                return `<span class="log-status ${statusClass}" title="${escapeHtml(statusLabel)}" aria-label="${escapeHtml(statusLabel)}"><span class="log-status-dot" aria-hidden="true"></span>${escapeHtml(statusLabel)}</span>`;
+              })()}
+            </span>
+          </span>
+        </button>`,
+          )
+          .join("") +
+        (group.logsHasMore
+          ? `<button class="load-more log-group-load-more" data-load-more-records="${escapeHtml(group.id || "")}" ${state.loadingMoreLogGroups[group.id] ? "disabled" : ""}>${escapeHtml(state.loadingMoreLogGroups[group.id] ? t("loading") : t("loadMore"))} (${logs.length}/${group.logsTotal})</button>`
+          : "")
+      : `<div class="log-item log-group-empty">${escapeHtml(t("noMatchedLogs"))}</div>`;
+}
+function logGroupSectionHtml(group) {
+  return `
     <section class="log-group">
       <div class="log-group-head" data-group-id="${escapeHtml(group.id || "")}" role="button" tabindex="0" aria-label="${escapeHtml(t("viewTaskPricing"))}">
         <div class="log-group-controls">
@@ -1728,44 +1821,127 @@ function renderLogs() {
         !state.collapsedGroups[group.id]
           ? ""
           : `<div class="log-group-body">
-            ${
-              state.loadingLogGroups[group.id] || (!group.logsLoaded && !(group.logs || []).length)
-                ? `<div class="log-item log-loading">${escapeHtml(t("loading"))}</div>`
-                : (group.logs || []).length
-                  ? (group.logs || [])
-                      .map(
-                        (item) => `
-        <button class="log-item ${state.selected === item.id ? "active" : ""}" data-log-id="${escapeHtml(item.id)}">
-          <span class="log-sequence">${escapeHtml(item.sequence ? `#${item.sequence}` : "-")}</span>
-          <span class="log-item-content">
-            <span class="log-item-metrics">${logItemMetricsHtml(item)}</span>
-            <span class="log-item-subline">
-              <span class="log-timestamp">${escapeHtml(item.timestamp || "")}</span>${item.has_summary ? `<span class="log-summary-star" title="${escapeHtml(t("summaryStar"))}" aria-label="${escapeHtml(t("summaryStar"))}">★</span>` : ""}${(() => {
-                const statusClass = logStatusClass(item.status);
-                const statusLabel = formatStatus(item.status);
-                if (statusClass === "success") return "";
-                return `<span class="log-status ${statusClass}" title="${escapeHtml(statusLabel)}" aria-label="${escapeHtml(statusLabel)}"><span class="log-status-dot" aria-hidden="true"></span>${escapeHtml(statusLabel)}</span>`;
-              })()}
-            </span>
-          </span>
-        </button>`,
-                      )
-                      .join("") +
-                    (group.logsHasMore
-                      ? `<button class="load-more log-group-load-more" data-load-more-records="${escapeHtml(group.id || "")}" ${state.loadingMoreLogGroups[group.id] ? "disabled" : ""}>${escapeHtml(state.loadingMoreLogGroups[group.id] ? t("loading") : t("loadMore"))} (${group.logs.length}/${group.logsTotal})</button>`
-                      : "")
-                  : `<div class="log-item log-group-empty">${escapeHtml(t("noMatchedLogs"))}</div>`
-            }
+            ${logGroupBodyHtml(group)}
           </div>`
       }
-    </section>`,
-      )
-      .join("") || `<div class="empty">${escapeHtml(t("noLogs"))}</div>`;
-  updateSelectAllLogsButton();
-  const moreHtml = state.logsHasMore
+    </section>`;
+}
+// Everything a task section renders from: the summary facts plus the flags that
+// decide its body (expanded, loading, selected row). A refresh only rebuilds the
+// sections whose signature changed, so the rest of the list keeps its DOM nodes.
+function logItemRenderSignature(item) {
+  return [
+    item.id,
+    item.sequence,
+    item.timestamp,
+    item.status,
+    item.message_count,
+    item.request_token_count,
+    item.response_token_count,
+    item.decode_speed_tps,
+    item.end_to_end_speed_tps,
+    item.cost?.known_amount,
+    item.cost?.status,
+    item.cost?.reason,
+    item.has_summary ? "star" : "",
+    state.selected === item.id ? "selected" : "",
+  ].join("|");
+}
+function logGroupRenderSignature(group) {
+  return [
+    // Labels come from the active language, so a language switch must rebuild.
+    state.language,
+    logGroupSummarySignature(group),
+    group.decode_speed_tps,
+    state.selectedLogGroups[group.id] ? "checked" : "",
+    state.collapsedGroups[group.id] ? "expanded" : "collapsed",
+    state.loadingLogGroups[group.id] ? "loading" : "",
+    state.loadingMoreLogGroups[group.id] ? "loading-more" : "",
+    group.logsLoaded ? "loaded" : "unloaded",
+    group.logsHasMore ? "more" : "",
+    group.logsTotal,
+    (group.logs || []).map(logItemRenderSignature).join(","),
+  ].join("#");
+}
+function logListTailHtml() {
+  return state.logsHasMore
     ? `<button class="load-more" data-load-more>${escapeHtml(t("loadMore"))} (${state.logGroups.length}/${state.logsTotal})</button>`
     : "";
-  $("logItems").innerHTML = groupsHtml + moreHtml;
+}
+// Re-key the signature cache after a whole-list write so the next render can
+// still patch individual sections instead of replacing everything again.
+function seedLogSections(groups, tailHtml) {
+  state.logSections = new Map(groups.map((group) => [group.id, logGroupRenderSignature(group)]));
+  state.logTailHtml = tailHtml;
+}
+function logSectionNodes(list) {
+  const sections = new Map();
+  for (const node of list.children) {
+    if (!node.classList.contains("log-group")) continue;
+    const head = node.querySelector(".log-group-head[data-group-id]");
+    const id = head === null ? "" : head.dataset.groupId || "";
+    if (id !== "") sections.set(id, node);
+  }
+  return sections;
+}
+function renderLogs() {
+  updateSelectAllLogsButton();
+  const list = $("logItems");
+  const groups = state.logGroups;
+  const tailHtml = logListTailHtml();
+  // A task without an id cannot be keyed, so the whole list is rebuilt for it.
+  const keyed = groups.every((group) => typeof group.id === "string" && group.id !== "");
+  if (groups.length === 0 || !keyed) {
+    list.innerHTML =
+      (groups.map((group) => logGroupSectionHtml(group)).join("") ||
+        `<div class="empty">${escapeHtml(t("noLogs"))}</div>`) + tailHtml;
+    seedLogSections(groups, tailHtml);
+    return;
+  }
+  const sections = logSectionNodes(list);
+  const rendered = state.logSections;
+  const ids = groups.map((group) => group.id);
+  const listChanged =
+    ids.join("\u0000") !== [...sections.keys()].join("\u0000") || tailHtml !== state.logTailHtml;
+  sections.forEach((node, id) => {
+    if (ids.includes(id)) return;
+    node.remove();
+    rendered.delete(id);
+  });
+  list.querySelector(".empty")?.remove();
+  groups.forEach((group) => {
+    const id = group.id;
+    const signature = logGroupRenderSignature(group);
+    if (rendered.get(id) === signature && sections.has(id)) return;
+    const template = document.createElement("template");
+    template.innerHTML = logGroupSectionHtml(group);
+    const section = template.content.firstElementChild;
+    const existing = sections.get(id);
+    if (existing !== undefined) list.replaceChild(section, existing);
+    else list.insertBefore(section, list.querySelector("[data-load-more]"));
+    sections.set(id, section);
+    rendered.set(id, signature);
+  });
+  // Newly matched tasks sort to the top, so the DOM order has to follow the
+  // list order whenever the two drift apart.
+  if (listChanged) {
+    ids.forEach((id) => {
+      const node = sections.get(id);
+      if (node !== undefined) list.appendChild(node);
+    });
+  }
+  if (tailHtml !== state.logTailHtml) {
+    state.logTailHtml = tailHtml;
+    list.querySelector("[data-load-more]")?.remove();
+    if (tailHtml !== "") {
+      const template = document.createElement("template");
+      template.innerHTML = tailHtml;
+      list.appendChild(template.content.firstElementChild);
+    }
+  }
+  // The reordering above can leave the "load more" button behind the sections.
+  const tail = list.querySelector("[data-load-more]");
+  if (tail !== null && list.lastElementChild !== tail) list.appendChild(tail);
 }
 // Caret button handler: expands the second level (lazily fetching that
 // group's records when they are not loaded yet) or collapses it back to the
@@ -2452,6 +2628,23 @@ function sameTaskGroupSnapshot(a, b) {
     a.decode_speed_tps === b.decode_speed_tps
   );
 }
+function taskPricingRenderSignature(groupId, data, openGroups) {
+  // Mirror the render's own series lookup: a series that belongs to another
+  // task is not drawn, so it must not hold the signature either.
+  const seriesPoints = (series) =>
+    series !== null && series !== undefined && series.id === groupId ? series.points : null;
+  const series = (points) => (points || []).map((point) => JSON.stringify(point)).join(",");
+  return [
+    state.language,
+    groupId,
+    JSON.stringify(data),
+    state.activeTaskGroup ? logGroupRenderSignature(state.activeTaskGroup) : "",
+    series(seriesPoints(state.taskTokenSeries)),
+    series(seriesPoints(state.taskCostSeries)),
+    series(seriesPoints(state.taskOutputTokenSeries)),
+    Object.keys(openGroups).sort().join(","),
+  ].join("#");
+}
 function renderTaskPricingPanel() {
   const panel = $("pricingPanel");
   const detail = $("detail");
@@ -2461,15 +2654,18 @@ function renderTaskPricingPanel() {
   panel.hidden = !active;
   if (!active) {
     panel.innerHTML = "";
+    state.taskPricingRendered = "";
     return;
   }
   if (!pricing || pricing.id !== active || pricing.loading) {
     panel.innerHTML = `<div class="pricing-panel-head"><strong>${escapeHtml(t("taskPricing"))}</strong><button type="button" data-close-pricing>${escapeHtml(t("close"))}</button></div><p>${escapeHtml(t("loading"))}</p>`;
+    state.taskPricingRendered = "";
     return;
   }
   if (pricing.error) {
     const deleted = pricing.error === "deleted";
     panel.innerHTML = `<div class="pricing-panel-head"><strong>${escapeHtml(t("taskPricing"))}</strong><button type="button" data-close-pricing>${escapeHtml(t("close"))}</button></div><p>${escapeHtml(deleted ? t("taskDeleted") : t("pricingUnavailable"))}</p>${deleted ? "" : `<button type="button" data-retry-pricing>${escapeHtml(t("retry"))}</button>`}`;
+    state.taskPricingRendered = "";
     return;
   }
   const data = pricing.data;
@@ -2479,6 +2675,17 @@ function renderTaskPricingPanel() {
     if (!presentModels.has(model)) delete openGroups[model];
   });
   if (Object.keys(openGroups).length === 0) delete state.pricingGroupOpen[active];
+  // The panel draws one chart point per request, so rebuilding it is the most
+  // expensive render on the page; a refresh round-trip that returned the same
+  // numbers keeps the existing DOM instead of drawing it again.
+  const signature = taskPricingRenderSignature(active, data, openGroups);
+  if (signature === state.taskPricingRendered) {
+    // The values stay on screen, but a narrower window can still make the model
+    // name overflow, so the shrink-to-fit pass runs even on a skipped rebuild.
+    fitTaskSummaryValues(panel);
+    return;
+  }
+  state.taskPricingRendered = signature;
   const groups = (data.groups || [])
     .map((group) => {
       const model = group.billing_model || "—";
