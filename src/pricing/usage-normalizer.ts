@@ -132,6 +132,11 @@ function optionalCachedToken(
 ): TokenResult {
   if (!Object.hasOwn(usage, detailKey)) return valid(0);
   const details = usage[detailKey];
+  // OpenAI-compatible servers such as vLLM send the details field explicitly as
+  // null when cache accounting is disabled. An explicit null means "no cached
+  // tokens", not a malformed object; rejecting it would make every buffered
+  // response unpriceable even though the required token counts are present.
+  if (details === null || details === undefined) return valid(0);
   if (!isRecord(details)) return invalid("invalid_usage", `${detailKey} must be an object`);
   return Object.hasOwn(details, "cached_tokens")
     ? tokenValue(details["cached_tokens"], `${detailKey}.cached_tokens`)

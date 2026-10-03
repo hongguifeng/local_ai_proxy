@@ -77,6 +77,40 @@ describe("normalizeUsage", () => {
     ).toMatchObject({ reason: "invalid_usage" });
   });
 
+  it("treats an explicit null details object as no cached tokens", () => {
+    // vLLM and other OpenAI-compatible servers send the optional details field
+    // explicitly as null when cache accounting is disabled.
+    expect(
+      normalizeUsage("chat", {
+        usage: {
+          prompt_tokens: 1362,
+          completion_tokens: 252,
+          prompt_tokens_details: null,
+          completion_tokens_details: { reasoning_tokens: 0 },
+        },
+      }),
+    ).toMatchObject({
+      status: "complete",
+      usage: {
+        inputUncachedTokens: 1362,
+        cacheReadTokens: 0,
+        cacheWriteTokens: 0,
+        totalInputTokens: 1362,
+      },
+    });
+    expect(
+      normalizeUsage("responses", {
+        usage: { input_tokens: 3, output_tokens: 2, input_tokens_details: null },
+      }),
+    ).toMatchObject({ status: "complete", usage: { cacheReadTokens: 0 } });
+    // A present details value that is neither null nor an object is still malformed.
+    expect(
+      normalizeUsage("chat", {
+        usage: { prompt_tokens: 3, completion_tokens: 2, prompt_tokens_details: 7 },
+      }),
+    ).toMatchObject({ reason: "invalid_usage" });
+  });
+
   it("handles Anthropic cache write totals and TTL subitems without double counting", () => {
     expect(
       normalizeUsage("messages", {

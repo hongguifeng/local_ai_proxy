@@ -66,6 +66,29 @@ describe("request pricing lifecycle", () => {
     expect(result.pricing_snapshot).not.toHaveProperty("price_multiplier");
   });
 
+  it("prices OpenAI-compatible servers that send prompt_tokens_details as null", () => {
+    expect(
+      completeRequestPricing(
+        freezeRequestPricing("gpt-5", prices),
+        "chat",
+        {
+          usage: {
+            prompt_tokens: 1500,
+            completion_tokens: 1000,
+            prompt_tokens_details: null,
+            completion_tokens_details: { reasoning_tokens: 0 },
+          },
+        },
+        undefined,
+      ),
+    ).toMatchObject({
+      pricing_status: "priced",
+      pricing_reason: null,
+      cost_nano_cny: "37500000",
+      usage: { inputUncachedTokens: 1500, cacheReadTokens: 0, totalInputTokens: 1500 },
+    });
+  });
+
   it("freezes missing-model and no-match facts without treating them as free", () => {
     expect(
       completeRequestPricing(freezeRequestPricing(undefined, prices), "chat", {}, undefined),
