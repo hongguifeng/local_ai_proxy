@@ -3084,6 +3084,12 @@ function materializeJsonNode(el, detail) {
   // The cached width keeps this off the layout: reading clientWidth after the
   // tree was mutated forces a synchronous re-layout of the whole pane.
   const lineWidth = jsonLineWidthCache[key] || 0;
+  // The strings this node is about to render need line-width probes; measuring
+  // the whole subtree in one batch keeps the fill off the per-string fallback,
+  // which would force a layout for every string in it.
+  if (state.formatStrings[key] && lineWidth > 0) {
+    prepareJsonMeasurements(value, lineWidth, Infinity, String(path[path.length - 1] ?? ""), depth);
+  }
   const entries = Array.isArray(value)
     ? value.map((item, index) => [index, item])
     : Object.entries(value || {});
@@ -3368,14 +3374,24 @@ function ensureJsonMeasureBox() {
   }
   return jsonMeasureBox;
 }
-function collectJsonMeasureProbes(value, key, depth, lineWidth, probes) {
+function collectJsonMeasureProbes(value, key, depth, lineWidth, probes, maxDepth = Infinity) {
   if (value === null || value === undefined) return;
   const type = jsonType(value);
   if (type === "array" || type === "object") {
+    // Everything below the rendered depth sits behind a lazy node, so its
+    // strings are only summarized here and get measured when it is filled.
+    if (depth >= maxDepth) return;
     const entries =
       type === "array" ? value.map((item, index) => [index, item]) : Object.entries(value);
     for (const [childKey, childValue] of entries) {
-      collectJsonMeasureProbes(childValue, String(childKey), depth + 1, lineWidth, probes);
+      collectJsonMeasureProbes(
+        childValue,
+        String(childKey),
+        depth + 1,
+        lineWidth,
+        probes,
+        maxDepth,
+      );
     }
     return;
   }
@@ -3388,11 +3404,18 @@ function collectJsonMeasureProbes(value, key, depth, lineWidth, probes) {
     probes.push(probe);
   }
 }
-function prepareJsonMeasurements(value, lineWidth) {
-  jsonMeasureResults = new Map();
+let jsonMeasureWidth = -1;
+function prepareJsonMeasurements(value, lineWidth, maxDepth = Infinity, key = "", depth = 0) {
+  // Widths are only valid for the pane width they were taken at, so a resize
+  // invalidates the whole measurement cache; the size cap keeps a long session
+  // over many huge bodies from growing the probe keys without bound.
+  if (jsonMeasureWidth !== lineWidth || jsonMeasureResults.size > 20_000) {
+    jsonMeasureWidth = lineWidth;
+    jsonMeasureResults = new Map();
+  }
   if (lineWidth <= 0) return;
   const probes = [];
-  collectJsonMeasureProbes(value, "", 0, lineWidth, probes);
+  collectJsonMeasureProbes(value, key, depth, lineWidth, probes, maxDepth);
   if (!probes.length) return;
   const box = ensureJsonMeasureBox();
   box.textContent = "";
@@ -3457,7 +3480,8 @@ function renderJsonPane(key, options = {}) {
   if (state.tree[key]) {
     el.dataset.jsonPaneKey = key;
     const lineWidth = el.clientWidth > 24 ? el.clientWidth - 24 : 0;
-    if (state.formatStrings[key]) prepareJsonMeasurements(state.raw[key], lineWidth);
+    if (state.formatStrings[key])
+      prepareJsonMeasurements(state.raw[key], lineWidth, defaultJsonExpandedDepth);
     const html = jsonRowHtml(
       state.raw[key],
       "",
@@ -3680,15 +3704,95 @@ $("summarizeRecord")?.addEventListener("click", async () => {
     button.textContent = "✨";
   }
 });
+// The detail request is most of the time between clicking a row and seeing its
+// JSON: for a multi-megabyte body the response alone is ~50 ms, while the tree
+// that gets painted is ~35 ms. The pointer sits on a row well before it is
+// clicked, so a short hover starts that request early and the click reads the
+// payload straight out of this cache.
+const logDetailPrefetch = new Map();
+const LOG_DETAIL_PREFETCH_LIMIT = 12;
+const LOG_DETAIL_PREFETCH_DWELL_MS = 50;
+// A multi-megabyte body is mostly image payloads, so a dozen of them are far
+// more than the record count suggests; cap the cache by bytes as well.
+const LOG_DETAIL_PREFETCH_BYTES = 24 * 1024 * 1024;
+function trimLogDetailPrefetch() {
+  let bytes = 0;
+  for (const entry of logDetailPrefetch.values()) bytes += entry.bytes;
+  // A Map keeps insertion order, so the oldest payload is dropped first.
+  for (const [id, entry] of logDetailPrefetch) {
+    if (logDetailPrefetch.size <= LOG_DETAIL_PREFETCH_LIMIT && bytes <= LOG_DETAIL_PREFETCH_BYTES) {
+      break;
+    }
+    logDetailPrefetch.delete(id);
+    bytes -= entry.bytes;
+  }
+}
+async function fetchLogDetail(id) {
+  const res = await fetch(`/api/logs/${encodeURIComponent(id)}`);
+  const payload = await res.json().catch(() => ({}));
+  if (!res.ok) {
+    throw new Error(typeof payload.error === "string" ? payload.error : res.statusText);
+  }
+  // content-length says what the payload cost and is free to read.
+  return { data: payload, bytes: Number(res.headers.get("content-length") || 0) };
+}
+function prefetchLogDetail(id) {
+  if (!id || logDetailPrefetch.has(id)) return;
+  // A still-running request keeps growing its body, so a payload fetched now
+  // would be stale by the time the row is clicked; let the click read it fresh.
+  const item = state.logs.find((log) => log.id === id);
+  if (item && isPendingStatus(item.status)) return;
+  const entry = { data: undefined, bytes: 0, promise: null };
+  logDetailPrefetch.set(id, entry);
+  entry.promise = fetchLogDetail(id)
+    .then(({ data, bytes }) => {
+      entry.data = data;
+      entry.bytes = bytes;
+      trimLogDetailPrefetch();
+      return data;
+    })
+    .catch(() => {
+      if (logDetailPrefetch.get(id) === entry) logDetailPrefetch.delete(id);
+    });
+}
+function cachedLogDetail(id) {
+  const entry = logDetailPrefetch.get(id);
+  if (!entry) return null;
+  if (entry.data !== undefined) return entry.data;
+  // The hover request is still in flight: ride on it instead of starting a
+  // second one for the same record.
+  return entry.promise.then(() => (entry.data === undefined ? null : entry.data));
+}
+function rememberLogDetail(id, data, bytes) {
+  if (!id || data === undefined || data === null) return;
+  logDetailPrefetch.set(id, { data, bytes, promise: Promise.resolve(data) });
+  trimLogDetailPrefetch();
+}
+// The highlight is the only thing a row click changes in the list, and a full
+// renderLogs costs ~9 ms on a real page, so move the class instead.
+function markSelectedLogRow(id) {
+  for (const el of document.querySelectorAll("#logItems .log-item")) {
+    el.classList.toggle("active", el.dataset.logId === id);
+  }
+}
 async function selectLog(id) {
   closeTaskPricing();
   state.selected = id;
-  renderLogs();
+  markSelectedLogRow(id);
   state.selectedLogLoading = true;
   try {
-    const data = await api(`/api/logs/${encodeURIComponent(id)}`);
+    const cached = cachedLogDetail(id);
+    let detail = cached !== null ? await cached : null;
+    if (detail === null) {
+      // Nothing was prefetched, or the hover request failed: read it now, and
+      // keep it so the hover timer that fires right after the click does not
+      // ask the server for the same megabytes again.
+      const fetched = await fetchLogDetail(id);
+      detail = fetched.data;
+      rememberLogDetail(id, detail, fetched.bytes);
+    }
     if (state.selected !== id) return;
-    applySelectedLogDetail(data, { resetView: true });
+    applySelectedLogDetail(detail, { resetView: true });
     loadSummary(id);
   } finally {
     if (state.selected === id) state.selectedLogLoading = false;
@@ -3749,9 +3853,12 @@ async function refreshSelectedLogDetail() {
     return;
   state.selectedLogRefreshLoading = true;
   try {
-    const data = await api(`/api/logs/${encodeURIComponent(id)}`);
+    const fetched = await fetchLogDetail(id);
     if (state.selected !== id) return;
-    applySelectedLogDetail(data, { resetView: false });
+    // Keep the prefetched payload in step with what this refresh just read, so
+    // clicking the row again does not show a body that has since stopped growing.
+    rememberLogDetail(id, fetched.data, fetched.bytes);
+    applySelectedLogDetail(fetched.data, { resetView: false });
   } finally {
     state.selectedLogRefreshLoading = false;
   }
@@ -5571,6 +5678,37 @@ $("logItems").addEventListener("click", (event) => {
   }
   if (event.target.matches("[data-load-more]"))
     loadLogs({ append: true }).catch((e) => toast(e.message));
+});
+// Hover intent: a row that is merely passed over does not get a detail request,
+// a row the pointer rests on does, so sweeping a long list stays cheap.
+let hoverPrefetchId = null;
+let hoverPrefetchTimer = null;
+$("logItems").addEventListener("pointerover", (event) => {
+  const item = event.target.closest("[data-log-id]");
+  const id = item ? item.dataset.logId : null;
+  if (id === hoverPrefetchId) return;
+  hoverPrefetchId = id;
+  if (hoverPrefetchTimer !== null) {
+    clearTimeout(hoverPrefetchTimer);
+    hoverPrefetchTimer = null;
+  }
+  if (id === null) return;
+  hoverPrefetchTimer = setTimeout(() => {
+    hoverPrefetchTimer = null;
+    prefetchLogDetail(id);
+  }, LOG_DETAIL_PREFETCH_DWELL_MS);
+});
+// Pressing the button already decides the click, and it is held for tens of
+// milliseconds before the release: start the request under the finger instead
+// of waiting for the click event that follows.
+$("logItems").addEventListener("pointerdown", (event) => {
+  const item = event.target.closest("[data-log-id]");
+  if (item) prefetchLogDetail(item.dataset.logId);
+});
+// Keyboard selection gets the same head start as the pointer.
+$("logItems").addEventListener("focusin", (event) => {
+  const item = event.target.closest("[data-log-id]");
+  if (item) prefetchLogDetail(item.dataset.logId);
 });
 $("logItems").addEventListener("keydown", (event) => {
   if (event.key !== "Enter" && event.key !== " ") return;
