@@ -2267,6 +2267,10 @@ label span {
 }
 .json-row {
   min-height: 18px;
+  /* Huge JSON trees re-layout the whole pane on every lazy fill; containing
+     each row lets offscreen subtrees skip layout and paint entirely. */
+  content-visibility: auto;
+  contain-intrinsic-size: auto 18px;
 }
 .json-key {
   color: #7a3e00;

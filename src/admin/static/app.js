@@ -2962,6 +2962,117 @@ function resolveJsonPathValue(raw, path) {
   }
   return current;
 }
+// Rows skip layout while offscreen, but Chromium realizes a newly visible row
+// only one frame *after* it paints, which shows as a blank flash during fast
+// scrolling. A frame watcher pre-realizes the rows around the viewport: the
+// requestAnimationFrame callback runs before the frame's style/layout/paint,
+// so rows are filled by the time they appear - for wheel and programmatic
+// scrolls alike. The row list is cached per pane and the scan starts from the
+// last known position, so each scroll only touches a few dozen rows; style
+// writes are batched after the reads to avoid interleaved recalculations.
+const jsonRowWindow = {};
+function jsonRowWindowInvalidate(key) {
+  const cached = jsonRowWindow[key];
+  if (cached) cached.valid = false;
+}
+function jsonRowNeighbor(row, back) {
+  let node = back ? row.previousElementSibling : row.nextElementSibling;
+  while (node) {
+    if (node.classList.contains("json-row")) return node;
+    const inner = back
+      ? node.querySelector(":scope > .json-row:last-of-type")
+      : node.querySelector(":scope > .json-row");
+    if (inner) return inner;
+    node = node.previousElementSibling;
+  }
+  const parent = row.parentElement;
+  if (parent && parent !== document.body) {
+    const parentRow = parent.closest(".json-row");
+    if (parentRow && parentRow !== row) {
+      return back ? parentRow.previousElementSibling : parentRow.nextElementSibling;
+    }
+  }
+  return null;
+}
+function updateJsonRowWindow(key) {
+  const el = $(key + "Json");
+  let windowState = jsonRowWindow[key];
+  if (!windowState || !windowState.valid) {
+    windowState = jsonRowWindow[key] = {
+      rows: el.querySelectorAll(".json-row"),
+      hint: 0,
+      valid: true,
+    };
+  }
+  const rows = windowState.rows;
+  if (!rows.length) return;
+  // The hint may point past a row list that shrank when the pane rebuilt.
+  const hint = Math.min(windowState.hint, rows.length - 1);
+  const anchor = rows[hint] || rows[0];
+  const rect = el.getBoundingClientRect();
+  const viewportTop = el.scrollTop;
+  const lookaheadBottom = viewportTop + rect.height * 2.2;
+  const revertTop = viewportTop - rect.height * 3;
+  // Rows above the viewport: walk back from the hint (cheap: they were all
+  // realized when they were last on screen).
+  const above = [];
+  let node = jsonRowNeighbor(anchor, true);
+  let steps = 0;
+  while (node && steps < 24) {
+    above.push(node);
+    const b = node.getBoundingClientRect();
+    if (b.bottom <= revertTop) break;
+    node = jsonRowNeighbor(node, true);
+    steps++;
+  }
+  // Rows from the hint down in document order. A row that spans the viewport
+  // (the root row, or a row partly scrolled past) is kept realized and the
+  // walk descends into its children, which are the next entries of the flat
+  // list. The walk stops at the first row below the lookahead zone; the next
+  // scroll event continues from there.
+  const below = [];
+  let index = Math.min(hint, rows.length - 1);
+  while (index < rows.length) {
+    const row = rows[index];
+    const b = row.getBoundingClientRect();
+    below.push([row, b]);
+    index++;
+    if (b.top >= lookaheadBottom) break;
+  }
+  // One batch of writes after all the reads: realize everything from the
+  // revert zone through the lookahead, skip what lies beyond.
+  for (const row of above) row.style.contentVisibility = "visible";
+  for (const [row, b] of below) {
+    row.style.contentVisibility =
+      b.bottom > revertTop && b.top < lookaheadBottom ? "visible" : "auto";
+  }
+  windowState.hint = index;
+}
+["request", "response"].forEach((key) => {
+  // Wake on scroll events and update in the next frame's rAF, which runs
+  // before that frame's paint, so rows are realized by the time they show.
+  // The check re-arms only while the scroll position keeps moving: an
+  // always-running rAF loop would never settle under faked clocks (tests use
+  // page.clock) and wastes frames when idle.
+  let lastTop = -1;
+  let pending = false;
+  const checkJsonRows = () => {
+    pending = false;
+    const el = $(key + "Json");
+    const top = el.scrollTop;
+    if (top === lastTop) return;
+    lastTop = top;
+    updateJsonRowWindow(key);
+    pending = true;
+    requestAnimationFrame(checkJsonRows);
+  };
+  $(key + "Json").addEventListener("scroll", () => {
+    if (!pending) {
+      pending = true;
+      requestAnimationFrame(checkJsonRows);
+    }
+  });
+});
 /** Fills the children of a node that the lazy first render left empty. */
 function materializeJsonNode(el, detail) {
   if (detail.dataset.jsonLazy !== "1" || detail.dataset.jsonLazyDone === "1") return;
@@ -2970,29 +3081,100 @@ function materializeJsonNode(el, detail) {
   const path = JSON.parse(detail.dataset.jsonNodePath || "[]");
   const value = resolveJsonPathValue(raw, path);
   const depth = Number(detail.dataset.jsonDepth) || 0;
-  const lineWidth = el.clientWidth > 24 ? el.clientWidth - 24 : 0;
+  // The cached width keeps this off the layout: reading clientWidth after the
+  // tree was mutated forces a synchronous re-layout of the whole pane.
+  const lineWidth = jsonLineWidthCache[key] || 0;
   const entries = Array.isArray(value)
     ? value.map((item, index) => [index, item])
     : Object.entries(value || {});
+  const openCount = Number(detail.dataset.jsonDepth) || 0;
   const html = entries
-    .map(
-      ([childKey, childValue]) =>
-        `<div class="json-row">${renderJsonValue(
-          childValue,
-          String(childKey),
-          false,
-          state.formatStrings[key],
-          depth + 1,
-          path.concat([childKey]),
-          lineWidth,
-          true,
-        )}</div>`,
+    .map(([childKey, childValue]) =>
+      jsonRowHtml(
+        childValue,
+        String(childKey),
+        state.formatStrings[key],
+        depth + 1,
+        path.concat([childKey]),
+        lineWidth,
+        true,
+        openCount,
+        false,
+      ),
     )
     .join("");
   const children = detail.querySelector(":scope > .json-children");
   if (children) children.innerHTML = html;
   else detail.insertAdjacentHTML("beforeend", `<div class="json-children">${html}</div>`);
   detail.dataset.jsonLazyDone = "1";
+  jsonRowWindowInvalidate(key);
+  // The parent row rendered as a single collapsed line until now; refresh its
+  // size hint so the scrollbar accounts for the children that were just added.
+  const parentRow = children?.parentElement?.closest(".json-row");
+  if (parentRow && !parentRow.classList.contains("json-pane-root")) {
+    const filledLines = jsonLineCount(
+      value,
+      state.formatStrings[key],
+      lineWidth,
+      openCount,
+      state.wrap[key] === true,
+    );
+    parentRow.style.containIntrinsicSize = `auto ${filledLines * 18}px`;
+  }
+}
+// Materializing every node of a freshly opened level in one synchronous pass
+// blocks the main thread for hundreds of milliseconds on multi-megabyte bodies,
+// so the click feels dead. Queued nodes are filled in time-budgeted batches:
+// the click returns after only queueing, each node gets its children before it
+// opens so it never paints empty, and the event loop stays free between
+// batches for painting and other work. Nodes a pane rebuild detached are
+// skipped.
+const jsonMaterializeQueue = [];
+const jsonMaterializeBudgetMs = 12;
+let jsonMaterializeRunning = false;
+function enqueueJsonMaterialize(el, detail) {
+  if (detail.dataset.jsonLazy !== "1" || detail.dataset.jsonLazyDone === "1") return;
+  jsonMaterializeQueue.push({ el, detail });
+  // Kick from a task, never synchronously: the click handler must return
+  // first so the browser can paint, and each batch's layout lands on a frame
+  // boundary instead of blocking the click.
+  if (!jsonMaterializeRunning) setTimeout(drainJsonMaterializeQueue, 0);
+}
+function drainJsonMaterializeQueue() {
+  if (jsonMaterializeRunning) return;
+  jsonMaterializeRunning = true;
+  const start = performance.now();
+  while (jsonMaterializeQueue.length) {
+    const item = jsonMaterializeQueue.shift();
+    if (!item.detail.isConnected) continue;
+    // Fill first, open second: the node appears already populated, and the
+    // browser never lays out a level twice (empty, then filled).
+    materializeJsonNode(item.el, item.detail);
+    item.detail.open = true;
+    if (performance.now() - start >= jsonMaterializeBudgetMs) break;
+  }
+  jsonMaterializeRunning = false;
+  if (jsonMaterializeQueue.length) setTimeout(drainJsonMaterializeQueue, 0);
+}
+// Opening a batch of lazy nodes fires one toggle event per node; updating the
+// pane buttons on every event re-scans the whole tree hundreds of times. One
+// coalesced task per burst keeps the buttons current at negligible cost - a
+// timeout (not a microtask) so bursts that span several queue batches still
+// collapse into a single update.
+let jsonPaneButtonsUpdateQueued = false;
+const jsonPaneButtonsUpdateKeys = new Set();
+function schedulePaneButtonsUpdate(key) {
+  jsonPaneButtonsUpdateKeys.add(key);
+  if (jsonPaneButtonsUpdateQueued) return;
+  jsonPaneButtonsUpdateQueued = true;
+  setTimeout(() => {
+    jsonPaneButtonsUpdateQueued = false;
+    for (const pendingKey of jsonPaneButtonsUpdateKeys) {
+      updateExpandButton(pendingKey);
+      updatePaneButtons(pendingKey);
+    }
+    jsonPaneButtonsUpdateKeys.clear();
+  });
 }
 function jsonContentOffset(container, el) {
   let top = 0;
@@ -3026,7 +3208,7 @@ function restoreJsonPaneViewState(el, viewState) {
     const saved = viewState.nodeState.get(detail.dataset.jsonNodePath);
     if (!saved) return;
     detail.open = saved.open;
-    if (detail.open && detail.dataset.jsonLazy === "1") materializeJsonNode(el, detail);
+    if (detail.open && detail.dataset.jsonLazy === "1") enqueueJsonMaterialize(el, detail);
     if (!detail.classList.contains("json-str-detail")) return;
     const body = detail.querySelector(".json-str-body");
     if (!body) return;
@@ -3035,6 +3217,75 @@ function restoreJsonPaneViewState(el, viewState) {
   });
   el.scrollTop = viewState.scrollTop;
   el.scrollLeft = viewState.scrollLeft;
+}
+// Rows skip layout and paint while offscreen (content-visibility in app.css),
+// so the browser needs a size hint for rows it has never realized. The hint
+// counts the lines the subtree renders *in its current open state*: collapsed
+// nodes and collapsed strings count as the single summary line they show.
+const jsonLineCache = new WeakMap();
+function jsonLineCount(value, formatMode, lineWidth, openCount, wrap) {
+  if (value === null || typeof value !== "object") {
+    // WeakMap only accepts objects, so primitives are never cached; counting
+    // them is trivial anyway.
+    return countJsonLinesWalk(value, formatMode, lineWidth, 0, false, wrap);
+  }
+  const cache = jsonLineCache.get(value);
+  if (cache) {
+    const hit = cache.get(`${formatMode ? 1 : 0}:${lineWidth}:${openCount}:${wrap ? 1 : 0}`);
+    if (hit !== undefined) return hit;
+    const lines = countJsonLinesWalk(value, formatMode, lineWidth, 0, true, wrap);
+    cache.set(`${formatMode ? 1 : 0}:${lineWidth}:${openCount}:${wrap ? 1 : 0}`, lines);
+    return lines;
+  }
+  const lines = countJsonLinesWalk(value, formatMode, lineWidth, 0, true, wrap);
+  jsonLineCache.set(value, new Map());
+  jsonLineCache
+    .get(value)
+    .set(`${formatMode ? 1 : 0}:${lineWidth}:${openCount}:${wrap ? 1 : 0}`, lines);
+  return lines;
+}
+function countJsonLinesWalk(value, formatMode, lineWidth, depth, open, wrap) {
+  if (value === null || typeof value !== "object") {
+    if (typeof value === "string") {
+      if (!formatMode) return 1;
+      const display = formatString(value);
+      const newlines = display.split(String.fromCharCode(10)).length;
+      if (newlines > 1) return display.length > 150 ? 1 : newlines;
+      if (lineWidth > 0 && !jsonTextFitsOnLine(display, "", depth, lineWidth)) {
+        return display.length > 150 ? 1 : Math.ceil(display.length / Math.max(lineWidth, 1));
+      }
+      if (wrap && lineWidth > 0 && display.length > lineWidth) {
+        return Math.ceil(display.length / Math.max(lineWidth, 1));
+      }
+      return 1;
+    }
+    return 1;
+  }
+  const entries = Array.isArray(value)
+    ? value.map((item, index) => [index, item])
+    : Object.entries(value);
+  const nodeOpen = depth < defaultJsonExpandedDepth || open;
+  if (!nodeOpen) return 1;
+  let lines = 2;
+  for (const [, child] of entries)
+    lines += countJsonLinesWalk(child, formatMode, lineWidth, depth + 1, open, wrap);
+  return lines;
+}
+function jsonRowHtml(value, key, formatMode, depth, path, lineWidth, lazy, openCount, isRoot) {
+  const content = renderJsonValue(
+    value,
+    key,
+    isRoot,
+    formatMode,
+    depth,
+    path,
+    lineWidth,
+    lazy,
+    openCount,
+  );
+  if (isRoot) return `<div class="json-row">${content}</div>`;
+  const lines = jsonLineCount(value, formatMode, lineWidth, openCount, state.wrap[key] === true);
+  return `<div class="json-row" style="contain-intrinsic-size: auto ${lines * 18}px">${content}</div>`;
 }
 function renderJsonValue(
   value,
@@ -3045,6 +3296,7 @@ function renderJsonValue(
   path = [],
   lineWidth = 0,
   lazy = false,
+  openCount = defaultJsonExpandedDepth,
 ) {
   const type = jsonType(value);
   const keyHtml =
@@ -3062,18 +3314,18 @@ function renderJsonValue(
       lazy && !open
         ? `<div class="json-children"></div>`
         : `<div class="json-children">${entries
-            .map(
-              ([childKey, childValue]) =>
-                `<div class="json-row">${renderJsonValue(
-                  childValue,
-                  String(childKey),
-                  false,
-                  formatMode,
-                  depth + 1,
-                  path.concat([childKey]),
-                  lineWidth,
-                  lazy,
-                )}</div>`,
+            .map(([childKey, childValue]) =>
+              jsonRowHtml(
+                childValue,
+                String(childKey),
+                formatMode,
+                depth + 1,
+                path.concat([childKey]),
+                lineWidth,
+                lazy,
+                openCount,
+                false,
+              ),
             )
             .join("")}</div>`;
     const openAttr = open ? " open" : "";
@@ -3189,8 +3441,12 @@ function jsonText(value) {
   const text = JSON.stringify(value, null, 2);
   return text === undefined ? "undefined" : text;
 }
+const jsonLineWidthCache = {};
 function renderJsonPane(key, options = {}) {
   const el = $(key + "Json");
+  // Cache the content width while the DOM is still clean: reading it later,
+  // after the tree was mutated, forces a synchronous re-layout.
+  jsonLineWidthCache[key] = el.clientWidth > 24 ? el.clientWidth - 24 : 0;
   const viewState = options.preserveView ? collectJsonPaneViewState(el) : null;
   el.classList.toggle("wrap", state.wrap[key]);
   el.classList.toggle("nowrap", !state.wrap[key]);
@@ -3202,19 +3458,21 @@ function renderJsonPane(key, options = {}) {
     el.dataset.jsonPaneKey = key;
     const lineWidth = el.clientWidth > 24 ? el.clientWidth - 24 : 0;
     if (state.formatStrings[key]) prepareJsonMeasurements(state.raw[key], lineWidth);
-    const html = renderJsonValue(
+    const html = jsonRowHtml(
       state.raw[key],
       "",
-      true,
       state.formatStrings[key],
       0,
       [],
       lineWidth,
       jsonEntryCount(state.raw[key], lazyJsonEntryLimit) > lazyJsonEntryLimit,
+      defaultJsonExpandedDepth,
+      true,
     );
     if (html !== rendered) {
       state.jsonPaneHtml[key] = html;
       el.innerHTML = html;
+      jsonRowWindowInvalidate(key);
       restoreJsonPaneViewState(el, viewState);
     }
   } else {
@@ -3222,6 +3480,7 @@ function renderJsonPane(key, options = {}) {
     if (text !== rendered) {
       state.jsonPaneHtml[key] = text;
       el.textContent = text;
+      jsonRowWindowInvalidate(key);
     }
   }
   updateExpandButton(key);
@@ -5394,24 +5653,38 @@ document.querySelectorAll("[data-expand]").forEach((button) =>
         }
         return true;
       });
+      // Refresh the width cache before touching the tree, then queue instead
+      // of opening here: the click returns immediately and the queue opens
+      // each node right after its children are filled, so the level streams
+      // in without blocking the main thread.
+      jsonLineWidthCache[key] =
+        $(key + "Json").clientWidth > 24 ? $(key + "Json").clientWidth - 24 : 0;
       nextLevel.forEach((detail) => {
-        detail.open = true;
+        // Non-lazy trees already have their children in the DOM, so opening
+        // directly is the correct (and cheap) path; only lazy nodes go
+        // through the queue, which fills them before opening.
+        if (detail.dataset.jsonLazy === "1") enqueueJsonMaterialize($(key + "Json"), detail);
+        else detail.open = true;
       });
+      schedulePaneButtonsUpdate(key);
     }
-    updateExpandButton(key);
-    updatePaneButtons(key);
   }),
 );
 ["request", "response"].forEach((key) => {
+  // Keep the cached line width current so lazy fills never read clientWidth
+  // after a mutation (that read forces a synchronous re-layout of the pane).
+  new ResizeObserver(() => {
+    const el = $(key + "Json");
+    jsonLineWidthCache[key] = el.clientWidth > 24 ? el.clientWidth - 24 : 0;
+  }).observe($(key + "Json"));
   $(key + "Json").addEventListener(
     "toggle",
     (event) => {
       const detail = event.target;
       if (detail instanceof HTMLElement && detail.open && detail.dataset.jsonLazy === "1") {
-        materializeJsonNode($(key + "Json"), detail);
+        enqueueJsonMaterialize($(key + "Json"), detail);
       }
-      updateExpandButton(key);
-      updatePaneButtons(key);
+      schedulePaneButtonsUpdate(key);
     },
     true,
   );
