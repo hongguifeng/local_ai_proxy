@@ -319,6 +319,12 @@ const translations = {
     summaryGenerated: "智能总结已生成",
     summaryModelRequired: "请先配置总结模型",
     summaryConfigSaved: "总结模型配置已保存",
+    taskBrief: "任务简介",
+    taskBriefGenerate: "生成简介",
+    taskBriefGenerating: "生成中…",
+    taskBriefNone: "尚未生成简介：点击右侧按钮，让总结模型用一小段话概括这个任务。",
+    taskBriefFailed: "简介生成失败",
+    taskBriefGenerated: "任务简介已生成",
     testTesting: "测试中…",
     testSuccess: "连接成功",
     testFailed: "连接失败",
@@ -675,6 +681,13 @@ const translations = {
     summaryGenerated: "Smart summary generated",
     summaryModelRequired: "Configure a summary model first",
     summaryConfigSaved: "Summary model settings saved",
+    taskBrief: "Task brief",
+    taskBriefGenerate: "Generate brief",
+    taskBriefGenerating: "Generating…",
+    taskBriefNone:
+      "No brief yet: use the button to let the summary model describe this task in a few sentences.",
+    taskBriefFailed: "Task brief failed",
+    taskBriefGenerated: "Task brief generated",
     testTesting: "Testing…",
     testSuccess: "Connection OK",
     testFailed: "Connection failed",
@@ -732,6 +745,7 @@ const state = {
   taskOutputTokenSeries: null,
   taskPricingAbort: null,
   taskPricingRendered: "",
+  taskBrief: null,
   pricingGroupOpen: {},
   logsLoadedAt: 0,
   logLimit: 100,
@@ -2654,6 +2668,132 @@ function sameTaskGroupSnapshot(a, b) {
     a.decode_speed_tps === b.decode_speed_tps
   );
 }
+// The task-brief card: a free-form paragraph the summary model writes for the
+// whole task, generated only when the user asks for it (the model call costs
+// money, so nothing is generated on panel open).
+/**
+ * Labels for the environment facts the brief model extracts. Known keys are
+ * localized; anything else the model returned is shown under its own name.
+ */
+const taskBriefFactLabels = {
+  zh: {
+    agent: "客户端",
+    cwd: "工作目录",
+    git_branch: "分支",
+    os: "系统",
+    shell: "Shell",
+    terminal: "终端",
+    platform: "平台",
+    container: "容器",
+    remote: "远程主机",
+    workspace: "工作区",
+    project: "项目",
+    repo: "仓库",
+    model: "模型",
+  },
+  en: {
+    agent: "Client",
+    cwd: "Working dir",
+    git_branch: "Branch",
+    os: "OS",
+    shell: "Shell",
+    terminal: "Terminal",
+    platform: "Platform",
+    container: "Container",
+    remote: "Remote host",
+    workspace: "Workspace",
+    project: "Project",
+    repo: "Repo",
+    model: "Model",
+  },
+};
+function taskBriefFactsHtml(context) {
+  const entries = Object.entries(context || {});
+  if (entries.length === 0) return "";
+  const labels = taskBriefFactLabels[state.language] || taskBriefFactLabels.zh;
+  return `<div class="task-brief-facts">${entries
+    .map(
+      ([key, value]) =>
+        `<span class="task-brief-fact"><span class="task-brief-fact-key">${escapeHtml(
+          labels[key] || key,
+        )}</span><span class="task-brief-fact-value">${escapeHtml(String(value))}</span></span>`,
+    )
+    .join("")}</div>`;
+}
+function taskBriefCardHtml(groupId) {
+  const brief = state.taskBrief && state.taskBrief.id === groupId ? state.taskBrief : null;
+  const data = brief ? brief.data : null;
+  const text = data ? String(data.text || "") : "";
+  const facts = data ? taskBriefFactsHtml(data.context) : "";
+  const meta = data
+    ? `<p class="task-brief-meta">${[
+        data.model ? escapeHtml(String(data.model)) : "",
+        data.generated_at ? escapeHtml(formatBriefTime(String(data.generated_at))) : "",
+      ]
+        .filter((item) => item !== "")
+        .join(" · ")}</p>`
+    : "";
+  const button =
+    brief && brief.loading
+      ? `<button type="button" data-generate-brief disabled>${escapeHtml(t("taskBriefGenerating"))}</button>`
+      : `<button type="button" data-generate-brief>${escapeHtml(
+          text ? t("regenerate") : t("taskBriefGenerate"),
+        )}</button>`;
+  const body =
+    brief && brief.loading
+      ? `<p class="task-brief-text">${escapeHtml(t("loading"))}</p>`
+      : brief && brief.error
+        ? `<p class="task-brief-error">${escapeHtml(`${t("taskBriefFailed")}: ${brief.error}`)}</p>`
+        : text
+          ? `${facts}<p class="task-brief-text">${escapeHtml(text)}</p>${meta}`
+          : `<p class="task-brief-empty">${escapeHtml(t("taskBriefNone"))}</p>`;
+  return `<section class="task-brief"><div class="task-brief-head"><strong>${escapeHtml(
+    t("taskBrief"),
+  )}</strong>${button}</div>${body}</section>`;
+}
+function formatBriefTime(value) {
+  const date = new Date(value);
+  if (!Number.isFinite(date.getTime())) return String(value);
+  return date.toLocaleString(state.language === "en" ? "en-US" : "zh-CN", {
+    hour12: false,
+  });
+}
+function loadTaskBrief(groupId, signal) {
+  return api(`/api/log-groups/${encodeURIComponent(groupId)}/brief`, { signal })
+    .then((data) => {
+      if (state.activeTaskPricing !== groupId) return;
+      state.taskBrief = { id: groupId, loading: false, error: false, data: data || null };
+      renderTaskPricingPanel();
+    })
+    .catch((error) => {
+      if (state.activeTaskPricing !== groupId || error?.name === "AbortError") return;
+      state.taskBrief = { id: groupId, loading: false, error: false, data: null };
+      renderTaskPricingPanel();
+    });
+}
+async function regenerateTaskBrief() {
+  const groupId = state.activeTaskPricing;
+  if (!groupId || state.taskBrief?.loading) return;
+  state.taskBrief = { id: groupId, loading: true, error: false, data: null };
+  renderTaskPricingPanel();
+  try {
+    const data = await api(`/api/log-groups/${encodeURIComponent(groupId)}/brief`, {
+      method: "POST",
+    });
+    if (state.activeTaskPricing !== groupId) return;
+    state.taskBrief = { id: groupId, loading: false, error: false, data: data || null };
+    toast(t("taskBriefGenerated"));
+  } catch (error) {
+    if (state.activeTaskPricing !== groupId) return;
+    state.taskBrief = {
+      id: groupId,
+      loading: false,
+      error: String(error?.message || error),
+      data: null,
+    };
+  }
+  renderTaskPricingPanel();
+}
 function taskPricingRenderSignature(groupId, data, openGroups) {
   // Mirror the render's own series lookup: a series that belongs to another
   // task is not drawn, so it must not hold the signature either.
@@ -2664,6 +2804,7 @@ function taskPricingRenderSignature(groupId, data, openGroups) {
     state.language,
     groupId,
     JSON.stringify(data),
+    JSON.stringify(state.taskBrief),
     state.activeTaskGroup ? logGroupRenderSignature(state.activeTaskGroup) : "",
     series(seriesPoints(state.taskTokenSeries)),
     series(seriesPoints(state.taskCostSeries)),
@@ -2794,6 +2935,9 @@ function renderTaskPricingPanel() {
   // a detail the user asked to keep out of the top card.
   taskStats.push(statCard(t("cost"), formatGroupCost(cost), null, null, "cost"));
   const summaryCard = `<section class="task-summary">${targetLine}<div class="task-stat-cards">${taskStats.join("")}</div></section>`;
+  // The task brief is its own card at the very top of the panel, above the
+  // fact grid: it is free-form prose, so it does not fit the stat-card shape.
+  const briefCard = taskBriefCardHtml(active);
   const tokenSeries =
     state.taskTokenSeries && state.taskTokenSeries.id === active
       ? state.taskTokenSeries.points
@@ -2807,7 +2951,7 @@ function renderTaskPricingPanel() {
       ? state.taskOutputTokenSeries.points
       : null;
   const outputTokenChart = `<h3 class="section-output">${escapeHtml(t("outputTokenTrend"))}</h3>${outputTokenSeries === null ? `<p>${escapeHtml(t("loading"))}</p>` : taskOutputTokenChartHtml(outputTokenSeries)}<p class="pricing-note">${escapeHtml(t("outputTokenTrendNote"))}</p>`;
-  panel.innerHTML = `<div class="pricing-panel-head"><strong>${escapeHtml(t("taskPricing"))}</strong><button type="button" data-close-pricing>${escapeHtml(t("close"))}</button></div>${summaryCard}${data.priced_request_count ? taskBreakdownTableHtml(data.breakdown, pricingDecimalFromNano(data.cost_nano_cny)) : `<p>${escapeHtml(reasons || t("unpriced"))}</p>`}<p class="pricing-note">${escapeHtml(t("taskWholeScope"))}</p>${costChart}${tokenChart}${outputTokenChart}<h3 class="section-groups">${escapeHtml(t("priceGroups"))}</h3>${groups || `<p>${escapeHtml(t("unpriced"))}</p>`}`;
+  panel.innerHTML = `<div class="pricing-panel-head"><strong>${escapeHtml(t("taskPricing"))}</strong><button type="button" data-close-pricing>${escapeHtml(t("close"))}</button></div>${briefCard}${summaryCard}${data.priced_request_count ? taskBreakdownTableHtml(data.breakdown, pricingDecimalFromNano(data.cost_nano_cny)) : `<p>${escapeHtml(reasons || t("unpriced"))}</p>`}<p class="pricing-note">${escapeHtml(t("taskWholeScope"))}</p>${costChart}${tokenChart}${outputTokenChart}<h3 class="section-groups">${escapeHtml(t("priceGroups"))}</h3>${groups || `<p>${escapeHtml(t("unpriced"))}</p>`}`;
   fitTaskSummaryValues(panel);
   fitTaskSummaryValues(panel);
 }
@@ -2862,11 +3006,13 @@ async function showTaskPricing(groupId) {
   if (state.activeTaskGroup?.id !== groupId) state.activeTaskGroup = null;
   syncActiveTaskGroup(groupId);
   state.taskPricing = { id: groupId, loading: true, error: false, data: null };
+  state.taskBrief = { id: groupId, loading: true, error: false, data: null };
   state.taskTokenSeries = { id: groupId, points: null };
   state.taskCostSeries = { id: groupId, points: null };
   state.taskOutputTokenSeries = { id: groupId, points: null };
   renderTaskPricingPanel();
   const series = loadTaskTokenSeries(groupId, controller.signal);
+  const brief = loadTaskBrief(groupId, controller.signal);
   const costSeries = loadTaskCostSeries(groupId, controller.signal);
   const outputTokenSeries = loadTaskOutputTokenSeries(groupId, controller.signal);
   try {
@@ -2881,13 +3027,14 @@ async function showTaskPricing(groupId) {
     state.taskPricing = { id: groupId, loading: false, error: true, data: null };
   }
   renderTaskPricingPanel();
-  await Promise.all([series, costSeries, outputTokenSeries]);
+  await Promise.all([series, costSeries, outputTokenSeries, brief]);
 }
 function closeTaskPricing() {
   state.taskPricingAbort?.abort();
   state.taskPricingAbort = null;
   state.activeTaskPricing = null;
   state.activeTaskGroup = null;
+  state.taskBrief = null;
   state.taskTokenSeries = null;
   state.taskCostSeries = null;
   state.taskOutputTokenSeries = null;
@@ -5722,6 +5869,10 @@ $("logItems").addEventListener("keydown", (event) => {
   showTaskPricing(group.dataset.groupId).catch((e) => toast(e.message));
 });
 $("pricingPanel").addEventListener("click", (event) => {
+  if (event.target.closest("[data-generate-brief]")) {
+    regenerateTaskBrief().catch((e) => toast(e.message));
+    return;
+  }
   const summary = event.target.closest("summary");
   if (summary && state.activeTaskPricing) {
     const details = summary.parentElement;

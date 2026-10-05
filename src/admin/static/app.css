@@ -1499,6 +1499,91 @@ label span {
   padding-bottom: 10px;
   border-bottom: 1px solid var(--line);
 }
+/* The task brief is a free-form paragraph the summary model writes about the
+   whole task, so it gets its own card above the fact grid rather than a stat
+   cell: the prose wraps, the generate button sits on the title line, and the
+   card inherits the generic button look (only the size is trimmed here). */
+.pricing-panel > .task-brief {
+  margin-top: 12px;
+  padding: 12px 14px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: #ffffff;
+}
+.task-brief-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+.task-brief-head strong {
+  font-size: 13px;
+  color: #111827;
+}
+.task-brief-head button {
+  font-size: 11px;
+  padding: 3px 9px;
+}
+/* The environment facts the summary model read out of the newest request
+   (client, working directory, git branch, OS, ...) sit above the paragraph as
+   compact pills: a muted label plus a monospace value that wraps, so a long
+   path never pushes the card wider than the rest of the panel. */
+.task-brief-facts {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin: 10px 0 0;
+}
+.task-brief-fact {
+  display: inline-flex;
+  align-items: baseline;
+  min-width: 0;
+  max-width: 100%;
+  gap: 6px;
+  padding: 2px 8px;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  background: #f8fafc;
+  font-size: 12px;
+  line-height: 18px;
+}
+.task-brief-fact-key {
+  flex: none;
+  color: var(--muted);
+  font-weight: 600;
+}
+.task-brief-fact-value {
+  min-width: 0;
+  color: #1f2937;
+  font-family: ui-monospace, SFMono-Regular, Consolas, monospace;
+  overflow-wrap: anywhere;
+}
+.task-brief-text {
+  margin: 10px 0 0;
+  font-size: 13px;
+  line-height: 1.7;
+  color: #1f2937;
+  /* The stat cards above use nowrap + ellipsis on their values; this card is
+     prose and must wrap explicitly. */
+  white-space: normal;
+  overflow-wrap: anywhere;
+}
+.task-brief-empty {
+  margin: 10px 0 0;
+  font-size: 12px;
+  color: var(--muted);
+}
+.task-brief-error {
+  margin: 10px 0 0;
+  font-size: 12px;
+  color: #b3261e;
+  overflow-wrap: anywhere;
+}
+.task-brief-meta {
+  margin: 8px 0 0;
+  font-size: 11px;
+  color: var(--muted);
+}
 /* Top of the task-detail panel: a full-width target line (the address may be
    a long URL, so it lives outside the fixed-width card cells), then a grid of
    small stat cards that reuse the usage-statistics .stat-card look (label /
@@ -1818,6 +1903,7 @@ label span {
    stretch the table columns (loose spacing hurts readability); narrow viewports
    still fill 100% and scroll. The header row (title + close) stays full-width. */
 .pricing-panel > .task-summary,
+.pricing-panel > .task-brief,
 .pricing-panel > .table-scroll,
 .pricing-panel > .pricing-note,
 .pricing-panel > h3,

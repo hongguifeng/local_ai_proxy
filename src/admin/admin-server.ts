@@ -68,6 +68,8 @@ export interface LogAdminService {
   readonly getGroupTokenSeries?: (groupId: string) => unknown;
   readonly getGroupCostSeries?: (groupId: string) => unknown;
   readonly getGroupOutputTokenSeries?: (groupId: string) => unknown;
+  readonly getTaskBrief?: (groupId: string) => unknown;
+  readonly generateTaskBrief?: (groupId: string) => Promise<unknown>;
   listGroups(query: string, limit: number, offset: number): LogGroupPage;
 }
 
@@ -863,6 +865,40 @@ export function createAdminServer(options: AdminServerOptions): FastifyInstance 
         (request, reply) =>
           getGroupOutputTokenSeries(request.params.id) ??
           reply.code(404).send(adminError("log_group_not_found", "Log group not found.")),
+      );
+    }
+    const getTaskBrief = logService.getTaskBrief?.bind(logService);
+    const generateTaskBrief = logService.generateTaskBrief?.bind(logService);
+    if (generateTaskBrief !== undefined) {
+      if (getTaskBrief !== undefined)
+        server.get<{ Params: { id: string } }>(
+          "/api/log-groups/:id/brief",
+          (request) => getTaskBrief(request.params.id) ?? null,
+        );
+      server.post<{ Params: { id: string } }>(
+        "/api/log-groups/:id/brief",
+        async (request, reply) => {
+          try {
+            return await generateTaskBrief(request.params.id);
+          } catch (error) {
+            const message = error instanceof Error ? error.message : "Task brief failed.";
+            if (message.includes("Log group not found.")) {
+              return reply
+                .code(404)
+                .send(adminError("log_group_not_found", "Log group not found."));
+            }
+            return reply
+              .code(message.includes("already in progress") ? 409 : 502)
+              .send(
+                adminError(
+                  message.includes("already in progress")
+                    ? "task_brief_in_progress"
+                    : "task_brief_failed",
+                  message,
+                ),
+              );
+          }
+        },
       );
     }
     if (getGroupLogs !== undefined) {

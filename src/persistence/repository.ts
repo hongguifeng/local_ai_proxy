@@ -923,6 +923,66 @@ export class TrafficRepository {
     return remove();
   }
 
+  /**
+   * The generated one-paragraph task brief for a task, or undefined when it
+   * was never generated (or the generation did not finish).
+   */
+  getTaskBrief(taskId: string): RepositoryRecord | undefined {
+    return this.#database
+      .prepare("SELECT * FROM task_briefs WHERE task_id = ? AND status = 'ready'")
+      .get(taskId) as RepositoryRecord | undefined;
+  }
+
+  saveTaskBrief(
+    taskId: string,
+    briefText: string,
+    model: string,
+    sourceRecordId: string,
+    promptVersion: string,
+    contextJson: string | null = null,
+  ): RepositoryRecord {
+    const now = this.#now();
+    this.#database
+      .prepare(
+        `INSERT INTO task_briefs(task_id,status,brief_text,source_record_id,model,prompt_version,context_json,created_at,updated_at)
+         VALUES(?,?,?,?,?,?,?,?,?)
+         ON CONFLICT(task_id) DO UPDATE SET
+           status='ready',
+           brief_text=excluded.brief_text,
+           source_record_id=excluded.source_record_id,
+           model=excluded.model,
+           prompt_version=excluded.prompt_version,
+           context_json=excluded.context_json,
+           updated_at=excluded.updated_at`,
+      )
+      .run(taskId, "ready", briefText, sourceRecordId, model, promptVersion, contextJson, now, now);
+    const saved = this.getTaskBrief(taskId);
+    if (saved === undefined) {
+      throw new Error(`Task brief for ${taskId} was not saved.`);
+    }
+    return saved;
+  }
+
+  /**
+   * The newest record of a task whose body is complete, i.e. the last finished
+   * request. Falls back to the newest record at all when every request of the
+   * task is still in flight, so a running task can still be briefed.
+   */
+  latestTaskRecordId(taskId: string): string | undefined {
+    const finished = this.#database
+      .prepare(
+        "SELECT id FROM records WHERE task_id = ? AND event = 'request_finished' ORDER BY sequence DESC LIMIT 1",
+      )
+      .pluck()
+      .get(taskId);
+    if (typeof finished === "string") return finished;
+    const latest = this.#database
+      .prepare("SELECT id FROM records WHERE task_id = ? ORDER BY sequence DESC LIMIT 1")
+      .pluck()
+      .get(taskId);
+    return typeof latest === "string" ? latest : undefined;
+  }
+
   #syncRecordSearch(values: Readonly<RepositoryRecord>): void {
     const task = this.#database
       .prepare("SELECT * FROM tasks WHERE id = ?")

@@ -734,6 +734,95 @@ describe("TrafficRepository history summaries", () => {
     repository.close();
   });
 
+  it("stores a task brief, picks the newest finished request, and drops it with the task", async () => {
+    const root = await mkdtemp(path.join(os.tmpdir(), "llm-proxy-repository-brief-"));
+    temporaryDirectories.push(root);
+    const repository = new TrafficRepository(root);
+    repository.upsertTask({ id: "brief-task", model: "gpt-5", request_count: 3 });
+    repository.upsertRecord({
+      id: "brief-a",
+      task_id: "brief-task",
+      sequence: 1,
+      method: "POST",
+      path: "/v1/responses",
+    });
+    repository.upsertRecord({
+      id: "brief-b",
+      task_id: "brief-task",
+      sequence: 2,
+      method: "POST",
+      path: "/v1/responses",
+    });
+    repository.upsertRecord({
+      id: "brief-c",
+      task_id: "brief-task",
+      sequence: 3,
+      event: "request_pending_response",
+      method: "POST",
+      path: "/v1/responses",
+    });
+
+    // The newest complete request wins over a newer record that is still
+    // growing, so the model never reads a half-written body.
+    expect(repository.latestTaskRecordId("brief-task")).toBe("brief-b");
+    expect(repository.getTaskBrief("brief-task")).toBeUndefined();
+
+    const saved = repository.saveTaskBrief(
+      "brief-task",
+      "一段简介。",
+      "summary-model",
+      "brief-b",
+      "v2",
+      JSON.stringify({ agent: "pi 0.39", cwd: "d:/code/local_ai_proxy" }),
+    );
+    expect(saved["brief_text"]).toBe("一段简介。");
+    expect(repository.getTaskBrief("brief-task")).toMatchObject({
+      brief_text: "一段简介。",
+      model: "summary-model",
+      source_record_id: "brief-b",
+      prompt_version: "v2",
+      status: "ready",
+    });
+    expect(JSON.parse(String(repository.getTaskBrief("brief-task")?.["context_json"]))).toEqual({
+      agent: "pi 0.39",
+      cwd: "d:/code/local_ai_proxy",
+    });
+
+    // Regenerating overwrites the one row instead of adding another, and a
+    // brief without facts clears the previous environment instead of keeping it.
+    repository.saveTaskBrief("brief-task", "新的简介。", "other-model", "brief-b", "v2", null);
+    expect(repository.database.prepare("SELECT COUNT(*) AS n FROM task_briefs").pluck().get()).toBe(
+      1,
+    );
+    expect(repository.getTaskBrief("brief-task")?.["brief_text"]).toBe("新的简介。");
+    expect(repository.getTaskBrief("brief-task")?.["context_json"]).toBeNull();
+
+    // A task whose every request is still in flight still has a newest record.
+    repository.upsertTask({ id: "brief-pending-task", model: "gpt-5", request_count: 2 });
+    repository.upsertRecord({
+      id: "pending-a",
+      task_id: "brief-pending-task",
+      sequence: 1,
+      event: "request_pending_response",
+      method: "POST",
+      path: "/v1/responses",
+    });
+    repository.upsertRecord({
+      id: "pending-b",
+      task_id: "brief-pending-task",
+      sequence: 2,
+      event: "request_pending_response",
+      method: "POST",
+      path: "/v1/responses",
+    });
+    expect(repository.latestTaskRecordId("brief-pending-task")).toBe("pending-b");
+
+    // Deleting the task takes its brief with it.
+    expect(repository.deleteTasks(["brief-task"])).toBe(1);
+    expect(repository.getTaskBrief("brief-task")).toBeUndefined();
+    repository.close();
+  });
+
   it("never lists a group whose records do not all match the search terms", async () => {
     const root = await mkdtemp(path.join(os.tmpdir(), "llm-proxy-group-record-consistency-"));
     temporaryDirectories.push(root);

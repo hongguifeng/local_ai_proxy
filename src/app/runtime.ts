@@ -74,6 +74,7 @@ export function createNodeApplication(options: NodeApplicationOptions): NodeAppl
               getGroupCostSeries: logs.getGroupCostSeries.bind(logs),
               getGroupOutputTokenSeries: logs.getGroupOutputTokenSeries.bind(logs),
               getSummary: logs.getSummary.bind(logs),
+              getTaskBrief: logs.getTaskBrief.bind(logs),
               exportLogs: logs.exportLogs.bind(logs),
               cleanupSelectedGroups: logs.cleanupSelectedGroups.bind(logs),
               cleanupOlderThan: logs.cleanupOlderThan.bind(logs),
@@ -82,6 +83,11 @@ export function createNodeApplication(options: NodeApplicationOptions): NodeAppl
                 const model = config.summary_model;
                 if (!model) return Promise.reject(new Error("Summary model is not configured."));
                 return logs.summarizeRecord(id, model);
+              },
+              generateTaskBrief: (groupId: string) => {
+                const model = config.summary_model;
+                if (!model) return Promise.reject(new Error("Summary model is not configured."));
+                return logs.generateTaskBrief(groupId, model);
               },
             };
           })(),

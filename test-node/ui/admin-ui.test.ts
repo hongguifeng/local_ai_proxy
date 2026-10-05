@@ -31,6 +31,19 @@ let useLargeLogFixture = false;
 let useLargeLogRequestCount: ((index: number) => number) | null = null;
 let useLargeGroupLogFixture = false;
 let useSummarizedLogFixture = false;
+// The task brief the panel reads back for task-one; null means "never generated".
+let taskBriefFixture: string | null = null;
+const TASK_BRIEF_GENERATED_TEXT =
+  "Relaying a multi-turn coding session through the local proxy and debugging its streaming relay.";
+// The environment facts the brief model reads out of the newest request; the
+// card shows them as pills above the paragraph, in the page's own labels.
+const TASK_BRIEF_GENERATED_FACTS: Record<string, string> = {
+  agent: "pi 0.39 (win32 10.0.26100; x64)",
+  cwd: "d:/code/local_ai_proxy",
+  git_branch: "main",
+  os: "Windows 11 + PowerShell",
+};
+const taskBriefPosts: string[] = [];
 const deletedLogGroups = new Set<string>();
 const detailReads = new Map<string, number>();
 const UI_TEST_TIMEOUT_MS = 30_000;
@@ -628,6 +641,33 @@ beforeAll(async () => {
           { sequence: 5, output_tokens: 212 },
         ];
       },
+      getTaskBrief: (groupId) =>
+        groupId === "task-one" && taskBriefFixture !== null
+          ? {
+              task_id: groupId,
+              text: taskBriefFixture,
+              context: TASK_BRIEF_GENERATED_FACTS,
+              model: "summary-model",
+              generated_at: "2026-07-18T12:05:00.000+08:00",
+              source_record_id: "record-six",
+            }
+          : null,
+      generateTaskBrief: (groupId) => {
+        taskBriefPosts.push(groupId);
+        taskBriefFixture = groupId === "task-one" ? TASK_BRIEF_GENERATED_TEXT : null;
+        return Promise.resolve(
+          taskBriefFixture === null
+            ? null
+            : {
+                task_id: groupId,
+                text: taskBriefFixture,
+                context: TASK_BRIEF_GENERATED_FACTS,
+                model: "summary-model",
+                generated_at: "2026-07-18T12:05:00.000+08:00",
+                source_record_id: "record-six",
+              },
+        );
+      },
       cleanupSelectedGroups: (groupIds) => {
         groupIds.forEach((groupId) => deletedLogGroups.add(groupId));
         return { deleted: groupIds, deleted_count: groupIds.length };
@@ -830,6 +870,8 @@ beforeEach(async () => {
   useLargeLogRequestCount = null;
   useLargeGroupLogFixture = false;
   useSummarizedLogFixture = false;
+  taskBriefFixture = null;
+  taskBriefPosts.length = 0;
   deletedLogGroups.clear();
   detailReads.clear();
   targetCheckCalls.length = 0;
@@ -2082,6 +2124,77 @@ describe("admin UI history page", { timeout: UI_TEST_TIMEOUT_MS }, () => {
     await expectPage(requestPricing).toBeHidden();
   });
 
+  it("generates the task brief on demand and keeps it across panel re-opens", async () => {
+    await loadAdminPage();
+    await Promise.all([
+      page.waitForResponse((response) => response.url().includes("/api/logs?")),
+      page.locator('[data-tab="logs"]').click(),
+    ]);
+    await Promise.all([
+      page.waitForResponse((response) =>
+        response.url().endsWith("/api/log-groups/task-one/pricing"),
+      ),
+      page.waitForResponse((response) => response.url().endsWith("/api/log-groups/task-one/brief")),
+      page.locator('[data-group-id="task-one"]').click(),
+    ]);
+    const panel = page.locator("#pricingPanel");
+    const brief = panel.locator(".task-brief");
+    // Opening a panel never calls the model: the card starts with its hint and
+    // an enabled button, and no POST went out.
+    await expectPage(brief.locator(".task-brief-empty")).toBeVisible();
+    await expectPage(brief.locator("[data-generate-brief]")).toHaveText("Generate brief");
+    expect(taskBriefPosts).toEqual([]);
+
+    await Promise.all([
+      page.waitForResponse(
+        (response) =>
+          response.url().endsWith("/api/log-groups/task-one/brief") &&
+          response.request().method() === "POST",
+      ),
+      brief.locator("[data-generate-brief]").click(),
+    ]);
+    await expectPage(brief.locator(".task-brief-text")).toHaveText(TASK_BRIEF_GENERATED_TEXT);
+    // The environment facts the model extracted are shown as pills above the
+    // paragraph, with the page's own labels and the raw values.
+    await expectPage(brief.locator(".task-brief-fact")).toHaveCount(4);
+    await expectPage(
+      brief
+        .locator(".task-brief-fact")
+        .filter({ hasText: "Client" })
+        .locator(".task-brief-fact-value"),
+    ).toHaveText("pi 0.39 (win32 10.0.26100; x64)");
+    await expectPage(
+      brief
+        .locator(".task-brief-fact")
+        .filter({ hasText: "Working dir" })
+        .locator(".task-brief-fact-value"),
+    ).toHaveText("d:/code/local_ai_proxy");
+    // The button becomes a regenerate affordance and the card credits the model.
+    await expectPage(brief.locator("[data-generate-brief]")).toHaveText("Regenerate");
+    await expectPage(brief.locator(".task-brief-meta")).toContainText("summary-model");
+    // The brief card sits above the fact grid, so it is the first block under
+    // the panel title.
+    const tops = await panel.evaluate((root) =>
+      [...root.querySelectorAll(".task-brief, .task-summary")].map((element) =>
+        Math.round((element as HTMLElement).getBoundingClientRect().top),
+      ),
+    );
+    expect(tops[0]).toBeLessThan(tops[1] ?? Number.POSITIVE_INFINITY);
+
+    // Closing and re-opening reads the stored brief back instead of regenerating.
+    await panel.locator("[data-close-pricing]").click();
+    await expectPage(panel).toBeHidden();
+    await Promise.all([
+      page.waitForResponse((response) =>
+        response.url().endsWith("/api/log-groups/task-one/pricing"),
+      ),
+      page.waitForResponse((response) => response.url().endsWith("/api/log-groups/task-one/brief")),
+      page.locator('[data-group-id="task-one"]').click(),
+    ]);
+    await expectPage(panel.locator(".task-brief-text")).toHaveText(TASK_BRIEF_GENERATED_TEXT);
+    expect(taskBriefPosts).toEqual(["task-one"]);
+  });
+
   it("opens the task detail panel on a header click and toggles the list on the caret button", async () => {
     await loadAdminPage();
     await Promise.all([
@@ -3296,6 +3409,11 @@ async function loadTaskDetailBaseline(language: "zh" | "en"): Promise<void> {
     page.locator('[data-tab="logs"]').click(),
   ]);
   await page.locator("#languageSelect").selectOption(language);
+  // The baseline shows a generated brief, in the page's own language.
+  taskBriefFixture =
+    language === "zh"
+      ? "通过多轮对话调试本地代理的流式转发与计价规则。"
+      : "Debugging the local proxy's streaming relay and pricing through a multi-turn conversation.";
   await Promise.all([
     page.waitForResponse((response) => response.url().endsWith("/api/log-groups/task-one/pricing")),
     page.waitForResponse((response) =>

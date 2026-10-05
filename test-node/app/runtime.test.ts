@@ -132,6 +132,24 @@ describe("createNodeApplication", () => {
       };
       expect(outputTokenSeriesBody.error?.code).toBe("log_group_not_found");
 
+      // The task-brief card depends on these two routes: GET returns the cached
+      // brief (null when it was never generated) and POST generates one. With no
+      // summary model configured the POST fails with a readable 502.
+      const brief = await fetch(`http://127.0.0.1:${adminPort}/api/log-groups/missing-group/brief`);
+      expect(brief.status).toBe(200);
+      expect(await brief.json()).toBeNull();
+
+      const briefGenerate = await fetch(
+        `http://127.0.0.1:${adminPort}/api/log-groups/missing-group/brief`,
+        { method: "POST" },
+      );
+      expect(briefGenerate.status).toBe(502);
+      const briefBody = (await briefGenerate.json()) as {
+        error?: { code?: string; message?: string };
+      };
+      expect(briefBody.error?.code).toBe("task_brief_failed");
+      expect(briefBody.error?.message).toBe("Summary model is not configured.");
+
       const exportResponse = await fetch(`http://127.0.0.1:${adminPort}/api/logs/export`);
       expect(exportResponse.status).toBe(200);
       expect(exportResponse.headers.get("content-type")).toBe("application/zip");

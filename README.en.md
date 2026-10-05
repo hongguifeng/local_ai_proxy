@@ -55,12 +55,13 @@ qwen-local => qwen3
 | Request details | View request and response JSON side by side with expand, collapse, wrapping, formatting, and copy controls. |
 | Cost tracking | Shows task totals, priced/unpriced requests, pricing rules, and token details; each request shows its share. Missing reliable usage or pricing is marked unpriced, never free. Click a task header (or the ⓘ icon button in its control column) to open the Task details panel with costs; clicking the header also expands or collapses that task's request list based on its current state, while the ⓘ icon only opens the panel without changing the list. |
 | Intelligent summaries | Use a configured summary model to summarize individual requests and split consecutive messages into reusable cached phases; summarized requests show a gold star. |
+| Task brief | The task detail panel opens with a Task brief card. Its button sends the task's newest complete request to the summary model, which returns one short paragraph describing what the task is doing and also extracts the base environment facts it can read from the input (which agent/client, current working directory, git branch, OS, …) as a row of pills on the card; the result is cached and can be regenerated, and opening the panel never calls the model. |
 | Export and cleanup | Export selected tasks as ZIP files or delete tasks and their request records. |
 | Paging and refresh | Browse large log directories with paged loading and automatic refresh. |
 
 ![Task details panel](doc/ui_task_detail_en.png)
 
-The **Task details** panel (open it from a task header, or its ⓘ icon button) summarizes a single task's total cost, per-bucket token breakdown (input / output / cache read / cache write), and a **Token trend** line chart, with model/price groups expanded to show pricing and cost share.
+The **Task details** panel (open it from a task header, or its ⓘ icon button) starts with a **Task brief** card — its button asks the summary model for one short paragraph describing what the task is doing, plus the environment facts it can read (client/agent, working directory, branch, …) shown as pills, and the answer is cached until regenerated. Below it the panel summarizes a single task's total cost, per-bucket token breakdown (input / output / cache read / cache write), and a **Token trend** line chart, with model/price groups expanded to show pricing and cost share.
 
 History data is stored by default in a `traffic.db` SQLite database under each log directory; proxy settings are stored in `logs/proxies.json`. Exported ZIP files contain readable Markdown, `request.json`, and `response.json`.
 

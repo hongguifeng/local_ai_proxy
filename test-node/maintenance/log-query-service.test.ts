@@ -2,11 +2,12 @@ import { mkdtemp, rm } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { LogQueryService } from "../../src/maintenance/index.js";
 import { TrafficRepository } from "../../src/persistence/index.js";
 import { formatLocalTimestamp } from "../../src/shared/time.js";
+import type { SummaryModelConfig } from "../../src/config/index.js";
 
 const temporaryDirectories: string[] = [];
 
@@ -712,7 +713,258 @@ describe("LogQueryService", () => {
       decode_window_ms: 0,
     });
   });
+
+  it("generates a task brief from the newest finished request and caches it", async () => {
+    const root = await mkdtemp(path.join(os.tmpdir(), "llm-proxy-task-brief-"));
+    temporaryDirectories.push(root);
+    const repository = new TrafficRepository(root);
+    repository.upsertTask(task("brief-task", "gpt-5", "2026-07-18T12:00:00.000+08:00"));
+    repository.upsertRecord({
+      id: "brief-record-old",
+      task_id: "brief-task",
+      sequence: 1,
+      event: "request_finished",
+      method: "POST",
+      path: "/v1/responses",
+      request_body: { model: "gpt-5", input: [{ type: "message", content: "older turn" }] },
+    });
+    repository.upsertRecord({
+      id: "brief-record-pending",
+      task_id: "brief-task",
+      sequence: 3,
+      event: "request_pending_response",
+      method: "POST",
+      path: "/v1/responses",
+      request_body: { model: "gpt-5", input: "still streaming" },
+    });
+    repository.upsertRecord({
+      id: "brief-record-new",
+      task_id: "brief-task",
+      sequence: 2,
+      event: "request_finished",
+      method: "POST",
+      path: "/v1/responses",
+      request_headers: {
+        "user-agent": "pi (win32 10.0.26100; x64)",
+        "content-type": "application/json",
+      },
+      request_body: { model: "gpt-5", input: [{ type: "message", content: "newest turn" }] },
+    });
+    repository.close();
+
+    const service = new LogQueryService([root]);
+    expect(service.getTaskBrief("brief-task")).toBeUndefined();
+
+    const config: SummaryModelConfig = {
+      disable_reasoning: true,
+      api_type: "openai_chat",
+      target_url: "https://summary.example.com/v1",
+      api_key: "key",
+      model: "summary-model",
+      target_headers: [],
+      timeout_ms: 30000,
+    };
+    const calls: { url: string; body: string }[] = [];
+    vi.stubGlobal("fetch", (input: URL | RequestInfo, init?: RequestInit) => {
+      calls.push({ url: fetchUrlText(input), body: fetchBodyText(init?.body) });
+      return Promise.resolve(
+        new Response(
+          JSON.stringify({
+            choices: [
+              {
+                message: {
+                  content:
+                    '{"brief":"在调试本地代理的流式转发。","facts":{"agent":"pi 0.39 (win32)","cwd":"d:/code/local_ai_proxy","Git Branch":"main","os":"Windows 11 PowerShell","skipped":"","nested":{"a":1}}}',
+                },
+              },
+            ],
+          }),
+          { status: 200, headers: { "content-type": "application/json" } },
+        ),
+      );
+    });
+    try {
+      const brief = await service.generateTaskBrief("brief-task", config);
+      expect(brief).toMatchObject({
+        task_id: "brief-task",
+        text: "在调试本地代理的流式转发。",
+        model: "summary-model",
+        source_record_id: "brief-record-new",
+        context: {
+          agent: "pi 0.39 (win32)",
+          cwd: "d:/code/local_ai_proxy",
+          git_branch: "main",
+          os: "Windows 11 PowerShell",
+        },
+      });
+      // The newest complete request is the one the model sees: a still-growing
+      // pending body would describe a half-finished turn.
+      expect(calls[0]?.url).toBe("https://summary.example.com/v1/chat/completions");
+      expect(calls[0]?.body).toContain("newest turn");
+      expect(calls[0]?.body).not.toContain("still streaming");
+      // The identifying request header is sent along so the agent name is
+      // evidence instead of a guess, while unrelated headers are left out.
+      expect(calls[0]?.body).toContain("pi (win32 10.0.26100; x64)");
+      expect(calls[0]?.body).not.toContain("content-type");
+      expect(service.getTaskBrief("brief-task")).toMatchObject({
+        text: "在调试本地代理的流式转发。",
+        model: "summary-model",
+        source_record_id: "brief-record-new",
+        context: {
+          agent: "pi 0.39 (win32)",
+          cwd: "d:/code/local_ai_proxy",
+          git_branch: "main",
+          os: "Windows 11 PowerShell",
+        },
+      });
+      await expect(service.generateTaskBrief("missing-task", config)).rejects.toThrow(
+        "Log group not found.",
+      );
+      // Facts are stored next to the paragraph so a re-open reads them back.
+      const storedRepository = new TrafficRepository(root);
+      try {
+        const stored = storedRepository.getTaskBrief("brief-task");
+        expect(stored?.["prompt_version"]).toBe("v2");
+        expect(JSON.parse(String(stored?.["context_json"]))).toEqual({
+          agent: "pi 0.39 (win32)",
+          cwd: "d:/code/local_ai_proxy",
+          git_branch: "main",
+          os: "Windows 11 PowerShell",
+        });
+      } finally {
+        storedRepository.close();
+      }
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+
+  it("reads a fenced JSON task brief answer and keeps its facts", async () => {
+    const root = await mkdtemp(path.join(os.tmpdir(), "llm-proxy-task-brief-fenced-"));
+    temporaryDirectories.push(root);
+    const repository = new TrafficRepository(root);
+    repository.upsertTask(task("fenced-task", "gpt-5", "2026-07-18T12:00:00.000+08:00"));
+    repository.upsertRecord({
+      id: "fenced-record",
+      task_id: "fenced-task",
+      sequence: 1,
+      event: "request_finished",
+      method: "POST",
+      path: "/v1/messages",
+      request_headers: { "user-agent": "claude-cli/2.0.31 (external, cli)" },
+      request_body: { model: "claude", messages: [{ role: "user", content: "fenced turn" }] },
+    });
+    repository.close();
+
+    const service = new LogQueryService([root]);
+    const config: SummaryModelConfig = {
+      disable_reasoning: true,
+      api_type: "anthropic_messages",
+      target_url: "https://summary.example.com/v1",
+      api_key: "key",
+      model: "summary-model",
+      target_headers: [],
+      timeout_ms: 30000,
+    };
+    const answer =
+      "```json\n" +
+      JSON.stringify({
+        brief: "在整理仓库里的测试用例。",
+        facts: { cwd: "/home/dev/repo", git_branch: false, too_long: "x".repeat(500), agent: null },
+      }) +
+      "\n```";
+    vi.stubGlobal("fetch", () =>
+      Promise.resolve(
+        new Response(JSON.stringify({ content: [{ type: "text", text: answer }] }), {
+          status: 200,
+          headers: { "content-type": "application/json" },
+        }),
+      ),
+    );
+    try {
+      const brief = await service.generateTaskBrief("fenced-task", config);
+      expect(brief.text).toBe("在整理仓库里的测试用例。");
+      // Only short string facts survive: booleans, nulls and oversized values
+      // are cut down to what the card can actually show.
+      expect(brief.context).toEqual({
+        cwd: "/home/dev/repo",
+        too_long: `${"x".repeat(200)}…`,
+      });
+      expect(service.getTaskBrief("fenced-task")?.context).toEqual({
+        cwd: "/home/dev/repo",
+        too_long: `${"x".repeat(200)}…`,
+      });
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+
+  it("keeps the task brief for the newest request of a task across log roots", async () => {
+    const firstRoot = await mkdtemp(path.join(os.tmpdir(), "llm-proxy-brief-a-"));
+    const secondRoot = await mkdtemp(path.join(os.tmpdir(), "llm-proxy-brief-b-"));
+    temporaryDirectories.push(firstRoot, secondRoot);
+    const repository = new TrafficRepository(secondRoot);
+    repository.upsertTask(task("cross-brief-task", "gpt-5", "2026-07-18T12:00:00.000+08:00"));
+    repository.upsertRecord({
+      id: "cross-brief-record",
+      task_id: "cross-brief-task",
+      sequence: 1,
+      event: "request_finished",
+      method: "POST",
+      path: "/v1/responses",
+      request_body: { model: "gpt-5", messages: [{ role: "user", content: "cross root" }] },
+    });
+    repository.close();
+
+    const service = new LogQueryService([firstRoot, secondRoot]);
+    expect(service.getTaskBrief("cross-brief-task")).toBeUndefined();
+
+    const calls: string[] = [];
+    vi.stubGlobal("fetch", (input: URL | RequestInfo, init?: RequestInit) => {
+      calls.push(fetchBodyText(init?.body));
+      return Promise.resolve(
+        new Response(JSON.stringify({ output_text: "跨目录的任务简介。" }), {
+          status: 200,
+          headers: { "content-type": "application/json" },
+        }),
+      );
+    });
+    try {
+      const brief = await service.generateTaskBrief("cross-brief-task", {
+        disable_reasoning: true,
+        api_type: "openai_responses",
+        target_url: "https://summary.example.com/v1",
+        api_key: "key",
+        model: "responses-model",
+        target_headers: [],
+        timeout_ms: 30000,
+      });
+      expect(brief.text).toBe("跨目录的任务简介。");
+      expect(calls[0]).toContain("cross root");
+      // A plain-text answer keeps the brief but stores no environment facts.
+      expect(brief.context).toBeUndefined();
+      // The brief is stored in the root that owns the task, not the first root.
+      expect(service.getTaskBrief("cross-brief-task")?.text).toBe("跨目录的任务简介。");
+      expect(service.getTaskBrief("cross-brief-task")?.context).toBeUndefined();
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
 });
+
+/**
+ * The fetch stubs only need the textual parts of a call: a URL object already
+ * stringifies itself, anything else (Blob, Buffer) is not worth recording.
+ */
+function fetchUrlText(input: URL | RequestInfo): string {
+  if (typeof input === "string") return input;
+  if (input instanceof URL) return input.toString();
+  return "";
+}
+
+function fetchBodyText(body: BodyInit | null | undefined): string {
+  return typeof body === "string" ? body : "";
+}
 
 function task(id: string, model: string, timestamp: string) {
   return {

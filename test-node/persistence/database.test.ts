@@ -177,7 +177,7 @@ describe("connectLogDatabase", () => {
       .prepare("SELECT name, type FROM sqlite_master WHERE name NOT LIKE 'sqlite_%'")
       .all() as { name: string; type: string }[];
     const names = new Set(objects.map(({ name }) => name));
-    expect(readSchemaVersion(database)).toBe(11);
+    expect(readSchemaVersion(database)).toBe(13);
     expect([...names]).toEqual(
       expect.arrayContaining([
         "schema_meta",
@@ -189,6 +189,7 @@ describe("connectLogDatabase", () => {
         "record_body_chunks",
         "record_search_map",
         "history_summaries",
+        "task_briefs",
         "record_search_fts",
         "idx_tasks_sort",
         "idx_records_task_sequence",
@@ -207,6 +208,11 @@ describe("connectLogDatabase", () => {
     expect(database.pragma("table_info(records)") as { name: string }[]).not.toContainEqual(
       expect.objectContaining({ name: "first_byte_ms" }),
     );
+    // A fresh database also gets the v13 column that holds the brief's
+    // environment facts, since the migration chain runs in order.
+    expect(
+      (database.pragma("table_info(task_briefs)") as { name: string }[]).map(({ name }) => name),
+    ).toEqual(expect.arrayContaining(["brief_text", "prompt_version", "context_json"]));
 
     database.close();
   });
@@ -269,7 +275,7 @@ describe("database backup", () => {
     expect(backup.prepare("SELECT value FROM backup_fixture").pluck().get()).toBe(
       "persisted through WAL",
     );
-    expect(readSchemaVersion(backup)).toBe(11);
+    expect(readSchemaVersion(backup)).toBe(13);
     backup.close();
   });
 

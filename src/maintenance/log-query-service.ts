@@ -32,6 +32,16 @@ export interface LogGroupSummary {
   readonly target: string | null;
 }
 
+export interface TaskBrief {
+  readonly task_id: string;
+  readonly text: string;
+  /** Environment facts the summary model read out of the newest request. */
+  readonly context?: Readonly<Record<string, string>>;
+  readonly model: string | null;
+  readonly generated_at: string;
+  readonly source_record_id: string | null;
+}
+
 export interface LogTaskCost {
   readonly currency: "CNY";
   readonly known_amount: string | null;
@@ -101,6 +111,7 @@ export interface LogRecordDetail {
 export class LogQueryService {
   readonly #logRoots: () => readonly string[];
   readonly #summarizing = new Set<string>();
+  readonly #briefing = new Set<string>();
 
   constructor(logRoots: readonly string[] | (() => readonly string[])) {
     this.#logRoots = typeof logRoots === "function" ? logRoots : () => logRoots;
@@ -246,85 +257,9 @@ export class LogQueryService {
       const detail = this.getRecordDetail(recordId);
       if (!detail) return undefined;
       const input = JSON.stringify(prepareSummaryRequest(detail.request));
-      const endpoint =
-        config.api_type === "openai_responses"
-          ? "/responses"
-          : config.api_type === "anthropic_messages"
-            ? "/messages"
-            : "/chat/completions";
-      const headers: Record<string, string> = {
-        "content-type": "application/json",
-        ...(config.api_type === "anthropic_messages"
-          ? { "x-api-key": config.api_key, "anthropic-version": "2023-06-01" }
-          : { authorization: `Bearer ${config.api_key}` }),
-      };
       const instruction =
         "请将输入按连续编号区间归纳为阶段摘要，不要逐条复述。严格输出 JSON：{title,overview,segments:[{range,summary,key_points,evidence}],decisions,issues}。每个 segment 的 range 使用如 1-6、7-12 的连续区间，evidence 填引用的消息编号。";
-      const body =
-        config.api_type === "openai_responses"
-          ? {
-              model: config.model,
-              input: `${instruction}\n\n${input}`,
-              stream: false,
-              ...(config.disable_reasoning ? { reasoning_effort: "none" } : {}),
-            }
-          : config.api_type === "anthropic_messages"
-            ? {
-                model: config.model,
-                max_tokens: 2000,
-                system: instruction,
-                messages: [{ role: "user", content: input }],
-                stream: false,
-                ...(config.disable_reasoning ? { reasoning_effort: "none" } : {}),
-              }
-            : {
-                model: config.model,
-                temperature: 0,
-                messages: [
-                  {
-                    role: "system",
-                    content: instruction,
-                  },
-                  { role: "user", content: input },
-                ],
-                stream: false,
-                ...(config.disable_reasoning ? { reasoning_effort: "none" } : {}),
-              };
-      const target = new URL(config.target_url);
-      const basePath = target.pathname.replace(/\/$/u, "");
-      target.pathname = basePath.endsWith(endpoint) ? basePath : joinTargetPath(basePath, endpoint);
-      const response = await fetch(target, {
-        method: "POST",
-        headers: {
-          ...headers,
-          ...Object.fromEntries(
-            config.target_headers.map((h) => {
-              const i = h.indexOf(":");
-              return [h.slice(0, i).trim(), h.slice(i + 1).trim()];
-            }),
-          ),
-        },
-        body: JSON.stringify(body),
-        signal: AbortSignal.timeout(config.timeout_ms),
-      });
-      if (!response.ok) throw new Error(`summary model returned HTTP ${response.status}`);
-      const rawResponse = await response.text();
-      if (rawResponse.length > 2_000_000) throw new Error("summary model response is too large");
-      const payload: Record<string, unknown> = JSON.parse(rawResponse) as Record<string, unknown>;
-      const choices = Array.isArray(payload["choices"]) ? payload["choices"] : [];
-      const firstChoice = isRecord(choices[0]) ? choices[0] : undefined;
-      const message =
-        firstChoice && isRecord(firstChoice["message"]) ? firstChoice["message"] : undefined;
-      const content =
-        (message && typeof message["content"] === "string" ? message["content"] : undefined) ??
-        (typeof payload["output_text"] === "string" ? payload["output_text"] : undefined) ??
-        extractResponsesOutput(payload["output"]) ??
-        (Array.isArray(payload["content"]) &&
-        isRecord(payload["content"][0]) &&
-        typeof payload["content"][0]["text"] === "string"
-          ? payload["content"][0]["text"]
-          : undefined);
-      if (!content) throw new Error("summary model returned an empty response");
+      const content = await this.#requestSummaryModel(config, instruction, input);
       let result: unknown;
       try {
         result = JSON.parse(content);
@@ -390,6 +325,208 @@ export class LogQueryService {
         db.close();
       }
     }
+  }
+
+  /**
+   * The stored task brief: one short paragraph describing what the task is
+   * working on, or undefined when it was never generated.
+   */
+  getTaskBrief(groupId: string): TaskBrief | undefined {
+    for (const root of this.#logRoots()) {
+      const repository = new TrafficRepository(root);
+      try {
+        const row = repository.getTaskBrief(groupId);
+        if (row === undefined) continue;
+        const text = string(row["brief_text"]);
+        if (text === "") continue;
+        const context = parseBriefContext(row["context_json"]);
+        return {
+          task_id: groupId,
+          text,
+          ...(context === undefined ? {} : { context }),
+          model: optionalString(row["model"]),
+          generated_at: string(row["updated_at"]),
+          source_record_id: optionalString(row["source_record_id"]),
+        };
+      } catch {
+        /* unavailable */
+      } finally {
+        repository.close();
+      }
+    }
+    return undefined;
+  }
+
+  /**
+   * Generate the task brief by sending the task's newest complete request to
+   * the configured summary model. Manual only: nothing generates a brief until
+   * the user clicks the button, so no hidden model cost is incurred.
+   */
+  async generateTaskBrief(groupId: string, config: SummaryModelConfig): Promise<TaskBrief> {
+    if (this.#briefing.has(groupId)) throw new Error("task brief already in progress");
+    this.#briefing.add(groupId);
+    try {
+      const recordId = this.#latestGroupRecordId(groupId);
+      if (recordId === undefined) throw new Error("Log group not found.");
+      const detail = this.getRecordDetail(recordId);
+      // The request part is the compressed newest request; the client part is
+      // only the few request headers that identify which agent is talking, so
+      // the model can name the client instead of guessing from the system prompt.
+      const input = JSON.stringify({
+        client: briefClientHints(detail),
+        request: prepareSummaryRequest(detail?.request ?? null),
+      });
+      const content = await this.#requestSummaryModel(config, TASK_BRIEF_INSTRUCTION, input);
+      const { text, facts } = parseTaskBriefContent(content);
+      if (text === "") throw new Error("summary model returned an empty task brief");
+      return this.#saveTaskBrief(groupId, text, facts, config.model, recordId);
+    } finally {
+      this.#briefing.delete(groupId);
+    }
+  }
+
+  /** The newest complete request of a task, or undefined when the task is unknown. */
+  #latestGroupRecordId(groupId: string): string | undefined {
+    for (const root of [...new Set(this.#logRoots().filter((value) => value !== ""))]) {
+      const repository = new TrafficRepository(root);
+      try {
+        if (!repository.hasTask(groupId)) continue;
+        const recordId = repository.latestTaskRecordId(groupId);
+        if (recordId !== undefined) return recordId;
+      } finally {
+        repository.close();
+      }
+    }
+    return undefined;
+  }
+
+  #saveTaskBrief(
+    groupId: string,
+    text: string,
+    facts: Readonly<Record<string, string>>,
+    model: string,
+    sourceRecordId: string,
+  ): TaskBrief {
+    const contextJson = Object.keys(facts).length === 0 ? null : JSON.stringify(facts);
+    for (const root of this.#logRoots()) {
+      const repository = new TrafficRepository(root);
+      try {
+        // Only the root that owns the task can hold the brief: the row
+        // references tasks(id), so writing it elsewhere is a foreign key
+        // violation that would leave the brief in the wrong directory.
+        if (!repository.hasTask(groupId)) continue;
+        const row = repository.saveTaskBrief(
+          groupId,
+          text,
+          model,
+          sourceRecordId,
+          TASK_BRIEF_PROMPT_VERSION,
+          contextJson,
+        );
+        return {
+          task_id: groupId,
+          text,
+          ...(Object.keys(facts).length === 0 ? {} : { context: { ...facts } }),
+          model: optionalString(row["model"]) ?? model,
+          generated_at: string(row["updated_at"]),
+          source_record_id: sourceRecordId,
+        };
+      } catch {
+        /* try next root */
+      } finally {
+        repository.close();
+      }
+    }
+    throw new Error("Task brief could not be saved.");
+  }
+
+  /**
+   * Call the configured summary model with one instruction plus the prepared
+   * input and return its text, for any of the three supported API types.
+   */
+  async #requestSummaryModel(
+    config: SummaryModelConfig,
+    instruction: string,
+    input: string,
+  ): Promise<string> {
+    const endpoint =
+      config.api_type === "openai_responses"
+        ? "/responses"
+        : config.api_type === "anthropic_messages"
+          ? "/messages"
+          : "/chat/completions";
+    const headers: Record<string, string> = {
+      "content-type": "application/json",
+      ...(config.api_type === "anthropic_messages"
+        ? { "x-api-key": config.api_key, "anthropic-version": "2023-06-01" }
+        : { authorization: `Bearer ${config.api_key}` }),
+    };
+    const body =
+      config.api_type === "openai_responses"
+        ? {
+            model: config.model,
+            input: `${instruction}\n\n${input}`,
+            stream: false,
+            ...(config.disable_reasoning ? { reasoning_effort: "none" } : {}),
+          }
+        : config.api_type === "anthropic_messages"
+          ? {
+              model: config.model,
+              max_tokens: 2000,
+              system: instruction,
+              messages: [{ role: "user", content: input }],
+              stream: false,
+              ...(config.disable_reasoning ? { reasoning_effort: "none" } : {}),
+            }
+          : {
+              model: config.model,
+              temperature: 0,
+              messages: [
+                {
+                  role: "system",
+                  content: instruction,
+                },
+                { role: "user", content: input },
+              ],
+              stream: false,
+              ...(config.disable_reasoning ? { reasoning_effort: "none" } : {}),
+            };
+    const target = new URL(config.target_url);
+    const basePath = target.pathname.replace(/\/$/u, "");
+    target.pathname = basePath.endsWith(endpoint) ? basePath : joinTargetPath(basePath, endpoint);
+    const response = await fetch(target, {
+      method: "POST",
+      headers: {
+        ...headers,
+        ...Object.fromEntries(
+          config.target_headers.map((h) => {
+            const i = h.indexOf(":");
+            return [h.slice(0, i).trim(), h.slice(i + 1).trim()];
+          }),
+        ),
+      },
+      body: JSON.stringify(body),
+      signal: AbortSignal.timeout(config.timeout_ms),
+    });
+    if (!response.ok) throw new Error(`summary model returned HTTP ${response.status}`);
+    const rawResponse = await response.text();
+    if (rawResponse.length > 2_000_000) throw new Error("summary model response is too large");
+    const payload: Record<string, unknown> = JSON.parse(rawResponse) as Record<string, unknown>;
+    const choices = Array.isArray(payload["choices"]) ? payload["choices"] : [];
+    const firstChoice = isRecord(choices[0]) ? choices[0] : undefined;
+    const message =
+      firstChoice && isRecord(firstChoice["message"]) ? firstChoice["message"] : undefined;
+    const content =
+      (message && typeof message["content"] === "string" ? message["content"] : undefined) ??
+      (typeof payload["output_text"] === "string" ? payload["output_text"] : undefined) ??
+      extractResponsesOutput(payload["output"]) ??
+      (Array.isArray(payload["content"]) &&
+      isRecord(payload["content"][0]) &&
+      typeof payload["content"][0]["text"] === "string"
+        ? payload["content"][0]["text"]
+        : undefined);
+    if (!content) throw new Error("summary model returned an empty response");
+    return content;
   }
 
   getGroupPricing(groupId: string): TaskPricingAggregate | undefined {
@@ -530,6 +667,148 @@ export class LogQueryService {
 
 export const TASK_RECORD_LIMIT = 200;
 export const PENDING_RECORD_LIMIT = 200;
+
+/** Prompt version recorded with every generated task brief; bump when the instruction changes. */
+export const TASK_BRIEF_PROMPT_VERSION = "v2";
+
+/**
+ * Task-brief prompt: the model sees the newest complete request of the task
+ * (a multi-turn conversation with tool calls) plus the client identifying
+ * headers, and must answer with a short paragraph describing what the task is
+ * working on together with the base environment facts it can actually read
+ * (which agent, working directory, branch, ...) - not a per-message replay.
+ */
+export const TASK_BRIEF_INSTRUCTION =
+  "下面是一次任务中最新一次请求的完整输入（可能是多轮对话、工具调用与历史），其中 client 是客户端请求头里的标识信息。" +
+  "先用一到两段简短的中文话概括这个任务主要在做什么：想完成什么目标、大致是怎样推进的；不要逐条复述消息，也不要罗列工具调用细节，总共不超过 150 字。" +
+  "再从输入里读出这次任务的基础环境信息，能读到多少写多少：agent（发起任务的客户端或助手名称，含版本）、cwd（当前工作目录）、git_branch（当前 git 分支）、os（操作系统与 shell），以及其他确实重要的环境（如远程主机、容器、终端）。" +
+  '严格输出 JSON：{"brief":"概述文字","facts":{"agent":"…","cwd":"…","git_branch":"…","os":"…"}}。' +
+  "facts 里只写你在输入里确实读到的信息，读不到就省略该字段，不要编造，每个值保持简短。";
+
+/**
+ * Normalize the model's answer into a single paragraph: drop code fences, the
+ * JSON wrapper a strict-JSON model may still emit, and fold line breaks into
+ * spaces so the brief renders as one block of text.
+ */
+function briefParagraph(content: string): string {
+  let text = content.trim();
+  const fenced = /```(?:json|text)?\s*([\s\S]*?)```/u.exec(text);
+  if (fenced?.[1] !== undefined) text = fenced[1].trim();
+  // A model that still wraps its answer in a JSON object or quotes: unwrap it
+  // so the card shows plain prose.
+  text = text
+    .replace(/^\{ *"?brief"? *:/u, "")
+    .replace(/"? *\}\s*$/u, "")
+    .replace(/^"+|"+$/gu, "")
+    .trim();
+  text = text
+    .replace(/[\r\n\t]+/gu, " ")
+    .replace(/\s{2,}/gu, " ")
+    .trim();
+  return text.length > 4000 ? `${text.slice(0, 4000)}…` : text;
+}
+
+/** Request headers that tell which agent or client is driving the task. */
+const BRIEF_CLIENT_HEADERS: readonly string[] = [
+  "user-agent",
+  "x-app",
+  "x-app-version",
+  "x-agent-task-id",
+  "x-session-id",
+  "x-claude-code-session-id",
+  "x-codex-turn-id",
+  "anthropic-version",
+];
+
+const TASK_BRIEF_FACT_LIMIT = 6;
+const TASK_BRIEF_FACT_VALUE_LIMIT = 200;
+
+/**
+ * The small "client" block handed to the brief model: only the identifying
+ * request headers, so the agent name comes from evidence instead of a guess.
+ */
+function briefClientHints(detail: LogRecordDetail | undefined): Record<string, string> {
+  const headers = detail?.request_meta["headers"];
+  if (!isRecord(headers)) return {};
+  const hints: Record<string, string> = {};
+  for (const [name, value] of Object.entries(headers)) {
+    const key = name.toLowerCase();
+    if (!BRIEF_CLIENT_HEADERS.includes(key)) continue;
+    const text = headerHintText(value);
+    if (text !== undefined) hints[key] = truncateText(text, TASK_BRIEF_FACT_VALUE_LIMIT);
+  }
+  return hints;
+}
+
+function headerHintText(value: unknown): string | undefined {
+  if (typeof value === "string") return value.trim() === "" ? undefined : value.trim();
+  if (Array.isArray(value)) {
+    for (const item of value) {
+      if (typeof item === "string" && item.trim() !== "") return item.trim();
+    }
+  }
+  return undefined;
+}
+
+/**
+ * Read the brief model's answer: the summary paragraph plus the environment
+ * facts it extracted. A model that ignores the JSON contract and answers with
+ * prose still yields a brief, just without any facts.
+ */
+function parseTaskBriefContent(content: string): {
+  text: string;
+  facts: Record<string, string>;
+} {
+  let payload: unknown;
+  try {
+    payload = JSON.parse(content);
+  } catch {
+    const fenced = /```(?:json)?\s*([\s\S]*?)```/u.exec(content);
+    if (fenced?.[1] === undefined) return { text: briefParagraph(content), facts: {} };
+    try {
+      payload = JSON.parse(fenced[1]);
+    } catch {
+      return { text: briefParagraph(content), facts: {} };
+    }
+  }
+  if (!isRecord(payload)) return { text: briefParagraph(content), facts: {} };
+  const brief = payload["brief"] ?? payload["text"];
+  return {
+    text: typeof brief === "string" ? briefParagraph(brief) : briefParagraph(content),
+    facts: sanitizeBriefFacts(payload["facts"] ?? payload["context"]),
+  };
+}
+
+/** Keep only short string facts, with normalized keys and a bounded count. */
+function sanitizeBriefFacts(value: unknown): Record<string, string> {
+  if (!isRecord(value)) return {};
+  const facts: Record<string, string> = {};
+  for (const [key, item] of Object.entries(value)) {
+    if (typeof item !== "string") continue;
+    const name = key
+      .trim()
+      .toLowerCase()
+      .replace(/[\s-]+/gu, "_");
+    const text = item.trim();
+    if (name === "" || text === "") continue;
+    facts[name] = truncateText(text, TASK_BRIEF_FACT_VALUE_LIMIT);
+    if (Object.keys(facts).length >= TASK_BRIEF_FACT_LIMIT) break;
+  }
+  return facts;
+}
+
+/** Read the stored facts back, ignoring a malformed or empty context column. */
+function parseBriefContext(value: unknown): Record<string, string> | undefined {
+  if (typeof value !== "string" || value === "") return undefined;
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(value);
+  } catch {
+    return undefined;
+  }
+  const facts = sanitizeBriefFacts(parsed);
+  return Object.keys(facts).length === 0 ? undefined : facts;
+}
 
 function groupsWithPreviews(
   repository: TrafficRepository,
