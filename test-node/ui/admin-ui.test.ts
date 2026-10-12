@@ -2732,6 +2732,74 @@ describe("admin UI history page", { timeout: UI_TEST_TIMEOUT_MS }, () => {
     );
   });
 
+  it("realizes the JSON rows a fast scroll lands on", async () => {
+    await openRecordDetail("record-two");
+    // The synthetic tree is not what the stub service returns, so a refresh tick
+    // would replace it and the scroll would land on the wrong rows.
+    await page.locator("#autoRefreshLogs").uncheck();
+    // A tree big enough that one scroll jumps over hundreds of rows: the walker
+    // that pre-realizes rows has to reach the rows it skipped, not only the ones
+    // beside where it last stopped, otherwise a fast scroll shows blank rows
+    // until the browser realizes them on its own.
+    await page.evaluate(`
+      const leaf = { text: "x".repeat(40) };
+      const children = Object.fromEntries(
+        Array.from({ length: 12 }, (_, index) => ["child" + index, leaf]),
+      );
+      const branches = Object.fromEntries(
+        Array.from({ length: 12 }, (_, index) => ["branch" + index, children]),
+      );
+      const sections = Object.fromEntries(
+        Array.from({ length: 12 }, (_, index) => ["section" + index, branches]),
+      );
+      window.applySelectedLogDetail(
+        { request: sections, response: null, request_meta: {}, response_meta: {}, pricing: null },
+        { resetView: true },
+      );
+    `);
+    const rows = page.locator("#requestJson .json-row");
+    await expectPage(rows).toHaveCount(157);
+    await page.locator('[data-expand="request"]').click();
+    await expectPage(rows).toHaveCount(1885);
+
+    const blankRowsInView = async (scrollValue: number): Promise<number> => {
+      await page.evaluate(`document.getElementById("requestJson").scrollTop = ${scrollValue};`);
+      // Scroll events are dispatched after the frame's animation frame callbacks,
+      // so the pre-realization walk runs a frame after the jump lands.
+      await page.waitForTimeout(150);
+      return page.evaluate(`
+        (() => {
+          const pane = document.getElementById("requestJson");
+          const bounds = pane.getBoundingClientRect();
+          const onScreen = Array.from(pane.querySelectorAll(".json-row")).filter((row) => {
+            const box = row.getBoundingClientRect();
+            return box.bottom > bounds.top && box.top < bounds.bottom;
+          });
+          // A row that spans the whole document is never off screen, so the
+          // browser always realizes it and the walker does not have to mark it.
+          return onScreen.filter(
+            (row) =>
+              row.getBoundingClientRect().height <= bounds.height &&
+              row.style.contentVisibility !== "visible",
+          ).length;
+        })()
+      `);
+    };
+
+    await expectPage
+      .poll(
+        async () => await blankRowsInView(15000),
+        "a deep jump must realize the rows it landed on",
+      )
+      .toBe(0);
+    await expectPage
+      .poll(
+        async () => await blankRowsInView(0),
+        "scrolling back to the top must realize them again",
+      )
+      .toBe(0);
+  });
+
   it("wraps, formats, copies, and shows JSON metadata", async () => {
     await openRecordDetail("record-two");
     const requestJson = page.locator("#requestJson");

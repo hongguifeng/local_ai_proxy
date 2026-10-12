@@ -3114,33 +3114,20 @@ function resolveJsonPathValue(raw, path) {
 // scrolling. A frame watcher pre-realizes the rows around the viewport: the
 // requestAnimationFrame callback runs before the frame's style/layout/paint,
 // so rows are filled by the time they appear - for wheel and programmatic
-// scrolls alike. The row list is cached per pane and the scan starts from the
-// last known position, so each scroll only touches a few dozen rows; style
-// writes are batched after the reads to avoid interleaved recalculations.
+// scrolls alike. Style writes stay batched after the reads to avoid interleaved
+// recalculations. A fling lands hundreds of rows away from where the walker last
+// stopped, so a jump bigger than the viewport re-anchors by sampling the row
+// list in bulk instead of walking to the landing point one row at a time.
 const jsonRowWindow = {};
 function jsonRowWindowInvalidate(key) {
   const cached = jsonRowWindow[key];
   if (cached) cached.valid = false;
 }
-function jsonRowNeighbor(row, back) {
-  let node = back ? row.previousElementSibling : row.nextElementSibling;
-  while (node) {
-    if (node.classList.contains("json-row")) return node;
-    const inner = back
-      ? node.querySelector(":scope > .json-row:last-of-type")
-      : node.querySelector(":scope > .json-row");
-    if (inner) return inner;
-    node = node.previousElementSibling;
-  }
-  const parent = row.parentElement;
-  if (parent && parent !== document.body) {
-    const parentRow = parent.closest(".json-row");
-    if (parentRow && parentRow !== row) {
-      return back ? parentRow.previousElementSibling : parentRow.nextElementSibling;
-    }
-  }
-  return null;
-}
+// The cached row list is in document order, which for this tree is also
+// top-to-bottom order, so the walker moves by index instead of following DOM
+// neighbours: rows inside a collapsed node have a zero rect, and neighbour
+// walking skipped or lost whole subtrees, leaving blank rows behind a fast scroll.
+const jsonRowStepPerViewport = 18;
 function updateJsonRowWindow(key) {
   const el = $(key + "Json");
   let windowState = jsonRowWindow[key];
@@ -3148,6 +3135,7 @@ function updateJsonRowWindow(key) {
     windowState = jsonRowWindow[key] = {
       rows: el.querySelectorAll(".json-row"),
       hint: 0,
+      top: -1,
       valid: true,
     };
   }
@@ -3155,45 +3143,66 @@ function updateJsonRowWindow(key) {
   if (!rows.length) return;
   // The hint may point past a row list that shrank when the pane rebuilt.
   const hint = Math.min(windowState.hint, rows.length - 1);
-  const anchor = rows[hint] || rows[0];
   const rect = el.getBoundingClientRect();
-  const viewportTop = el.scrollTop;
-  const lookaheadBottom = viewportTop + rect.height * 2.2;
-  const revertTop = viewportTop - rect.height * 3;
-  // Rows above the viewport: walk back from the hint (cheap: they were all
-  // realized when they were last on screen).
-  const above = [];
-  let node = jsonRowNeighbor(anchor, true);
-  let steps = 0;
-  while (node && steps < 24) {
-    above.push(node);
-    const b = node.getBoundingClientRect();
-    if (b.bottom <= revertTop) break;
-    node = jsonRowNeighbor(node, true);
-    steps++;
+  const contentTop = el.scrollTop;
+  const lookaheadBottom = contentTop + rect.height * 2.2;
+  const revertTop = contentTop - rect.height * 3;
+  const jump = Math.abs(contentTop - windowState.top);
+  // Rects are in viewport coordinates while the zones are in scroll content
+  // coordinates, so the pane offset is added back before every comparison.
+  const contentRowTop = (box) => box.top - rect.top + contentTop;
+  const realize = (box) => {
+    const top = contentRowTop(box);
+    return top + box.height > revertTop && top < lookaheadBottom ? "visible" : "auto";
+  };
+  // A fling lands hundreds of rows away from where the walker last stopped, so
+  // neither the walk back from the hint nor the walk down from it reaches the
+  // rows the user scrolled to. The flat list is stepped in bulk instead: rows
+  // inside a closed node report a zero rect and would each cost a step.
+  const restart = jump > rect.height * 2;
+  let anchor = hint;
+  if (restart) {
+    const stride = 8;
+    anchor = 0;
+    for (let index = 0; index < rows.length; index += stride) {
+      anchor = index;
+      if (contentRowTop(rows[index].getBoundingClientRect()) >= contentTop) break;
+    }
   }
-  // Rows from the hint down in document order. A row that spans the viewport
-  // (the root row, or a row partly scrolled past) is kept realized and the
-  // walk descends into its children, which are the next entries of the flat
-  // list. The walk stops at the first row below the lookahead zone; the next
-  // scroll event continues from there.
-  const below = [];
-  let index = Math.min(hint, rows.length - 1);
-  while (index < rows.length) {
+  // Rows just above the landing row are partly scrolled past and still paint, so
+  // they are realized as well. A normal wheel step only moves a few rows, so the
+  // walk back from the hint is enough and its budget grows with the distance.
+  const warm = [];
+  let firstVisible = undefined;
+  const warmBudget = restart ? 24 : 24 + Math.ceil(jump / jsonRowStepPerViewport);
+  for (let index = anchor - 1; index >= 0 && warm.length < warmBudget; index--) {
     const row = rows[index];
-    const b = row.getBoundingClientRect();
-    below.push([row, b]);
+    const box = row.getBoundingClientRect();
+    warm.push([row, box]);
+    // The first row that has any part inside the scrollport, scanning from the
+    // top down: the next walk starts here instead of at the old stop position.
+    if (contentRowTop(box) + box.height > contentTop) firstVisible = index;
+    if (contentRowTop(box) + box.height <= revertTop) break;
+  }
+  // Rows from the anchor down in document order. The walk stops at the first row
+  // below the lookahead zone; the next scroll event continues from there. Rows
+  // inside a closed node have a zero rect and never end the walk, so the step
+  // count is bounded and a later scroll simply continues from where it stopped.
+  const below = [];
+  let index = anchor;
+  while (index < rows.length && below.length < 600) {
+    const row = rows[index];
+    const box = row.getBoundingClientRect();
+    below.push([row, box]);
     index++;
-    if (b.top >= lookaheadBottom) break;
+    if (contentRowTop(box) >= lookaheadBottom) break;
   }
   // One batch of writes after all the reads: realize everything from the
   // revert zone through the lookahead, skip what lies beyond.
-  for (const row of above) row.style.contentVisibility = "visible";
-  for (const [row, b] of below) {
-    row.style.contentVisibility =
-      b.bottom > revertTop && b.top < lookaheadBottom ? "visible" : "auto";
-  }
-  windowState.hint = index;
+  for (const [row, box] of warm) row.style.contentVisibility = realize(box);
+  for (const [row, box] of below) row.style.contentVisibility = realize(box);
+  windowState.hint = firstVisible === undefined ? index : firstVisible;
+  windowState.top = contentTop;
 }
 ["request", "response"].forEach((key) => {
   // Wake on scroll events and update in the next frame's rAF, which runs
