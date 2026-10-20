@@ -218,6 +218,7 @@ Default: Target C
 - 响应 Header 中移除 hop-by-hop Header 和 `Content-Length`。
 - 强制返回 `Connection: close`，每次响应后关闭客户端连接。
 - `HEAD` 不转发响应体。
+- 上游带 `content-encoding`（`gzip`、`deflate`、`br`、`zstd`）时，转发给客户端的字节与 Header 保持原样，由客户端自行解压；日志侧另挂一路解码，记录解压后的正文（见 ADR-012）。
 - 连接或上游处理失败时，若尚未发送响应 Header，则返回 HTTP 502。
 - 若响应已经开始后发生错误，保留已转发内容，并在日志中记录错误。
 
@@ -225,7 +226,7 @@ Default: Target C
 
 - `Content-Type` 包含 `text/event-stream` 时，通过 `readline()` 按行读取，每行写入客户端后立即 flush。
 - 其他响应按 64 KiB 分块读取和写入。
-- 两种响应都会同时在内存中累积完整响应体，用于最终日志写入。
+- 两种响应都会同时累积完整响应体，用于最终日志写入；带 `content-encoding` 时累积的是解压后的正文，超过内存阈值后按 ADR-003 写入临时文件。
 
 因此，当前实现具备低延迟透传，但对超大或无限响应存在内存持续增长风险。
 

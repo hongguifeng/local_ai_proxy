@@ -19,6 +19,11 @@ export {
 } from "./headers.js";
 export { bodyJsonValue, bytesPayload, type BytePayload } from "./payload.js";
 export {
+  createResponseBodyDecoder,
+  type ResponseBodyDecoder,
+  type ResponseBodySink,
+} from "./response-decoder.js";
+export {
   DEFAULT_MAX_RESPONSE_LOG_BODY_BYTES,
   DEFAULT_MAX_SSE_SUMMARY_INPUT_BYTES,
   DEFAULT_RESPONSE_LOG_MEMORY_THRESHOLD_BYTES,

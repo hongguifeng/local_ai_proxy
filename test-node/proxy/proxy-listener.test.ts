@@ -5,6 +5,7 @@ import { readFileSync } from "node:fs";
 import { mkdtemp, readdir, rm } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
+import { createGzip, gunzipSync, gzipSync } from "node:zlib";
 
 import { describe, expect, it } from "vitest";
 
@@ -1272,6 +1273,213 @@ describe("ProxyListener", () => {
     },
   );
 
+  it("decodes a compressed SSE response for the log while the client keeps the bytes", async () => {
+    const plainEvents = [
+      'data: {"choices":[{"index":0,"delta":{"content":"first"}}]}\n\n',
+      'data: {"choices":[{"index":0,"delta":{"content":"second"}}]}\n\n',
+      'data: {"choices":[{"index":0,"delta":{},"finish_reason":"stop"}],"usage":{"prompt_tokens":100,"completion_tokens":8,"prompt_tokens_details":{"cached_tokens":40}}}\n\n',
+      "data: [DONE]\n\n",
+    ];
+    const upstream = http.createServer((_request, response) => {
+      response.writeHead(200, {
+        "content-type": "text/event-stream; charset=utf-8",
+        "content-encoding": "gzip",
+      });
+      // A compressor that flushes per event, the way a streaming server does.
+      const gzip = createGzip();
+      gzip.on("data", (chunk: Buffer) => response.write(chunk));
+      gzip.on("end", () => response.end());
+      gzip.write(plainEvents[0]);
+      gzip.flush();
+      setTimeout(() => {
+        for (const event of plainEvents.slice(1)) {
+          gzip.write(event);
+        }
+        gzip.end();
+      }, 40);
+    });
+    const upstreamPort = await listenServer(upstream);
+    let markFinished: ((record: Readonly<Record<string, unknown>>) => void) | undefined;
+    const finishedRecord = new Promise<Readonly<Record<string, unknown>>>((resolve) => {
+      markFinished = resolve;
+    });
+    const trafficLog: TrafficLogWriter = {
+      write(record) {
+        if (record["event"] === "request_finished") markFinished?.(record);
+        return Promise.resolve();
+      },
+      update: () => Promise.resolve(),
+    };
+    const pipeline = new ProxyRequestPipeline({
+      targets: [
+        {
+          enabled: true,
+          id: "gzipped-sse-target",
+          modelMappings: [],
+          modelPrices: [
+            {
+              model_pattern: "*gzipped-sse*",
+              input_per_million: "2",
+              output_per_million: "4",
+              cache_read_per_million: "0.5",
+              cache_write_per_million: "0",
+            },
+          ],
+          name: "Gzipped SSE target",
+          targetScheme: "http",
+          targetHost: "127.0.0.1",
+          targetPort: upstreamPort,
+          targetBasePath: "",
+          trafficLog,
+        },
+      ],
+    });
+    const listener = new ProxyListener({
+      host: "127.0.0.1",
+      port: 0,
+      onRequest: (request, response, context) => pipeline.handle(request, response, context),
+    });
+    const address = await listener.start();
+    const client = await requestWithAcceptEncoding(
+      address.port,
+      "/v1/chat/completions",
+      Buffer.from(JSON.stringify({ model: "gzipped-sse-model", stream: true, messages: [] })),
+    );
+    expect(client.status).toBe(200);
+    expect(client.headers["content-encoding"]).toBe("gzip");
+    // The client still receives the encoded stream and can decode it itself.
+    expect(gunzipSync(client.raw).toString("utf8")).toBe(plainEvents.join(""));
+
+    const record = await finishedRecord;
+    expect(record["first_token_ms"]).toEqual(expect.any(Number));
+    expect(Number(record["decode_window_ms"])).toBeGreaterThanOrEqual(20);
+    expect(record["response"]).toMatchObject({
+      status: 200,
+      headers: { "content-encoding": ["gzip"] },
+      body: {
+        text: plainEvents.join(""),
+        size_bytes: Buffer.byteLength(plainEvents.join("")),
+        stream_summary: {
+          content: "firstsecond",
+          done_seen: true,
+          event_count: 3,
+          usage: {
+            prompt_tokens: 100,
+            completion_tokens: 8,
+            prompt_tokens_details: { cached_tokens: 40 },
+          },
+        },
+      },
+    });
+    expect(record["pricing"]).toMatchObject({
+      pricing_status: "priced",
+      pricing_reason: null,
+      usage: {
+        source: "chat",
+        inputUncachedTokens: 60,
+        outputTokens: 8,
+        cacheReadTokens: 40,
+        cacheWriteTokens: 0,
+        totalInputTokens: 100,
+      },
+    });
+    await listener.close();
+    await closeServer(upstream);
+  });
+
+  it("decodes a compressed buffered response body for pricing", async () => {
+    const payload = JSON.stringify({
+      choices: [
+        { index: 0, message: { role: "assistant", content: "pong" }, finish_reason: "stop" },
+      ],
+      usage: {
+        prompt_tokens: 50,
+        completion_tokens: 7,
+        prompt_tokens_details: { cached_tokens: 10 },
+      },
+    });
+    const encoded = gzipSync(Buffer.from(payload, "utf8"));
+    const upstream = http.createServer((_request, response) => {
+      response.writeHead(200, {
+        "content-type": "application/json; charset=utf-8",
+        "content-encoding": "gzip",
+      });
+      response.end(encoded);
+    });
+    const upstreamPort = await listenServer(upstream);
+    let markFinished: ((record: Readonly<Record<string, unknown>>) => void) | undefined;
+    const finishedRecord = new Promise<Readonly<Record<string, unknown>>>((resolve) => {
+      markFinished = resolve;
+    });
+    const trafficLog: TrafficLogWriter = {
+      write(record) {
+        if (record["event"] === "request_finished") markFinished?.(record);
+        return Promise.resolve();
+      },
+      update: () => Promise.resolve(),
+    };
+    const pipeline = new ProxyRequestPipeline({
+      targets: [
+        {
+          enabled: true,
+          id: "gzipped-json-target",
+          modelMappings: [],
+          modelPrices: [
+            {
+              model_pattern: "*gzipped-json*",
+              input_per_million: "2",
+              output_per_million: "4",
+              cache_read_per_million: "0.5",
+              cache_write_per_million: "0",
+            },
+          ],
+          name: "Gzipped JSON target",
+          targetScheme: "http",
+          targetHost: "127.0.0.1",
+          targetPort: upstreamPort,
+          targetBasePath: "",
+          trafficLog,
+        },
+      ],
+    });
+    const listener = new ProxyListener({
+      host: "127.0.0.1",
+      port: 0,
+      onRequest: (request, response, context) => pipeline.handle(request, response, context),
+    });
+    const address = await listener.start();
+    const client = await requestWithAcceptEncoding(
+      address.port,
+      "/v1/chat/completions",
+      Buffer.from(JSON.stringify({ model: "gzipped-json-model", messages: [] })),
+    );
+    expect(client.status).toBe(200);
+    expect(client.headers["content-encoding"]).toBe("gzip");
+    // Byte for byte the same encoded body the upstream sent.
+    expect(client.raw).toEqual(encoded);
+
+    const record = await finishedRecord;
+    expect(record["first_token_ms"]).toBeUndefined();
+    const body = (record["response"] as Record<string, unknown>)["body"] as Record<string, unknown>;
+    expect(body["text"]).toBe(payload);
+    expect(body["size_bytes"]).toBe(Buffer.byteLength(payload));
+    expect(Buffer.from(String(body["base64"]), "base64").toString("utf8")).toBe(payload);
+    expect(record["pricing"]).toMatchObject({
+      pricing_status: "priced",
+      pricing_reason: null,
+      usage: {
+        source: "chat",
+        inputUncachedTokens: 40,
+        outputTokens: 7,
+        cacheReadTokens: 10,
+        cacheWriteTokens: 0,
+        totalInputTokens: 50,
+      },
+    });
+    await listener.close();
+    await closeServer(upstream);
+  });
+
   it("streams ordinary response chunks in order", async () => {
     const upstream = http.createServer((_request, response) => {
       response.writeHead(200, { "content-type": "text/plain" });
@@ -1723,6 +1931,41 @@ function requestUntilClose(
       response.once("error", () => finish(true));
     });
     request.once("error", reject);
+  });
+}
+
+function requestWithAcceptEncoding(
+  port: number,
+  requestPath: string,
+  body: Buffer,
+): Promise<{ status: number; raw: Buffer; headers: http.IncomingHttpHeaders }> {
+  return new Promise((resolve, reject) => {
+    const request = http.request(
+      {
+        host: "127.0.0.1",
+        port,
+        path: requestPath,
+        method: "POST",
+        headers: {
+          "content-type": "application/json",
+          "content-length": String(body.byteLength),
+          "accept-encoding": "gzip, deflate, br, zstd",
+        },
+      },
+      (response) => {
+        const chunks: Buffer[] = [];
+        response.on("data", (chunk: Buffer) => chunks.push(chunk));
+        response.once("end", () =>
+          resolve({
+            status: response.statusCode ?? 0,
+            raw: Buffer.concat(chunks),
+            headers: response.headers,
+          }),
+        );
+      },
+    );
+    request.once("error", reject);
+    request.end(body);
   });
 }
 

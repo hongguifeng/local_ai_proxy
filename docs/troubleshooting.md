@@ -58,6 +58,18 @@ a real prefill, and records without billing usage data are treated as fully unca
 throughput estimates, not hardware benchmark values. Records without a first token timing (for
 example non-streaming responses) do not show speed estimates.
 
+## Response body looks like mojibake
+
+Upstream responses often arrive compressed (`content-encoding: gzip`, `br`, `zstd` or `deflate`) because
+the client's `Accept-Encoding` is forwarded untouched and Node's HTTP client does not decompress them.
+The proxy now decodes that body for the traffic log while streaming the encoded bytes to the client
+unchanged, so the JSON pane, the token counts, the first-token timing and the billing usage all work on
+compressed responses (ADR-012).
+
+A record whose response body is a `{text, size_bytes}` pair made of replacement characters was written
+before that decode step existed. The compressed bytes were destroyed by the UTF-8 decode at store time,
+so those records cannot be repaired afterwards; only requests logged from now on are readable.
+
 ## Upstream target not responding
 
 If clients see connection errors or odd upstream statuses, click **Test** on the target card in the

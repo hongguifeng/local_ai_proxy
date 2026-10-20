@@ -16,6 +16,11 @@ import {
 } from "./body-collector.js";
 import { bytesPayload } from "./payload.js";
 import {
+  createResponseBodyDecoder,
+  type ResponseBodyDecoder,
+  type ResponseBodySink,
+} from "./response-decoder.js";
+import {
   buildForwardHeaders,
   HOP_BY_HOP_HEADERS,
   replaceContentLength,
@@ -195,6 +200,19 @@ export class ProxyRequestPipeline {
         ...this.#options.responseCapture,
         pricingEndpoint: endpointKind(request.url ?? "/"),
       });
+      // The log records the decoded body: an upstream `content-encoding` is
+      // transparent to the client but unreadable to the SSE observer, the usage
+      // capture and the JSON pane.
+      const observeResponseBody: ResponseBodySink = (chunk) => {
+        responseCapture.addChunk(chunk);
+        const count = responseCapture.generatedEvents;
+        if (sseResponse && count > generatedEvents) {
+          const now = elapsedMilliseconds(context);
+          firstTokenMs ??= now;
+          lastGeneratedMs = now;
+        }
+        generatedEvents = count;
+      };
       response.writeHead(
         responseStatus,
         upstream.statusMessage ?? undefined,
@@ -204,16 +222,7 @@ export class ProxyRequestPipeline {
         upstream,
         response,
         request.method === "HEAD",
-        responseCapture,
-        () => {
-          const count = responseCapture.generatedEvents;
-          if (sseResponse && count > generatedEvents) {
-            const now = elapsedMilliseconds(context);
-            firstTokenMs ??= now;
-            lastGeneratedMs = now;
-          }
-          generatedEvents = count;
-        },
+        createResponseBodyDecoder(upstream.headers["content-encoding"], observeResponseBody),
       );
     } catch (error) {
       responseStatus = response.headersSent ? response.statusCode : 502;
@@ -492,18 +501,24 @@ async function forwardResponseBody(
   upstream: IncomingMessage,
   response: ServerResponse,
   headRequest: boolean,
-  capture: ResponseLogCapture,
-  onChunk?: (chunk: Buffer) => void,
+  decoder: ResponseBodyDecoder,
 ): Promise<void> {
-  for await (const chunkValue of upstream) {
-    const chunk = Buffer.isBuffer(chunkValue) ? chunkValue : Buffer.from(chunkValue as Uint8Array);
-    capture.addChunk(chunk);
-    onChunk?.(chunk);
-    if (!headRequest && !response.write(chunk)) {
-      await once(response, "drain");
+  try {
+    for await (const chunkValue of upstream) {
+      const chunk = Buffer.isBuffer(chunkValue)
+        ? chunkValue
+        : Buffer.from(chunkValue as Uint8Array);
+      // The client receives the bytes exactly as the upstream sent them,
+      // `content-encoding` and all; only the traffic log sees decoded chunks.
+      decoder.push(chunk);
+      if (!headRequest && !response.write(chunk)) {
+        await once(response, "drain");
+      }
     }
+    response.end();
+  } finally {
+    await decoder.finish();
   }
-  response.end();
 }
 
 function isSseResponse(upstream: IncomingMessage): boolean {
