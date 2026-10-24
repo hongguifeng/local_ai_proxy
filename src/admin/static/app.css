@@ -4220,3 +4220,183 @@ label span {
   text-align: right;
   font-variant-numeric: tabular-nums;
 }
+/* Load balancing groups inside a proxy card. Own class names only: reusing a
+   generic card class would pull in the statistics page's font-size and ellipsis
+   rules, which do not belong here. */
+.lb-section {
+  display: grid;
+  gap: 8px;
+  margin-top: 4px;
+  padding-top: 8px;
+  border-top: 1px dashed #b8c5d3;
+}
+.lb-section-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+.lb-section-head > strong {
+  font-size: 14px;
+}
+.lb-groups {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+  gap: 10px;
+}
+.lb-card {
+  min-width: 0;
+  border: 1px solid #b8c5d3;
+  border-radius: 8px;
+  padding: 10px;
+  display: grid;
+  gap: 8px;
+  background: #f2f6fb;
+}
+.lb-head {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto auto;
+  align-items: center;
+  gap: 6px;
+}
+.lb-head > input {
+  min-width: 0;
+}
+.lb-card label > span {
+  font-size: 12px;
+  color: #3b4a5a;
+}
+.lb-card select,
+.lb-card input[type="text"],
+.lb-card input:not([type]) {
+  max-width: 100%;
+}
+.lb-flags {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+.lb-flag {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 12px;
+}
+.lb-card > strong {
+  font-size: 12px;
+  color: #3b4a5a;
+}
+.lb-members {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px 12px;
+}
+.lb-member {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  min-width: 0;
+  font-size: 12px;
+}
+/* The page-wide `label span` rule allows breaking anywhere, which turned these
+   short labels into one-character columns; keep them on one line. */
+.lb-member > span,
+.lb-flag > span {
+  flex: 0 0 auto;
+  overflow-wrap: normal;
+}
+.lb-member-disabled {
+  color: #8a6d3b;
+  font-style: normal;
+  font-size: 11px;
+}
+.lb-preview {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  align-items: center;
+  gap: 6px;
+}
+.lb-preview > input {
+  min-width: 0;
+}
+.lb-preview output {
+  grid-column: 1 / -1;
+  font-size: 11px;
+  color: #3b4a5a;
+  overflow-wrap: anywhere;
+}
+.lb-tools {
+  display: grid;
+  gap: 6px;
+}
+.lb-warning {
+  margin: 0;
+  font-size: 11px;
+  color: #8a6d3b;
+  overflow-wrap: anywhere;
+}
+.lb-verify-results {
+  display: grid;
+  gap: 4px;
+  font-size: 11px;
+}
+.lb-verify-line {
+  margin: 0;
+  overflow-wrap: anywhere;
+}
+.lb-verify-line.is-ok {
+  color: #2f6b46;
+}
+.lb-verify-line.is-warn {
+  color: #8a6d3b;
+}
+.lb-verify-line.is-error,
+.lb-verify-results.is-error {
+  color: #9c3b34;
+}
+.lb-status > summary {
+  font-size: 12px;
+  cursor: pointer;
+}
+.lb-node-states {
+  display: grid;
+  gap: 6px;
+  margin-top: 6px;
+}
+.lb-node-state {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 4px;
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
+}
+.lb-node-name {
+  font-weight: 600;
+  overflow-wrap: anywhere;
+}
+.lb-node-fact {
+  padding: 1px 5px;
+  border-radius: 4px;
+  background: #e4ecf5;
+  color: #33414f;
+}
+.lb-takeover-note {
+  margin: 0;
+  font-size: 11px;
+  color: #4a5a6a;
+  overflow-wrap: anywhere;
+}
+.lb-empty {
+  margin: 0;
+  font-size: 11px;
+  color: #6b7a8a;
+}
+@media (max-width: 520px) {
+  .lb-groups {
+    grid-template-columns: 1fr;
+  }
+  .lb-preview {
+    grid-template-columns: 1fr;
+  }
+}

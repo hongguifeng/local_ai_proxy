@@ -676,6 +676,21 @@ UI 修改必须：
 4. 对未修改的其他页面确认像素差为 0；
 5. 运行 `npx prettier --check .`。
 
+落地说明（LB-10）：
+
+- 负载均衡区在每个 `.proxy-card` 内，排在转发地址行下方，用虚线分隔；标题行左边是加粗标题，右边是「添加负载均衡组」按钮。组卡片按可用宽度自动换行。
+- 组卡片只用 `lb-*` 新类名，不复用 `.stat-card` 等通用类，因此不会继承统计页那些 `clamp()` 字号和 `strong` 省略号规则。
+- 页面级的 `label span { overflow-wrap: anywhere }` 会把「GPU 0」这类短标签拆成一个字一列；`.lb-member > span, .lb-flag > span` 必须显式写 `flex: 0 0 auto` 和 `overflow-wrap: normal` 才能压回去。1278 px 和 380 px 两种宽度都实测过：无截断、无换行错位。
+- 轮询用一个常驻 `setInterval(2000)`，但 `refreshLoadBalancerStatus()` 在 `document.hidden` 或 proxy 标签未激活时直接返回，所以不可见时一条请求都不发。UI 测试断言了这一点。
+- `applyLoadBalancerStatus()` 只改 `[data-lb-fact]` 的文本，从不重建输入控件；UI 测试证明轮询后焦点、草稿文本和展开状态都还在。
+- 节点状态行跟着勾选的成员走，由 `refreshLbCards()` 重建；`data-lb-rendered` 记住上一次渲染的集合，集合没变就不重建。轮询会在下一拍把数字填回来。
+- 警告和匹配预览从 DOM 现值算出一个 shadow pair，因为 `state.pairs` 只有在保存时才吸收 DOM 值。target 的启用状态按 `data-target-index` 从复选框读取，不能依赖 `state`。
+- `<details>` 的展开状态写进 `localStorage["llmProxyLbGroupOpen"]`，靠 `#proxyGrid` 上的捕获阶段 `toggle` 监听器；该事件不冒泡，只能捕获。写入落在点击之后的一个任务里，UI 测试用 `expect.poll` 等它。
+- 「校验节点模型」读的是已保存配置，所以没保存的组会得到 404 `load_balancer_group_not_found`，卡片里显示 “Load balancing group not found.”。这是预期行为，不是 bug。
+- 删除 target 时前端立刻把它从本 pair 的组成员里清掉；已保存的配置在下次保存前仍然可能引用被删的节点，所以后端校验才是权威，UI 测试同时覆盖了这两边。
+- 配置被拒时 400 带 `error.issues`，`configIssueText()` 最多显示三条 `path: message`，用户能看到具体是哪个字段。
+- 中英文代理页基线已重录并更新完整 SHA-256；其余六张基线在全量测试里保持原样通过。
+
 ## 13. 测试计划
 
 ### 13.1 单元测试

@@ -226,6 +226,41 @@ const translations = {
     defaultTarget: "默认",
     targetEnabled: "启用",
     modelMappings: "模型映射，每行一个 监听模型 => 转发模型；监听模型支持 * 通配符",
+    loadBalancing: "负载均衡组",
+    addLbGroup: "添加负载均衡组",
+    lbGroupName: "组名",
+    lbModelPattern: "请求模型 pattern",
+    lbStrategy: "选择策略",
+    lbStrategyLeast: "最少负载",
+    lbStrategyRoundRobin: "轮转",
+    lbMetricsEnabled: "采样上游指标",
+    lbFailoverEnabled: "连接失败时切换一次",
+    lbMembers: "参与节点",
+    lbPreview: "匹配预览输入",
+    lbPreviewMatch: "会进入本组",
+    lbPreviewNoMatch: "不会进入本组",
+    lbVerifyModels: "校验节点模型",
+    lbVerifyMatched: "个模型匹配",
+    lbVerifyUnreachable: "不可达",
+    lbVerifyNoMatch: "没有模型匹配这个 pattern",
+    lbNodeMissingMember: "组里引用了本 pair 没有的节点",
+    lbNodeState: "节点状态",
+    lbStateInFlight: "进行中",
+    lbStateWaiting: "排队",
+    lbStateKv: "KV",
+    lbStateBindings: "绑定",
+    lbStateCooldown: "冷却",
+    lbStateSource: "指标来源",
+    lbStateStale: "指标过期",
+    lbStateNoSample: "没有采样",
+    lbStateAsleep: "引擎睡眠",
+    lbStateOn: "启用",
+    lbStateOff: "禁用",
+    lbWarnSingleNode: "这个组只有一个节点，起不到均衡作用",
+    lbWarnDisabledMember: "组里有禁用的节点，它不会参与选择",
+    lbWarnOverlapping: "pattern 与其他组重叠，按配置顺序匹配",
+    lbTakeover: "这个节点的模型映射不会作用于命中负载均衡组的请求",
+    lbNoGroups: "还没有负载均衡组",
     modelPrices: "模型价格",
     addModelPrice: "添加模型价格",
     pricePattern: "模型名称 / 通配符",
@@ -657,6 +692,42 @@ const translations = {
     taskWholeScope: "Whole-task cost, including requests outside this list.",
     modelMappings:
       "Model mapping, one per line: listened model => upstream model; * is supported as a wildcard",
+    loadBalancing: "Load balancing groups",
+    addLbGroup: "Add load balancing group",
+    lbGroupName: "Group name",
+    lbModelPattern: "Requested model pattern",
+    lbStrategy: "Selection strategy",
+    lbStrategyLeast: "Least load",
+    lbStrategyRoundRobin: "Round robin",
+    lbMetricsEnabled: "Sample upstream metrics",
+    lbFailoverEnabled: "Switch once on a connection failure",
+    lbMembers: "Member nodes",
+    lbPreview: "Match preview input",
+    lbPreviewMatch: "would be handled by this group",
+    lbPreviewNoMatch: "would not be handled by this group",
+    lbVerifyModels: "Verify node models",
+    lbVerifyMatched: "models match",
+    lbVerifyUnreachable: "unreachable",
+    lbVerifyNoMatch: "no model matches this pattern",
+    lbNodeMissingMember: "The group names a node this pair does not have",
+    lbNodeState: "Node state",
+    lbStateInFlight: "In flight",
+    lbStateWaiting: "Waiting",
+    lbStateKv: "KV",
+    lbStateBindings: "Bindings",
+    lbStateCooldown: "Cooldown",
+    lbStateSource: "Metrics source",
+    lbStateStale: "Metrics stale",
+    lbStateNoSample: "No sample",
+    lbStateAsleep: "Engine asleep",
+    lbStateOn: "on",
+    lbStateOff: "off",
+    lbWarnSingleNode: "This group has one node, so it cannot balance anything",
+    lbWarnDisabledMember: "A member node is disabled and will not be selected",
+    lbWarnOverlapping: "This pattern overlaps another group; groups match in configured order",
+    lbTakeover:
+      "This node's model mapping does not apply to requests that hit a load balancing group",
+    lbNoGroups: "No load balancing groups yet",
     moreTargetOptions: "More settings",
     lessTargetOptions: "Collapse settings",
     delete: "Delete",
@@ -785,10 +856,23 @@ const api = async (url, options = {}) => {
         : data.error && typeof data.error.message === "string"
           ? data.error.message
           : res.statusText;
-    throw new Error(message);
+    const error = new Error(message);
+    // Field paths from a rejected configuration let the UI point at the offending input.
+    if (data.error && Array.isArray(data.error.issues)) error.issues = data.error.issues;
+    throw error;
   }
   return data;
 };
+function configIssueText(error) {
+  const issues = error && error.issues;
+  if (!Array.isArray(issues) || issues.length === 0) {
+    return error instanceof Error ? error.message : String(error);
+  }
+  return issues
+    .slice(0, 3)
+    .map((issue) => [issue.path, issue.message].filter(Boolean).join(": "))
+    .join(" · ");
+}
 function applyLanguage() {
   document.documentElement.lang = state.language === "zh" ? "zh-CN" : "en";
   $("languageSelect").value = state.language;
@@ -999,6 +1083,7 @@ const newPair = () => {
     access_log: false,
     targets: [target],
     default_target_id: target.id,
+    load_balancers: [],
   };
 };
 function pairTargets(pair) {
@@ -1074,6 +1159,394 @@ function wildcardPriceMatch(pattern, model) {
     .join(".*");
   return new RegExp(`^${escaped}$`).test(model);
 }
+const lbGroupOpenStorageKey = "llmProxyLbGroupOpen";
+// Whether a group card reveals its node state lives in the browser, never in the
+// configuration: a config round trip strips anything zod does not know.
+function lbGroupOpenKey(pair, group) {
+  return `${pair.id || "pair"}|${group.id || "group"}`;
+}
+function readLbGroupOpen() {
+  let parsed;
+  try {
+    parsed = JSON.parse(localStorage.getItem(lbGroupOpenStorageKey) || "{}");
+  } catch {
+    parsed = {};
+  }
+  return parsed && typeof parsed === "object" ? parsed : {};
+}
+function writeLbGroupOpen(map) {
+  localStorage.setItem(lbGroupOpenStorageKey, JSON.stringify(map));
+}
+function isLbGroupOpen(pair, group) {
+  return readLbGroupOpen()[lbGroupOpenKey(pair, group)] === true;
+}
+function markLbGroupOpen(pair, group, open) {
+  const map = readLbGroupOpen();
+  map[lbGroupOpenKey(pair, group)] = open;
+  writeLbGroupOpen(map);
+}
+function newLoadBalancerGroup() {
+  return {
+    id: `lb-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`,
+    name: "",
+    enabled: true,
+    model_pattern: "",
+    node_target_ids: [],
+    strategy: "least_load",
+    metrics_enabled: true,
+    failover_enabled: true,
+  };
+}
+function lbPatternMatches(pattern, model) {
+  if (!pattern || !model) return false;
+  if (!pattern.includes("*")) return pattern === model;
+  return wildcardPriceMatch(pattern, model);
+}
+function patternToRegex(pattern) {
+  return pattern
+    .split("*")
+    .map((part) => part.replace(/[\\^$.*+?()[\]{}|]/g, "\\$&"))
+    .join(".*");
+}
+function lbPatternsMayOverlap(left, right) {
+  if (!left.includes("*") || !right.includes("*")) return left === right;
+  const core = (pattern) => pattern.replace(/\*/g, "");
+  const leftCore = core(left);
+  const rightCore = core(right);
+  if (leftCore === rightCore) return true;
+  return (
+    new RegExp(`^${patternToRegex(right)}$`).test(leftCore) ||
+    new RegExp(`^${patternToRegex(left)}$`).test(rightCore)
+  );
+}
+/** The soft warnings the backend also reports, shown while the form is being edited. */
+function lbGroupWarnings(pair) {
+  const groups = pair.load_balancers || [];
+  const known = new Set((pair.targets || []).map((target) => target.id));
+  const warnings = [];
+  groups.forEach((group, groupIndex) => {
+    const members = group.node_target_ids || [];
+    if (members.length === 1) warnings.push({ groupIndex, text: t("lbWarnSingleNode") });
+    if (group.model_pattern) {
+      const overlaps = groups.some(
+        (other, otherIndex) =>
+          otherIndex !== groupIndex &&
+          other.enabled !== false &&
+          other.model_pattern &&
+          lbPatternsMayOverlap(group.model_pattern, other.model_pattern),
+      );
+      if (overlaps) warnings.push({ groupIndex, text: t("lbWarnOverlapping") });
+    }
+    if (members.some((id) => !known.has(id))) {
+      warnings.push({ groupIndex, text: t("lbNodeMissingMember") });
+    }
+    if (
+      members.some((id) =>
+        pairTargets(pair).some((target) => target.id === id && target.enabled === false),
+      )
+    ) {
+      warnings.push({ groupIndex, text: t("lbWarnDisabledMember") });
+    }
+  });
+  return warnings;
+}
+/** A note inside a target card: a group that owns this node skips its mapping. */
+function lbTakeoverNoteHtml(pair) {
+  const groups = (pair.load_balancers || []).filter((group) => group.enabled !== false);
+  if (!groups.length) return "";
+  return `<p class="lb-takeover-note">${escapeHtml(t("lbTakeover"))}</p>`;
+}
+function lbStatusRowHtml(targetId) {
+  const fact = (name, label, value) =>
+    `<span class="lb-node-fact" data-lb-fact="${name}">${escapeHtml(label)}: ${escapeHtml(value)}</span>`;
+  return `<div class="lb-node-state" data-lb-status-target="${escapeHtml(targetId)}">
+    <span class="lb-node-name">${escapeHtml(targetId)}</span>
+    ${fact("enabled", t("lbStateOn"), t("lbStateNoSample"))}
+    ${fact("inFlight", t("lbStateInFlight"), "0")}
+    ${fact("waiting", t("lbStateWaiting"), "-")}
+    ${fact("kv", t("lbStateKv"), "-")}
+    ${fact("bindings", t("lbStateBindings"), "0")}
+    ${fact("cooldown", t("lbStateCooldown"), "0")}
+    ${fact("source", t("lbStateSource"), "-")}
+  </div>`;
+}
+function lbGroupCard(group, pair, pairIndex, groupIndex) {
+  const open = isLbGroupOpen(pair, group);
+  const members = new Set(group.node_target_ids || []);
+  const memberRows = pairTargets(pair)
+    .map((target) => {
+      const id = escapeHtml(target.id);
+      const off =
+        target.enabled === false
+          ? ` <em class="lb-member-disabled">${escapeHtml(t("lbStateOff"))}</em>`
+          : "";
+      return `<label class="lb-member"><input type="checkbox" data-lb-node="${id}" ${members.has(target.id) ? "checked" : ""}> <span>${escapeHtml(target.name || target.id)}</span>${off}</label>`;
+    })
+    .join("");
+  const nodeIds = group.node_target_ids || [];
+  return `<section class="lb-card" data-lb-pair="${pairIndex}" data-lb-index="${groupIndex}">
+    <div class="lb-head">
+      <input data-lb-field="name" value="${escapeHtml(group.name || "")}" placeholder="${escapeHtml(t("lbGroupName"))}" aria-label="${escapeHtml(t("lbGroupName"))}">
+      <label class="switch" title="${escapeHtml(t("switch"))}"><input type="checkbox" data-lb-toggle ${group.enabled !== false ? "checked" : ""}><span class="slider"></span></label>
+      <button type="button" data-remove-lb>${escapeHtml(t("delete"))}</button>
+    </div>
+    <label><span>${escapeHtml(t("lbModelPattern"))}</span><input data-lb-field="model_pattern" value="${escapeHtml(group.model_pattern || "")}" placeholder="Qwen3.8-Flash-Next"></label>
+    <label><span>${escapeHtml(t("lbStrategy"))}</span><select data-lb-field="strategy">
+      <option value="least_load"${group.strategy === "least_load" ? " selected" : ""}>${escapeHtml(t("lbStrategyLeast"))}</option>
+      <option value="round_robin"${group.strategy === "round_robin" ? " selected" : ""}>${escapeHtml(t("lbStrategyRoundRobin"))}</option>
+    </select></label>
+    <div class="lb-flags">
+      <label class="lb-flag"><input type="checkbox" data-lb-flag="metrics_enabled" ${group.metrics_enabled !== false ? "checked" : ""}> <span>${escapeHtml(t("lbMetricsEnabled"))}</span></label>
+      <label class="lb-flag"><input type="checkbox" data-lb-flag="failover_enabled" ${group.failover_enabled !== false ? "checked" : ""}> <span>${escapeHtml(t("lbFailoverEnabled"))}</span></label>
+    </div>
+    <strong>${escapeHtml(t("lbMembers"))}</strong>
+    <div class="lb-members">${memberRows}</div>
+    <label class="lb-preview"><span>${escapeHtml(t("lbPreview"))}</span><input data-lb-preview placeholder="Qwen3.8-Flash-Next"><output aria-live="polite"></output></label>
+    <div class="lb-tools">
+      <button type="button" data-verify-lb-models>${escapeHtml(t("lbVerifyModels"))}</button>
+      <p class="lb-warning" data-lb-warning hidden></p>
+    </div>
+    <div class="lb-verify-results" data-lb-verify hidden></div>
+    <details class="lb-status" ${open ? "open" : ""}>
+      <summary>${escapeHtml(t("lbNodeState"))} · ${nodeIds.length}</summary>
+      <div class="lb-node-states" data-lb-rendered="${nodeIds.join(",")}">${nodeIds.map((targetId) => lbStatusRowHtml(targetId)).join("")}</div>
+    </details>
+  </section>`;
+}
+function lbSectionHtml(pair, pairIndex) {
+  const groups = pair.load_balancers || [];
+  return `<div class="lb-section">
+    <div class="lb-section-head">
+      <strong>${escapeHtml(t("loadBalancing"))}</strong>
+      <button type="button" data-add-lb-group>${escapeHtml(t("addLbGroup"))}</button>
+    </div>
+    <div class="lb-groups">${groups
+      .map((group, groupIndex) => lbGroupCard(group, pair, pairIndex, groupIndex))
+      .join("")}</div>
+  </div>`;
+}
+const loadBalancerStatusIntervalMs = 2000;
+let loadBalancerStatusTimer;
+
+function loadBalancerStatusVisible() {
+  return !document.hidden && $("proxies").classList.contains("active");
+}
+
+/** Only numbers and state words are replaced, so typing and focus survive a refresh. */
+function setLbFact(row, name, label, value) {
+  const element = row.querySelector(`[data-lb-fact="${name}"]`);
+  if (element) element.textContent = `${label}: ${value}`;
+}
+
+function applyLoadBalancerStatus(data) {
+  const pairStates = (data && data.pairs) || [];
+  document.querySelectorAll(".lb-card").forEach((lbCard) => {
+    const pair = state.pairs[Number(lbCard.dataset.lbPair)];
+    const group = ((pair && pair.load_balancers) || [])[Number(lbCard.dataset.lbIndex)];
+    const pairState = pairStates.find((item) => item.id === (pair && pair.id));
+    const groupState = ((pairState && pairState.groups) || []).find(
+      (item) => item.id === (group && group.id),
+    );
+    if (!groupState) return;
+    lbCard.querySelectorAll(".lb-node-state").forEach((row) => {
+      const node = (groupState.nodes || []).find(
+        (item) => item.targetId === row.dataset.lbStatusTarget,
+      );
+      if (!node) return;
+      const metrics = node.metrics;
+      const stateWords = [node.enabled ? t("lbStateOn") : t("lbStateOff")];
+      if (metrics === null) stateWords.push(t("lbStateNoSample"));
+      else if (node.stale) stateWords.push(t("lbStateStale"));
+      setLbFact(row, "enabled", t("lbStateOn"), stateWords.filter(Boolean).join(" · "));
+      setLbFact(row, "inFlight", t("lbStateInFlight"), String(node.inFlight));
+      setLbFact(
+        row,
+        "waiting",
+        t("lbStateWaiting"),
+        metrics === null ? "-" : String(metrics.waiting),
+      );
+      setLbFact(
+        row,
+        "kv",
+        t("lbStateKv"),
+        metrics === null || metrics.kvUsage === undefined
+          ? "-"
+          : `${Math.round(metrics.kvUsage * 100)}%`,
+      );
+      setLbFact(row, "bindings", t("lbStateBindings"), String(node.bindings));
+      setLbFact(
+        row,
+        "cooldown",
+        t("lbStateCooldown"),
+        node.cooldownRemainingMs > 0 ? `${Math.ceil(node.cooldownRemainingMs / 1000)}s` : "0",
+      );
+      setLbFact(row, "source", t("lbStateSource"), metrics === null ? "-" : metrics.source);
+    });
+  });
+}
+
+async function refreshLoadBalancerStatus() {
+  if (!loadBalancerStatusVisible()) return;
+  try {
+    applyLoadBalancerStatus(await api("/api/load-balancer/status"));
+  } catch {
+    // A failed read keeps the numbers that are already on screen.
+  }
+}
+
+function scheduleLoadBalancerStatus() {
+  clearInterval(loadBalancerStatusTimer);
+  loadBalancerStatusTimer = setInterval(() => {
+    refreshLoadBalancerStatus();
+  }, loadBalancerStatusIntervalMs);
+}
+
+/** Warnings and the match preview follow the live form values, without a re-render. */
+function refreshLbCards() {
+  document.querySelectorAll(".proxy-card").forEach((proxyCard) => {
+    const pair = state.pairs[Number(proxyCard.dataset.index)];
+    if (!pair) return;
+    const cards = [...proxyCard.querySelectorAll(".lb-card")];
+    // Nothing is written back to state here: the drafts are only used to judge
+    // the form the user is editing right now.
+    const drafts = (pair.load_balancers || []).map((item) => ({ ...item }));
+    cards.forEach((lbCard) => {
+      const draft = drafts[Number(lbCard.dataset.lbIndex)];
+      if (draft === undefined) return;
+      draft.model_pattern = lbCard.querySelector("[data-lb-field='model_pattern']")?.value || "";
+      draft.node_target_ids = [...lbCard.querySelectorAll("[data-lb-node]")]
+        .filter((input) => input.checked)
+        .map((input) => input.dataset.lbNode);
+      const toggle = lbCard.querySelector("[data-lb-toggle]");
+      if (toggle !== null) draft.enabled = toggle.checked;
+    });
+    // Enabled flags live only in the DOM until a save collects them, so a member
+    // that was just switched off has to be read from its checkbox.
+    const shadowTargets = (pair.targets || []).map((item) => ({ ...item }));
+    proxyCard.querySelectorAll(".target-card").forEach((targetCard) => {
+      const index = Number(targetCard.dataset.targetIndex);
+      const box = targetCard.querySelector("[data-target-enabled]");
+      const target = shadowTargets[index];
+      if (target !== undefined && box !== null) {
+        target.enabled = box.checked;
+      }
+    });
+    const shadow = { ...pair, targets: shadowTargets, load_balancers: drafts };
+    const warnings = lbGroupWarnings(shadow);
+    cards.forEach((lbCard) => {
+      const groupIndex = Number(lbCard.dataset.lbIndex);
+      const draft = drafts[groupIndex] || {};
+      const preview = lbCard.querySelector("[data-lb-preview]");
+      const output = lbCard.querySelector(".lb-preview output");
+      if (preview !== null && output !== null) {
+        const typed = preview.value.trim();
+        output.textContent =
+          draft.model_pattern === "" || typed === ""
+            ? ""
+            : lbPatternMatches(draft.model_pattern, typed)
+              ? t("lbPreviewMatch")
+              : t("lbPreviewNoMatch");
+      }
+      const line = lbCard.querySelector("[data-lb-warning]");
+      if (line !== null) {
+        const mine = warnings.filter((item) => item.groupIndex === groupIndex);
+        line.textContent = mine.map((item) => item.text).join(" ");
+        line.hidden = mine.length === 0;
+      }
+      // The node rows follow the ticked members; the next poll refills their numbers.
+      const states = lbCard.querySelector(".lb-node-states");
+      const checked = (draft.node_target_ids || []).join(",");
+      if (states !== null && states.dataset.lbRendered !== checked) {
+        states.dataset.lbRendered = checked;
+        states.innerHTML = (draft.node_target_ids || [])
+          .map((targetId) => lbStatusRowHtml(targetId))
+          .join("");
+        const summary = lbCard.querySelector(".lb-status > summary");
+        if (summary !== null) {
+          summary.textContent = `${t("lbNodeState")} · ${(draft.node_target_ids || []).length}`;
+        }
+      }
+    });
+  });
+}
+
+/** Removing a target also removes it from every group of that pair. */
+function purgeLoadBalancerMember(pair, targetId) {
+  (pair.load_balancers || []).forEach((group) => {
+    group.node_target_ids = (group.node_target_ids || []).filter((id) => id !== targetId);
+  });
+}
+
+function forgetLbGroupOpen(pair, group) {
+  const map = readLbGroupOpen();
+  delete map[lbGroupOpenKey(pair, group)];
+  writeLbGroupOpen(map);
+}
+
+async function runLoadBalancerModelCheck(pair, group, resultsBox, button) {
+  resultsBox.hidden = true;
+  resultsBox.textContent = "";
+  button.disabled = true;
+  try {
+    const data = await api("/api/load-balancer/verify-models", {
+      method: "POST",
+      body: JSON.stringify({ pairId: pair.id, groupId: group.id }),
+    });
+    resultsBox.hidden = false;
+    resultsBox.textContent = "";
+    (data.nodes || []).forEach((node) => {
+      const line = document.createElement("p");
+      line.className = "lb-verify-line";
+      if (!node.ok) {
+        line.classList.add("is-error");
+        line.textContent = `${node.targetId}: ${node.error || t("lbVerifyUnreachable")}`;
+      } else if (node.matched.length > 0) {
+        line.classList.add("is-ok");
+        line.textContent = `${node.targetId}: ${node.matched.length} ${t("lbVerifyMatched")} (${node.matched.join(", ")})`;
+      } else {
+        line.classList.add("is-warn");
+        line.textContent = `${node.targetId}: ${t("lbVerifyNoMatch")}`;
+      }
+      resultsBox.appendChild(line);
+    });
+  } catch (error) {
+    resultsBox.hidden = false;
+    resultsBox.classList.add("is-error");
+    resultsBox.textContent = error instanceof Error ? error.message : String(error);
+  } finally {
+    button.disabled = false;
+  }
+}
+
+/** Returns true when the click belonged to a load balancing control. */
+function handleLoadBalancerClick(event, pair, card) {
+  const lbCard = event.target.closest(".lb-card");
+  if (event.target.matches("[data-add-lb-group]")) {
+    collectPairs();
+    (pair.load_balancers || (pair.load_balancers = [])).push(newLoadBalancerGroup());
+    renderPairs();
+    const created = card.querySelector(".lb-card:last-of-type [data-lb-field='name']");
+    if (created) created.focus();
+    return true;
+  }
+  if (lbCard && event.target.matches("[data-remove-lb]")) {
+    collectPairs();
+    const group = (pair.load_balancers || [])[Number(lbCard.dataset.lbIndex)];
+    if (group) forgetLbGroupOpen(pair, group);
+    (pair.load_balancers || []).splice(Number(lbCard.dataset.lbIndex), 1);
+    renderPairs();
+    return true;
+  }
+  if (lbCard && event.target.matches("[data-verify-lb-models]")) {
+    collectPairs();
+    const group = (pair.load_balancers || [])[Number(lbCard.dataset.lbIndex)];
+    if (!group) return true;
+    runLoadBalancerModelCheck(pair, group, lbCard.querySelector("[data-lb-verify]"), event.target);
+    return true;
+  }
+  return false;
+}
+
 function renderTarget(target, pair, pairIndex, targetIndex) {
   const expanded = Boolean(target.expanded);
   const isDefault = pair.default_target_id === target.id;
@@ -1104,6 +1577,7 @@ function renderTarget(target, pair, pairIndex, targetIndex) {
         </div>
       </label>
       <label><span>${escapeHtml(t("modelMappings"))}</span><textarea data-target-field="model_mappings" placeholder="*gpt-5.5* => gpt-5.5">${escapeHtml(mappingsText(target.model_mappings))}</textarea></label>
+      ${lbTakeoverNoteHtml(pair)}
       <details class="model-prices" ${target.prices_expanded ? "open" : ""}>
         <summary>${escapeHtml(t("modelPrices"))} · ${(target.model_prices || []).length}</summary>
         <p class="price-help">${escapeHtml(t("priceUnit"))}</p>
@@ -1150,10 +1624,12 @@ function renderPairs() {
           .map((target, targetIndex) => renderTarget(target, p, i, targetIndex))
           .join("")}
       </div>
+      ${lbSectionHtml(p, i)}
       <div class="row-actions"><button data-add-target>${escapeHtml(t("addTarget"))}</button><button data-remove>${escapeHtml(t("delete"))}</button></div>
     </article>`,
     )
     .join("");
+  refreshLbCards();
 }
 function escapeHtml(text) {
   return String(text).replace(
@@ -1218,6 +1694,21 @@ function collectPairs() {
       target.enabled = enabledInput ? enabledInput.checked : true;
       const redactInput = targetCard.querySelector("[data-redact-logs]");
       target.redact_logs = redactInput ? redactInput.checked : false;
+    });
+    card.querySelectorAll(".lb-card").forEach((lbCard) => {
+      const group = (pair.load_balancers || [])[Number(lbCard.dataset.lbIndex)];
+      if (!group) return;
+      lbCard.querySelectorAll("[data-lb-field]").forEach((input) => {
+        group[input.dataset.lbField] = input.value;
+      });
+      group.enabled = lbCard.querySelector("[data-lb-toggle]")?.checked ?? true;
+      ["metrics_enabled", "failover_enabled"].forEach((flag) => {
+        const input = lbCard.querySelector(`[data-lb-flag="${flag}"]`);
+        group[flag] = input ? input.checked : true;
+      });
+      group.node_target_ids = [...lbCard.querySelectorAll("[data-lb-node]")]
+        .filter((input) => input.checked)
+        .map((input) => input.dataset.lbNode);
     });
     pairTargets(pair).forEach((target) => {
       if (target.id === pair.default_target_id) target.enabled = true;
@@ -4691,11 +5182,14 @@ $("addProxy").addEventListener("click", () => {
   state.pairs.push(newPair());
   renderPairs();
 });
-$("saveProxies").addEventListener("click", () => savePairs().catch((e) => toast(e.message)));
+$("saveProxies").addEventListener("click", () =>
+  savePairs().catch((e) => toast(configIssueText(e))),
+);
 $("proxyGrid").addEventListener("click", (event) => {
   const card = event.target.closest(".proxy-card");
   if (!card) return;
   const pair = state.pairs[Number(card.dataset.index)];
+  if (handleLoadBalancerClick(event, pair, card)) return;
   if (
     event.target.matches(
       "[data-add-price], [data-price-remove], [data-price-up], [data-price-down]",
@@ -4833,6 +5327,7 @@ $("proxyGrid").addEventListener("click", (event) => {
     if (targets.length <= 1) return;
     const removed = targets.splice(Number(targetCard.dataset.targetIndex), 1)[0];
     if (pair.default_target_id === removed.id) pair.default_target_id = targets[0].id;
+    purgeLoadBalancerMember(pair, removed.id);
     renderPairs();
     return;
   }
@@ -5700,6 +6195,10 @@ $("metricsListBody").addEventListener(
   true,
 );
 $("proxyGrid").addEventListener("change", async (event) => {
+  if (event.target.matches("[data-lb-node], [data-lb-toggle], [data-lb-flag]")) {
+    refreshLbCards();
+    return;
+  }
   if (event.target.matches("[data-default-target]")) {
     collectPairs();
     renderPairs();
@@ -5709,6 +6208,8 @@ $("proxyGrid").addEventListener("change", async (event) => {
     const targetCard = event.target.closest(".target-card");
     targetCard?.classList.toggle("is-enabled-target", event.target.checked);
     targetCard?.classList.toggle("is-disabled-target", !event.target.checked);
+    // Whether a member is disabled is part of a group's warnings.
+    refreshLbCards();
     return;
   }
   if (!event.target.matches("[data-toggle]")) return;
@@ -5737,6 +6238,10 @@ $("proxyGrid").addEventListener("keydown", (event) => {
   moveTargetCardByKey(handle, offset);
 });
 $("proxyGrid").addEventListener("input", (event) => {
+  if (event.target.matches("[data-lb-field], [data-lb-preview]")) {
+    refreshLbCards();
+    return;
+  }
   if (!event.target.matches("[data-price-field], [data-price-test]")) return;
   const targetCard = event.target.closest(".target-card");
   if (targetCard) updateLocalPriceMatch(targetCard);
@@ -6138,7 +6643,25 @@ document.querySelectorAll("[data-copy]").forEach((button) =>
   logSplitter.addEventListener("lostpointercapture", () => stopDragging(false));
 })();
 applyLanguage();
+// A group card reveals its node state; that choice is browser state, not configuration.
+// The toggle event does not bubble, so it is caught on the way down.
+$("proxyGrid").addEventListener(
+  "toggle",
+  (event) => {
+    const details = event.target;
+    if (!details.classList || !details.classList.contains("lb-status")) return;
+    const lbCard = details.closest(".lb-card");
+    if (!lbCard) return;
+    const pair = state.pairs[Number(lbCard.dataset.lbPair)];
+    const group = ((pair && pair.load_balancers) || [])[Number(lbCard.dataset.lbIndex)];
+    if (!pair || !group) return;
+    markLbGroupOpen(pair, group, details.open);
+  },
+  true,
+);
 loadPairs().catch((e) => toast(e.message));
+scheduleLoadBalancerStatus();
+void refreshLoadBalancerStatus();
 $("summaryTest").addEventListener("click", async () => {
   const result = $("summaryTestResult");
   result.hidden = false;

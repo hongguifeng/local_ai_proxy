@@ -1,6 +1,6 @@
 # 多节点负载均衡开发 TODO
 
-创建日期：2026-10-22。当前进度：9 / 13 项完成。
+创建日期：2026-10-22。当前进度：10 / 13 项完成。
 
 设计依据：[多节点负载均衡设计（粘性任务路由 v1）](./load-balancing-design.md)。决策记录：[ADR-013](./adr/013-load-balancing-sticky-routing.md)。本清单供后续开发、测试、验收和逐项提交使用。设计发生变化时，必须同时更新设计文档和本清单，不能只改代码。
 
@@ -64,7 +64,7 @@ npx electron-builder -w portable --publish never
 | [x] | LB-07 | 连接期失败切换与 503 | LB-05、LB-06 | 完成 |
 | [x] | LB-08 | 上游 metrics 采样与负载快照 | LB-04、LB-05 | 完成 |
 | [x] | LB-09 | 路由记录与状态/模型校验 API | LB-05～LB-08 | 完成 |
-| [ ] | LB-10 | 管理 UI、i18n 和视觉基线 | LB-01、LB-08、LB-09 | 未开始 |
+| [x] | LB-10 | 管理 UI、i18n 和视觉基线 | LB-01、LB-08、LB-09 | 完成 |
 | [ ] | LB-11 | 端到端、reload、pending 和价格回归 | LB-02～LB-10 | 未开始 |
 | [ ] | LB-12 | 真实节点验收与性能检查 | LB-11 | 未开始 |
 | [ ] | LB-13 | 文档收尾、全量检查和交付构建 | LB-12 | 未开始 |
@@ -554,6 +554,18 @@ npx electron-builder -w portable --publish never
 - 提交标题：`feat(load-balancing): [LB-09] add route records and the load balancer admin API`
 - 提交 SHA：`7a53ebb`
 - 备注：无。
+
+### LB-10
+
+- 状态：完成
+- 实际变更：`src/admin/static/app.js`（中英语言键、组卡片与节点状态渲染、`collectPairs` 收集 `load_balancers`、添加/删除/校验点击处理、输入与勾选变更后的警告和匹配预览、捕获阶段 `toggle` 把展开状态写进 `localStorage`、2 秒轮询且只改 `[data-lb-fact]` 文本、`api()` 透传 `error.issues` 与 `configIssueText`、删除 target 时从本 pair 组成员中清理）；`src/admin/static/app.css`（`lb-*` 样式块、`.lb-section-head` 标题行、覆盖全局 `label span` 的单行规则）；`test-node/ui/admin-ui.test.ts`（负载均衡状态与模型校验桩、`pairsSaveIssues` 抛 `ConfigValidationError`、9 条新用例）。
+- 测试命令：`npx vitest run test-node/ui/admin-ui.test.ts -t "admin UI load balancing groups"`、`REGEN_BASELINES=1 npx vitest run test-node/ui/admin-ui.test.ts -t "proxy page baseline"`、`npx vitest run`（全量）、`npx tsc -p tsconfig.json --noEmit`、`npm run lint`、`npx prettier --check .`
+- 测试结果：9 条新用例全部通过（保存与重载、三种警告、字段级报错、删除节点清理成员、轮询不丢焦点/草稿/展开态、隐藏与切标签时停止轮询、模型校验三种结果、中英翻译与 380 px 窄布局、键盘删除并忘记存储）；全量 102 文件 / 907 例通过
+- UI 基线：已重录 `doc/ui_proxy_cn.png` = `641a8465939bb624c50ce8d1b001cbd0eb2c4c5adcea076bcff5a982290d6076`、`doc/ui_proxy_en.png` = `dcec51e547b5c76b6d54885305c105d73142620d2a36d1bbac164650021b7c17`；两张图完整检视过，英文界面没有中文、标签没有被截断；其余六张基线未重录且在全量测试里保持通过
+- 设计偏差：见设计文档 §12.3 落地说明——「添加负载均衡组」按钮与标题同行；节点状态行随勾选成员重建；模型校验读已保存配置，未保存的组得到 404；短标签必须显式压过页面级 `label span { overflow-wrap: anywhere }`
+- 提交标题：`feat(load-balancing): [LB-10] add load balancing group cards to the proxy page`
+- 提交 SHA：见下一条文档提交记录
+- 备注：验证用的 `probe-lb-card.mts` 与三张临时截图已删除，没有遗留浏览器进程或定时器。
 
 每完成一个任务，在这里追加一条记录：
 
