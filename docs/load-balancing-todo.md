@@ -528,7 +528,7 @@ npx electron-builder -w portable --publish never
 - UI 基线：未涉及
 - 设计偏差：见设计文档 §10.1 落地说明——客户端中止不记失败；pricing 快照保留原 target 名字；无可用节点的记录写进组内第一个配置节点的日志库，组内没有配置节点时只剩 503。
 - 提交标题：`feat(load-balancing): [LB-07] add one safe failover and 503 refusals`
-- 提交 SHA：待填写
+- 提交 SHA：`ba53010`
 - 备注：无。
 
 每完成一个任务，在这里追加一条记录：
