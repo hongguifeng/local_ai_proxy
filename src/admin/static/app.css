@@ -1,4 +1,19 @@
+/*
+  TABLE OF CONTENTS
+
+  Search for "SECTION:" to reach these headers, in file order:
+  shared shell 27  →  proxy targets 16  →  price catalog 19  →  proxy targets 25  →  shared shell 11  →  request history 20  →  request history 11  →  request history 11  →  request history 11  →  request history 27  →  statistics 19  →  shared shell 17  →  request history 21  →  JSON pane 22  →  proxy targets 15  →  proxy targets 21  →  statistics 11  →  statistics 39  →  statistics 13  →  statistics 27  →  statistics 21  →  target metrics 16  →  target metrics 58  →  load balancing 47
+
+  This sheet is a cumulative stack of layout passes. The cascade resolves a
+  property by importance first, then specificity, then source order, so the
+  value in effect is the one written by the winning rule - not the one in the
+  block nearest the markup, and not necessarily the last block that mentions
+  the selector. Before deleting a repeated declaration, confirm it loses to a
+  later declaration of the same selector, same context and same property.
+*/
+
 :root {
+  /* SECTION: shared shell (27 rules) */
   color-scheme: light;
   --bg: #f3f5f8;
   --panel: #ffffff;
@@ -170,6 +185,7 @@ main {
   margin-bottom: 12px;
 }
 .proxy-grid {
+  /* SECTION: proxy targets (16 rules) */
   display: grid;
   grid-template-columns: minmax(0, 1fr);
   gap: 12px;
@@ -264,6 +280,7 @@ body.drag-target-active {
   user-select: none;
 }
 .model-prices {
+  /* SECTION: price catalog (19 rules) */
   border-top: 1px solid #b8c5d3;
   padding-top: 10px;
 }
@@ -383,137 +400,37 @@ body.drag-target-active {
 }
 
 /* statistics third-pass compact layout */
-.statistics-view {
-  padding: 18px clamp(14px, 2vw, 28px);
-}
-.statistics-view .toolbar {
-  margin-bottom: 12px;
-}
-.statistics-view .toolbar > div > strong {
-  font-size: 19px;
-}
 .stats-filters {
-  gap: 10px;
   margin-bottom: 10px;
-  padding: 12px;
-  border-radius: 10px;
-}
-.stats-filter-group {
-  gap: 6px;
 }
 .stats-filter-label,
 .stats-date-row label,
 .stats-select-grid label {
   font-size: 11px;
 }
-.stats-presets {
-  gap: 2px;
-  padding: 2px;
-}
 .stats-presets button {
-  padding: 4px 8px;
   font-size: 12px;
-}
-.stats-date-row {
-  grid-template-columns: minmax(180px, 250px) auto minmax(180px, 250px) auto;
-  gap: 7px;
 }
 .stats-date-row input,
 .stats-select-grid select {
-  min-height: 32px;
-  padding: 5px 8px;
   font-size: 12px;
-}
-.stats-live {
-  min-height: 32px;
-  font-size: 11px;
-}
-.stats-select-grid {
-  grid-template-columns: repeat(4, minmax(130px, 1fr));
-  gap: 7px;
-}
-.stats-filter-actions {
-  gap: 6px;
 }
 .stats-filter-actions button {
   min-height: 30px;
-  padding: 4px 10px;
   font-size: 12px;
 }
-.stats-filter-summary {
-  margin: -2px 0 10px;
-  font-size: 11px;
-}
-.stats-overview {
-  grid-template-columns: repeat(4, minmax(0, 1fr));
-  gap: 8px;
-}
-.stat-card {
-  min-height: 86px;
-  padding: 11px;
-  gap: 3px 6px;
-}
-.stat-card-tokens {
-  grid-column: auto;
-}
-.stat-card small {
-  font-size: 11px;
-}
-.stat-card strong {
-  font-size: clamp(18px, 1.8vw, 24px);
-}
-.stat-card em {
-  font-size: 10px;
-}
 .token-details {
-  gap: 6px;
   margin-top: 5px;
-  padding-top: 5px;
 }
 .token-details b {
   font-size: 10px;
 }
-.token-details strong {
-  font-size: 13px;
-}
-.stat-groups {
-  gap: 10px;
-}
-.distribution-card {
-  padding: 12px;
-}
-.distribution-card h3 {
-  font-size: 16px;
-}
-.pie-chart {
-  min-height: 190px;
-}
-.pie-center-value {
-  font-size: 16px;
-}
-.trend-card {
-  padding: 14px;
-}
-.trend-card-title {
-  margin-bottom: 9px;
-}
-.trend-card-title h3 {
-  font-size: 17px;
-}
 .trend-controls select {
-  min-height: 30px;
-  padding: 4px 8px;
   font-size: 12px;
 }
 @media (max-width: 1100px) {
   .stats-date-row {
     grid-template-columns: minmax(160px, 1fr) auto minmax(160px, 1fr) auto;
-  }
-  .stats-select-grid {
-    grid-template-columns: repeat(2, minmax(130px, 1fr));
-  }
-  .stats-overview {
-    grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 }
 @media (max-width: 700px) {
@@ -533,42 +450,18 @@ body.drag-target-active {
     display: grid;
     gap: 8px;
   }
-  .stats-filter-time {
-    display: flex;
-    flex-wrap: nowrap;
-    align-items: center;
-    gap: 8px;
-  }
   .stats-filter-time .stats-filter-label,
   .stats-filter-data .stats-filter-label {
     align-self: center;
     white-space: nowrap;
   }
-  .stats-date-row {
-    flex: 1 1 auto;
-    min-width: 0;
-    grid-template-columns: minmax(150px, 1fr) auto minmax(150px, 1fr) auto;
-    gap: 6px;
-  }
   .stats-select-grid {
-    grid-template-columns: repeat(4, minmax(120px, 1fr));
     gap: 6px;
-  }
-  .stats-filter-data {
-    display: flex;
-    flex-wrap: nowrap;
-    align-items: end;
-    gap: 8px;
-  }
-  .stats-filter-data .stats-select-grid {
-    flex: 1 1 auto;
-    min-width: 0;
   }
   .stats-filter-actions {
     align-self: end;
   }
   .stats-overview {
-    grid-template-columns: repeat(4, minmax(0, 1fr)) !important;
     gap: 8px;
   }
   .stat-card {
@@ -577,9 +470,6 @@ body.drag-target-active {
   }
   .stat-card strong {
     font-size: 22px;
-  }
-  .stat-card-tokens {
-    grid-column: auto !important;
   }
   .token-details {
     display: grid;
@@ -590,17 +480,10 @@ body.drag-target-active {
     justify-content: space-between;
     min-width: 0;
   }
-  .stat-card .token-details strong {
-    font-size: 13px;
-  }
 }
 
 /* hard size limits for statistics controls and cards */
 @media (min-width: 601px) {
-  .stats-date-row {
-    flex: 0 1 auto;
-    grid-template-columns: 180px auto 180px auto !important;
-  }
   .stats-date-row label {
     width: 180px;
   }
@@ -609,64 +492,22 @@ body.drag-target-active {
     min-width: 180px;
     max-width: 180px;
   }
-  .stats-select-grid {
-    grid-template-columns: repeat(4, 150px) !important;
-    flex: 0 0 auto !important;
-  }
-  .stats-select-grid select {
-    width: 150px;
-  }
-  .stats-overview {
-    align-items: start;
-  }
-  .stats-overview .stat-card {
-    height: 92px;
-    min-height: 0;
-    align-self: start;
-  }
-  .stats-overview .stat-card-tokens {
-    height: 108px;
-  }
 }
 
 /* second-pass compact statistics layout */
-.stats-filters {
-  gap: 12px;
-  padding: 12px 14px;
-}
-.stats-filter-group {
-  gap: 6px;
-}
 .stats-filter-time {
   grid-template-columns: auto 1fr;
-  align-items: center;
 }
 .stats-filter-time .stats-filter-label {
   grid-row: 1;
 }
-.stats-presets {
-  padding: 2px;
-}
-.stats-presets button {
-  padding: 4px 8px;
-}
 .stats-date-row {
   grid-column: 1 / -1;
-  grid-template-columns: minmax(170px, 1fr) auto minmax(170px, 1fr) auto;
-  gap: 7px;
 }
 .stats-date-row input,
 .stats-select-grid select {
   min-height: 32px;
   padding: 5px 7px;
-}
-.stats-select-grid {
-  grid-template-columns: repeat(4, minmax(120px, 1fr));
-  gap: 7px;
-}
-.stats-filter-data {
-  grid-template-columns: auto 1fr auto;
-  align-items: end;
 }
 .stats-filter-data .stats-filter-label {
   align-self: center;
@@ -676,24 +517,6 @@ body.drag-target-active {
 }
 .stats-filter-actions button {
   padding: 5px 9px;
-}
-.stats-filter-summary {
-  margin: -8px 0 10px;
-  font-size: 12px;
-}
-.stats-overview {
-  grid-template-columns: repeat(3, minmax(0, 1fr));
-  gap: 8px;
-}
-.stat-card {
-  min-height: 78px;
-  padding: 11px 13px;
-}
-.stat-card strong {
-  font-size: clamp(18px, 1.8vw, 23px);
-}
-.stat-card em {
-  font-size: 10px;
 }
 .stat-card-tokens {
   grid-column: span 2;
@@ -717,39 +540,6 @@ body.drag-target-active {
   color: #344054;
   font-weight: 600;
 }
-.stat-groups {
-  gap: 12px;
-}
-.distribution-card {
-  padding: 14px;
-}
-.pie-layout {
-  display: block;
-}
-.pie-chart {
-  min-height: 190px;
-  padding: 0;
-}
-.pie-chart svg {
-  max-width: 600px;
-}
-.pie-center-value {
-  font-size: 15px;
-}
-.pie-center-label {
-  font-size: 10px;
-}
-.trend-card {
-  padding: 14px;
-}
-.trend-card-title {
-  align-items: center;
-}
-.trend-controls {
-  display: inline-flex;
-  align-items: center;
-  gap: 8px;
-}
 .trend-controls select {
   min-height: 30px;
   padding: 4px 7px;
@@ -768,9 +558,6 @@ body.drag-target-active {
   }
 }
 @media (max-width: 800px) {
-  .stats-overview {
-    grid-template-columns: repeat(2, minmax(0, 1fr));
-  }
   .stat-card-tokens {
     grid-column: span 2;
   }
@@ -787,6 +574,7 @@ body.drag-target-active {
   }
 }
 .target-head {
+  /* SECTION: proxy targets (25 rules) */
   display: flex;
   gap: 8px;
   align-items: center;
@@ -933,6 +721,7 @@ body.drag-target-active {
   justify-self: end;
 }
 .status {
+  /* SECTION: shared shell (11 rules) */
   width: 10px;
   height: 10px;
   border-radius: 50%;
@@ -1116,6 +905,7 @@ label span {
 /* "clip" (not "hidden") keeps the section from becoming a scroll container,
    which is what lets the group header stick inside .log-items. */
 .log-group {
+  /* SECTION: request history (20 rules) */
   border: 1px solid var(--line);
   border-radius: 8px;
   background: white;
@@ -1356,6 +1146,7 @@ label span {
   color: #a4b2c0;
 }
 .log-group-body {
+  /* SECTION: request history (11 rules) */
   border-top: 1px solid var(--line);
   background: white;
 }
@@ -1462,6 +1253,7 @@ label span {
   color: #176b52;
 }
 .log-item-empty {
+  /* SECTION: request history (11 rules) */
   align-self: center;
   color: var(--muted);
 }
@@ -1554,6 +1346,7 @@ label span {
    cell: the prose wraps, the generate button sits on the title line, and the
    card inherits the generic button look (only the size is trimmed here). */
 .pricing-panel > .task-brief {
+  /* SECTION: request history (11 rules) */
   margin-top: 12px;
   padding: 12px 14px;
   border: 1px solid var(--line);
@@ -1668,6 +1461,7 @@ label span {
    amber model color and wraps (shrunk by fitTaskSummaryValues) at narrow
    widths. */
 .task-stat-cards .task-stat-model {
+  /* SECTION: request history (27 rules) */
   grid-column: 1;
 }
 .task-stat-cards .task-stat-model strong {
@@ -1961,6 +1755,7 @@ label span {
 .pricing-panel > .token-chart,
 .pricing-panel > .cost-chart,
 .pricing-panel > .output-token-chart {
+  /* SECTION: statistics (19 rules) */
   max-width: 760px;
 }
 /* Task-detail token/cost/output-token trends: raw SVG line charts (request
@@ -2083,6 +1878,7 @@ label span {
   text-align: center;
 }
 .pricing-table {
+  /* SECTION: shared shell (17 rules) */
   width: 100%;
   border-collapse: separate;
   border-spacing: 0;
@@ -2230,6 +2026,7 @@ label span {
   display: none;
 }
 .summary-dialog {
+  /* SECTION: request history (21 rules) */
   width: min(780px, calc(100vw - 48px));
   height: min(620px, calc(100vh - 80px));
   min-width: min(420px, calc(100vw - 48px));
@@ -2352,6 +2149,7 @@ label span {
   font-size: 12px;
 }
 .json-string.format-mode {
+  /* SECTION: JSON pane (22 rules) */
   white-space: pre-wrap;
   word-break: break-all;
   overflow-wrap: anywhere;
@@ -2590,6 +2388,7 @@ label span {
 
 #targetCheckDialog::backdrop,
 #summaryModelDialog::backdrop {
+  /* SECTION: proxy targets (15 rules) */
   background: rgba(23, 32, 42, 0.35);
 }
 
@@ -2739,6 +2538,7 @@ label span {
 }
 
 .target-check-model-caret {
+  /* SECTION: proxy targets (21 rules) */
   flex: 0 0 auto;
   width: 30px;
   height: 30px;
@@ -2897,17 +2697,13 @@ label span {
   margin-top: 12px;
 }
 .statistics-view {
-  padding: 24px;
-  background: #f5f7fb;
   overflow: auto;
-}
-.statistics-view .toolbar {
-  margin-bottom: 18px;
 }
 .statistics-view .toolbar > strong {
   font-size: 18px;
 }
 .stats-section-heading {
+  /* SECTION: statistics (11 rules) */
   display: flex;
   align-items: center;
   justify-content: space-between;
@@ -2925,20 +2721,12 @@ label span {
   font-size: 13px;
 }
 .stats-filters {
-  display: flex;
   align-items: center;
   flex-wrap: wrap;
-  gap: 10px;
-  margin: 12px 0;
-  padding: 12px;
-  border: 1px solid #e4e7ec;
-  border-radius: 12px;
   background: #fff;
-  box-shadow: 0 2px 8px #1018280a;
 }
 .stats-presets {
   display: inline-flex;
-  flex-basis: 100%;
   gap: 4px;
   padding: 3px;
   border: 1px solid var(--border, #d9dee7);
@@ -2977,8 +2765,6 @@ label span {
 }
 .stats-overview {
   display: grid;
-  grid-template-columns: repeat(7, minmax(0, 1fr));
-  gap: 12px;
 }
 @media (max-width: 800px) {
   .stats-overview {
@@ -3000,19 +2786,15 @@ label span {
 }
 .stat-card strong {
   display: block;
-  font-size: 20px;
   margin-top: 6px;
 }
 .stat-groups {
   grid-column: 1/-1;
   display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 18px;
 }
 .distribution-card {
   border: 1px solid #e4e8ee;
   border-radius: 14px;
-  padding: 20px;
   background: #fff;
   box-shadow: 0 3px 12px #1018280a;
 }
@@ -3037,20 +2819,18 @@ label span {
   border-bottom: 1px solid #eee;
 }
 .stats-trend {
+  /* SECTION: statistics (39 rules) */
   margin-top: 18px;
   overflow: auto;
 }
 .trend-card {
   background: var(--panel, #fff);
   border: 1px solid var(--border, #ddd);
-  border-radius: 10px;
-  padding: 18px;
 }
 .trend-card-title {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  margin-bottom: 12px;
 }
 .trend-card-title h3 {
   margin: 0;
@@ -3100,13 +2880,11 @@ label span {
   display: flex;
   justify-content: center;
   padding: 4px 0;
-  min-height: 220px;
   align-items: center;
 }
 .pie-chart svg {
   display: block;
   width: 100%;
-  max-width: 720px;
   height: auto;
 }
 .pie-connector {
@@ -3138,9 +2916,6 @@ label span {
   display: flex;
   align-items: flex-end;
   gap: 8px;
-  min-height: 260px;
-  height: 260px;
-  padding: 10px;
   border-bottom: 1px solid #ddd;
 }
 .trend-item {
@@ -3168,7 +2943,6 @@ label span {
   z-index: 1;
   display: flex;
   flex-direction: column-reverse;
-  width: min(42px, 100%);
   max-width: none;
   min-width: 8px;
   min-height: 2px;
@@ -3267,6 +3041,7 @@ label span {
   gap: 8px;
 }
 .stats-filters {
+  /* SECTION: statistics (13 rules) */
   display: grid;
   gap: 18px;
   margin: 0 0 18px;
@@ -3389,6 +3164,7 @@ label span {
   box-shadow: none;
 }
 .distribution-card {
+  /* SECTION: statistics (27 rules) */
   padding: 18px;
 }
 .distribution-card h3 {
@@ -3418,13 +3194,6 @@ label span {
 .chart-control select,
 .trend-controls > select {
   min-width: 108px;
-}
-.trend-controls {
-  display: flex;
-  align-items: flex-end;
-  justify-content: flex-end;
-  flex-wrap: wrap;
-  gap: 8px;
 }
 @media (max-width: 800px) {
   .distribution-card-title,
@@ -3585,28 +3354,19 @@ label span {
 /* final overrides for compact statistics */
 @media (min-width: 601px) {
   .stats-filter-time {
-    display: flex;
     flex-wrap: nowrap;
-    align-items: center;
   }
   .stats-filter-time .stats-filter-label {
     white-space: nowrap;
   }
   .stats-date-row {
-    display: grid;
-    flex: 1 1 auto;
     min-width: 0;
-    grid-template-columns: minmax(150px, 1fr) auto minmax(150px, 1fr) auto;
   }
   .stats-filter-data {
-    display: flex;
     flex-wrap: nowrap;
-    align-items: end;
   }
   .stats-filter-data .stats-select-grid {
-    flex: 1 1 auto;
     min-width: 0;
-    grid-template-columns: repeat(4, minmax(120px, 1fr));
   }
   .stats-overview {
     grid-template-columns: repeat(4, minmax(0, 1fr)) !important;
@@ -3621,33 +3381,9 @@ label span {
 
 /* hard size limits for statistics controls and cards */
 @media (min-width: 601px) {
-  .stats-date-row {
-    flex: 0 1 auto;
-    grid-template-columns: 180px auto 180px auto !important;
-  }
-  .stats-date-row label,
-  .stats-date-row input {
-    width: 180px !important;
-    min-width: 180px;
-    max-width: 180px;
-  }
   .stats-select-grid {
     grid-template-columns: repeat(4, 150px) !important;
     flex: 0 0 auto !important;
-  }
-  .stats-select-grid select {
-    width: 150px;
-  }
-  .stats-overview {
-    align-items: start;
-  }
-  .stats-overview .stat-card {
-    height: 92px;
-    min-height: 0;
-    align-self: start;
-  }
-  .stats-overview .stat-card-tokens {
-    height: 108px;
   }
 }
 
@@ -3674,11 +3410,8 @@ label span {
     margin-bottom: 0;
   }
   .stats-date-row {
-    display: grid !important;
     flex: 0 0 auto !important;
     grid-template-columns: 155px auto 155px auto !important;
-    align-items: end !important;
-    gap: 6px;
   }
   .stats-date-row label,
   .stats-date-row input {
@@ -3712,9 +3445,6 @@ label span {
   .stats-filter-actions {
     margin-left: auto;
     padding-bottom: 0;
-  }
-  .stats-overview {
-    align-items: start !important;
   }
   .stats-overview .stat-card {
     display: flex !important;
@@ -3756,6 +3486,7 @@ label span {
 
 /* checkbox must remain intrinsic instead of inheriting full-width text input */
 .stats-live input[type="checkbox"] {
+  /* SECTION: statistics (21 rules) */
   width: 16px !important;
   min-width: 16px !important;
   max-width: 16px !important;
@@ -3782,7 +3513,6 @@ label span {
 }
 .stats-overview .stat-card-tokens .token-details span {
   min-width: 0;
-  overflow: hidden;
 }
 .stats-overview .stat-card-tokens .token-details b,
 .stats-overview .stat-card-tokens .token-details strong {
@@ -3808,10 +3538,6 @@ label span {
   width: auto !important;
   color: var(--muted, #667085);
   white-space: nowrap !important;
-}
-.distribution-card-title .chart-control select {
-  width: 112px !important;
-  min-width: 112px !important;
 }
 .trend-controls {
   display: flex !important;
@@ -4013,6 +3739,7 @@ label span {
 /* Upstream /metrics viewer (metricsDialog): a wide resizable dialog that
    lists Prometheus metric families parsed from the exposition text. */
 .metrics-dialog {
+  /* SECTION: target metrics (16 rules) */
   width: min(1080px, calc(100vw - 48px));
   height: min(680px, calc(100vh - 80px));
   min-width: min(420px, calc(100vw - 48px));
@@ -4130,6 +3857,7 @@ label span {
   color: var(--muted);
 }
 .metrics-note {
+  /* SECTION: target metrics (58 rules) */
   margin: 0 0 8px;
   color: var(--muted);
   font-size: 12px;
@@ -4450,6 +4178,7 @@ label span {
    generic card class would pull in the statistics page's font-size and ellipsis
    rules, which do not belong here. */
 .lb-section {
+  /* SECTION: load balancing (47 rules) */
   display: grid;
   gap: 8px;
   margin-top: 4px;
