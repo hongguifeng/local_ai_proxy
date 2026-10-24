@@ -428,6 +428,28 @@ Splitter 拖动（左右分栏与上下分栏）采用“预览后提交”：po
 
 分栏提交后不重新生成 JSON DOM。浏览器直接按现有节点完成一次布局，保留所有 `details` 展开状态和滚动位置，也避免松手后因 `innerHTML` 替换产生界面闪烁。JSON pane 在用户主动切换树形、格式化、换行等显示选项时，仍会先预扫描长字符串并批量测量宽度，把原来逐字符串触发的同步布局合并为一次。
 
+### 4.4 JavaScript 文件切分与静态检查
+
+前端源码按子系统切成九个编号文件（`src/admin/static/01-core.js` … `09-wiring.js`）：
+
+- `01-core`：i18n 字典、`state`、`$`/`api`/`toast` 等通用工具和 DOM 访问助手。
+- `02-proxy-config`、`03-load-balancing`、`04-history-logs`、`05-task-detail`、`06-json-pane`、`07-statistics`、`08-metrics`：各自子系统的渲染与交互。
+- `09-wiring`：所有顶层执行语句（事件监听、splitter IIFE、`applyLanguage()` / `loadPairs()` 启动），必须是最后一个文件。
+
+这些文件仍是 classic script，不是 ES module。浏览器加载的是服务端按上述顺序拼接出的单个 `/static/app.js`，`index.html`、路由和 URL 都未变化，因此：
+
+- 函数声明按文件提升，跨文件调用发生在所有脚本加载之后，顺序安全方向只有“靠前的文件被靠后的文件引用”。
+- `const state` 只声明一次（在 `01-core.js`），classic script 共享一个词法作用域，重复声明会在加载期直接 SyntaxError。
+- `window.*` 探测契约（例如 `window.applySelectedLogDetail`、`window.__jsonPaneMutationCount`）保持不变。
+
+静态检查配置：
+
+- `tsconfig.ui.json` 用 `allowJs` + `checkJs` + `strict: false` 覆盖这九个文件，`npm run typecheck` 会依次跑主工程和它。它必须带 `moduleDetection: "legacy"`：仓库是 `"type": "module"` 包，`module: NodeNext` 会把无 import/export 的 `.js` 判成 ES module，每个文件各自一个作用域，跨文件引用全部读成未定义（实测约 1900 条假错误）；`legacy` 才把它们判成共享全局作用域的 script。
+- `npm run lint` 先执行 `tsx scripts/concat_ui_parts.ts` 把同一份拼接写进 `.ui-check/app.js`（已 gitignore），再 lint 那个文件。按 part 逐个 lint 会让 ESLint 看不见兄弟文件的声明，产生上千条 `no-undef` 噪音；lint 拼接结果才等价于浏览器实际执行的程序。
+- ESLint 为 `.ui-check/app.js` 单独声明了这个 UI 真正用到的浏览器全局，并关闭 `no-implicit-globals`（这些文件按设计就跑在全局作用域）。
+- `scripts/copy_static_assets.ts` 会先清掉 `dist-node` 里的旧静态副本，避免构建产物里残留已被删除的 `app.js`。
+
+
 ## 5. 当前数据模型
 
 ### 5.1 配置聚合
