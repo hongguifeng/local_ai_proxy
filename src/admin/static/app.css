@@ -4354,6 +4354,13 @@ label span {
 .lb-verify-results.is-error {
   color: #9c3b34;
 }
+.lb-verify-results.is-warn {
+  color: #8a6d3b;
+}
+.lb-verify-source {
+  margin: 0;
+  color: #6b7280;
+}
 .lb-status > summary {
   font-size: 12px;
   cursor: pointer;

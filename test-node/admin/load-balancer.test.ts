@@ -427,6 +427,7 @@ describe("POST /api/load-balancer/verify-models", () => {
     const body: LoadBalancerVerifyModelsResponse = response.json();
     expect(body.pairId).toBe("pair-a");
     expect(body.groupId).toBe("lb-verify");
+    expect(body.source).toBe("saved");
     expect(body.modelPattern).toBe("Qwen3.8-Flash-Next");
     expect(body.nodes.map((node) => node.targetId)).toEqual([
       "target-matching",
@@ -532,6 +533,145 @@ describe("POST /api/load-balancer/verify-models", () => {
       payload: { groupId: "" },
     });
     expect(response.statusCode).toBe(400);
+    expect(engine.requests()).toBe(0);
+    await close(engine.server);
+  });
+
+  it("LB14-01 verifies a group that was never saved", async () => {
+    const served = await startCountingServer(jsonModelList(["Qwen3.8-Flash-Next", "other-model"]));
+    const absent = await startCountingServer(jsonModelList(["Different-Model"]));
+    const configured = pair(
+      "pair-a",
+      [
+        target("target-a", `http://127.0.0.1:${served.port}/v1`),
+        target("target-b", `http://127.0.0.1:${absent.port}/v1`),
+      ],
+      [],
+    );
+    const server = createAdminServer({
+      getHealth: () => applicationHealth("running"),
+      loadBalancerService: createLoadBalancerAdminService(
+        source([configured], undefined, undefined),
+      ),
+    });
+    servers.push(server);
+
+    const response = await server.inject({
+      method: "POST",
+      url: "/api/load-balancer/verify-models",
+      payload: {
+        groupId: "lb-never-saved",
+        pairId: "pair-a",
+        modelPattern: "Qwen3.8-Flash-Next*",
+        nodeTargetIds: ["target-a", "target-b", "target-gone"],
+      },
+    });
+    expect(response.statusCode).toBe(200);
+    const body: LoadBalancerVerifyModelsResponse = response.json();
+    expect(body.source).toBe("draft");
+    expect(body.groupId).toBe("lb-never-saved");
+    expect(body.modelPattern).toBe("Qwen3.8-Flash-Next*");
+    expect(body.nodes.map((node) => node.targetId)).toEqual([
+      "target-a",
+      "target-b",
+      "target-gone",
+    ]);
+
+    const byId = new Map(body.nodes.map((node) => [node.targetId, node]));
+    expect(byId.get("target-a")?.matched).toEqual(["Qwen3.8-Flash-Next"]);
+    expect(byId.get("target-b")?.ok).toBe(true);
+    expect(byId.get("target-b")?.matched).toEqual([]);
+    expect(byId.get("target-gone")?.error).toBe("target is not configured in this pair");
+
+    // The pair has no group at all, so this check cannot have read one.
+    expect(configured.load_balancers).toEqual([]);
+    expect(served.requests()).toBe(1);
+    expect(absent.requests()).toBe(1);
+
+    await Promise.all([close(served.server), close(absent.server)]);
+  });
+
+  it("LB14-02 a draft pattern is checked instead of the saved group's", async () => {
+    const engine = await startCountingServer(jsonModelList(["Qwen3.8-Flash-Next", "other-model"]));
+    const configured = pair(
+      "pair-a",
+      [target("target-a", `http://127.0.0.1:${engine.port}/v1`)],
+      [group("lb-saved", ["target-a"], { model_pattern: "other*" })],
+    );
+    const server = createAdminServer({
+      getHealth: () => applicationHealth("running"),
+      loadBalancerService: createLoadBalancerAdminService(
+        source([configured], undefined, undefined),
+      ),
+    });
+    servers.push(server);
+
+    const draft = await server.inject({
+      method: "POST",
+      url: "/api/load-balancer/verify-models",
+      payload: {
+        groupId: "lb-saved",
+        pairId: "pair-a",
+        modelPattern: "Qwen3.8-Flash-Next",
+        nodeTargetIds: ["target-a"],
+      },
+    });
+    expect(draft.statusCode).toBe(200);
+    const draftBody: LoadBalancerVerifyModelsResponse = draft.json();
+    expect(draftBody.source).toBe("draft");
+    expect(draftBody.modelPattern).toBe("Qwen3.8-Flash-Next");
+    expect(draftBody.nodes[0]?.matched).toEqual(["Qwen3.8-Flash-Next"]);
+
+    const saved = await server.inject({
+      method: "POST",
+      url: "/api/load-balancer/verify-models",
+      payload: { groupId: "lb-saved", pairId: "pair-a" },
+    });
+    const savedBody: LoadBalancerVerifyModelsResponse = saved.json();
+    expect(savedBody.source).toBe("saved");
+    expect(savedBody.modelPattern).toBe("other*");
+    expect(savedBody.nodes[0]?.matched).toEqual(["other-model"]);
+
+    expect(engine.requests()).toBe(2);
+    await close(engine.server);
+  });
+
+  it("LB14-03 a draft with no member or no pattern is rejected before any upstream call", async () => {
+    const engine = await startCountingServer(jsonModelList(["Qwen3.8-Flash-Next"]));
+    const configured = pair("pair-a", [target("target-a", `http://127.0.0.1:${engine.port}`)], []);
+    const server = createAdminServer({
+      getHealth: () => applicationHealth("running"),
+      loadBalancerService: createLoadBalancerAdminService(
+        source([configured], undefined, undefined),
+      ),
+    });
+    servers.push(server);
+
+    const emptyMembers = await server.inject({
+      method: "POST",
+      url: "/api/load-balancer/verify-models",
+      payload: {
+        groupId: "lb-draft",
+        pairId: "pair-a",
+        modelPattern: "Qwen3.8-Flash-Next",
+        nodeTargetIds: [],
+      },
+    });
+    expect(emptyMembers.statusCode).toBe(400);
+    expect(emptyMembers.json()).toMatchObject({ error: { code: "FST_ERR_VALIDATION" } });
+
+    const tooManyMembers = await server.inject({
+      method: "POST",
+      url: "/api/load-balancer/verify-models",
+      payload: {
+        groupId: "lb-draft",
+        pairId: "pair-a",
+        modelPattern: "Qwen3.8-Flash-Next",
+        nodeTargetIds: Array.from({ length: 65 }, (_unused, index) => `target-${index}`),
+      },
+    });
+    expect(tooManyMembers.statusCode).toBe(400);
+
     expect(engine.requests()).toBe(0);
     await close(engine.server);
   });

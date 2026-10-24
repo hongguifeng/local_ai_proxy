@@ -23,6 +23,7 @@ import type { ModelPriceImportRequest, ModelPriceImportResult } from "../pricing
 import type { UsageStatisticsService } from "../maintenance/usage-statistics-service.js";
 import type {
   LoadBalancerStatusResponse,
+  LoadBalancerVerifyModelsRequest,
   LoadBalancerVerifyModelsResponse,
 } from "../proxy/index.js";
 import { StructuredLogger } from "../shared/index.js";
@@ -133,8 +134,7 @@ export interface TargetMetricsAdminService {
 export interface LoadBalancerAdminService {
   getStatus(): LoadBalancerStatusResponse;
   verifyModels(
-    pairId: string,
-    groupId: string,
+    request: LoadBalancerVerifyModelsRequest,
   ): Promise<LoadBalancerVerifyModelsResponse | undefined>;
 }
 
@@ -436,13 +436,21 @@ export const LOAD_BALANCER_VERIFY_MODELS_REQUEST_SCHEMA = {
   properties: {
     pairId: { type: "string", minLength: 1, maxLength: 512 },
     groupId: { type: "string", minLength: 1, maxLength: 512 },
+    /** With `nodeTargetIds` this unsaved draft is checked instead of the stored group. */
+    modelPattern: { type: "string", minLength: 1, maxLength: 512 },
+    nodeTargetIds: {
+      type: "array",
+      minItems: 1,
+      maxItems: 64,
+      items: { type: "string", minLength: 1, maxLength: 512 },
+    },
   },
 } as const;
 
 export const LOAD_BALANCER_VERIFY_MODELS_RESPONSE_SCHEMA = {
   type: "object",
   additionalProperties: false,
-  required: ["groupId", "modelPattern", "nodes", "pairId"],
+  required: ["groupId", "modelPattern", "nodes", "pairId", "source"],
   properties: {
     groupId: { type: "string", maxLength: 512 },
     modelPattern: { type: "string", maxLength: 512 },
@@ -465,6 +473,7 @@ export const LOAD_BALANCER_VERIFY_MODELS_RESPONSE_SCHEMA = {
       },
     },
     pairId: { type: "string", maxLength: 512 },
+    source: { type: "string", enum: ["draft", "saved"] },
   },
 } as const;
 
@@ -862,10 +871,7 @@ export function createAdminServer(options: AdminServerOptions): FastifyInstance 
         },
       },
       async (request, reply) => {
-        const result = await loadBalancerService.verifyModels(
-          request.body.pairId,
-          request.body.groupId,
-        );
+        const result = await loadBalancerService.verifyModels(request.body);
         if (result === undefined) {
           return reply
             .code(404)

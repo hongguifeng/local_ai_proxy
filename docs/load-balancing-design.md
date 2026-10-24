@@ -194,6 +194,11 @@ POST /api/load-balancer/verify-models
 
 服务端对组内节点读取模型列表，比较请求模型或组级预期模型是否存在，并返回每个节点的模型列表和匹配结果。网络失败只显示为校验失败，不改变保存结果。
 
+组还没保存也能校验：请求可以同时带 `modelPattern` 和 `nodeTargetIds`，服务端按已保存的
+转发节点解析这些 id。URL 和 API key 只从服务端配置读取，请求里带不过来，所以草稿
+无法让服务端去访问一个任意上游。响应里的 `source` 说明这次校验的是草稿还是已保存的组。
+这个顺序是有意为之：用户先确认节点真的有这个模型，再保存配置。
+
 这是一个预检工具，不代替运行时的模型直通规则。组命中后仍然使用请求模型名；如果用户忽略失败校验，真实请求会按普通上游错误处理。
 
 ## 6. 运行时架构
@@ -636,7 +641,7 @@ GET /api/load-balancer/status
 - 每个节点的 `bindings` 直接取亲和快照的 byTarget。
 - 从没采过的节点 `metrics` 是 null、`stale` 是 true。过期的样本选择时一律不用。
 - 响应里没有 API key、没有请求内容、没有会话 ID，LB09-04 直接断言了这三点。
-- `POST /api/load-balancer/verify-models` 收 `{pairId, groupId}`：先试 base path 下的 `/models`，404 再退回根路径；默认 8 秒超时（可注入）；完全没回答的节点 `status` 是 null；组里一个 target 已经不在本 pair 里就明确报错，不静默跳过；pair 或 group 不存在返 404，错误码 `load_balancer_group_not_found`。
+- `POST /api/load-balancer/verify-models` 收 `{pairId, groupId}`，也可以同时带 `{modelPattern, nodeTargetIds}` 直接校验一个还没保存的组草稿：成员 id 仍按已保存的 pair 解析，响应里 `source` 是 `draft` 还是 `saved` 就把这两种模式分开；`nodeTargetIds` 限 1 到 64 个。先试 base path 下的 `/models`，404 再退回根路径；默认 8 秒超时（可注入）；完全没回答的节点 `status` 是 null；一个 target 已经不在本 pair 里就明确报错，不静默跳过；pair 不存在或没草稿又查不到组时返 404，错误码 `load_balancer_group_not_found`。
 - 记录里的 `decision` 只有四个值。组禁用或模型没匹配时，`model_route` 里既没有 `load_balance` 也没有 `route_mode`，更不会编出一个 `fallback_disabled`。
 
 ## 12. 管理 UI
@@ -686,7 +691,7 @@ UI 修改必须：
 - 节点状态行跟着勾选的成员走，由 `refreshLbCards()` 重建；`data-lb-rendered` 记住上一次渲染的集合，集合没变就不重建。轮询会在下一拍把数字填回来。
 - 警告和匹配预览从 DOM 现值算出一个 shadow pair，因为 `state.pairs` 只有在保存时才吸收 DOM 值。target 的启用状态按 `data-target-index` 从复选框读取，不能依赖 `state`。
 - `<details>` 的展开状态写进 `localStorage["llmProxyLbGroupOpen"]`，靠 `#proxyGrid` 上的捕获阶段 `toggle` 监听器；该事件不冒泡，只能捕获。写入落在点击之后的一个任务里，UI 测试用 `expect.poll` 等它。
-- 「校验节点模型」读的是已保存配置，所以没保存的组会得到 404 `load_balancer_group_not_found`，卡片里显示 “Load balancing group not found.”。这是预期行为，不是 bug。
+- 「校验节点模型」把卡片当前的 `model_pattern` 和勾选的成员一起发给服务端，所以还没保存的组也能校验；结果的标题行会说明校的是草稿还是已保存的配置。没填模型匹配或一个节点都没勾选时，界面自己拦住并给一句提示，不发请求。（LB-14 之前它只发 `{pairId, groupId}`，未保存的组会得 404 “Load balancing group not found.”，那个顺序是错的。）
 - 删除 target 时前端立刻把它从本 pair 的组成员里清掉；已保存的配置在下次保存前仍然可能引用被删的节点，所以后端校验才是权威，UI 测试同时覆盖了这两边。
 - 配置被拒时 400 带 `error.issues`，`configIssueText()` 最多显示三条 `path: message`，用户能看到具体是哪个字段。
 - 中英文代理页基线已重录并更新完整 SHA-256；其余六张基线在全量测试里保持原样通过。

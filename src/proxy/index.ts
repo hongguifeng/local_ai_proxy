@@ -100,6 +100,7 @@ export {
 } from "./load-monitor.js";
 export {
   MAX_VERIFY_MODELS_BYTES,
+  MAX_VERIFY_NODES,
   VERIFY_MODELS_TIMEOUT_MS,
   createLoadBalancerAdminService,
   type LoadBalancerAdminOptions,
@@ -110,6 +111,7 @@ export {
   type LoadBalancerStatusNode,
   type LoadBalancerStatusPair,
   type LoadBalancerStatusResponse,
+  type LoadBalancerVerifyModelsRequest,
   type LoadBalancerVerifyModelsResponse,
 } from "./load-balancer-admin.js";
 export {

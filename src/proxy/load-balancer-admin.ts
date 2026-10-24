@@ -7,13 +7,17 @@ import { modelPatternMatches } from "./routing.js";
 import { parseTargetUrl } from "./target.js";
 
 /**
- * Read-only view of load balancing for the admin UI, plus a model check that asks each
- * node in a group what models it actually serves. The status half never touches the
- * database or the network: everything it returns is already in memory.
+ * Read-only view of load balancing for the admin UI, plus a model check that asks the
+ * nodes of a group what models they actually serve. A group that has not been saved yet
+ * can still be checked, because its members are already saved targets.
+ * The status half never touches the database or the network: everything it returns is
+ * already in memory.
  */
 
 export const VERIFY_MODELS_TIMEOUT_MS = 8_000;
 export const MAX_VERIFY_MODELS_BYTES = 262_144;
+/** How many nodes one check will walk, so a draft cannot make the server fan out too far. */
+export const MAX_VERIFY_NODES = 64;
 
 export interface LoadBalancerAdminSource {
   pairs(): readonly PublicProxyPair[];
@@ -84,9 +88,25 @@ export interface LoadBalancerNodeModelCheck {
 
 export interface LoadBalancerVerifyModelsResponse {
   readonly groupId: string;
+  /** Which pattern actually got checked: the one sent with the request, or the saved group's. */
   readonly modelPattern: string;
   readonly nodes: readonly LoadBalancerNodeModelCheck[];
   readonly pairId: string;
+  /** `draft` when the request carried the pattern and member list, `saved` when a stored group was looked up. */
+  readonly source: "draft" | "saved";
+}
+
+/**
+ * One model check. A group that has not been saved yet can still be verified:
+ * send `modelPattern` plus `nodeTargetIds`, and the service resolves those ids
+ * against the saved targets of the pair. URLs and API keys are never taken from
+ * the request, so a draft cannot make the server call an arbitrary upstream.
+ */
+export interface LoadBalancerVerifyModelsRequest {
+  readonly pairId: string;
+  readonly groupId?: string | undefined;
+  readonly modelPattern?: string | undefined;
+  readonly nodeTargetIds?: readonly string[] | undefined;
 }
 
 /** The model ids an engine reports through `GET /models`. */
@@ -283,8 +303,7 @@ export interface LoadBalancerAdminOptions {
 export interface LoadBalancerAdminService {
   getStatus(): LoadBalancerStatusResponse;
   verifyModels(
-    pairId: string,
-    groupId: string,
+    request: LoadBalancerVerifyModelsRequest,
   ): Promise<LoadBalancerVerifyModelsResponse | undefined>;
 }
 
@@ -314,16 +333,29 @@ export function createLoadBalancerAdminService(
     },
 
     async verifyModels(
-      pairId: string,
-      groupId: string,
+      request: LoadBalancerVerifyModelsRequest,
     ): Promise<LoadBalancerVerifyModelsResponse | undefined> {
-      const pair = source.pairs().find((candidate) => candidate.id === pairId);
-      const group = pair?.load_balancers.find((candidate) => candidate.id === groupId);
-      if (pair === undefined || group === undefined) {
+      const pair = source.pairs().find((candidate) => candidate.id === request.pairId);
+      if (pair === undefined) {
         return undefined;
       }
+      const draftPattern =
+        typeof request.modelPattern === "string" ? request.modelPattern.trim() : "";
+      const draftNodes = (request.nodeTargetIds ?? [])
+        .filter((targetId) => targetId.trim() !== "")
+        .slice(0, MAX_VERIFY_NODES);
+      const useDraft = draftPattern !== "" && draftNodes.length > 0;
+      const saved = useDraft
+        ? undefined
+        : pair.load_balancers.find((candidate) => candidate.id === request.groupId);
+      if (saved === undefined && !useDraft) {
+        return undefined;
+      }
+      const groupId = request.groupId ?? saved?.id ?? "";
+      const modelPattern = useDraft ? draftPattern : (saved?.model_pattern ?? "");
+      const targetIds = useDraft ? draftNodes : (saved?.node_target_ids ?? []);
       const nodes = await Promise.all(
-        group.node_target_ids.map(async (targetId) => {
+        targetIds.map(async (targetId) => {
           const configured = pair.targets.find((target) => target.id === targetId);
           if (configured === undefined) {
             return {
@@ -344,9 +376,7 @@ export function createLoadBalancerAdminService(
           return {
             durationMs: fetched.durationMs,
             error: fetched.error,
-            matched: fetched.models.filter((model) =>
-              modelPatternMatches(group.model_pattern, model),
-            ),
+            matched: fetched.models.filter((model) => modelPatternMatches(modelPattern, model)),
             models: fetched.models,
             ok: fetched.ok,
             status: fetched.status ?? null,
@@ -354,7 +384,13 @@ export function createLoadBalancerAdminService(
           };
         }),
       );
-      return { groupId, modelPattern: group.model_pattern, nodes, pairId };
+      return {
+        groupId,
+        modelPattern,
+        nodes,
+        pairId: pair.id,
+        source: useDraft ? "draft" : "saved",
+      };
     },
   };
 }

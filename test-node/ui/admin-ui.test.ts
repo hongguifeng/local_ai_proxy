@@ -22,6 +22,7 @@ import type { ProxyPair, PublicProxyPair } from "../../src/config/index.js";
 import { ConfigValidationError } from "../../src/config/index.js";
 import type {
   LoadBalancerNodeModelCheck,
+  LoadBalancerVerifyModelsRequest,
   LoadBalancerVerifyModelsResponse,
 } from "../../src/proxy/index.js";
 import type { LogListItem, LogPendingRecord } from "../../src/maintenance/index.js";
@@ -74,7 +75,12 @@ let lbStatusRound = 0;
 let lbVerifyOutcome: "matched" | "unmatched" | "unreachable" = "matched";
 let pairsSaveIssues: readonly { code: string; message: string; path: string }[] | null = null;
 const lbStatusReads: number[] = [];
-const lbVerifyReads: { pairId: string; groupId: string }[] = [];
+const lbVerifyReads: {
+  pairId: string;
+  groupId?: string | undefined;
+  modelPattern?: string | undefined;
+  nodeTargetIds?: readonly string[] | undefined;
+}[] = [];
 
 function loadBalancerStatusFixture() {
   return {
@@ -119,14 +125,19 @@ function loadBalancerStatusFixture() {
 }
 
 function loadBalancerVerifyFixture(
-  pairId: string,
-  groupId: string,
+  request: LoadBalancerVerifyModelsRequest,
 ): LoadBalancerVerifyModelsResponse | undefined {
-  const pair = pairs.find((item) => item.id === pairId);
-  const group = (pair?.load_balancers ?? []).find((item) => item.id === groupId);
-  if (group === undefined) return undefined;
-  const pattern = group.model_pattern;
-  const nodes = group.node_target_ids.map((targetId): LoadBalancerNodeModelCheck => {
+  const draftPattern = typeof request.modelPattern === "string" ? request.modelPattern : "";
+  const draftNodes = request.nodeTargetIds ?? [];
+  const isDraft = draftPattern !== "" && draftNodes.length > 0;
+  const pair = pairs.find((item) => item.id === request.pairId);
+  const group = isDraft
+    ? undefined
+    : (pair?.load_balancers ?? []).find((item) => item.id === request.groupId);
+  if (!isDraft && group === undefined) return undefined;
+  const pattern = isDraft ? draftPattern : (group?.model_pattern ?? "");
+  const nodeIds = isDraft ? draftNodes : (group?.node_target_ids ?? []);
+  const nodes = nodeIds.map((targetId): LoadBalancerNodeModelCheck => {
     if (lbVerifyOutcome === "unreachable") {
       return {
         targetId,
@@ -159,7 +170,13 @@ function loadBalancerVerifyFixture(
       durationMs: 9,
     };
   });
-  return { groupId, modelPattern: pattern, pairId, nodes };
+  return {
+    groupId: request.groupId ?? "",
+    modelPattern: pattern,
+    pairId: request.pairId,
+    nodes,
+    source: isDraft ? "draft" : "saved",
+  };
 }
 
 const TARGET_METRICS_FIXTURE_TEXT = [
@@ -536,9 +553,14 @@ beforeAll(async () => {
         lbStatusReads.push(lbStatusReads.length);
         return loadBalancerStatusFixture();
       },
-      verifyModels: (pairId, groupId) => {
-        lbVerifyReads.push({ pairId, groupId });
-        return Promise.resolve(loadBalancerVerifyFixture(pairId, groupId));
+      verifyModels: (request) => {
+        lbVerifyReads.push({
+          groupId: request.groupId,
+          modelPattern: request.modelPattern,
+          nodeTargetIds: request.nodeTargetIds,
+          pairId: request.pairId,
+        });
+        return Promise.resolve(loadBalancerVerifyFixture(request));
       },
     },
     pairService: {
@@ -3292,20 +3314,25 @@ describe("admin UI load balancing groups", { timeout: UI_TEST_TIMEOUT_MS }, () =
     await group.locator("[data-lb-field='model_pattern']").fill("Qwen3.8-Flash-Next");
     await group.locator("[data-lb-node]").nth(0).check();
     await group.locator("[data-verify-lb-models]").click();
-    // The check reads the saved configuration, so an unsaved group is refused.
+    // A group that was never saved is still checked: the card's own draft is sent.
     await expectPage(card.locator("[data-lb-verify]")).not.toBeHidden();
-    await expectPage(card.locator("[data-lb-verify]")).toContainText(
-      "Load balancing group not found",
-    );
+    await expectPage(card.locator(".lb-verify-source")).toContainText("what you typed here");
+    await expectPage(card.locator(".lb-verify-line")).toHaveCount(1);
+    await expectPage(card.locator(".lb-verify-line")).toContainText("1 models match");
     await page.locator("#saveProxies").click();
     await expectPage(page.locator("#toast")).toContainText("Config saved");
     await group.locator("[data-verify-lb-models]").click();
     await expectPage(card.locator(".lb-verify-line")).toHaveCount(1);
     await expectPage(card.locator(".lb-verify-line")).toContainText("1 models match");
     await expectPage(card.locator(".lb-verify-line")).toContainText("Qwen3.8-Flash-Next");
-    // Both clicks reached the server: the first one named an unsaved group.
+    // Both clicks reached the server, and both carried the card's draft.
     expect(lbVerifyReads).toHaveLength(2);
-    expect(lbVerifyReads[0]).toEqual({ pairId: "proxy-one", groupId: savedGroup().id });
+    expect(lbVerifyReads[0]).toMatchObject({
+      pairId: "proxy-one",
+      modelPattern: "Qwen3.8-Flash-Next",
+      nodeTargetIds: [savedGroup().node_target_ids[0]],
+    });
+    expect(typeof lbVerifyReads[0]?.groupId).toBe("string");
 
     lbVerifyOutcome = "unmatched";
     await group.locator("[data-verify-lb-models]").click();
@@ -3318,6 +3345,27 @@ describe("admin UI load balancing groups", { timeout: UI_TEST_TIMEOUT_MS }, () =
     await expectPage(card.locator(".lb-verify-line")).toContainText("timeout after 8000 ms");
 
     lbVerifyOutcome = "matched";
+  });
+
+  it("asks for a pattern or a member instead of calling the server", async () => {
+    const card = await openPairWithGroup();
+    const group = card.locator(".lb-card");
+
+    await group.locator("[data-verify-lb-models]").click();
+    await expectPage(card.locator("[data-lb-verify]")).not.toBeHidden();
+    await expectPage(card.locator("[data-lb-verify]")).toContainText("fill in the model pattern");
+    expect(lbVerifyReads).toHaveLength(0);
+
+    await group.locator("[data-lb-field='model_pattern']").fill("Qwen3.8-Flash-Next");
+    await group.locator("[data-verify-lb-models]").click();
+    await expectPage(card.locator("[data-lb-verify]")).toContainText("check at least one node");
+    expect(lbVerifyReads).toHaveLength(0);
+
+    await group.locator("[data-lb-node]").nth(0).check();
+    await group.locator("[data-verify-lb-models]").click();
+    await expectPage(card.locator(".lb-verify-line")).toHaveCount(1);
+    expect(lbVerifyReads).toHaveLength(1);
+    expect(lbVerifyReads[0]?.nodeTargetIds).toHaveLength(1);
   });
 
   it("translates every group control and stays readable in a narrow layout", async () => {

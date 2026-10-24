@@ -243,6 +243,10 @@ const translations = {
     lbVerifyMatched: "个模型匹配",
     lbVerifyUnreachable: "不可达",
     lbVerifyNoMatch: "没有模型匹配这个 pattern",
+    lbVerifyNoMembers: "先勾选至少一个参与节点",
+    lbVerifyNoPattern: "先填模型匹配",
+    lbVerifySourceDraft: "校验的是你现在填的内容（还没保存）",
+    lbVerifySourceSaved: "校验的是已保存的配置",
     lbNodeMissingMember: "组里引用了本 pair 没有的节点",
     lbNodeState: "节点状态",
     lbStateInFlight: "进行中",
@@ -709,6 +713,10 @@ const translations = {
     lbVerifyMatched: "models match",
     lbVerifyUnreachable: "unreachable",
     lbVerifyNoMatch: "no model matches this pattern",
+    lbVerifyNoMembers: "check at least one node first",
+    lbVerifyNoPattern: "fill in the model pattern first",
+    lbVerifySourceDraft: "checked against what you typed here, not yet saved",
+    lbVerifySourceSaved: "checked against the saved configuration",
     lbNodeMissingMember: "The group names a node this pair does not have",
     lbNodeState: "Node state",
     lbStateInFlight: "In flight",
@@ -1486,14 +1494,33 @@ function forgetLbGroupOpen(pair, group) {
 async function runLoadBalancerModelCheck(pair, group, resultsBox, button) {
   resultsBox.hidden = true;
   resultsBox.textContent = "";
+  resultsBox.classList.remove("is-error");
+  resultsBox.classList.remove("is-warn");
+  const pattern = (group.model_pattern || "").trim();
+  const memberIds = (group.node_target_ids || []).filter(Boolean);
+  if (pattern === "" || memberIds.length === 0) {
+    resultsBox.hidden = false;
+    resultsBox.classList.add("is-warn");
+    resultsBox.textContent = t(pattern === "" ? "lbVerifyNoPattern" : "lbVerifyNoMembers");
+    return;
+  }
   button.disabled = true;
   try {
     const data = await api("/api/load-balancer/verify-models", {
       method: "POST",
-      body: JSON.stringify({ pairId: pair.id, groupId: group.id }),
+      body: JSON.stringify({
+        pairId: pair.id,
+        groupId: group.id,
+        modelPattern: pattern,
+        nodeTargetIds: memberIds,
+      }),
     });
     resultsBox.hidden = false;
     resultsBox.textContent = "";
+    const source = document.createElement("p");
+    source.className = "lb-verify-source";
+    source.textContent = t(data.source === "draft" ? "lbVerifySourceDraft" : "lbVerifySourceSaved");
+    resultsBox.appendChild(source);
     (data.nodes || []).forEach((node) => {
       const line = document.createElement("p");
       line.className = "lb-verify-line";
