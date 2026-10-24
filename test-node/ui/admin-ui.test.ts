@@ -64,6 +64,15 @@ let targetCheckOutcome: {
 
 const targetMetricsCalls: { targetUrl: string; apiKey?: string }[] = [];
 
+const targetModelsCalls: { targetUrl: string; apiKey?: string }[] = [];
+let targetModelsOutcome: {
+  ok: boolean;
+  models: string[];
+  durationMs: number;
+  truncated?: boolean;
+  error?: string;
+} = { ok: true, models: ["deepseek-chat", "deepseek-reasoner"], durationMs: 6 };
+
 // The load balancer status payload is built per read, because it has to reflect
 // whatever the page has just saved.
 let lbStatusRound = 0;
@@ -470,6 +479,12 @@ beforeAll(async () => {
       fetchTargetMetrics: (request) => {
         targetMetricsCalls.push({ ...request });
         return Promise.resolve({ ...targetMetricsOutcome });
+      },
+    },
+    targetModelsService: {
+      fetchTargetModels: (request) => {
+        targetModelsCalls.push({ ...request });
+        return Promise.resolve({ ...targetModelsOutcome });
       },
     },
     modelCatalogService: {
@@ -937,6 +952,8 @@ beforeEach(async () => {
   targetCheckCalls.length = 0;
   targetCheckOutcome = { ok: true, status: 200, durationMs: 5 };
   targetMetricsCalls.length = 0;
+  targetModelsCalls.length = 0;
+  targetModelsOutcome = { ok: true, models: ["deepseek-chat", "deepseek-reasoner"], durationMs: 6 };
   targetMetricsOutcome = {
     ok: true,
     status: 200,
@@ -1365,13 +1382,19 @@ describe("admin UI proxy page", { timeout: UI_TEST_TIMEOUT_MS }, () => {
 
     const dialog = page.locator("#targetCheckDialog");
     await expectPage(dialog.locator("#targetCheckApiType")).toHaveValue("chat");
-    await expectPage(dialog.locator("#targetCheckModel")).toHaveAttribute(
-      "list",
-      "targetCheckModelOptions",
+    await expectPage(dialog.locator("#targetCheckModelPop")).toBeHidden();
+    await dialog.locator("#targetCheckModelCaret").click();
+    await expectPage(dialog.locator("#targetCheckModelPop")).toBeVisible();
+    await expectPage(dialog.locator("#targetCheckModelCaret")).toHaveAttribute(
+      "aria-expanded",
+      "true",
     );
-    await expectPage(page.locator("#targetCheckModelOptions option")).toHaveCount(7);
+    await expectPage(dialog.locator(".target-check-model-option")).toHaveCount(7);
+    await dialog.locator("#targetCheckModelCaret").click();
+    await expectPage(dialog.locator("#targetCheckModelPop")).toBeHidden();
     await dialog.locator("#targetCheckApiType").selectOption("anthropic");
     await dialog.locator("#targetCheckModel").fill("claude-opus-4-6");
+    await dialog.locator("#targetCheckModel").press("Escape");
     await dialog.locator("#targetCheckStart").click();
 
     await expectPage(dialog.locator("#targetCheckResult")).toHaveText(/HTTP 200/);
@@ -1419,6 +1442,169 @@ describe("admin UI proxy page", { timeout: UI_TEST_TIMEOUT_MS }, () => {
     const result = dialog.locator("#targetCheckResult");
     await expectPage(result).toHaveClass(/failure/);
     await expectPage(result).toHaveText(/ECONNREFUSED/);
+  });
+
+  it("pulls the served model list into the model dropdown and preselects the first id", async () => {
+    targetModelsOutcome = { ok: true, models: ["gpt-5.6-sol", "gpt-5.6-luna"], durationMs: 6 };
+    await loadAdminPage();
+    const target = page.locator('.proxy-card[data-index="0"] .target-card').first();
+    await target.locator("[data-check-target]").click();
+
+    const dialog = page.locator("#targetCheckDialog");
+    const caret = dialog.locator("#targetCheckModelCaret");
+    const pop = dialog.locator("#targetCheckModelPop");
+    // Before any pull the dropdown only offers the hand-written suggestions.
+    await caret.click();
+    await expectPage(pop).toBeVisible();
+    await expectPage(dialog.locator(".target-check-model-option")).toHaveCount(7);
+    await caret.click();
+    await expectPage(pop).toBeHidden();
+
+    await dialog.locator("#targetCheckModels").click();
+
+    const notice = dialog.locator("#targetCheckModelsNotice");
+    await expectPage(notice).toBeVisible();
+    await expectPage(notice).toHaveClass(/success/);
+    await expectPage(notice).toContainText("Fetched 2 model(s)");
+    await expectPage(notice).toContainText("6 ms");
+    await expectPage(dialog.locator("#targetCheckModels")).toBeEnabled();
+    await expectPage(dialog.locator("#targetCheckModel")).toHaveValue("gpt-5.6-sol");
+
+    // The whole pulled list is browsable, not just the prefix that was typed.
+    await caret.click();
+    await expectPage(pop).toBeVisible();
+    const values = await dialog
+      .locator(".target-check-model-option")
+      .evaluateAll((rows) => rows.map((row) => row.getAttribute("data-model-option")));
+    expect(values).toEqual(["gpt-5.6-sol", "gpt-5.6-luna"]);
+    expect(targetModelsCalls).toEqual([
+      { targetUrl: "https://example.test/v1", apiKey: "secret-key" },
+    ]);
+  });
+
+  it("keeps a model the address really serves when the list is pulled", async () => {
+    targetModelsOutcome = { ok: true, models: ["gpt-5.6-sol", "gpt-5.6-luna"], durationMs: 4 };
+    await loadAdminPage();
+    const target = page.locator('.proxy-card[data-index="0"] .target-card').first();
+    await target.locator("[data-check-target]").click();
+
+    const dialog = page.locator("#targetCheckDialog");
+    await dialog.locator("#targetCheckModel").fill("gpt-5.6-luna");
+    await dialog.locator("#targetCheckModel").press("Escape");
+    await dialog.locator("#targetCheckModels").click();
+
+    await expectPage(dialog.locator("#targetCheckModelsNotice")).toHaveClass(/success/);
+    await expectPage(dialog.locator("#targetCheckModel")).toHaveValue("gpt-5.6-luna");
+    await dialog.locator("#targetCheckModelCaret").click();
+    const row = dialog.locator('[data-model-option="gpt-5.6-luna"]');
+    await expectPage(row).toHaveClass(/is-current/u);
+    await expectPage(row).toHaveAttribute("aria-selected", "true");
+  });
+
+  it("says when the pulled model list had to be cut short", async () => {
+    targetModelsOutcome = {
+      ok: true,
+      models: ["a-model", "b-model"],
+      durationMs: 7,
+      truncated: true,
+    };
+    await loadAdminPage();
+    const target = page.locator('.proxy-card[data-index="0"] .target-card').first();
+    await target.locator("[data-check-target]").click();
+
+    const dialog = page.locator("#targetCheckDialog");
+    await dialog.locator("#targetCheckModels").click();
+
+    await expectPage(dialog.locator("#targetCheckModelsNotice")).toHaveText(
+      /\(some models are not listed\)/u,
+    );
+  });
+
+  it("restores the default suggestions and toasts the error when the pull fails", async () => {
+    await loadAdminPage();
+    const target = page.locator('.proxy-card[data-index="0"] .target-card').first();
+    await target.locator("[data-check-target]").click();
+
+    const dialog = page.locator("#targetCheckDialog");
+    const caret = dialog.locator("#targetCheckModelCaret");
+    const pop = dialog.locator("#targetCheckModelPop");
+    await dialog.locator("#targetCheckModels").click();
+    await caret.click();
+    await expectPage(pop).toBeVisible();
+    await expectPage(dialog.locator(".target-check-model-option")).toHaveCount(2);
+    await caret.click();
+
+    targetModelsOutcome = {
+      ok: false,
+      models: [],
+      durationMs: 8,
+      error: "The upstream answered 401 for /v1/models.",
+    };
+    await dialog.locator("#targetCheckModel").fill("gpt-5.5");
+    await dialog.locator("#targetCheckModel").press("Escape");
+    await dialog.locator("#targetCheckModels").click();
+
+    const notice = dialog.locator("#targetCheckModelsNotice");
+    await expectPage(notice).toHaveClass(/failure/);
+    await expectPage(notice).toHaveText(/401/u);
+    await caret.click();
+    await expectPage(pop).toBeVisible();
+    await expectPage(dialog.locator(".target-check-model-option")).toHaveCount(7);
+    await expectPage(dialog.locator("#targetCheckModel")).toHaveValue("gpt-5.5");
+    await expectPage(page.locator("#toast")).toContainText(/401/u);
+    expect(targetModelsCalls).toEqual([
+      { targetUrl: "https://example.test/v1", apiKey: "secret-key" },
+      { targetUrl: "https://example.test/v1", apiKey: "secret-key" },
+    ]);
+  });
+
+  it("filters the model list while typing and fills the id picked from it", async () => {
+    targetModelsOutcome = {
+      ok: true,
+      models: ["gpt-5.6-sol", "gpt-5.6-luna", "deepseek-chat"],
+      durationMs: 6,
+    };
+    await loadAdminPage();
+    const target = page.locator('.proxy-card[data-index="0"] .target-card').first();
+    await target.locator("[data-check-target]").click();
+
+    const dialog = page.locator("#targetCheckDialog");
+    const caret = dialog.locator("#targetCheckModelCaret");
+    const pop = dialog.locator("#targetCheckModelPop");
+    await dialog.locator("#targetCheckModels").click();
+    await caret.click();
+    await expectPage(pop).toBeVisible();
+    await expectPage(dialog.locator(".target-check-model-option")).toHaveCount(3);
+
+    await dialog.locator("#targetCheckModel").fill("gpt");
+    await expectPage(pop).toBeVisible();
+    await expectPage(dialog.locator(".target-check-model-option")).toHaveCount(2);
+
+    await dialog.locator('[data-model-option="gpt-5.6-luna"]').click();
+    await expectPage(dialog.locator("#targetCheckModel")).toHaveValue("gpt-5.6-luna");
+    await expectPage(pop).toBeHidden();
+    await expectPage(caret).toHaveAttribute("aria-expanded", "false");
+
+    // A value the address does not serve says so instead of showing an empty box.
+    await dialog.locator("#targetCheckModel").fill("zzz");
+    await expectPage(pop).toBeVisible();
+    await expectPage(dialog.locator(".target-check-model-option")).toHaveCount(0);
+    await expectPage(dialog.locator(".target-check-model-empty")).toContainText("zzz");
+
+    // Escape closes the list and still leaves the dialog open for the test run.
+    await dialog.locator("#targetCheckModel").press("Escape");
+    await expectPage(pop).toBeHidden();
+    await expectPage(dialog).toBeVisible();
+
+    // The keyboard picks the highlighted row without submitting the form.
+    await dialog.locator("#targetCheckModel").fill("");
+    await dialog.locator("#targetCheckModel").press("ArrowDown");
+    await expectPage(pop).toBeVisible();
+    await dialog.locator("#targetCheckModel").press("ArrowUp");
+    await dialog.locator("#targetCheckModel").press("Enter");
+    await expectPage(dialog.locator("#targetCheckModel")).toHaveValue("gpt-5.6-sol");
+    await expectPage(pop).toBeHidden();
+    expect(targetCheckCalls).toEqual([]);
   });
 
   it("renders the vLLM dashboard with derived stats by default", async () => {

@@ -17,6 +17,7 @@ import {
   checkTarget,
   createLoadBalancerAdminService,
   fetchTargetMetrics,
+  fetchTargetModels,
 } from "../proxy/index.js";
 import { importModelPrices } from "../pricing/index.js";
 import { joinTargetPath } from "../proxy/target.js";
@@ -104,6 +105,7 @@ export function createNodeApplication(options: NodeApplicationOptions): NodeAppl
           })(),
           targetCheckService: { checkTarget },
           targetMetricsService: { fetchTargetMetrics },
+          targetModelsService: { fetchTargetModels },
           loadBalancerService: createLoadBalancerAdminService({
             loadBalancer: (pairId) => currentManager.registry.loadBalancer(pairId),
             loadMonitor: (pairId) => currentManager.registry.loadMonitor(pairId),

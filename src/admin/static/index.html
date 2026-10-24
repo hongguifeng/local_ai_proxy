@@ -255,25 +255,39 @@
           <span data-i18n="targetApiKey">API Key</span>
           <input id="targetCheckApiKey" type="password" placeholder="sk-..." autocomplete="off" />
         </label>
-        <label>
-          <span data-i18n="checkModel">模型 ID</span>
-          <input
-            id="targetCheckModel"
-            list="targetCheckModelOptions"
-            placeholder="gpt-4o-mini"
-            autocomplete="off"
-            required
-          />
-          <datalist id="targetCheckModelOptions">
-            <option value="gpt-4o-mini"></option>
-            <option value="gpt-5.6-sol"></option>
-            <option value="gpt-5.6-luna"></option>
-            <option value="claude-haiku-4-5"></option>
-            <option value="qwen3.8-27b"></option>
-            <option value="qwen-plus"></option>
-            <option value="deepseek-chat"></option>
-          </datalist>
-        </label>
+        <div class="target-check-model-row">
+          <label class="target-check-model-field">
+            <span data-i18n="checkModel">模型 ID</span>
+            <div class="target-check-model-picker" data-model-picker>
+              <input
+                id="targetCheckModel"
+                placeholder="gpt-4o-mini"
+                autocomplete="off"
+                required
+                aria-controls="targetCheckModelPop"
+                aria-autocomplete="list"
+              />
+              <button
+                type="button"
+                id="targetCheckModelCaret"
+                class="target-check-model-caret"
+                aria-expanded="false"
+                aria-haspopup="listbox"
+                aria-controls="targetCheckModelPop"
+                data-i18n-title="toggleModelList"
+              ></button>
+              <div
+                id="targetCheckModelPop"
+                class="target-check-model-pop"
+                role="listbox"
+                data-model-pop
+                hidden
+              ></div>
+            </div>
+          </label>
+          <button type="button" id="targetCheckModels" data-i18n="fetchModels">拉取模型列表</button>
+        </div>
+        <div id="targetCheckModelsNotice" class="target-check-models-notice" hidden></div>
         <div id="targetCheckResult" class="target-check-result" hidden></div>
         <div class="target-check-actions">
           <button type="button" id="targetCheckClose" data-i18n="close">关闭</button>

@@ -220,6 +220,14 @@ export {
   type TargetMetricsResponse,
 } from "./target-metrics.js";
 export {
+  DEFAULT_TARGET_MODELS_TIMEOUT_MS,
+  fetchTargetModels,
+  MAX_TARGET_MODEL_IDS,
+  MAX_TARGET_MODEL_ID_CHARS,
+  type TargetModelsRequest,
+  type TargetModelsResponse,
+} from "./target-models.js";
+export {
   openUpstreamResponse,
   type OpenUpstreamResponseOptions,
   type UpstreamTarget,

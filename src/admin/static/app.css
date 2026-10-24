@@ -2606,6 +2606,10 @@ label span {
 .target-check-form {
   display: grid;
   gap: 10px;
+  /* One arrow for both dropdowns in this dialog, the same picture the load
+     balancing card uses: the API type select paints it as a background and the
+     combobox caret is an empty box with the same picture. */
+  --tc-arrow: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 10 10'%3E%3Cpath d='M1 3h8L5 7.6z' fill='%2355616f'/%3E%3C/svg%3E");
 }
 
 .target-check-form label {
@@ -2642,16 +2646,24 @@ label span {
   width: 100%;
   min-width: 0;
   padding: 7px 30px 7px 10px;
-  border: 1px solid var(--line);
+  border: 1px solid #b8c5d3;
   border-radius: 6px;
-  background-color: var(--control);
-  background-image: url("data:image/svg+xml;charset=utf-8,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='6'%3E%3Cpath d='M1 1l4 4 4-4' fill='none' stroke='%23607086' stroke-width='1.5' stroke-linecap='round'/%3E%3C/svg%3E");
+  background-color: #ffffff;
+  background-image: var(--tc-arrow);
   background-repeat: no-repeat;
   background-position: right 10px center;
+  background-size: 10px 10px;
   font-size: 13px;
   color: var(--ink);
   appearance: none;
+  -webkit-appearance: none;
   cursor: pointer;
+}
+
+/* Never the `background` shorthand here: it would reset background-image and
+   make the arrow disappear exactly when the pointer is over the control. */
+.target-check-form select:hover {
+  background-color: #eef3f8;
 }
 
 .target-check-form input:disabled,
@@ -2663,6 +2675,176 @@ label span {
 .target-check-form select:focus {
   border-color: var(--accent);
   outline: 2px solid var(--accent-soft);
+}
+
+.target-check-model-row {
+  display: flex;
+  align-items: flex-end;
+  gap: 8px;
+}
+
+.target-check-model-row .target-check-model-field {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+/* Only the pull button is a direct child here; the combobox caret lives inside
+   the picker box and must stay as tall as the text next to it. */
+.target-check-model-row > button {
+  flex: 0 0 auto;
+  height: 32px;
+}
+
+/* The model id box is a combobox: one bordered widget holding the text and a
+   caret that opens a floating list, drawn like the load balancing dropdowns. */
+.target-check-model-picker {
+  position: relative;
+  display: flex;
+  align-items: stretch;
+  min-width: 0;
+  min-height: 32px;
+  border: 1px solid #b8c5d3;
+  border-radius: 6px;
+  background-color: #ffffff;
+}
+
+.target-check-model-picker:hover {
+  background-color: #eef3f8;
+}
+
+.target-check-model-picker:focus-within {
+  border-color: var(--accent);
+}
+
+/* The bordered box carries the focus ring, so the text inside must not add a
+   second one and the page-wide .target-check-form input rules must not leak in. */
+.target-check-model-picker input:focus {
+  border-color: transparent;
+  outline: none;
+}
+
+.target-check-model-picker input {
+  flex: 1 1 auto;
+  min-width: 0;
+  height: 30px;
+  min-height: 0;
+  padding: 0 8px;
+  border: 0;
+  border-radius: 6px 0 0 6px;
+  background-color: transparent;
+  font-size: 13px;
+  color: var(--ink);
+}
+
+.target-check-model-caret {
+  flex: 0 0 auto;
+  width: 30px;
+  height: 30px;
+  min-height: 0;
+  padding: 0 10px;
+  border: 0;
+  border-radius: 0 6px 6px 0;
+  background-color: transparent;
+  background-image: var(--tc-arrow);
+  background-repeat: no-repeat;
+  background-position: center;
+  background-size: 10px 10px;
+  cursor: pointer;
+}
+
+.target-check-model-caret:hover {
+  background-color: #e6ecf4;
+}
+
+/* The candidate ids float over the dialog so its height never changes while the
+   list is open; the script picks the side with more room and caps the height. */
+.target-check-model-pop {
+  position: absolute;
+  left: 0;
+  right: 0;
+  top: calc(100% + 4px);
+  z-index: 30;
+  display: grid;
+  gap: 2px;
+  max-height: 240px;
+  overflow-y: auto;
+  padding: 4px;
+  background: #ffffff;
+  border: 1px solid #b8c5d3;
+  border-radius: 6px;
+  box-shadow: 0 2px 8px rgba(23, 32, 42, 0.18);
+}
+
+/* A display rule beats the hidden attribute's own display: none, so closing the
+   list has to be written out (same as .lb-picker-pop[hidden]). */
+.target-check-model-pop[hidden] {
+  display: none;
+}
+
+.target-check-model-pop.is-above {
+  top: auto;
+  bottom: calc(100% + 4px);
+}
+
+.target-check-model-option {
+  display: flex;
+  min-width: 0;
+  padding: 5px 8px;
+  border-radius: 4px;
+  font-size: 12px;
+  color: var(--ink);
+  cursor: pointer;
+}
+
+.target-check-model-option:hover,
+.target-check-model-option.is-active {
+  background: #eef3f9;
+}
+
+.target-check-model-option.is-current {
+  color: var(--accent);
+  font-weight: 600;
+}
+
+/* Bare text inside a flex box is an anonymous flex item, so truncation needs
+   its own child with min-width: 0. */
+.target-check-model-option > span {
+  min-width: 0;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.target-check-model-empty {
+  padding: 6px 8px;
+  font-size: 12px;
+  color: var(--muted);
+}
+
+.target-check-models-notice {
+  font-size: 12px;
+  font-weight: 600;
+  padding: 6px 10px;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  background: var(--control);
+  word-break: break-word;
+}
+
+.target-check-models-notice[hidden] {
+  display: none;
+}
+
+.target-check-models-notice.success {
+  background: var(--accent-soft);
+  border-color: var(--accent);
+  color: var(--accent);
+}
+
+.target-check-models-notice.failure {
+  background: #fdeceb;
+  border-color: var(--danger);
+  color: var(--danger);
 }
 
 .target-check-form menu {

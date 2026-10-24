@@ -68,6 +68,7 @@ LLM Proxy 是面向本地开发和调试场景的 LLM HTTP 代理与流量审查
 | F-21 | 中英文界面 | 中文/英文切换并保存到浏览器 localStorage |
 | F-22 | 自动刷新 | History 页面默认每 3 秒刷新；同步更新展开列表中的 pending 请求，页面不可见时跳过实际加载 |
 | F-23 | Windows 托盘 | 托盘菜单打开管理 UI 或退出，可选启动后自动打开浏览器 |
+| F-24 | 上游模型列表拉取 | 测试转发地址弹窗中的 **拉取模型列表** 按钮读 `{base}/models`（404 回退 Anthropic 风格 `/v1/models`）；成功时模型 ID 下拉的选项换成上游返回的 id 并填入第一个（当前值在列表中则保持），点 ▾ 列出全部、输入时按包含过滤；失败时恢复内置默认候选并保留手输值，同时在弹窗内和提示条中报原因；拉到的列表只活在当前弹窗，不写入配置 |
 
 ## 5. 代理配置功能
 
@@ -580,6 +581,7 @@ ZIP 当前整体在内存中生成后一次性返回。
 | GET | `/api/logs/records` | 按 id 批量读取记录（不含请求/响应体） | query: `ids`（逗号分隔，最多 200 个），返回 `{records: [...]}`，每条含 `pending` |
 | GET | `/api/logs/export` | 导出全部日志 | ZIP 下载 |
 | POST | `/api/logs/cleanup` | 清理日志 | `group_ids` / `older_than_days` / `keep_latest` |
+| POST | `/api/target-models` | 读取转发地址的模型列表 | 请求 `{targetUrl, apiKey?}`，返回 `{ok, models, durationMs, truncated?, error?}`；地址不可达也返回 200，只在地址非法时返回 400 |
 
 错误主要以 `{error: string}` 返回 400 或 404。非法 JSON 请求体当前会被当作空 object，而不是单独返回 JSON 解析错误。
 

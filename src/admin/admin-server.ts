@@ -40,6 +40,7 @@ export interface AdminServerOptions {
   readonly staticAssets?: AdminStaticAssets | (() => Promise<AdminStaticAssets>);
   readonly targetCheckService?: TargetCheckAdminService;
   readonly targetMetricsService?: TargetMetricsAdminService;
+  readonly targetModelsService?: TargetModelsAdminService;
   readonly loadBalancerService?: LoadBalancerAdminService;
   readonly summaryModelService?: SummaryModelAdminService;
   readonly modelCatalogService?: ModelCatalogAdminService;
@@ -124,6 +125,23 @@ export interface TargetMetricsResponse {
 
 export interface TargetMetricsAdminService {
   fetchTargetMetrics(request: TargetMetricsRequest): Promise<TargetMetricsResponse>;
+}
+
+export interface TargetModelsRequest {
+  readonly targetUrl: string;
+  readonly apiKey?: string;
+}
+
+export interface TargetModelsResponse {
+  readonly ok: boolean;
+  readonly models: readonly string[];
+  readonly durationMs: number;
+  readonly truncated?: boolean;
+  readonly error?: string;
+}
+
+export interface TargetModelsAdminService {
+  fetchTargetModels(request: TargetModelsRequest): Promise<TargetModelsResponse>;
 }
 
 /** Read-only load balancing state, answered entirely from memory. */
@@ -322,6 +340,29 @@ export const TARGET_METRICS_RESPONSE_SCHEMA = {
     durationMs: { type: "number", minimum: 0 },
     text: { type: "string", maxLength: 1_048_576 },
     truncated: { type: "boolean" },
+    error: { type: "string", maxLength: 8_192 },
+  },
+} as const;
+
+export const TARGET_MODELS_REQUEST_SCHEMA = {
+  type: "object",
+  additionalProperties: false,
+  required: ["targetUrl"],
+  properties: {
+    targetUrl: { type: "string", minLength: 1, maxLength: 8_192, pattern: "^https?://" },
+    apiKey: { type: "string", maxLength: 65_536 },
+  },
+} as const;
+
+export const TARGET_MODELS_RESPONSE_SCHEMA = {
+  type: "object",
+  additionalProperties: false,
+  required: ["ok", "models", "durationMs"],
+  properties: {
+    ok: { type: "boolean" },
+    models: { type: "array", items: { type: "string", minLength: 1 }, maxItems: 1_000 },
+    truncated: { type: "boolean" },
+    durationMs: { type: "number", minimum: 0 },
     error: { type: "string", maxLength: 8_192 },
   },
 } as const;
@@ -787,6 +828,33 @@ export function createAdminServer(options: AdminServerOptions): FastifyInstance 
         };
         try {
           return await targetMetricsService.fetchTargetMetrics(metricsRequest);
+        } catch (error) {
+          if (error instanceof TypeError) {
+            return reply.code(400).send(adminError("invalid_target_url", error.message));
+          }
+          throw error;
+        }
+      },
+    );
+  }
+  if (options.targetModelsService !== undefined) {
+    const targetModelsService = options.targetModelsService;
+    server.post<{ Body: { apiKey?: string; targetUrl: string } }>(
+      "/api/target-models",
+      {
+        schema: {
+          body: TARGET_MODELS_REQUEST_SCHEMA,
+          response: { 200: TARGET_MODELS_RESPONSE_SCHEMA },
+        },
+      },
+      async (request, reply) => {
+        const apiKey = request.body.apiKey;
+        const modelsRequest: TargetModelsRequest = {
+          targetUrl: request.body.targetUrl,
+          ...(apiKey ? { apiKey } : {}),
+        };
+        try {
+          return await targetModelsService.fetchTargetModels(modelsRequest);
         } catch (error) {
           if (error instanceof TypeError) {
             return reply.code(400).send(adminError("invalid_target_url", error.message));

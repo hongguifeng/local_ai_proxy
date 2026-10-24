@@ -215,6 +215,46 @@ describe("createNodeApplication", () => {
       expect(metricsBody.error).toBeTruthy();
       expect(metricsBody.durationMs).toBeGreaterThanOrEqual(0);
 
+      // Guard against the assembled app silently dropping the target model list
+      // route (404 "Route not found."): it is registered only when the models
+      // service is wired in runtime.ts.
+      const modelsBad = await fetch(`http://127.0.0.1:${adminPort}/api/target-models`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({}),
+      });
+      expect(modelsBad.status).toBe(400);
+      const modelsBadBody = (await modelsBad.json()) as { error?: { code?: string } };
+      expect(modelsBadBody.error?.code).toBe("FST_ERR_VALIDATION");
+
+      const modelsInvalidUrl = await fetch(`http://127.0.0.1:${adminPort}/api/target-models`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ targetUrl: "http://" }),
+      });
+      expect(modelsInvalidUrl.status).toBe(400);
+      const modelsInvalidBody = (await modelsInvalidUrl.json()) as {
+        error?: { code: string };
+      };
+      expect(modelsInvalidBody.error?.code).toBe("invalid_target_url");
+
+      const modelsUnreachable = await fetch(`http://127.0.0.1:${adminPort}/api/target-models`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ targetUrl: "http://127.0.0.1:9" }),
+      });
+      expect(modelsUnreachable.status).toBe(200);
+      const modelsBody = (await modelsUnreachable.json()) as {
+        ok: boolean;
+        models: string[];
+        error?: string;
+        durationMs: number;
+      };
+      expect(modelsBody.ok).toBe(false);
+      expect(modelsBody.models).toEqual([]);
+      expect(modelsBody.error).toBeTruthy();
+      expect(modelsBody.durationMs).toBeGreaterThanOrEqual(0);
+
       // The load balancing routes must exist on the assembled application, and the
       // status route must answer from memory even when nothing is configured.
       const lbStatus = await fetch(`http://127.0.0.1:${adminPort}/api/load-balancer/status`);

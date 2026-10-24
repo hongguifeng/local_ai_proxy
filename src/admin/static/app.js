@@ -87,6 +87,13 @@ const translations = {
     checkDialogTitle: "测试转发地址",
     checkApiType: "API 类型",
     checkModel: "模型 ID",
+    fetchModels: "拉取模型列表",
+    fetchingModels: "拉取中…",
+    fetchModelsOk: "已拉取 {count} 个模型 · {duration}",
+    fetchModelsNotListed: "（部分模型未列出）",
+    fetchModelsFail: "拉取失败：{error}",
+    toggleModelList: "显示或隐藏模型列表",
+    noModelMatch: "没有包含“{value}”的模型",
     startCheck: "开始测试",
     checking: "测试中…",
     close: "关闭",
@@ -466,6 +473,13 @@ const translations = {
     checkDialogTitle: "Test target",
     checkApiType: "API type",
     checkModel: "Model ID",
+    fetchModels: "Fetch models",
+    fetchingModels: "Fetching…",
+    fetchModelsOk: "Fetched {count} model(s) · {duration}",
+    fetchModelsNotListed: " (some models are not listed)",
+    fetchModelsFail: "Fetch failed: {error}",
+    toggleModelList: "Show or hide the model list",
+    noModelMatch: "No model contains “{value}”",
     startCheck: "Start test",
     checking: "Testing…",
     close: "Close",
@@ -782,6 +796,10 @@ const state = {
   language: translations[initialLanguage] ? initialLanguage : "en",
   pairs: [],
   logGroups: [],
+  targetCheckModelsNotice: null,
+  targetCheckModelOptions: [],
+  targetCheckModelFilter: null,
+  targetCheckModelActive: -1,
   logs: [],
   selected: null,
   selectedLogGroups: {},
@@ -903,6 +921,10 @@ function setLanguage(language) {
   renderRequestPricing();
   renderTaskPricingPanel();
   if ($("metricsDialog")?.open) renderMetricsDialog();
+  if ($("targetCheckDialog")?.open) {
+    renderTargetCheckModelsNotice();
+    renderTargetCheckModelPop();
+  }
   // The statistics page is rendered on demand; re-render it if it was loaded so
   // its inline (non data-i18n) labels follow the new language without a refresh.
   if ($("statsOverview")?.innerHTML)
@@ -5465,6 +5487,192 @@ $("proxyGrid").addEventListener("click", (event) => {
   }
 });
 const targetCheckStart = $("targetCheckStart");
+const targetCheckModelsButton = $("targetCheckModels");
+// The suggestions the dialog offers before (and after a failed) model list pull.
+const defaultTargetCheckModels = [
+  "gpt-4o-mini",
+  "gpt-5.6-sol",
+  "gpt-5.6-luna",
+  "claude-haiku-4-5",
+  "qwen3.8-27b",
+  "qwen-plus",
+  "deepseek-chat",
+];
+const targetCheckModelInput = $("targetCheckModel");
+const targetCheckModelCaret = $("targetCheckModelCaret");
+const targetCheckModelPop = $("targetCheckModelPop");
+const targetCheckModelPicker = targetCheckModelPop.closest(".target-check-model-picker");
+
+/** Offers a new set of ids; an open list is rebuilt so the change is visible. */
+function applyTargetCheckModelOptions(models) {
+  state.targetCheckModelOptions = [...models];
+  state.targetCheckModelFilter = null;
+  if (!targetCheckModelPop.hidden) renderTargetCheckModelPop();
+}
+
+/** Clicking the caret lists everything; typing narrows the list to what contains the text. */
+function visibleTargetCheckModels() {
+  const filter = state.targetCheckModelFilter;
+  if (filter === null || filter === "") return state.targetCheckModelOptions;
+  const needle = filter.toLowerCase();
+  return state.targetCheckModelOptions.filter((model) => model.toLowerCase().includes(needle));
+}
+
+function renderTargetCheckModelPop() {
+  const models = visibleTargetCheckModels();
+  targetCheckModelPop.textContent = "";
+  if (models.length === 0) {
+    const empty = document.createElement("div");
+    empty.className = "target-check-model-empty";
+    empty.tabIndex = -1;
+    empty.textContent = t("noModelMatch").replace("{value}", state.targetCheckModelFilter || "");
+    targetCheckModelPop.append(empty);
+    setTargetCheckModelActive(-1);
+    return;
+  }
+  models.forEach((model, index) => {
+    const row = document.createElement("div");
+    row.className = "target-check-model-option";
+    row.id = `target-check-model-option-${index}`;
+    row.setAttribute("role", "option");
+    row.dataset.modelOption = model;
+    // A row that cannot take focus blurs the text field when it is clicked, which
+    // closes the list before the click is dispatched and loses the pick.
+    row.tabIndex = -1;
+    if (model === targetCheckModelInput.value) {
+      row.classList.add("is-current");
+      row.setAttribute("aria-selected", "true");
+    }
+    // Bare text in a flex box cannot truncate; it needs its own child.
+    const name = document.createElement("span");
+    name.textContent = model;
+    name.title = model;
+    row.append(name);
+    targetCheckModelPop.append(row);
+  });
+  const current = models.indexOf(targetCheckModelInput.value);
+  setTargetCheckModelActive(current === -1 ? 0 : current);
+}
+
+/** The keyboard cursor: a highlighted row plus aria-activedescendant on the text. */
+function setTargetCheckModelActive(index) {
+  const rows = [...targetCheckModelPop.querySelectorAll(".target-check-model-option")];
+  const clamped = Math.max(-1, Math.min(index, rows.length - 1));
+  state.targetCheckModelActive = clamped;
+  rows.forEach((row, position) => {
+    row.classList.toggle("is-active", position === clamped);
+  });
+  if (clamped < 0) {
+    targetCheckModelInput.removeAttribute("aria-activedescendant");
+    return;
+  }
+  targetCheckModelInput.setAttribute("aria-activedescendant", rows[clamped].id);
+  rows[clamped].scrollIntoView({ block: "nearest" });
+}
+
+function activeTargetCheckModel() {
+  const row = targetCheckModelPop.querySelector(".target-check-model-option.is-active");
+  return row ? row.dataset.modelOption : null;
+}
+
+/* The list floats over the dialog, so it never grows the form; like the member
+   picker it flips up when the field sits too close to the bottom. */
+function positionTargetCheckModelPop() {
+  const dialog = targetCheckModelPop.closest("dialog");
+  if (dialog === null) return;
+  const dialogRect = dialog.getBoundingClientRect();
+  const caretRect = targetCheckModelCaret.getBoundingClientRect();
+  const roomBelow = Math.floor(dialogRect.bottom - caretRect.bottom) - 8;
+  const roomAbove = Math.floor(caretRect.top - dialogRect.top) - 8;
+  const above = roomBelow < 160 && roomAbove > roomBelow;
+  targetCheckModelPop.classList.toggle("is-above", above);
+  targetCheckModelPop.style.maxHeight = `${Math.min(240, Math.max(120, above ? roomAbove : roomBelow))}px`;
+}
+
+function openTargetCheckModelPop(showAll) {
+  if (showAll) state.targetCheckModelFilter = null;
+  renderTargetCheckModelPop();
+  positionTargetCheckModelPop();
+  targetCheckModelPop.hidden = false;
+  targetCheckModelCaret.setAttribute("aria-expanded", "true");
+}
+
+function closeTargetCheckModelPop() {
+  targetCheckModelPop.hidden = true;
+  targetCheckModelPop.style.maxHeight = "";
+  targetCheckModelPop.classList.remove("is-above");
+  targetCheckModelCaret.setAttribute("aria-expanded", "false");
+  setTargetCheckModelActive(-1);
+}
+
+function chooseTargetCheckModel(model) {
+  targetCheckModelInput.value = model;
+  closeTargetCheckModelPop();
+  targetCheckModelInput.focus();
+}
+
+targetCheckModelCaret.addEventListener("click", () => {
+  if (targetCheckModelPop.hidden) openTargetCheckModelPop(true);
+  else closeTargetCheckModelPop();
+  targetCheckModelInput.focus();
+});
+
+targetCheckModelInput.addEventListener("input", () => {
+  state.targetCheckModelFilter = targetCheckModelInput.value;
+  if (targetCheckModelPop.hidden) openTargetCheckModelPop(false);
+  else renderTargetCheckModelPop();
+});
+
+targetCheckModelInput.addEventListener("keydown", (event) => {
+  const open = !targetCheckModelPop.hidden;
+  if (event.key === "ArrowDown") {
+    event.preventDefault();
+    if (open) setTargetCheckModelActive(state.targetCheckModelActive + 1);
+    else openTargetCheckModelPop(true);
+    return;
+  }
+  if (event.key === "ArrowUp") {
+    if (!open) return;
+    event.preventDefault();
+    setTargetCheckModelActive(state.targetCheckModelActive - 1);
+    return;
+  }
+  if (event.key === "Escape") {
+    // Escape would otherwise close the whole dialog.
+    if (!open) return;
+    event.preventDefault();
+    event.stopPropagation();
+    closeTargetCheckModelPop();
+    return;
+  }
+  if (event.key === "Enter" && open) {
+    const chosen = activeTargetCheckModel();
+    if (chosen === null) return;
+    event.preventDefault();
+    chooseTargetCheckModel(chosen);
+  }
+});
+
+targetCheckModelPop.addEventListener("click", (event) => {
+  const row = event.target?.closest?.(".target-check-model-option");
+  if (!row) return;
+  // The rows live inside the field's <label>, so the click must not also activate the input.
+  event.preventDefault();
+  chooseTargetCheckModel(row.dataset.modelOption);
+});
+
+targetCheckModelPicker.addEventListener("focusout", (event) => {
+  if (!targetCheckModelPicker.contains(event.relatedTarget)) closeTargetCheckModelPop();
+});
+
+// The list floats over the dialog, so a click anywhere outside it closes it.
+document.addEventListener("pointerdown", (event) => {
+  if (!event.target?.closest?.("[data-model-picker]")) closeTargetCheckModelPop();
+});
+document.addEventListener("keydown", (event) => {
+  if (event.key === "Escape") closeTargetCheckModelPop();
+});
+
 function openTargetCheckDialog(target) {
   $("targetCheckUrl").value = target.target_url || "";
   $("targetCheckApiType").value = "chat";
@@ -5475,8 +5683,86 @@ function openTargetCheckDialog(target) {
   result.hidden = true;
   result.textContent = "";
   result.className = "target-check-result";
+  // A fetched list belongs to this dialog only, so every open starts from the defaults.
+  applyTargetCheckModelOptions(defaultTargetCheckModels);
+  closeTargetCheckModelPop();
+  state.targetCheckModelsNotice = null;
+  renderTargetCheckModelsNotice();
+  targetCheckModelsButton.disabled = false;
+  targetCheckModelsButton.textContent = t("fetchModels");
   $("targetCheckDialog").showModal();
 }
+// The notice keeps the facts, not the words, so a language switch re-writes it.
+function renderTargetCheckModelsNotice() {
+  const notice = $("targetCheckModelsNotice");
+  const fact = state.targetCheckModelsNotice;
+  if (fact === null) {
+    notice.hidden = true;
+    notice.className = "target-check-models-notice";
+    notice.textContent = "";
+    return;
+  }
+  const success = fact.kind === "success";
+  notice.className = `target-check-models-notice ${success ? "success" : "failure"}`;
+  notice.textContent = success
+    ? t("fetchModelsOk")
+        .replace("{count}", String(fact.count))
+        .replace("{duration}", `${Math.round(fact.durationMs)} ms`) +
+      (fact.truncated ? t("fetchModelsNotListed") : "")
+    : t("fetchModelsFail").replace("{error}", fact.error);
+  notice.hidden = false;
+}
+$("targetCheckModels").addEventListener("click", async () => {
+  if (targetCheckModelsButton.disabled) return;
+  targetCheckModelsButton.disabled = true;
+  targetCheckModelsButton.textContent = t("fetchingModels");
+  state.targetCheckModelsNotice = null;
+  renderTargetCheckModelsNotice();
+  try {
+    const data = await api("/api/target-models", {
+      method: "POST",
+      body: JSON.stringify({
+        targetUrl: $("targetCheckUrl").value,
+        apiKey: $("targetCheckApiKey").value,
+      }),
+    });
+    const models = Array.isArray(data.models) ? data.models : [];
+    if (data.ok && models.length > 0) {
+      applyTargetCheckModelOptions(models);
+      const model = $("targetCheckModel");
+      if (!models.includes(model.value)) {
+        model.value = models[0];
+      }
+      state.targetCheckModelsNotice = {
+        kind: "success",
+        count: models.length,
+        durationMs: Number(data.durationMs) || 0,
+        truncated: data.truncated === true,
+      };
+      renderTargetCheckModelsNotice();
+      return;
+    }
+    // The address serves no model list, so the hand-written suggestions stay usable.
+    applyTargetCheckModelOptions(defaultTargetCheckModels);
+    state.targetCheckModelsNotice = {
+      kind: "failure",
+      error: data.error || "the model list contained no model ids",
+    };
+    renderTargetCheckModelsNotice();
+    toast($("targetCheckModelsNotice").textContent);
+  } catch (error) {
+    applyTargetCheckModelOptions(defaultTargetCheckModels);
+    state.targetCheckModelsNotice = {
+      kind: "failure",
+      error: error.message || error,
+    };
+    renderTargetCheckModelsNotice();
+    toast($("targetCheckModelsNotice").textContent);
+  } finally {
+    targetCheckModelsButton.disabled = false;
+    targetCheckModelsButton.textContent = t("fetchModels");
+  }
+});
 $("targetCheckClose").addEventListener("click", () => $("targetCheckDialog").close());
 $("targetCheckForm").addEventListener("submit", async (event) => {
   event.preventDefault();
