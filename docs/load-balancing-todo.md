@@ -468,7 +468,7 @@ npx electron-builder -w portable --publish never
 - UI 基线：未涉及
 - 设计偏差：`TASK_MATCH_STRATEGY_VERSION` 保持 6（行为未变）。键提取只接受字符串，数字型 `prompt_cache_key` 不生成键（与 matcher 原行为一致）。新增 `bounded`/`oversize` 标记，LB-05 才能据此在大 conversation 上退回精确键。
 - 提交标题：`refactor(load-balancing): [LB-02] share task identity projections with the task matcher`
-- 提交 SHA：待填写
+- 提交 SHA：`e1741b5`
 - 备注：临时目录清理加了 `maxRetries`（Windows 上 `traffic.db` 刚关闭时会短暂 EBUSY）。
 
 每完成一个任务，在这里追加一条记录：
