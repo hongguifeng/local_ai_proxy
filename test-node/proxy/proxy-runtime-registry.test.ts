@@ -438,6 +438,7 @@ function pairFixture(upstreamPort: number, pairId = "runtime-pair"): ProxyPair {
     listen_port: 0,
     access_log: false,
     default_target_id: "runtime-target",
+    load_balancers: [],
     targets: [
       {
         id: "runtime-target",

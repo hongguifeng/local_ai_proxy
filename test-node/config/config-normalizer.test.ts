@@ -4,12 +4,14 @@ import {
   ensureAtLeastOneTarget,
   normalizeDefaultTargetId,
   normalizeInjectRequestFields,
+  normalizeLoadBalancerGroups,
   normalizeLogRoot,
   normalizeModelMappings,
   normalizeModelPrices,
   normalizeProxyConfigFile,
   runtimeLogRoot,
 } from "../../src/config/config-normalizer.js";
+import { loadBalancerGroupSchema, proxyConfigFileSchema } from "../../src/config/config-schema.js";
 import { createDefaultTarget } from "../../src/config/defaults.js";
 
 describe("ensureAtLeastOneTarget", () => {
@@ -168,5 +170,146 @@ describe("normalizeDefaultTargetId", () => {
 
   it("rejects an empty target list", () => {
     expect(() => normalizeDefaultTargetId("target-1", [])).toThrow(/empty target list/u);
+  });
+});
+
+describe("normalizeLoadBalancerGroups", () => {
+  const groupFixture = {
+    id: " lb-1 ",
+    name: "Dual card",
+    enabled: false,
+    model_pattern: " qwen* ",
+    node_target_ids: [" target-b ", "target-a"],
+    strategy: "round_robin",
+    metrics_enabled: false,
+    failover_enabled: false,
+  };
+
+  it("LB01-01 defaults a missing group list", () => {
+    expect(normalizeLoadBalancerGroups(undefined)).toEqual([]);
+  });
+
+  it("fills generated ids, keeps supplied values and trims text", () => {
+    expect(normalizeLoadBalancerGroups([groupFixture, {}])).toEqual([
+      {
+        id: "lb-1",
+        name: "Dual card",
+        enabled: false,
+        model_pattern: "qwen*",
+        node_target_ids: ["target-b", "target-a"],
+        strategy: "round_robin",
+        metrics_enabled: false,
+        failover_enabled: false,
+      },
+      {
+        id: "lb-2",
+        name: "lb-2",
+        enabled: true,
+        model_pattern: "",
+        node_target_ids: [""],
+        strategy: "least_load",
+        metrics_enabled: true,
+        failover_enabled: true,
+      },
+    ]);
+  });
+
+  it("LB01-02 keeps an unknown node target so the schema can report it", () => {
+    const issues = proxyConfigFileSchema.safeParse({
+      pairs: [
+        {
+          id: "proxy-1",
+          name: "Proxy",
+          enabled: false,
+          listen_host: "127.0.0.1",
+          listen_port: 1234,
+          access_log: false,
+          targets: [createDefaultTarget("logs")],
+          default_target_id: "target-1",
+          load_balancers: normalizeLoadBalancerGroups([
+            { model_pattern: "qwen*", node_target_ids: ["ghost"] },
+          ]),
+        },
+      ],
+    });
+
+    const firstIssue = issues.error?.issues[0];
+
+    expect(issues.success).toBe(false);
+    expect(firstIssue?.message).toContain(
+      "load balancer node target not found in pair proxy-1: ghost",
+    );
+    expect(firstIssue?.path).toEqual(["pairs", 0, "load_balancers", 0, "node_target_ids", 0]);
+  });
+
+  it("LB01-07 keeps an unknown strategy text instead of guessing a strategy", () => {
+    const groups = normalizeLoadBalancerGroups([{ model_pattern: "qwen*", strategy: "weighted" }]);
+
+    expect(groups[0]?.strategy).toBe("weighted");
+    expect(() => loadBalancerGroupSchema.parse(groups[0])).toThrow();
+  });
+
+  it("keeps a malformed entry for schema validation instead of dropping it", () => {
+    expect(normalizeLoadBalancerGroups(["not-a-group"])).toEqual(["not-a-group"]);
+  });
+
+  it("accepts a single node target written as plain text", () => {
+    const groups = normalizeLoadBalancerGroups([
+      { model_pattern: "qwen*", node_target_ids: "target-1" },
+    ]);
+
+    expect(groups[0]).toMatchObject({ node_target_ids: ["target-1"] });
+    expect(
+      proxyConfigFileSchema.safeParse({
+        pairs: [
+          {
+            id: "proxy-1",
+            name: "Proxy",
+            enabled: false,
+            listen_host: "127.0.0.1",
+            listen_port: 1234,
+            access_log: false,
+            targets: [createDefaultTarget("logs")],
+            default_target_id: "target-1",
+            load_balancers: normalizeLoadBalancerGroups([
+              { id: "lb-1", name: "Dual", model_pattern: "qwen*", node_target_ids: "" },
+            ]),
+          },
+        ],
+      }).error?.issues[0]?.message,
+    ).toContain("node target id is required");
+  });
+
+  it("LB01-01 keeps a group list through the whole configuration file", () => {
+    const first = createDefaultTarget("logs");
+    const second = { ...createDefaultTarget("logs"), id: "target-2", name: "Second" };
+    const normalized = normalizeProxyConfigFile({
+      pairs: [
+        {
+          id: "proxy-1",
+          name: "Proxy",
+          enabled: false,
+          listen_host: "127.0.0.1",
+          listen_port: 1234,
+          access_log: false,
+          targets: [first, second],
+          default_target_id: first.id,
+          load_balancers: [{ ...groupFixture, node_target_ids: [" target-2 ", "target-1"] }],
+        },
+      ],
+    });
+
+    expect(normalized.pairs[0]?.load_balancers).toEqual([
+      {
+        id: "lb-1",
+        name: "Dual card",
+        enabled: false,
+        model_pattern: "qwen*",
+        node_target_ids: ["target-2", "target-1"],
+        strategy: "round_robin",
+        metrics_enabled: false,
+        failover_enabled: false,
+      },
+    ]);
   });
 });

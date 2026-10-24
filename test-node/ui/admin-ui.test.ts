@@ -228,6 +228,7 @@ function fixturePair(): PublicProxyPair {
     listen_port: 4321,
     access_log: false,
     default_target_id: "target-one",
+    load_balancers: [],
     targets: [
       {
         id: "target-one",
@@ -3566,6 +3567,7 @@ function visualPairs(): PublicProxyPair[] {
       listen_port: 12346,
       access_log: false,
       default_target_id: "visual-openrouter",
+      load_balancers: [],
       targets: [
         target(
           "visual-openrouter",
@@ -3603,6 +3605,7 @@ function visualPairs(): PublicProxyPair[] {
       listen_port: 1234,
       access_log: false,
       default_target_id: "visual-default",
+      load_balancers: [],
       targets: [
         target(
           "visual-default",

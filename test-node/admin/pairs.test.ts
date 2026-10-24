@@ -219,3 +219,147 @@ describe("GET /api/pairs", () => {
     expect(occupied.json()).toMatchObject({ error: { code: "listen_conflict" } });
   });
 });
+
+describe("load balancer configuration through the pairs API", () => {
+  const template = createDefaultProxyPair("");
+  const firstTarget = template.targets[0];
+  if (firstTarget === undefined) {
+    throw new Error("Default proxy fixture needs a target.");
+  }
+  const secondTarget = {
+    ...firstTarget,
+    id: "target-two",
+    name: "GPU 2",
+    target_url: "http://127.0.0.1:9394/v1",
+  };
+  const firstTargetId = firstTarget.id;
+  const group = {
+    id: "lb-1",
+    name: "Dual card",
+    model_pattern: "Qwen3.8-Flash-Next",
+    node_target_ids: [firstTargetId, secondTarget.id],
+  };
+
+  function lbPair(overrides: Record<string, unknown> = {}): Record<string, unknown> {
+    return {
+      ...template,
+      id: "lb-pair",
+      targets: [firstTarget, secondTarget],
+      default_target_id: firstTargetId,
+      ...overrides,
+    };
+  }
+
+  function managerWith(): ProxyManager {
+    return new ProxyManager({ pairs: [template] }, { save: () => Promise.resolve() });
+  }
+
+  async function putPairs(
+    manager: ProxyManager,
+    pairs: readonly unknown[],
+  ): Promise<{ statusCode: number; body: unknown }> {
+    const server = createAdminServer({
+      getHealth: () => applicationHealth("running"),
+      pairService: manager,
+    });
+    servers.push(server);
+    const response = await server.inject({
+      method: "PUT",
+      url: "/api/pairs",
+      payload: { pairs },
+    });
+    const body: unknown = response.json();
+    return { statusCode: response.statusCode, body };
+  }
+
+  it("LB01-07 persists a load balancer group with its v1 defaults", async () => {
+    const manager = managerWith();
+    const result = await putPairs(manager, [lbPair({ load_balancers: [group] })]);
+
+    expect(result.statusCode).toBe(200);
+    const stored = (result.body as { pairs: Record<string, unknown>[] }).pairs[0];
+    expect(stored?.["load_balancers"]).toEqual([
+      {
+        id: "lb-1",
+        name: "Dual card",
+        enabled: true,
+        model_pattern: "Qwen3.8-Flash-Next",
+        node_target_ids: [firstTarget.id, secondTarget.id],
+        strategy: "least_load",
+        metrics_enabled: true,
+        failover_enabled: true,
+      },
+    ]);
+    expect(manager.listPairs()[0]?.load_balancers).toEqual(stored?.["load_balancers"]);
+  });
+
+  it("LB01-01 adds an empty group list to a payload written without the field", async () => {
+    const manager = managerWith();
+    const result = await putPairs(manager, [{ ...template, id: "lb-pair" }]);
+
+    expect(result.statusCode).toBe(200);
+    expect(manager.listPairs()[0]?.id).toBe("lb-pair");
+    expect(manager.listPairs()[0]?.load_balancers).toEqual([]);
+    expect(
+      (result.body as { pairs: Record<string, unknown>[] }).pairs[0]?.["load_balancers"],
+    ).toEqual([]);
+  });
+
+  it("LB01-02 rejects a node target outside the pair with its exact path", async () => {
+    const manager = managerWith();
+    const result = await putPairs(manager, [
+      lbPair({ load_balancers: [{ ...group, node_target_ids: [firstTarget.id, "ghost"] }] }),
+    ]);
+
+    expect(result.statusCode).toBe(400);
+    const error = (
+      result.body as { error: { code: string; issues: { path: string; message: string }[] } }
+    ).error;
+    expect(error.code).toBe("invalid_config");
+    expect(error.issues[0]?.path).toBe("pairs.0.load_balancers.0.node_target_ids.1");
+    expect(error.issues[0]?.message).toContain("not found in pair lb-pair: ghost");
+    expect(manager.listPairs().map((pair) => pair.id)).toEqual([template.id]);
+  });
+
+  it("LB01-04 rejects a member with another log root", async () => {
+    const manager = managerWith();
+    const result = await putPairs(manager, [
+      lbPair({
+        targets: [firstTarget, { ...secondTarget, log_root: "other-logs" }],
+        load_balancers: [group],
+      }),
+    ]);
+
+    expect(result.statusCode).toBe(400);
+    const error = (
+      result.body as { error: { code: string; issues: { path: string; message: string }[] } }
+    ).error;
+    expect(error.code).toBe("invalid_config");
+    expect(error.issues[0]?.path).toBe("pairs.0.load_balancers.0.node_target_ids.1");
+    expect(error.issues[0]?.message).toContain("must share one log root");
+  });
+
+  it("LB01-05 rejects members that price the same model differently", async () => {
+    const manager = managerWith();
+    const priced = {
+      model_pattern: "Qwen*",
+      input_per_million: "1",
+      output_per_million: "2",
+      cache_read_per_million: "3",
+      cache_write_per_million: "4",
+    };
+    const result = await putPairs(manager, [
+      lbPair({
+        targets: [{ ...firstTarget, model_prices: [priced] }, secondTarget],
+        load_balancers: [group],
+      }),
+    ]);
+
+    expect(result.statusCode).toBe(400);
+    const error = (
+      result.body as { error: { code: string; issues: { path: string; message: string }[] } }
+    ).error;
+    expect(error.code).toBe("invalid_config");
+    expect(error.issues[0]?.message).toContain("must share identical model prices");
+  });
+});

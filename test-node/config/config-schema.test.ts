@@ -1,12 +1,17 @@
 import { describe, expect, it } from "vitest";
 
 import {
+  collectLoadBalancerWarnings,
+  loadBalancerGroupSchema,
+  modelPatternsMayOverlap,
   modelMappingSchema,
   modelPriceSchema,
   proxyConfigFileSchema,
   proxyPairSchema,
   targetConfigSchema,
+  type ProxyPair,
 } from "../../src/config/config-schema.js";
+import { normalizeProxyConfigFile } from "../../src/config/config-normalizer.js";
 
 describe("modelMappingSchema", () => {
   it("trims and validates listen/upstream model names", () => {
@@ -197,6 +202,7 @@ describe("proxyPairSchema", () => {
       access_log: false,
       targets: [target],
       default_target_id: "target-1",
+      load_balancers: [],
     };
 
     expect(proxyPairSchema.parse(pair)).toEqual(pair);
@@ -273,5 +279,443 @@ describe("proxyConfigFileSchema duplicate IDs", () => {
 
     expect(result.success).toBe(false);
     expect(result.error?.issues[0]?.message).toContain("duplicate target id");
+  });
+});
+
+describe("loadBalancerGroupSchema", () => {
+  const groupFixture = {
+    id: "lb-1",
+    name: "Dual card",
+    enabled: true,
+    model_pattern: "Qwen3.8-Flash-Next",
+    node_target_ids: ["lb-target-a", "lb-target-b"],
+    strategy: "least_load",
+    metrics_enabled: true,
+    failover_enabled: true,
+  };
+
+  it("LB01-07 keeps strategy, switches and node order through a schema round trip", () => {
+    const submitted = {
+      ...groupFixture,
+      strategy: "round_robin",
+      metrics_enabled: false,
+      failover_enabled: false,
+      node_target_ids: ["lb-target-b", "lb-target-a"],
+    };
+
+    const once = loadBalancerGroupSchema.parse(submitted);
+    expect(loadBalancerGroupSchema.parse(once)).toEqual(once);
+    expect(once).toMatchObject({
+      strategy: "round_robin",
+      metrics_enabled: false,
+      failover_enabled: false,
+      node_target_ids: ["lb-target-b", "lb-target-a"],
+    });
+  });
+
+  it("applies v1 defaults for a minimal group", () => {
+    expect(
+      loadBalancerGroupSchema.parse({
+        id: " lb-1 ",
+        name: "Dual",
+        model_pattern: " qwen* ",
+        node_target_ids: ["lb-target-a"],
+      }),
+    ).toEqual({
+      id: "lb-1",
+      name: "Dual",
+      enabled: true,
+      model_pattern: "qwen*",
+      node_target_ids: ["lb-target-a"],
+      strategy: "least_load",
+      metrics_enabled: true,
+      failover_enabled: true,
+    });
+  });
+
+  it("LB01-03 accepts a group with a single node", () => {
+    expect(
+      loadBalancerGroupSchema.parse({ ...groupFixture, node_target_ids: ["lb-target-a"] }),
+    ).toMatchObject({ node_target_ids: ["lb-target-a"] });
+  });
+
+  it("LB01-03 rejects an empty node list, a missing model pattern and a missing id", () => {
+    expect(() => loadBalancerGroupSchema.parse({ ...groupFixture, node_target_ids: [] })).toThrow(
+      /at least one node target/u,
+    );
+    expect(() => loadBalancerGroupSchema.parse({ ...groupFixture, model_pattern: " " })).toThrow();
+    expect(() => loadBalancerGroupSchema.parse({ ...groupFixture, id: "" })).toThrow();
+  });
+
+  it("LB01-02 reports a node target listed twice with its group path", () => {
+    const result = loadBalancerGroupSchema.safeParse({
+      ...groupFixture,
+      node_target_ids: ["lb-target-a", "lb-target-a"],
+    });
+
+    expect(result.success).toBe(false);
+    expect(result.error?.issues[0]?.message).toContain(
+      "duplicate load balancer node target in group lb-1",
+    );
+    expect(result.error?.issues[0]?.path).toEqual(["node_target_ids", 1]);
+  });
+
+  it("rejects a strategy text the runtime cannot execute", () => {
+    expect(() =>
+      loadBalancerGroupSchema.parse({ ...groupFixture, strategy: "weighted" }),
+    ).toThrow();
+  });
+});
+
+describe("proxyConfigFileSchema load balancer validation", () => {
+  const targetFixture = {
+    id: "lb-target-a",
+    name: "GPU 1",
+    enabled: true,
+    target_url: "http://127.0.0.1:9393/v1",
+    target_api_key: "",
+    target_headers: [],
+    strip_request_fields: "",
+    inject_request_fields: "",
+    log_root: "logs",
+    redact_logs: false,
+    model_mappings: [],
+    model_prices: [],
+  };
+  const groupFixture = {
+    id: "lb-1",
+    name: "Dual card",
+    enabled: true,
+    model_pattern: "Qwen3.8-Flash-Next",
+    node_target_ids: ["lb-target-a", "lb-target-b"],
+    strategy: "least_load",
+    metrics_enabled: true,
+    failover_enabled: true,
+  };
+  const priceRule = {
+    model_pattern: "qwen*",
+    input_per_million: "1",
+    output_per_million: "2",
+    cache_read_per_million: "3",
+    cache_write_per_million: "4",
+  };
+
+  function targetWith(overrides: Record<string, unknown>): Record<string, unknown> {
+    return { ...targetFixture, ...overrides };
+  }
+
+  function pairValue(
+    options: {
+      readonly targets?: readonly unknown[];
+      readonly groups?: readonly unknown[];
+      readonly pairId?: string;
+    } = {},
+  ): Record<string, unknown> {
+    return {
+      id: options.pairId ?? "proxy-1",
+      name: "Proxy",
+      enabled: false,
+      listen_host: "127.0.0.1",
+      listen_port: 1234,
+      access_log: false,
+      targets: options.targets ?? [targetFixture, targetWith({ id: "lb-target-b" })],
+      default_target_id: "lb-target-a",
+      load_balancers: options.groups ?? [],
+    };
+  }
+
+  function file(
+    options: {
+      readonly targets?: readonly unknown[];
+      readonly groups?: readonly unknown[];
+      readonly pairId?: string;
+      readonly pairs?: readonly unknown[];
+    } = {},
+  ): unknown {
+    return { pairs: options.pairs ?? [pairValue(options)] };
+  }
+
+  function issues(value: unknown): { readonly message: string; readonly path: string }[] {
+    const result = proxyConfigFileSchema.safeParse(value);
+    if (result.success) {
+      return [];
+    }
+    return result.error.issues.map((issue) => ({
+      message: issue.message,
+      path: issue.path.map((segment) => String(segment)).join("."),
+    }));
+  }
+
+  function firstPair(value: unknown): ProxyPair {
+    const parsed = proxyConfigFileSchema.parse(value);
+    const pair = parsed.pairs[0];
+    if (pair === undefined) {
+      throw new Error("Expected one parsed pair.");
+    }
+    return pair;
+  }
+
+  it("LB01-01 loads an old configuration file and keeps every other field", () => {
+    const normalized = normalizeProxyConfigFile(file());
+
+    expect(normalized.pairs[0]?.load_balancers).toEqual([]);
+    expect(normalized.pairs[0]?.id).toBe("proxy-1");
+    expect(normalized.pairs[0]?.default_target_id).toBe("lb-target-a");
+    expect(normalized.pairs[0]?.targets.map((target) => target.id)).toEqual([
+      "lb-target-a",
+      "lb-target-b",
+    ]);
+    expect(proxyConfigFileSchema.parse(proxyConfigFileSchema.parse(file()))).toEqual(
+      proxyConfigFileSchema.parse(file()),
+    );
+  });
+
+  it("LB01-02 rejects a duplicated group id with its exact path", () => {
+    expect(issues(file({ groups: [groupFixture, { ...groupFixture }] }))).toContainEqual({
+      message: "duplicate load balancer id in pair proxy-1: lb-1",
+      path: "pairs.0.load_balancers.1.id",
+    });
+  });
+
+  it("LB01-02 rejects a node target that is not in the pair", () => {
+    const found = issues(
+      file({
+        groups: [{ ...groupFixture, node_target_ids: ["lb-target-a", "ghost"] }],
+      }),
+    );
+
+    expect(found).toContainEqual({
+      message: "load balancer node target not found in pair proxy-1: ghost",
+      path: "pairs.0.load_balancers.0.node_target_ids.1",
+    });
+  });
+
+  it("LB01-02 rejects a node target taken from another pair", () => {
+    const otherPair = {
+      id: "proxy-2",
+      name: "Other",
+      enabled: false,
+      listen_host: "127.0.0.1",
+      listen_port: 1235,
+      access_log: false,
+      targets: [targetWith({ id: "lb-target-b" })],
+      default_target_id: "lb-target-b",
+      load_balancers: [{ ...groupFixture, node_target_ids: ["lb-target-a"] }],
+    };
+
+    expect(issues(file({ pairs: [pairValue(), otherPair] }))).toContainEqual({
+      message: "load balancer node target not found in pair proxy-2: lb-target-a",
+      path: "pairs.1.load_balancers.0.node_target_ids.0",
+    });
+  });
+
+  it("LB01-06 rejects two groups with the exact same model pattern", () => {
+    expect(
+      issues(
+        file({
+          groups: [
+            groupFixture,
+            { ...groupFixture, id: "lb-2", model_pattern: " Qwen3.8-Flash-Next " },
+          ],
+        }),
+      ),
+    ).toContainEqual({
+      message: "duplicate load balancer model pattern in pair proxy-1: Qwen3.8-Flash-Next",
+      path: "pairs.0.load_balancers.1.model_pattern",
+    });
+  });
+
+  it("LB01-06 saves partially overlapping patterns and reports a warning", () => {
+    const groups = [
+      { ...groupFixture, model_pattern: "qwen*" },
+      { ...groupFixture, id: "lb-2", model_pattern: "*flash*" },
+    ];
+
+    expect(issues(file({ groups }))).toEqual([]);
+    expect(collectLoadBalancerWarnings(firstPair(file({ groups })))).toMatchObject([
+      { group_id: "lb-1", code: "overlapping_pattern", related_group_ids: ["lb-2"] },
+    ]);
+  });
+
+  it("LB01-03 accepts a disabled member and reports it as a warning", () => {
+    const pair = firstPair(
+      file({
+        targets: [targetFixture, targetWith({ id: "lb-target-b", enabled: false })],
+        groups: [groupFixture],
+      }),
+    );
+
+    expect(pair.load_balancers).toHaveLength(1);
+    expect(collectLoadBalancerWarnings(pair)).toContainEqual({
+      group_id: "lb-1",
+      group_index: 0,
+      code: "disabled_member",
+      related_group_ids: [],
+      related_target_ids: ["lb-target-b"],
+    });
+  });
+
+  it("LB01-03 warns when a group has only one node", () => {
+    const pair = firstPair(
+      file({ groups: [{ ...groupFixture, node_target_ids: ["lb-target-a"] }] }),
+    );
+
+    expect(collectLoadBalancerWarnings(pair)).toEqual([
+      {
+        group_id: "lb-1",
+        group_index: 0,
+        code: "single_node",
+        related_group_ids: [],
+        related_target_ids: ["lb-target-a"],
+      },
+    ]);
+  });
+
+  it("LB01-04 rejects nodes that resolve to different log roots", () => {
+    expect(
+      issues(
+        file({
+          targets: [targetFixture, targetWith({ id: "lb-target-b", log_root: "logs/secondary" })],
+          groups: [groupFixture],
+        }),
+      ),
+    ).toContainEqual({
+      message:
+        'load balancer group lb-1 nodes must share one log root: lb-target-a uses "logs" but lb-target-b uses "logs/secondary"',
+      path: "pairs.0.load_balancers.0.node_target_ids.1",
+    });
+  });
+
+  it("LB01-04 treats differently written but equal roots as one directory", () => {
+    expect(
+      issues(
+        file({
+          targets: [
+            targetFixture,
+            targetWith({ id: "lb-target-b", log_root: "./logs/" }),
+            targetWith({ id: "lb-target-c", log_root: " logs\\sub\\.. " }),
+          ],
+          groups: [
+            {
+              ...groupFixture,
+              node_target_ids: ["lb-target-a", "lb-target-b", "lb-target-c"],
+            },
+          ],
+        }),
+      ),
+    ).toEqual([]);
+  });
+
+  it("LB01-04 accepts a group where every member switched logging off", () => {
+    expect(
+      issues(
+        file({
+          targets: [targetWith({ log_root: "" }), targetWith({ id: "lb-target-b", log_root: "" })],
+          groups: [groupFixture],
+        }),
+      ),
+    ).toEqual([]);
+  });
+
+  it("LB01-04 rejects mixing disabled logging with an enabled log root", () => {
+    const found = issues(
+      file({
+        targets: [targetWith({ log_root: "" }), targetWith({ id: "lb-target-b" })],
+        groups: [groupFixture],
+      }),
+    );
+
+    expect(found[0]?.message).toContain("must share one log root");
+    expect(found[0]?.path).toBe("pairs.0.load_balancers.0.node_target_ids.1");
+  });
+
+  it("LB01-05 rejects price rules that differ in order, pattern or amount", () => {
+    const reordered = issues(
+      file({
+        targets: [
+          targetWith({ model_prices: [priceRule, { ...priceRule, model_pattern: "gpt*" }] }),
+          targetWith({
+            id: "lb-target-b",
+            model_prices: [{ ...priceRule, model_pattern: "gpt*" }, priceRule],
+          }),
+        ],
+        groups: [groupFixture],
+      }),
+    );
+
+    expect(reordered[0]?.message).toContain(
+      "load balancer group lb-1 nodes must share identical model prices: lb-target-a differs from lb-target-b",
+    );
+    expect(reordered[0]?.path).toBe("pairs.0.load_balancers.0.node_target_ids.1");
+
+    expect(
+      issues(
+        file({
+          targets: [
+            targetWith({ model_prices: [priceRule] }),
+            targetWith({
+              id: "lb-target-b",
+              model_prices: [{ ...priceRule, input_per_million: "9" }],
+            }),
+          ],
+          groups: [groupFixture],
+        }),
+      )[0]?.message,
+    ).toContain("must share identical model prices");
+
+    expect(
+      issues(
+        file({
+          targets: [
+            targetWith({ model_prices: [priceRule] }),
+            targetWith({ id: "lb-target-b", model_prices: [] }),
+          ],
+          groups: [groupFixture],
+        }),
+      )[0]?.message,
+    ).toContain("must share identical model prices");
+  });
+
+  it("LB01-05 accepts equal rule lists and an explicitly unpriced group", () => {
+    expect(
+      issues(
+        file({
+          targets: [
+            targetWith({ model_prices: [priceRule] }),
+            targetWith({
+              id: "lb-target-b",
+              model_prices: [{ ...priceRule, input_per_million: "1.0" }],
+            }),
+          ],
+          groups: [groupFixture],
+        }),
+      ),
+    ).toEqual([]);
+    expect(
+      issues(
+        file({
+          targets: [targetFixture, targetWith({ id: "lb-target-b" })],
+          groups: [groupFixture],
+        }),
+      ),
+    ).toEqual([]);
+  });
+});
+
+describe("load balancer pattern overlap", () => {
+  it.each([
+    ["qwen*", "qwen3*", true],
+    ["qwen*", "Qwen*", false],
+    ["*flash*", "qwen3*", true],
+    ["gpt-4*", "gpt-4o", true],
+    ["gpt-4*", "o4", false],
+    ["a*b", "a*c", false],
+    ["*a*b*", "*b*a*", false],
+    ["*a*a*", "*a*", true],
+    ["*", "anything", true],
+    ["exact-name", "exact-name", true],
+    ["exact-name", "other-name", false],
+  ])("modelPatternsMayOverlap(%s, %s) is %s", (left, right, expected) => {
+    expect(modelPatternsMayOverlap(left, right)).toBe(expected);
   });
 });

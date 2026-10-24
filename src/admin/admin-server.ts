@@ -4,7 +4,13 @@ import { performance } from "node:perf_hooks";
 import type { Readable } from "node:stream";
 
 import type { ApplicationState } from "../app/index.js";
-import type { ProxyPair, PublicProxyPair, SummaryModelConfig } from "../config/index.js";
+import { ConfigValidationError } from "../config/index.js";
+import type {
+  ConfigFieldError,
+  ProxyPair,
+  PublicProxyPair,
+  SummaryModelConfig,
+} from "../config/index.js";
 import type {
   LogCleanupResult,
   LogGroupLogs,
@@ -133,6 +139,7 @@ export interface AdminErrorDto {
   readonly error: {
     readonly code: string;
     readonly message: string;
+    readonly issues?: readonly ConfigFieldError[];
   };
 }
 
@@ -159,6 +166,19 @@ export const ADMIN_ERROR_DTO_SCHEMA = {
       properties: {
         code: { type: "string" },
         message: { type: "string" },
+        issues: {
+          type: "array",
+          items: {
+            type: "object",
+            additionalProperties: false,
+            required: ["code", "message", "path"],
+            properties: {
+              code: { type: "string" },
+              message: { type: "string" },
+              path: { type: "string" },
+            },
+          },
+        },
       },
     },
   },
@@ -580,6 +600,7 @@ export function createAdminServer(options: AdminServerOptions): FastifyInstance 
           publicError
             ? (errorProperty(error, "message", "string") ?? "Request failed.")
             : "Internal server error.",
+          error instanceof ConfigValidationError ? error.issues : undefined,
         ),
       );
   });
@@ -1103,8 +1124,12 @@ function csvCell(value: unknown): string {
   return /[",\n\r]/.test(safe) ? `"${safe.replace(/"/g, '""')}"` : safe;
 }
 
-export function adminError(code: string, message: string): AdminErrorDto {
-  return { error: { code, message } };
+export function adminError(
+  code: string,
+  message: string,
+  issues?: readonly ConfigFieldError[],
+): AdminErrorDto {
+  return { error: { code, message, ...(issues === undefined ? {} : { issues }) } };
 }
 
 function errorProperty<T extends "number" | "string">(

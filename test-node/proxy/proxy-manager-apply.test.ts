@@ -121,6 +121,50 @@ describe("ProxyManager configuration apply", () => {
     }
   });
 
+  it("LB01-01 adds a load balancer group without moving the listener or changing routing", async () => {
+    const upstream = http.createServer((_request, response) => response.end("plain"));
+    const upstreamPort = await listen(upstream);
+    const registry = new ProxyRuntimeRegistry();
+    const before: ProxyPair = pairFixture(upstreamPort, "Before");
+    const runtime = await registry.startPair(before);
+    const listenPort = runtime.actualListenPort ?? 0;
+    const manager = new ProxyManager(
+      { pairs: [before] },
+      { save: () => Promise.resolve() },
+      { registry },
+    );
+    const after: ProxyPair = {
+      ...before,
+      name: "After",
+      load_balancers: [
+        {
+          id: "lb-1",
+          name: "Dual card",
+          enabled: true,
+          model_pattern: "qwen*",
+          node_target_ids: ["managed-target"],
+          strategy: "least_load",
+          metrics_enabled: true,
+          failover_enabled: true,
+        },
+      ],
+    };
+
+    try {
+      const pairs = await manager.applyConfiguration({ pairs: [after] });
+      expect(pairs[0]).toMatchObject({
+        name: "After",
+        running: true,
+        actual_listen_port: listenPort,
+      });
+      expect(manager.listPairs()[0]?.load_balancers.map((group) => group.id)).toEqual(["lb-1"]);
+      await expect(requestText(listenPort, "/managed")).resolves.toBe("plain");
+    } finally {
+      await manager.stopAll();
+      await close(upstream);
+    }
+  });
+
   it("restores old config and runtime when saving the replacement fails", async () => {
     const firstUpstream = http.createServer((_request, response) => response.end("old"));
     const secondUpstream = http.createServer((_request, response) => response.end("new"));
@@ -167,6 +211,7 @@ function pairFixture(upstreamPort: number, name: string): ProxyPair {
     listen_port: 0,
     access_log: false,
     default_target_id: "managed-target",
+    load_balancers: [],
     targets: [
       {
         id: "managed-target",

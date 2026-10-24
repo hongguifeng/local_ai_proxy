@@ -1,6 +1,8 @@
 import { isRecord } from "../shared/index.js";
 
 import type {
+  LoadBalancerGroup,
+  LoadBalancerStrategy,
   ModelMapping,
   ModelPrice,
   ProxyConfigFile,
@@ -111,6 +113,7 @@ export function normalizeProxyPair(
     access_log: Boolean(raw["access_log"] ?? false),
     targets,
     default_target_id: normalizeDefaultTargetId(raw["default_target_id"], targets),
+    load_balancers: normalizeLoadBalancerGroups(raw["load_balancers"]),
   };
 }
 
@@ -150,6 +153,57 @@ export function normalizeModelPrices(value: unknown): ModelPrice[] {
     return [];
   }
   return value as ModelPrice[];
+}
+
+/**
+ * Fill in generated ids and defaults for load balancing groups. Unknown node
+ * target ids and unknown strategy text are kept so schema validation can report
+ * them with an exact path instead of silently dropping configuration.
+ */
+export function normalizeLoadBalancerGroups(value: unknown): LoadBalancerGroup[] {
+  if (value === undefined) {
+    return [];
+  }
+  if (!Array.isArray(value)) {
+    return value as LoadBalancerGroup[];
+  }
+  return value.map((group, index) =>
+    isRecord(group) ? normalizeLoadBalancerGroup(group, index) : (group as LoadBalancerGroup),
+  );
+}
+
+function normalizeLoadBalancerGroup(
+  value: Record<string, unknown>,
+  index: number,
+): LoadBalancerGroup {
+  const id = primitiveText(value["id"]).trim() || `lb-${index + 1}`;
+  const nodeTargetIds = Array.isArray(value["node_target_ids"])
+    ? value["node_target_ids"].map((targetId) => primitiveText(targetId).trim())
+    : [primitiveText(value["node_target_ids"]).trim()];
+  return {
+    id,
+    name: primitiveText(value["name"]) || id,
+    enabled: value["enabled"] === undefined ? true : Boolean(value["enabled"]),
+    model_pattern: primitiveText(value["model_pattern"]).trim(),
+    node_target_ids: nodeTargetIds,
+    strategy: normalizeLoadBalancerStrategy(value["strategy"]),
+    metrics_enabled:
+      value["metrics_enabled"] === undefined ? true : Boolean(value["metrics_enabled"]),
+    failover_enabled:
+      value["failover_enabled"] === undefined ? true : Boolean(value["failover_enabled"]),
+  };
+}
+
+function normalizeLoadBalancerStrategy(value: unknown): LoadBalancerStrategy {
+  const text = primitiveText(value).trim();
+  if (text === "" || text === "least_load") {
+    return "least_load";
+  }
+  if (text === "round_robin") {
+    return "round_robin";
+  }
+  // Any other text is handed to the schema, which rejects it with the group path.
+  return text as LoadBalancerStrategy;
 }
 
 function primitiveText(value: unknown): string {

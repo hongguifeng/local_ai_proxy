@@ -46,5 +46,6 @@ export function createDefaultProxyPair(logRoot = DEFAULT_LOG_ROOT): ProxyPair {
     access_log: false,
     targets: [target],
     default_target_id: target.id,
+    load_balancers: [],
   };
 }
