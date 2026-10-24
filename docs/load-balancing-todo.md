@@ -1,6 +1,6 @@
 # 多节点负载均衡开发 TODO
 
-创建日期：2026-10-22。当前进度：15 / 16 项完成。
+创建日期：2026-10-22。当前进度：16 / 16 项完成。
 
 设计依据：[多节点负载均衡设计（粘性任务路由 v1）](./load-balancing-design.md)。决策记录：[ADR-013](./adr/013-load-balancing-sticky-routing.md)。本清单供后续开发、测试、验收和逐项提交使用。设计发生变化时，必须同时更新设计文档和本清单，不能只改代码。
 
@@ -70,7 +70,7 @@ npx electron-builder -w portable --publish never
 | [x] | LB-13 | 文档收尾、全量检查和交付构建 | LB-12 | 完成 |
 | [x] | LB-14 | 校验节点模型支持未保存的组草稿 | LB-10、LB-09 | 完成 |
 | [x] | LB-15 | 卡片与转发地址同宽，参与节点改成浮动勾选 | LB-10 | 完成 |
-| [ ] | LB-16 | 删除匹配预览输入与校验节点模型 | LB-10、LB-14 | 未开始 |
+| [x] | LB-16 | 删除匹配预览输入与校验节点模型 | LB-10、LB-14 | 完成 |
 
 ## 4. 逐项实施与验收
 
@@ -686,6 +686,46 @@ npx electron-builder -w portable --publish never
 - 提交 SHA：`019560d`
 - 备注：`display: grid` 盖掉 `[hidden]` 的 `display: none`，第一版探针因此报出「点外面没关掉」——补上 `.lb-picker-pop[hidden] { display: none }` 才正确；临时探针与四张临时截图已删除，没有遗留浏览器进程。
 
+### LB-16
+
+- 状态：完成
+- 来源：用户结论「匹配预览输入和校验节点模型这两个功能没什么用，直接删掉」，
+  并在追问里选了「界面和接口一起删」。
+- 实际变更：`src/admin/static/app.js` 删掉 `.lb-preview` 整块、校验按钮与结果区、
+  `runLoadBalancerModelCheck`、`lbPatternMatches`、`[data-lb-preview]` 监听、卡片点击里的校验分支
+  和 11 个只给这两件事用的中英文案；`src/admin/static/app.css` 删掉 `.lb-preview`、
+  `.lb-verify-*` 以及媒体查询里的 `.lb-preview`。
+  `src/proxy/load-balancer-admin.ts` 删掉 `verifyModels`、`fetchModelList`、`readLimitedBody`、
+  `modelIdsFromPayload`、三个类型、三个常量和 `LoadBalancerAdminOptions`，255 行变 137 行；
+  `src/admin/admin-server.ts` 删掉路由、两个 schema、接口里的 `verifyModels` 和两个类型导入；
+  `src/proxy/index.ts` 删掉 5 个导出。
+  `test-node/admin/load-balancer.test.ts` 删掉整个 verify `describe`（6 条用例）、`jsonModelList`
+  和校验类型导入，LB09-06 改成「服务缺席时 404，且模型校验路由已不存在」；
+  `test-node/app/runtime.test.ts` 两处校验断言换成「这条路由已经不存在 → 404 `not_found`」；
+  `test-node/ui/admin-ui.test.ts` 删掉 2 条用例、预览断言、stub 的 `verifyModels`、`lbVerify*`
+  状态变量与 fixture，浮层布局探针从 `.lb-preview` 换成 `.lb-status`，溢出检测选择器去掉
+  `.lb-preview`。
+- 测试命令：`npx vitest run test-node/admin/load-balancer.test.ts test-node/app/runtime.test.ts`；
+  `npx vitest run test-node/ui/admin-ui.test.ts`；
+  `REGEN_BASELINES=1 npx vitest run test-node/ui/admin-ui.test.ts -t "load balancing baseline"`；
+  `npx vitest run`。
+- 测试结果：admin + runtime 8 passed；UI 86 passed（88 减去删掉的 2 条）；
+  全量 103 文件 / 917 用例（之前 925，删掉 8 条）。
+- UI 基线：已重录 `doc/ui_lb_cn.png`（1278×1075，
+  `87918dca4a0eb5960f1d6647e6f4ab5af13a51f336a1127e2cbe2b8728f2e036`）和
+  `doc/ui_lb_en.png`（1278×1120，
+  `71f05d0dfbe373b5dc810eaaab58b6ce6adf56202552894f2211600a57397f36`），两张都比旧基线矮
+  92 px；其余八张零像素差通过，代理页和统计页没动。
+- 设计偏差：设计文档 §5.3（模型一致性校验）整节删除；§11 的 API 列表、§12.1 的卡片
+  内容清单、§13.3 的验收清单各去掉一条；§12 落地说明里 LB-10 那条关于校验按钮的描述
+  （含 LB-14 对它的改写）删掉，换成 LB-16 这一条。
+- 提交标题：`feat(load-balancing): [LB-16] drop the match preview and the node model check`
+- 提交 SHA：`c86295f`（功能与文档）；本条记录单独提交。
+- 备注：删 `const draft = drafts[groupIndex] || {}` 时认定只有预览在用，其实 LB-15 的芯片行
+  和节点状态行重建都靠它，恢复这一行之后才有 86 passed；第一轮 8 条失败里有 6 条是这个原因。
+  第二个坑：用 `grep | head` 枚举待删引用被截断了，`[data-verify-lb-models]` 的一次点击留在
+  轮询用例里，点了已经不存在的按钮，30 秒超时。
+
 每完成一个任务，在这里追加一条记录：
 
 ```text
@@ -716,5 +756,5 @@ npx electron-builder -w portable --publish never
 - [x] 无健康节点返回 503，不回落普通路由（LB07-06、LB11-06）；
 - [x] reload、abort、failover、stop 后没有资源泄漏（LB04-04/05、LB11-07、LB11-11）；
 - [x] API、UI、中文/英文基线和文档同步（LB09、LB10 基线哈希、LB13 四处文档、LB15 两张负载均衡整页基线）；
-- [x] `npm run check` 或等价全量检查通过（2026-10-24，103 文件 / 925 用例）；
+- [x] `npm run check` 或等价全量检查通过（2026-10-24，103 文件 / 917 用例）；
 - [x] portable executable 构建完成并经过 artifact 检查（`release/LLM-Proxy-0.4.10-x64-portable.exe`）。
