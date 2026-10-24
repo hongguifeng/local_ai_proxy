@@ -636,6 +636,19 @@ npx electron-builder -w portable --publish never
 - 提交 SHA：`feb36ad`
 - 备注：过程中踩了两次：`Array.isArray` 把 `readonly string[]` 收窄成 `any[]`，触发了 `@typescript-eslint/no-unsafe-assignment`，改用 `?? []` 后消失；`npm run package:electron:portable` 把 `better-sqlite3` 留在 Electron ABI 143，不 rebuild 直接跑 Node 测试会在 `openLogDatabase` 处炸 `NODE_MODULE_VERSION`。
 
+### LB-15
+
+- 状态：完成
+- 来源：交付后的用户反馈。用户指出负载均衡卡片占满整行、与转发地址卡片视觉不统一，而「参与节点」一排复选框不对齐、「禁用」还被挤成竖排。
+- 实际变更：`src/admin/static/app.css`（`.lb-groups` 改成与 `.targets-row` 相同的 `repeat(auto-fit, minmax(300px, 360px))` + `justify-content: start` + `align-items: start`，`.lb-card` 加 `align-self: start`；删掉旧的 `.lb-members` / `.lb-member` / `.lb-member-disabled`，新增 `.lb-members-field`、`.lb-selected`、`.lb-chip`、`.lb-picker`、`.lb-picker-pop`（含 `[hidden]`）、`.lb-member`（三列网格）、`.lb-off`）；`src/admin/static/app.js`（新增 `lbMemberOptionHtml`、`lbSelectedNodesHtml`、`lbSelectionSignature`、`lbDisabledTargetIds`、`toggleLbPicker`、`closeLbPickers`，`lbGroupCard` 把参与节点改成「卡片只列已选 + 浮层列全部」，`refreshLbCards` 按成员+禁用签名重建 `.lb-selected`，`handleLoadBalancerClick` 认 `[data-lb-picker-toggle]`，document `pointerdown` 与 `keydown` 关闭浮层，新增 `lbMembersNone` / `lbChooseNodes` 中英文案）；`test-node/ui/admin-ui.test.ts`（`tickMembers` 先开浮层再勾选，10 条旧用例改造，新增一条浮层用例，新增 `visualLbPairs()` + `loadLbBaseline()` 与两条整页基线用例，fixture 只保留第一个代理、两组各选两个启用的节点，因此没有禁用标记和警告）；新增基线 `doc/ui_lb_cn.png` / `doc/ui_lb_en.png`；`scripts/regen_ui_baselines.mjs`（捕获清单加这两张）；`docs/refactoring/ui-visual-baseline.md`（登记从八张改为十张，新增「负载均衡组卡片状态」一节）；`docs/ui-screenshot-assessment.md`。文档：README 负载均衡表与整页插图、功能说明书 §5.4、设计文档 §12.1 / §12.3 / §13.3。
+- 测试命令：`npx vitest run test-node/ui/admin-ui.test.ts -t "admin UI load balancing groups"`、`REGEN_BASELINES=1 npx vitest run test-node/ui/admin-ui.test.ts -t "load balancing baseline"`、`npx vitest run test-node/ui/admin-ui.test.ts`、`npm run test`、`npx tsc -p tsconfig.json --noEmit`、`npm run lint`、`npx prettier --check .`；另用一个临时 `probe-lb.mjs`（跑完即删）在真实 Chromium 里量宽度、行高和浮层几何
+- 测试结果：LB 区块 11 passed（之前 10，新增「lists every node in a floating picker…」）；视觉回归新增的两条负载均衡基线均通过，`admin-ui.test.ts` 88 passed（之前 86）；全量 103 文件 / 925 例全绿；类型、lint、格式检查通过。探针实测：组卡片宽 360 px 与转发地址卡片相同，打开浮层前后卡片高度都是 412 px，11 行选项行高均为 27 px（无换行无截断），「禁用」标记高 16 px（单行），点浮层外与 Esc 均关闭，一次只开一个浮层，卡片贴近页面底部时浮层朝上开且底边落在视口内
+- UI 基线：新增两张整页基线并按用户三次反馈重录——`doc/ui_lb_cn.png`（1278 x 1167）= `76ace97b6e79fc42cb2efa113e211f67016b4ef779deb54ce550268a94927d75`、`doc/ui_lb_en.png`（1278 x 1212）= `0fc1e81ffdae89260b79d6a001458d122164b745b2b377c0cf3c44174f247b48`；`visualLbPairs()` 只留第一个代理卡片（第二个代理把整页撑到近 1800 px，用户要求去掉），两组都选了成员（第二组 Cloud relay 用轮转），并且成员全部启用——这张图要放 README，用户要求不出现「组里有禁用的节点，它不会参与选择」，所以 fixture 不再把第三个转发节点置为禁用；两张图都完整检视过，英文界面没有任何中文，节点标签没有被截断；原有八张基线未重录，在全量测试里原样全绿（代理页 fixture 的 `load_balancers` 仍为空数组，所以代理页基线字节不变）
+- 设计偏差：无新增偏差；设计文档 §12.1 的「本 pair target 的勾选列表」按本次交互改写为「已选标签行 + 浮层复选框列表」
+- 提交标题：`feat(load-balancing): [LB-15] match target card width and pick members in a floating list`
+- 提交 SHA：`019560d`
+- 备注：`display: grid` 盖掉 `[hidden]` 的 `display: none`，第一版探针因此报出「点外面没关掉」——补上 `.lb-picker-pop[hidden] { display: none }` 才正确；临时探针与四张临时截图已删除，没有遗留浏览器进程。
+
 每完成一个任务，在这里追加一条记录：
 
 ```text
@@ -665,6 +678,6 @@ npx electron-builder -w portable --publish never
 - [x] canonical node key 不受本地 host 别名影响（LB04、LB12 `localhost` 归一）；
 - [x] 无健康节点返回 503，不回落普通路由（LB07-06、LB11-06）；
 - [x] reload、abort、failover、stop 后没有资源泄漏（LB04-04/05、LB11-07、LB11-11）；
-- [x] API、UI、中文/英文基线和文档同步（LB09、LB10 基线哈希、LB13 四处文档）；
-- [x] `npm run check` 或等价全量检查通过（2026-10-24，103 文件 / 918 用例）；
+- [x] API、UI、中文/英文基线和文档同步（LB09、LB10 基线哈希、LB13 四处文档、LB15 两张负载均衡整页基线）；
+- [x] `npm run check` 或等价全量检查通过（2026-10-24，103 文件 / 925 用例）；
 - [x] portable executable 构建完成并经过 artifact 检查（`release/LLM-Proxy-0.4.10-x64-portable.exe`）。
