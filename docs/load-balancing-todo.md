@@ -1,6 +1,6 @@
 # 多节点负载均衡开发 TODO
 
-创建日期：2026-10-22。当前进度：10 / 13 项完成。
+创建日期：2026-10-22。当前进度：11 / 13 项完成。
 
 设计依据：[多节点负载均衡设计（粘性任务路由 v1）](./load-balancing-design.md)。决策记录：[ADR-013](./adr/013-load-balancing-sticky-routing.md)。本清单供后续开发、测试、验收和逐项提交使用。设计发生变化时，必须同时更新设计文档和本清单，不能只改代码。
 
@@ -65,7 +65,7 @@ npx electron-builder -w portable --publish never
 | [x] | LB-08 | 上游 metrics 采样与负载快照 | LB-04、LB-05 | 完成 |
 | [x] | LB-09 | 路由记录与状态/模型校验 API | LB-05～LB-08 | 完成 |
 | [x] | LB-10 | 管理 UI、i18n 和视觉基线 | LB-01、LB-08、LB-09 | 完成 |
-| [ ] | LB-11 | 端到端、reload、pending 和价格回归 | LB-02～LB-10 | 未开始 |
+| [x] | LB-11 | 端到端、reload、pending 和价格回归 | LB-02～LB-10 | 完成 |
 | [ ] | LB-12 | 真实节点验收与性能检查 | LB-11 | 未开始 |
 | [ ] | LB-13 | 文档收尾、全量检查和交付构建 | LB-12 | 未开始 |
 
@@ -566,6 +566,18 @@ npx electron-builder -w portable --publish never
 - 提交标题：`feat(load-balancing): [LB-10] add load balancing group cards to the proxy page`
 - 提交 SHA：`e13aa69`
 - 备注：验证用的 `probe-lb-card.mts` 与三张临时截图已删除，没有遗留浏览器进程或定时器。
+
+### LB-11
+
+- 状态：完成
+- 实际变更：只新增和扩展测试，没有改产品代码。新建 `test-node/proxy/load-balancer-integration.test.ts`（9 条，LB11-01～LB11-06、LB11-09～LB11-11：两个 stub 上游 + 真实 `ProxyRequestPipeline` + `ProxyListener`，上游回显收到的模型名，客户端共用一个 keep-alive agent，`refusedPort()` 用绑过又关掉的端口模拟死引擎）；扩展 `test-node/proxy/proxy-runtime-registry.test.ts`（LB11-07：在真实监听端口上发请求，请求仍在飞行时 `reloadPair`，断言同一个 balancer/monitor 对象、绑定存活、inFlight 归零、采样状态保留、下一轮仍回原引擎、`stopPair` 后亲和表清空；新增 `startStickyEngine`、`reloadStickyFixture`、`nodeOf`，`postJson` 增加可选 headers）；扩展 `test-node/logging/load-balancer-log-records.test.ts`（LB11-08：分片慢发 body，选路前 `?ids=` 返回空，选路后 pending 行可读且不含 body 列，落选引擎 `hits` 为 0；新增 `postSlowBody`，`startSlowEcho` 加 hits 计数）。
+- 测试命令：`npx vitest run test-node/proxy/load-balancer-integration.test.ts test-node/proxy/proxy-runtime-registry.test.ts test-node/logging/load-balancer-log-records.test.ts`、集成文件连跑三次、`npx vitest run`（全量）、`npx tsc -p tsconfig.json --noEmit`、`npm run lint`、`npx prettier --check .`
+- 测试结果：三个落点共 24 例全部通过（集成 9、runtime registry 13、history 2）；集成文件连跑三次都是 9/9；全量 103 个测试文件 / 918 个用例通过，LB 关闭时的既有路由、日志和价格用例行为没有变化；类型、lint、格式检查通过
+- UI 基线：未涉及
+- 设计偏差：见设计文档 §13.2 落地说明——冷却是建议不是禁止，全冷却的组仍会挑一个节点，所以 503 只由禁用或睡着产生；响应头发出后被掐断的流会冷却该节点，客户端自己 abort 不会；切换后 pricing snapshot 继续指向原计划节点；首条 user 相同的同构请求就是同一个 task，桶上限必须用不同的首条 user 才测得到；Windows 会耗尽临时端口，客户端必须复用 keep-alive socket；监视器首采样落在 5 秒定时器上，reload 测试改成先显式 `sampleNow()`
+- 提交标题：`test(load-balancing): [LB-11] prove the whole route, reload, pending and pricing chain`
+- 提交 SHA：`08f2263`
+- 备注：本项没有新增产品代码；没有遗留临时文件、定时器或浏览器进程；`.pi/` 仍然未跟踪也没有被提交。
 
 每完成一个任务，在这里追加一条记录：
 
