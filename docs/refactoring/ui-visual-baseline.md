@@ -10,10 +10,10 @@
 
 | 页面 | 语言 | 文件 | 图片尺寸 | SHA-256 | 说明 |
 | --- | --- | --- | --- | --- | --- |
-| Proxy | 中文 | `doc/ui_proxy_cn.png` | 1278 x 1215 | `641a8465939bb624c50ce8d1b001cbd0eb2c4c5adcea076bcff5a982290d6076` | 当前任务卡片与顶部时间范围为 2026-07-18 12:00:00 的静态 fixture(不是测试当前时间);侧栏日志组为 4 个任务 fixture(1 个 3 调用任务 + 1 个长任务)。转发地址卡片头部为名称输入框 + 测试/指标/删除按钮(默认选择器已移出头部行)，卡片左下角同一行依次是默认单选与启用复选框；默认选中时启用复选框保持勾选并置为禁用态。 |
-| Proxy | 英文 | `doc/ui_proxy_en.png` | 1278 x 1208 | `dcec51e547b5c76b6d54885305c105d73142620d2a36d1bbac164650021b7c17` | 当前任务卡片与顶部时间范围为 2026-07-18 12:00:00 的静态 fixture(不是测试当前时间);侧栏日志组为 4 个任务 fixture(1 个 3 调用任务 + 1 个长任务)。Target 卡片头部为名称输入框 + Test/Metrics/Delete 按钮(Default 选择器已移出头部行)，卡片左下角同一行依次是 Default 单选与 Enabled 复选框；Default 选中时 Enabled 保持勾选并禁用。 |
-| Load balancing | 中文 | `doc/ui_lb_cn.png` | 1278 x 1180 | `7edccaf4966fbf3e1fcf321b4a0c0774a6f123beda3fd26411b06198426210bc` | Proxy 页整页截图（viewport 高度自适应到整页，不是只截可视区），只保留第一个代理卡片以免整页过长。转发地址三张卡片全部启用（默认那张绿底、另外两张蓝底），下面以虚线分隔出负载均衡区：两张组卡片与转发地址卡片同宽、左对齐，右侧留白。左边那张参与节点下面是两行映射（`lmstudio`、`Target`，映射模型都留空），右边那张是另一个组 Cloud relay（轮转策略），成员 `openrouter` 与 `lmstudio`。组卡片里的四个控件（组名、pattern、选择策略、选择节点）长相一致：白底、1 px `#b8c5d3` 细边框、6 px 圆角、32 px 高、13 px 字，两个下拉和选择节点按钮右侧的箭头是同一张 SVG、靠右 10 px。成员行左边的节点名框与右边的映射模型框同样 32 px 高、13 px 字、同一描边色，只是名字框圆角与边框粗细沿用标签样式。两张卡片都是正常状态：成员全部启用，所以画面里没有「禁用」标记，也没有琥珀色警告行；成员浮层保持关闭，节点状态 details 保持折叠。禁用成员、各类警告与未选节点的空态都由功能用例覆盖，不进基线。 |
-| Load balancing | 英文 | `doc/ui_lb_en.png` | 1278 x 1225 | `c496c9a3185aa0c385b7b522f40c35f9f9bb94f34a7cdc310a8b1e600136f0d3` | 与中文基线同一 fixture 的英文界面：Dual GPU 的 Member nodes 是 `lmstudio` 与 `Target`，Cloud relay 是 Round robin、成员 `openrouter` 与 `lmstudio`；Least load 与 Round robin 两个 select 和 Choose nodes 按钮同一长相（白底、细边框、6 px 圆角、32 px 高、箭头同尺寸同位置）。两张卡片都是正常状态，没有 off 标记也没有警告行，Member nodes 下面是 Choose nodes 触发器和每个成员一行映射（节点名框 + Mapped model 输入框，两框等高），卡片到 Node state · 2 为止。fixture 不含名为“新代理”的第二个代理，所以画面里没有任何中文。 |
+| Proxy | 中文 | `doc/ui_proxy_cn.png` | 1278 x 1215 | `308b00b558d51ab8f5c9055c44fde9b9e0af7b14c0cea3e66d76d860a35c3dbc` | 当前任务卡片与顶部时间范围为 2026-07-18 12:00:00 的静态 fixture(不是测试当前时间);侧栏日志组为 4 个任务 fixture(1 个 3 调用任务 + 1 个长任务)。转发地址卡片头部左侧是名称输入框，右上角依次是自绘默认单选与启用开关（开关无文字），卡片左下角同一行依次是测试/指标/删除按钮与「更多配置」；卡片按状态保留淡填充（默认浅绿 `#d7e9e0`、已启用浅蓝 `#d5e0ed`、未启用浅灰 `#f5f6f8`）；默认选中时启用开关保持勾选并置为禁用态（整枚滑块降到 45% 透明度）。 |
+| Proxy | 英文 | `doc/ui_proxy_en.png` | 1278 x 1208 | `d01a5d4fd5fbb4edbc7e562077c743cc422a225c89d51ec6c01d728854f90574` | 当前任务卡片与顶部时间范围为 2026-07-18 12:00:00 的静态 fixture(不是测试当前时间);侧栏日志组为 4 个任务 fixture(1 个 3 调用任务 + 1 个长任务)。Target card 头部左侧是名称输入框，右上角依次是自绘 Default 单选与 Enabled 开关（开关无文字），卡片左下角同一行依次是 Test/Metrics/Delete 按钮与 More settings；卡片按状态保留淡填充（Default 浅绿 `#d7e9e0`、Enabled 浅蓝 `#d5e0ed`、未启用浅灰 `#f5f6f8`）；Default 选中时 Enabled 开关保持勾选并禁用。 |
+| Load balancing | 中文 | `doc/ui_lb_cn.png` | 1278 x 1180 | `22cf5780f835d2e5a17e7c7093aae6ab218c1cd6e0093522396f05f48f2c11c0` | Proxy 页整页截图（viewport 高度自适应到整页，不是只截可视区），只保留第一个代理卡片以免整页过长。转发地址三张卡片全部启用（默认那张浅绿填充 `#d7e9e0` 加绿色描边、另外两张浅蓝填充 `#d5e0ed` 加蓝色描边，右上角是默认单选与启用开关），下面以虚线分隔出负载均衡区：两张组卡片与转发地址卡片同宽、左对齐，右侧留白。左边那张参与节点下面是两行映射（`lmstudio`、`Target`，映射模型都留空），右边那张是另一个组 Cloud relay（轮转策略），成员 `openrouter` 与 `lmstudio`。组卡片里的四个控件（组名、pattern、选择策略、选择节点）长相一致：白底、1 px `#b8c5d3` 细边框、6 px 圆角、32 px 高、13 px 字，两个下拉和选择节点按钮右侧的箭头是同一张 SVG、靠右 10 px。成员行左边的节点名框与右边的映射模型框同样 32 px 高、13 px 字、同一描边色，只是名字框圆角与边框粗细沿用标签样式。两张卡片都是正常状态：成员全部启用，所以画面里没有「禁用」标记，也没有琥珀色警告行；成员浮层保持关闭，节点状态 details 保持折叠。禁用成员、各类警告与未选节点的空态都由功能用例覆盖，不进基线。 |
+| Load balancing | 英文 | `doc/ui_lb_en.png` | 1278 x 1225 | `b037af89906eb320f3c603fc066be4e726faa96ebaef66e67005c4bbc0ed04fa` | 与中文基线同一 fixture 的英文界面（转发地址卡片同布局：头部右上角 Default 单选 + Enabled 开关，左下角 Test/Metrics/Delete + More settings，按状态保留淡填充与描边色）：Dual GPU 的 Member nodes 是 `lmstudio` 与 `Target`，Cloud relay 是 Round robin、成员 `openrouter` 与 `lmstudio`；Least load 与 Round robin 两个 select 和 Choose nodes 按钮同一长相（白底、细边框、6 px 圆角、32 px 高、箭头同尺寸同位置）。两张卡片都是正常状态，没有 off 标记也没有警告行，Member nodes 下面是 Choose nodes 触发器和每个成员一行映射（节点名框 + Mapped model 输入框，两框等高），卡片到 Node state · 2 为止。fixture 不含名为“新代理”的第二个代理，所以画面里没有任何中文。 |
 | History | 中文 | `doc/ui_logs_cn.png` | 1384 x 1212 | `bed0bf0037b90b4b4ee50f37c978f7d70a7d53433b6ac7cd1726b122102c7ec3` | 当前任务卡片与顶部时间范围为 2026-07-18 12:00:00 的静态 fixture(不是测试当前时间);侧栏日志组为 4 个任务 fixture(1 个 3 调用任务 + 1 个长任务)。 |
 | History | 英文 | `doc/ui_logs_en.png` | 1384 x 1224 | `b6b772d73d32a6d3b4d10f8e3c4b105263ae8457caa42348f943743f010f3c8d` | 当前任务卡片与顶部时间范围为 2026-07-18 12:00:00 的静态 fixture(不是测试当前时间);侧栏日志组为 4 个任务 fixture(1 个 3 调用任务 + 1 个长任务)。 |
 | Usage statistics | 中文 | `doc/ui_stats_cn.png` | 1278 x 1553 | `34cceb92e067801100368911dd581d6994176106847e9be238ee9ba86377125f` | “总体使用量”标题下“按当前时间范围汇总”后以琥珀色（原提示条颜色）括号内联未计价请求数量（不再使用独立提示条） |
@@ -36,11 +36,11 @@ sha256sum doc/ui_proxy_cn.png doc/ui_proxy_en.png doc/ui_lb_cn.png doc/ui_lb_en.
 - 顶部白色 Header，左侧产品名，右侧 Tab 和语言选择器。
 - 页面浅灰背景，代理为白色圆角卡片。
 - 代理名称、运行圆点、监听地址、端口和开关位于同一行。
-- Target 卡片按状态区分背景色：默认目标浅绿色、已启用浅蓝色、未启用浅灰色，并在代理卡片内按可用宽度自动换行排列。
+- Target 卡片按状态保留淡填充与描边色（原三种深填充各与白色对半混合，画面更安静）：默认目标 `#d7e9e0` + 描边 `#357451`、已启用 `#d5e0ed` + `#3c74a6`、未启用 `#f5f6f8` + `#c5c8cc`；卡片在代理卡片内按可用宽度自动换行排列。
 - fixture 中第一个代理包含默认与已启用卡片，第二个代理包含一张未启用卡片，用于覆盖三种状态。
 - fixture 上游名称与地址使用通用示例名（`openrouter` / `lmstudio` / `Target` + `https://api.example.com/v1`，监听模型前缀 `or-` / `A-`），不绑定具体第三方中转服务商；路由单测同样用 `or-gpt-5.5` 前缀。
-- Target 默认展示名称、URL、API Key、模型映射，左下角同一行展示默认单选与启用复选框（默认选中时启用保持勾选且禁用）和“更多配置”。
-- 卡片头部行是名称输入框与测试/指标/删除按钮，名称输入框占据剩余宽度。
+- Target 默认展示名称、URL、API Key、模型映射；卡片右上角是自绘默认单选（未选为灰色圆环，选中为主题色圆环加中心圆点）与启用开关（与负载均衡组卡片同一款滑块，右侧没有文字，`title` 与 `aria-label` 为「启用 / Enabled」），默认选中时开关保持勾选并禁用。
+- 卡片头部行左侧是名称输入框（占据剩余宽度），右上角是默认单选与启用开关；测试/指标/删除三枚按钮在卡片底部行的左端，「更多配置」仍在同一行右端。
 - 每张 Target 卡片头部左侧是 ⠿ 拖拽手柄（同一代理只有一个 Target 时置灰禁用），拖动手柄可调整卡片顺序，顺序即模型映射的匹配优先级。
 - API Key 输入框包含显隐与复制按钮。
 - 代理卡片底部右侧包含添加 Target 和删除代理操作。

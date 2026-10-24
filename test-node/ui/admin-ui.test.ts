@@ -1104,11 +1104,44 @@ describe("admin UI proxy page", { timeout: UI_TEST_TIMEOUT_MS }, () => {
     await targets.nth(0).locator("[data-target-enabled]").uncheck();
     await expectPage(targets.nth(0).locator("[data-target-enabled]")).not.toBeChecked();
     await expectPage(targets.nth(0)).toHaveClass(/is-disabled-target/);
-    await expectPage(targets.nth(0)).toHaveCSS("background-color", "rgb(243, 244, 246)");
-    await expectPage(targets.nth(1)).toHaveClass(/is-default-target/);
-    await expectPage(targets.nth(1)).toHaveCSS("background-color", "rgb(176, 211, 194)");
-    await expectPage(targets.nth(2)).toHaveClass(/is-enabled-target/);
-    await expectPage(targets.nth(2)).toHaveCSS("background-color", "rgb(172, 194, 219)");
+
+    // Each state keeps its own washed-out fill and border color.
+    const cardStyles: readonly {
+      index: number;
+      cls: string;
+      fill: string;
+      border: string;
+    }[] = [
+      {
+        index: 0,
+        cls: "is-disabled-target",
+        fill: "rgb(245, 246, 248)",
+        border: "rgb(197, 200, 204)",
+      },
+      {
+        index: 1,
+        cls: "is-default-target",
+        fill: "rgb(215, 233, 224)",
+        border: "rgb(53, 116, 81)",
+      },
+      {
+        index: 2,
+        cls: "is-enabled-target",
+        fill: "rgb(213, 224, 237)",
+        border: "rgb(60, 116, 166)",
+      },
+    ];
+    for (const card of cardStyles) {
+      await expectPage(targets.nth(card.index)).toHaveClass(new RegExp(card.cls));
+      await expectPage(targets.nth(card.index)).toHaveCSS("background-color", card.fill);
+      await expectPage(targets.nth(card.index)).toHaveCSS("border-top-color", card.border);
+    }
+
+    // The two flags sit in the card head, the three action buttons in the bottom row.
+    await expectPage(targets.nth(1).locator(".target-head .default-target")).toBeVisible();
+    await expectPage(targets.nth(1).locator(".target-head .switch")).toBeVisible();
+    await expectPage(targets.nth(1).locator(".target-controls .target-actions")).toBeVisible();
+    await expectPage(targets.nth(1).locator(".target-head [data-check-target]")).toHaveCount(0);
   });
 
   it("toggles and copies the target API key", async () => {
@@ -1656,6 +1689,70 @@ describe("admin UI proxy page", { timeout: UI_TEST_TIMEOUT_MS }, () => {
         );
       }),
     ).toBe(true);
+
+    // The head row keeps the default radio and the enable switch on one line:
+    // no clipping, and the label never collapses into a wrapped column.
+    const headFit = await row.evaluate((element) =>
+      [...element.querySelectorAll(".target-head")].map((head) => {
+        const flag = head.querySelector(".default-target");
+        const text = flag?.querySelector(":scope > span");
+        const clipped = (node: Element) => {
+          const scrollWidth: unknown = Reflect.get(node, "scrollWidth");
+          const clientWidth: unknown = Reflect.get(node, "clientWidth");
+          return (
+            typeof scrollWidth === "number" &&
+            typeof clientWidth === "number" &&
+            scrollWidth > clientWidth + 1
+          );
+        };
+        const box = flag?.getBoundingClientRect();
+        return {
+          headClipped: clipped(head),
+          flagClipped: flag === null ? false : clipped(flag),
+          textClipped: text === null || text === undefined ? false : clipped(text),
+          flagHeight: box === undefined ? 0 : Math.round(box.height),
+        };
+      }),
+    );
+    expect(
+      headFit.every((item) => !item.headClipped && !item.flagClipped && !item.textClipped),
+    ).toBe(true);
+    // One line of 12px text; a wrapped label measures two lines.
+    expect(headFit.every((item) => item.flagHeight >= 15 && item.flagHeight <= 22)).toBe(true);
+
+    // Both flags are pushed to the right end of the head, while the three action
+    // buttons start the bottom row and the options toggle stays at its right end.
+    const headLayout = await row.evaluate((element) =>
+      [...element.querySelectorAll(".target-card")].map((card) => {
+        const head = card.querySelector(".target-head");
+        const flags = card.querySelector(".target-head-flags");
+        const actions = card.querySelector(".target-actions");
+        const more = card.querySelector("[data-toggle-target-options]");
+        if (head === null || flags === null || actions === null || more === null) {
+          throw new Error("the target card lost its head or its bottom row");
+        }
+        const edges = (node: Element) => {
+          const box = node.getBoundingClientRect();
+          return {
+            left: Math.round(box.left),
+            right: Math.round(box.right),
+            top: Math.round(box.top),
+          };
+        };
+        return {
+          head: edges(head),
+          flags: edges(flags),
+          actions: edges(actions),
+          more: edges(more),
+        };
+      }),
+    );
+    for (const item of headLayout) {
+      expect(Math.abs(item.flags.right - item.head.right)).toBeLessThanOrEqual(2);
+      expect(Math.abs(item.actions.left - item.head.left)).toBeLessThanOrEqual(2);
+      expect(item.more.top).toBe(item.actions.top);
+      expect(item.more.right).toBeGreaterThan(item.actions.right);
+    }
   });
 });
 

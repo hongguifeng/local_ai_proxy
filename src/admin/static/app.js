@@ -1691,9 +1691,10 @@ function renderTarget(target, pair, pairIndex, targetIndex) {
           <button type="button" class="target-drag-handle" data-drag-target title="${escapeHtml(t("dragTarget"))}" aria-label="${escapeHtml(t("dragTarget"))}" ${canReorder ? "" : "disabled"}>⠿</button>
           <input data-target-field="name" value="${escapeHtml(target.name || "")}" placeholder="${escapeHtml(t("targetName"))}">
         </div>
-        <button data-check-target title="${escapeHtml(t("checkTarget"))}">${escapeHtml(t("checkTarget"))}</button>
-        <button data-metrics-target title="${escapeHtml(t("targetMetricsTitle"))}">${escapeHtml(t("targetMetrics"))}</button>
-        <button data-remove-target>${escapeHtml(t("delete"))}</button>
+        <div class="target-head-flags">
+          <label class="default-target"><input type="radio" name="default-target-${pairIndex}" data-default-target ${isDefault ? "checked" : ""}> <span>${escapeHtml(t("defaultTarget"))}</span></label>
+          <label class="switch" title="${escapeHtml(t("targetEnabled"))}"><input type="checkbox" data-target-enabled aria-label="${escapeHtml(t("targetEnabled"))}" ${isDefault || target.enabled !== false ? "checked" : ""} ${isDefault ? "disabled" : ""}><span class="slider"></span></label>
+        </div>
       </div>
       <label><span>${escapeHtml(t("targetUrl"))}</span><input data-target-field="target_url" value="${escapeHtml(target.target_url || "")}" placeholder="https://api.example.com/v1"></label>
       <label>
@@ -1718,9 +1719,10 @@ function renderTarget(target, pair, pairIndex, targetIndex) {
         <p class="price-help">${escapeHtml(t("catalogSourceNote"))}</p>
       </details>
       <div class="target-controls">
-        <div class="target-flags">
-          <label class="default-target"><input type="radio" name="default-target-${pairIndex}" data-default-target ${isDefault ? "checked" : ""}> <span>${escapeHtml(t("defaultTarget"))}</span></label>
-          <label class="target-enabled"><input type="checkbox" data-target-enabled ${isDefault || target.enabled !== false ? "checked" : ""} ${isDefault ? "disabled" : ""}> <span>${escapeHtml(t("targetEnabled"))}</span></label>
+        <div class="target-actions">
+          <button data-check-target title="${escapeHtml(t("checkTarget"))}">${escapeHtml(t("checkTarget"))}</button>
+          <button data-metrics-target title="${escapeHtml(t("targetMetricsTitle"))}">${escapeHtml(t("targetMetrics"))}</button>
+          <button data-remove-target>${escapeHtml(t("delete"))}</button>
         </div>
         <button data-toggle-target-options>${escapeHtml(t(expanded ? "lessTargetOptions" : "moreTargetOptions"))}</button>
       </div>

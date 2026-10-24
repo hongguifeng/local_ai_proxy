@@ -204,16 +204,18 @@ main {
   gap: 8px;
   align-self: start;
 }
+/* The three states keep a tinted fill, washed out to half strength so the card
+   body stays quiet while the head carries the actual controls. */
 .target-card.is-default-target {
-  background: #b0d3c2;
+  background: #d7e9e0;
   border-color: #357451;
 }
 .target-card.is-enabled-target {
-  background: #acc2db;
+  background: #d5e0ed;
   border-color: #3c74a6;
 }
 .target-card.is-disabled-target {
-  background: #f3f4f6;
+  background: #f5f6f8;
   border-color: #c5c8cc;
 }
 .target-card input,
@@ -804,22 +806,50 @@ body.drag-target-active {
   gap: 8px;
   font-weight: 650;
 }
+/* The default radio and the enable switch sit at the right end of the head. */
+.target-head-flags {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  flex: 0 0 auto;
+}
 .default-target {
   display: inline-flex;
   width: auto;
   align-items: center;
-  gap: 5px;
+  gap: 6px;
   color: var(--muted);
   font-size: 12px;
 }
-.default-target input {
-  width: auto;
+/* A page-wide label span rule shrinks short inline-flex labels, so restate this one. */
+.default-target > span {
+  flex: 0 0 auto;
+  overflow-wrap: normal;
 }
-.target-card.is-default-target .default-target,
-.target-card.is-enabled-target .default-target,
-.target-card.is-default-target .target-enabled,
-.target-card.is-enabled-target .target-enabled {
-  color: #123527;
+/* Drawn radio: a grey ring while unset, an accent ring with a center dot once picked. */
+.default-target input {
+  appearance: none;
+  -webkit-appearance: none;
+  width: 16px;
+  height: 16px;
+  flex: 0 0 auto;
+  margin: 0;
+  border: 2px solid #b8c5d3;
+  border-radius: 50%;
+  background: #ffffff;
+  cursor: pointer;
+  transition: border-color 0.15s;
+}
+.default-target input:hover:not(:checked) {
+  border-color: #93a4b6;
+}
+.default-target input:checked {
+  border-color: var(--accent);
+  background-image: radial-gradient(circle, var(--accent) 0 4px, transparent 4px);
+}
+.default-target input:focus-visible {
+  outline: 2px solid #b8d9cd;
+  outline-offset: 2px;
 }
 .target-options {
   display: grid;
@@ -838,14 +868,15 @@ body.drag-target-active {
   align-items: center;
   justify-content: space-between;
 }
-.target-flags {
+/* Test / Metrics / Delete moved out of the head to the left end of this row. */
+.target-actions {
   display: inline-flex;
   align-items: center;
-  gap: 14px;
-  min-width: 0;
+  gap: 8px;
+  flex: 0 0 auto;
 }
-.target-flags .default-target input:disabled ~ span {
-  color: var(--muted);
+.target-actions button {
+  white-space: nowrap;
 }
 .target-enabled {
   display: inline-flex;
@@ -915,10 +946,27 @@ body.drag-target-active {
   height: 24px;
   flex: 0 0 auto;
 }
+/* The input covers the whole switch so a click anywhere toggles it, and tests can
+   act on the input itself instead of only on the wrapping label. */
 .switch input {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  margin: 0;
   opacity: 0;
-  width: 0;
-  height: 0;
+  cursor: pointer;
+  z-index: 1;
+}
+.switch input:disabled {
+  cursor: not-allowed;
+}
+.switch input:disabled + .slider {
+  opacity: 0.45;
+}
+.switch input:focus-visible + .slider {
+  outline: 2px solid #b8d9cd;
+  outline-offset: 2px;
 }
 .slider {
   position: absolute;
