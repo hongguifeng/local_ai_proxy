@@ -1,6 +1,6 @@
 # 多节点负载均衡开发 TODO
 
-创建日期：2026-10-22。当前进度：20 / 20 项完成。
+创建日期：2026-10-22。当前进度：21 / 21 项完成。
 
 设计依据：[多节点负载均衡设计（粘性任务路由 v1）](./load-balancing-design.md)。决策记录：[ADR-013](./adr/013-load-balancing-sticky-routing.md)。本清单供后续开发、测试、验收和逐项提交使用。设计发生变化时，必须同时更新设计文档和本清单，不能只改代码。
 
@@ -75,6 +75,7 @@ npx electron-builder -w portable --publish never
 | [x] | LB-18 | 节点状态改成名字开头、固定列宽、三行排版 | LB-10、LB-17 | 完成 |
 | [x] | LB-19 | 组成员各自的模型 id 映射（含删掉成员上方的标签行） | LB-05、LB-10、LB-18 | 完成 |
 | [x] | LB-20 | 组卡片头部：删除按钮挪到启用开关左边 | LB-10 | 完成 |
+| [x] | LB-21 | 代理页布局：添加按钮上移、删除进头部、名称框定宽 | LB-10 | 完成 |
 
 ## 4. 逐项实施与验收
 
@@ -597,6 +598,29 @@ npx electron-builder -w portable --publish never
 窄屏 380 px 时三个格子还在同一行；两张负载均衡基线重录后全量测试绿。
 提交定位：`[LB-20]`。
 
+### LB-21：代理卡片的两个按钮换位，名称框改固定宽
+
+用户三条要求：「添加转发地址」不该在卡片底部，应像「添加负载均衡组」那样放在「转发地址」标题行的右边；
+「删除」放到代理头部、端口的右边、开关的左边；代理名称输入框不要太长，改成一个固定值。
+
+决策摘要：
+
+1. 「转发地址」标题行左标题右按钮，按钮位置和负载均衡区段的添加按钮一致。
+2. 代理头部从左到右是名称、监听地址、端口、删除、开关；开关仍在最右端。
+3. 名称框固定 240 px，不随列拉伸；名称过长时在框内横向滚动。
+4. 卡片底部不再有任何操作行。
+
+| 项 | 内容 |
+| --- | --- |
+| 标题行样式 | `.targets-head` 与 `.lb-section-head` 共用同一条 `flex` + `space-between` 规则 |
+| 头部列 | `grid-template-columns: 240px minmax(160px, 220px) 100px max-content 1fr` |
+| 为什么是 max-content | `auto` 会把删除按钮拉到 316 px；`min-content` 会把「删除」折成两行（36 × 57） |
+| 开关为什么还在最右 | 最后一列是 `1fr`，开关 `justify-self: end` |
+
+验收标准：删除按钮和标题行的添加按钮都落在预期的列里；点两者行为不变；`.row-actions` 在代理卡里为 0；
+窄屏不塌版；四张受影响的基线重录、全量测试绿。
+提交定位：无 LB 前缀（这是代理页通用布局，不属于负载均衡功能），提交标题以 `feat(ui)` 开头。
+
 提交定位：`[LB-18]`。
 
 ## 5. 执行记录
@@ -856,6 +880,41 @@ npx electron-builder -w portable --publish never
 - 备注：`.lb-card` 前缀的规则特异性高于页面全局的 `button`（0,0,1）和 `button:hover`（0,1,1），
   所以能盖住它们；按 AGENTS 的说法 CSS 文件里靠后的块并不权威，这次是靠特异性赢的，
   不是靠位置。`▾` 这种几何字符在 Windows Chromium 上会被彩色字体替换，所以不能当图标用。
+
+### LB-21（代理页布局：按钮换位 + 名称框定宽）
+
+- 状态：完成
+- 来源：用户看到 `doc/ui_lb_cn.png` 后提出三条：添加转发地址挪到「转发地址」标题行右边（和添加负载均衡组一样）、
+  删除按钮挪到代理头部端口右边开关左边、代理名称框改固定宽度。
+- 实际变更：`src/admin/static/app.js` 里 `renderPairs` 把 `.proxy-head` 的最后一个元素换成「删除」按钮再跟开关，
+  原先光秃秃的 `<strong>转发地址</strong>` 包成 `.targets-head`（标题 + `[data-add-target]`），底部的
+  `.row-actions` 整行删掉；`src/admin/static/app.css` 里 `.proxy-head` 改成五列
+  `240px minmax(160px, 220px) 100px max-content 1fr`，`.targets-head` 并入 `.lb-section-head` 那条规则。
+  列宽试错两次：`auto auto` 时删除按钮被拉到 316 px 宽，`min-content` 时「删除」折成两行 36 × 57 px；
+  `max-content` + 末列 `1fr` 才对。
+- 测试命令：`node tmp-pair-move.mjs`（量头部五格、量标题行、打字、点两个按钮、看窄屏）、
+  `npx vitest run test-node/ui/admin-ui.test.ts`、`npx vitest run`、`node tmp-baseline-diff.mjs`。
+- 测试结果：头部量到标题格 x = 31 宽 240 高 36、监听地址 x = 279 宽 220 高 33、端口 x = 507 宽 100 高 33、
+  删除按钮 x = 615 宽 50 高 36、开关 x = 1205 宽 42 高 24，前四格 bottom 全对齐在 168。
+  名称框 client 220，打进 `New proxy-renamed` 后 `scrollWidth === clientWidth`，打字与 `collectPairs` 都正常。
+  「转发地址」标题行的添加按钮 x = 1141 宽 106、右边缘 1247 与该行右边缘齐平，和负载均衡区那颗按钮同一位置。
+  点添加按钮 target 数从 2 变 3，点删除卡片数从 1 变 0，`.proxy-card .row-actions` 数量 `0`。
+  窄屏 380 px 五格竖排（各 318 宽、删除按钮也 318 宽），不塌版。UI 93 passed；全量 105 文件 / 945 用例。
+- UI 基线：受影响的是 proxy 中英文和 lb 中英文四张。proxy 两张视口固定，尺寸仍是
+  `1278×1215` / `1278×1208`，新哈希 `8c56ef181f2fd753471ee115239e919ef03c3019a9793ac69f91347dc497870d` /
+  `6aa2418e7b9c67e1add1f412fc92715de6a5c26f6d81f85fd2aba6df72fb3d78`；lb 两张是自适应视口，矮了 30 / 31 px 变成
+  `1278×1150` / `1278×1194`，新哈希 `70cbcbbec9794509ca0f172c9b903f7a5362f82d5b3670b548febce8603c0957` /
+  `c915168d4ee953e25b3a01a8a8d041e0ca35af6b1ad375e953f71e71490c89c9`。
+  与 HEAD 按测试自己的 `threshold: 0.2` 逐像素比是 67716 / 62029 / 71858 / 66098 个像素差（4.0 – 4.9 %），
+  差值真实。proxy 两张在重录之前也能过——又是比例容差加高度 ≤ 4 那条挡住的，跟 LB-20 同一个坑；
+  lb 两张是被 `expected 30 to be less than or equal to 4` 拦下来的。
+  另外 HEAD 上这四张基线是用户自己 `ab066cb` 那次重录的，本次是在其之上再重录。
+- 设计偏差：设计文档 §12 只讲组卡片，代理卡片头部顺序与标题行按钮位置原先没有任何一处文档写过；
+  已把 `docs/refactoring/ui-visual-baseline.md` 的代理页描述、功能规格 §11.2 补上位置和 240 px 定宽。
+- 提交标题：`feat(ui): put add-target in the targets head and pair delete in the proxy head`
+- 提交 SHA：`369e69b`；本条记录单独提交。
+- 备注：这纯粹是代理页通用布局，不动负载均衡的逻辑。窄屏下删除按钮跟着字段铺满一整行，看着略宽，
+  但和 760 px 以下其它按钮的行为一致。
 
 ### LB-20
 
