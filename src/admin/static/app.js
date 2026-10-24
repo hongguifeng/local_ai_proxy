@@ -1312,7 +1312,7 @@ function lbGroupCard(group, pair, pairIndex, groupIndex) {
       <strong>${escapeHtml(t("lbMembers"))}</strong>
       <div class="lb-selected" data-lb-selected-nodes="${selectionKey}">${lbSelectedNodesHtml(nodeIds, targets)}</div>
       <div class="lb-picker" data-lb-picker>
-        <button type="button" class="lb-picker-toggle" data-lb-picker-toggle aria-expanded="false" aria-controls="${popId}"><span>${escapeHtml(t("lbChooseNodes"))}</span><span class="lb-picker-caret" aria-hidden="true">▾</span></button>
+        <button type="button" class="lb-picker-toggle" data-lb-picker-toggle aria-expanded="false" aria-controls="${popId}"><span>${escapeHtml(t("lbChooseNodes"))}</span><span class="lb-picker-caret" aria-hidden="true"></span></button>
         <div class="lb-picker-pop" id="${popId}" data-lb-picker-pop hidden>${memberRows}</div>
       </div>
     </div>

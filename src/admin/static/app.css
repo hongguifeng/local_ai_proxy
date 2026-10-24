@@ -4250,6 +4250,9 @@ label span {
 }
 .lb-card {
   min-width: 0;
+  /* One arrow for both dropdowns: the strategy select paints it as a background and the
+     picker's caret span is an empty box with the same picture, so they render alike. */
+  --lb-arrow: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 10 10'%3E%3Cpath d='M1 3h8L5 7.6z' fill='%2355616f'/%3E%3C/svg%3E");
   align-self: start;
   border: 1px solid #b8c5d3;
   border-radius: 8px;
@@ -4271,10 +4274,45 @@ label span {
   font-size: 12px;
   color: #3b4a5a;
 }
+.lb-card input[type="text"],
+.lb-card input:not([type]),
 .lb-card select,
+.lb-card .lb-picker-toggle {
+  font-size: 13px;
+  color: var(--ink);
+  background-color: #ffffff;
+  border: 1px solid #b8c5d3;
+  border-radius: 6px;
+  min-height: 32px;
+  max-width: 100%;
+}
+.lb-card .lb-picker-toggle {
+  padding: 0 10px;
+}
+/* The text fields would otherwise keep the page-wide 7px/8px padding and come out
+   three pixels taller than the two dropdowns. */
 .lb-card input[type="text"],
 .lb-card input:not([type]) {
-  max-width: 100%;
+  padding: 0 8px;
+}
+/* The strategy select gets the same ▾ as the picker button, so the two dropdowns
+   read as one widget. `appearance: none` takes away the system arrow. */
+.lb-card select {
+  appearance: none;
+  -webkit-appearance: none;
+  padding: 0 26px 0 10px;
+  background-image: var(--lb-arrow);
+  background-repeat: no-repeat;
+  background-position: right 10px center;
+  background-size: 10px 10px;
+}
+.lb-card select:hover,
+.lb-card .lb-picker-toggle:hover {
+  background-color: #eef3f8;
+}
+.lb-card select:focus-visible,
+.lb-card .lb-picker-toggle:focus-visible {
+  border-color: var(--accent);
 }
 .lb-flags {
   display: flex;
@@ -4343,8 +4381,12 @@ label span {
 }
 .lb-picker-caret {
   flex: 0 0 auto;
-  font-size: 11px;
-  color: #55616f;
+  width: 10px;
+  height: 10px;
+  background-image: var(--lb-arrow);
+  background-repeat: no-repeat;
+  background-position: center;
+  background-size: 10px 10px;
 }
 /* The candidate nodes float over the card so its height never changes while
    the list is open; the script picks the side with more room and caps the

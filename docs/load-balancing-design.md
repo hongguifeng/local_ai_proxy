@@ -680,6 +680,11 @@ UI 修改必须：
 - 中英文代理页基线已重录并更新完整 SHA-256；其余六张基线在全量测试里保持原样通过。
 - LB-15 之后负载均衡卡片有自己的一对整页基线（`doc/ui_lb_cn.png` / `doc/ui_lb_en.png`，由 `visualLbPairs()` fixture 驱动：viewport 高度自适应到整页，但 fixture 只留第一个代理卡片，画面高度因此与代理页基线相当）；代理页基线仍然保持 `load_balancers: []`，因此字节不变，而 `scripts/regen_ui_baselines.mjs` 的捕获与同步清单已经包含这两张。
 - LB-16 删掉匹配预览输入和校验节点模型之后，两张负载均衡基线重录（中文 1278×1075、英文 1278×1120，都比旧基线矮 92 px），文档里的 SHA-256 跟着更新；其余八张基线在全量测试里保持零像素差通过。
+- LB-17 把组卡片里的四个控件（组名、pattern、选择策略、选择节点）统一成一套长相：白底、
+  `1px solid #b8c5d3`、6 px 圆角、32 px 高、13 px 字，悬停背景 `#eef3f8`。`select` 加了
+  `appearance: none`，箭头改用 `--lb-arrow` 这张 SVG；`.lb-picker-caret` 不再是 `▾` 字符，
+  而是同一个 SVG 的 10×10 空 span。两个下拉右端各裁 34 px，pixelmatch 报 0 个像素差。
+  hover 只能写 `background-color`，写 `background` 简写会把 `background-image` 洗掉。
 
 ## 13. 测试计划
 
