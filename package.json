@@ -21,7 +21,7 @@
     "dev": "tsx watch src/main.ts",
     "format": "prettier --write .",
     "format:check": "prettier --check .",
-    "lint": "eslint \"src/**/*.ts\" \"electron/**/*.ts\" \"test-node/**/*.ts\" \"scripts/**/*.ts\" --no-error-on-unmatched-pattern --max-warnings=0",
+    "lint": "tsx scripts/concat_ui_parts.ts && eslint \"src/**/*.ts\" \"electron/**/*.ts\" \"test-node/**/*.ts\" \"scripts/**/*.ts\" \".ui-check/app.js\" --no-error-on-unmatched-pattern --max-warnings=0",
     "rebuild:node": "npm rebuild better-sqlite3",
     "rebuild:electron": "electron-rebuild --force --only better-sqlite3",
     "package:electron": "npm run build && npm run rebuild:electron && electron-builder --publish never",
@@ -41,7 +41,7 @@
     "test:coverage": "vitest run --coverage",
     "pretest:watch": "npm run rebuild:node",
     "test:watch": "vitest",
-    "typecheck": "tsc -p tsconfig.json --noEmit"
+    "typecheck": "tsc -p tsconfig.json --noEmit && tsc -p tsconfig.ui.json --noEmit"
   },
   "devDependencies": {
     "@electron/rebuild": "^4.2.0",

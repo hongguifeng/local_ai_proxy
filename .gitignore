@@ -16,3 +16,5 @@ release/
 fixtures/parity/database/**/*.db-shm
 fixtures/parity/database/**/*.db-wal
 llm-proxy.json
+.ui-check/
+.pi/

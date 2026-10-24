@@ -1,7 +1,24 @@
-import { readFile } from "node:fs/promises";
+import { readdir, readFile } from "node:fs/promises";
 import path from "node:path";
 import { format } from "prettier";
 import { describe, expect, it } from "vitest";
+import { ADMIN_SCRIPT_PARTS } from "../../src/admin/static-assets.js";
+
+const SCRIPT_DIR = path.resolve("src/admin/static");
+
+/**
+ * The admin UI is authored as numbered classic-script parts that the server
+ * concatenates into one /static/app.js. Reading them in name order mirrors the
+ * load order, so a renamed or reordered part shows up here.
+ */
+async function readScriptParts(): Promise<string[]> {
+  const names = (await readdir(SCRIPT_DIR)).filter((name) => /^\d.*\.js$/.test(name)).sort();
+  return Promise.all(names.map((name) => readFile(path.join(SCRIPT_DIR, name), "utf8")));
+}
+
+async function readAdminScript(): Promise<string> {
+  return (await readScriptParts()).join("\n");
+}
 
 describe("admin UI source migration", () => {
   it("keeps the HTML source canonically formatted", async () => {
@@ -14,15 +31,40 @@ describe("admin UI source migration", () => {
     expect(source).toBe(await format(source, { parser: "css", printWidth: 100 }));
   });
 
-  it("keeps the browser source canonically formatted", async () => {
-    const source = await readFile(path.resolve("src/admin/static/app.js"), "utf8");
-    expect(source).toBe(await format(source, { parser: "babel", printWidth: 100 }));
+  it("keeps every browser script part canonically formatted", async () => {
+    const parts = await readScriptParts();
+    expect(parts.length).toBeGreaterThan(1);
+    for (const source of parts) {
+      expect(source).toBe(await format(source, { parser: "babel", printWidth: 100 }));
+    }
+  });
+
+  it("concatenates into a single script that still declares every part once", async () => {
+    const names = (await readdir(SCRIPT_DIR)).filter((name) => /^\d.*\.js$/.test(name)).sort();
+    // The server concatenates by this explicit list, so the authored order and the
+    // load order must agree; a renamed or renumbered part would otherwise pass here.
+    expect(names).toEqual([...ADMIN_SCRIPT_PARTS]);
+    const script = await readAdminScript();
+    // static-assets.ts replaces this placeholder once at serve time; a second use
+    // anywhere would silently ship an unresolved identifier to the browser.
+    expect(script.match(/__SUGGESTED_STRIP_REQUEST_FIELDS__/g)).toHaveLength(1);
+    const declared = new Map<string, number>();
+    for (const match of script.matchAll(
+      /^(?:async\s+)?(?:function|const|let|var)\s+([A-Za-z0-9_$]+)/gm,
+    )) {
+      const name = match[1];
+      if (name === undefined) continue;
+      declared.set(name, (declared.get(name) ?? 0) + 1);
+    }
+    const duplicated = [...declared].filter(([, count]) => count > 1);
+    // Two classic scripts redeclaring the same top-level name is a load-time SyntaxError.
+    expect(duplicated).toEqual([]);
   });
 
   it("preserves Chinese, English, and the existing language preference key", async () => {
     const [html, script] = await Promise.all([
       readFile(path.resolve("src/admin/static/index.html"), "utf8"),
-      readFile(path.resolve("src/admin/static/app.js"), "utf8"),
+      readAdminScript(),
     ]);
     expect(html).toContain('<option value="zh">');
     expect(html).toContain('<option value="en">');
@@ -38,7 +80,7 @@ describe("admin UI source migration", () => {
   it("preserves the DOM IDs and data attributes used by browser logic", async () => {
     const [html, script] = await Promise.all([
       readFile(path.resolve("src/admin/static/index.html"), "utf8"),
-      readFile(path.resolve("src/admin/static/app.js"), "utf8"),
+      readAdminScript(),
     ]);
     for (const id of [
       "proxies",

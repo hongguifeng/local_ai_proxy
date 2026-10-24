@@ -10,4 +10,5 @@ doc/
 electron-builder.env
 README.md
 README.en.md
+.ui-check/
 *.db
