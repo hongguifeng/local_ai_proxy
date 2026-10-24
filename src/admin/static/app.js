@@ -1241,19 +1241,48 @@ function lbTakeoverNoteHtml(pair) {
   if (!groups.length) return "";
   return `<p class="lb-takeover-note">${escapeHtml(t("lbTakeover"))}</p>`;
 }
-function lbStatusRowHtml(targetId) {
-  const fact = (name, label, value) =>
-    `<span class="lb-node-fact" data-lb-fact="${name}">${escapeHtml(label)}: ${escapeHtml(value)}</span>`;
-  return `<div class="lb-node-state" data-lb-status-target="${escapeHtml(targetId)}">
-    <span class="lb-node-name">${escapeHtml(targetId)}</span>
-    ${fact("enabled", t("lbStateOn"), t("lbStateNoSample"))}
-    ${fact("inFlight", t("lbStateInFlight"), "0")}
-    ${fact("waiting", t("lbStateWaiting"), "-")}
-    ${fact("kv", t("lbStateKv"), "-")}
-    ${fact("bindings", t("lbStateBindings"), "0")}
-    ${fact("cooldown", t("lbStateCooldown"), "0")}
-    ${fact("source", t("lbStateSource"), "-")}
+function lbStatusRowHtml(targetId, target) {
+  const id = escapeHtml(targetId);
+  const name = (target && target.name) || targetId;
+  const fact = (key, label, value) =>
+    `<span class="lb-node-fact" data-lb-fact="${key}" title="${escapeHtml(`${label}: ${value}`)}">${escapeHtml(label)}: ${escapeHtml(value)}</span>`;
+  return `<div class="lb-node-state" data-lb-status-target="${id}">
+    <div class="lb-node-head">
+      <span class="lb-node-name" title="${id}">${escapeHtml(name)}</span>
+      <span class="lb-node-flag" data-lb-fact="enabled">${escapeHtml(t("lbStateOn"))}</span>
+    </div>
+    <div class="lb-node-metrics">
+      ${fact("inFlight", t("lbStateInFlight"), "0")}
+      ${fact("waiting", t("lbStateWaiting"), "-")}
+      ${fact("kv", t("lbStateKv"), "-")}
+    </div>
+    <div class="lb-node-metrics">
+      ${fact("bindings", t("lbStateBindings"), "0")}
+      ${fact("cooldown", t("lbStateCooldown"), "0")}
+      ${fact("source", t("lbStateSource"), "-")}
+    </div>
   </div>`;
+}
+
+/** Names are part of the row markup, so a rename has to force a rebuild too. */
+function lbNodeRenderSignature(targetIds, targets) {
+  return targetIds
+    .map((targetId) => {
+      const target = (targets || []).find((item) => item.id === targetId);
+      return `${targetId}:${(target && target.name) || ""}`;
+    })
+    .join("|");
+}
+
+function lbNodeStatesHtml(targetIds, targets) {
+  return targetIds
+    .map((targetId) =>
+      lbStatusRowHtml(
+        targetId,
+        (targets || []).find((item) => item.id === targetId),
+      ),
+    )
+    .join("");
 }
 /** One checkbox row in the member picker dropdown: checkbox, name, disabled mark. */
 function lbMemberOptionHtml(target, checked) {
@@ -1321,7 +1350,7 @@ function lbGroupCard(group, pair, pairIndex, groupIndex) {
     </div>
     <details class="lb-status" ${open ? "open" : ""}>
       <summary>${escapeHtml(t("lbNodeState"))} · ${nodeIds.length}</summary>
-      <div class="lb-node-states" data-lb-rendered="${nodeIds.join(",")}">${nodeIds.map((targetId) => lbStatusRowHtml(targetId)).join("")}</div>
+      <div class="lb-node-states" data-lb-rendered="${escapeHtml(lbNodeRenderSignature(nodeIds, pair.targets))}">${lbNodeStatesHtml(nodeIds, pair.targets)}</div>
     </details>
   </section>`;
 }
@@ -1347,7 +1376,21 @@ function loadBalancerStatusVisible() {
 /** Only numbers and state words are replaced, so typing and focus survive a refresh. */
 function setLbFact(row, name, label, value) {
   const element = row.querySelector(`[data-lb-fact="${name}"]`);
-  if (element) element.textContent = `${label}: ${value}`;
+  if (element === null) return;
+  const text = `${label}: ${value}`;
+  element.textContent = text;
+  // The fixed columns can clip a long value, so the whole text stays on hover.
+  element.title = text;
+}
+
+/** The state badge on the name line shows only the words, never a repeated label. */
+function setLbBadge(row, enabled, metrics, stale, words) {
+  const badge = row.querySelector('[data-lb-fact="enabled"]');
+  if (badge === null) return;
+  badge.textContent = words.filter(Boolean).join(" · ");
+  badge.classList.toggle("is-off", enabled === false);
+  badge.classList.toggle("is-nosample", metrics === null);
+  badge.classList.toggle("is-stale", stale === true && metrics !== null);
 }
 
 function applyLoadBalancerStatus(data) {
@@ -1369,7 +1412,7 @@ function applyLoadBalancerStatus(data) {
       const stateWords = [node.enabled ? t("lbStateOn") : t("lbStateOff")];
       if (metrics === null) stateWords.push(t("lbStateNoSample"));
       else if (node.stale) stateWords.push(t("lbStateStale"));
-      setLbFact(row, "enabled", t("lbStateOn"), stateWords.filter(Boolean).join(" · "));
+      setLbBadge(row, node.enabled, metrics, node.stale, stateWords);
       setLbFact(row, "inFlight", t("lbStateInFlight"), String(node.inFlight));
       setLbFact(
         row,
@@ -1510,12 +1553,10 @@ function refreshLbCards() {
       }
       // The node rows follow the ticked members; the next poll refills their numbers.
       const states = lbCard.querySelector(".lb-node-states");
-      const checked = (draft.node_target_ids || []).join(",");
+      const checked = lbNodeRenderSignature(draft.node_target_ids || [], shadowTargets);
       if (states !== null && states.dataset.lbRendered !== checked) {
         states.dataset.lbRendered = checked;
-        states.innerHTML = (draft.node_target_ids || [])
-          .map((targetId) => lbStatusRowHtml(targetId))
-          .join("");
+        states.innerHTML = lbNodeStatesHtml(draft.node_target_ids || [], shadowTargets);
         const summary = lbCard.querySelector(".lb-status > summary");
         if (summary !== null) {
           summary.textContent = `${t("lbNodeState")} · ${(draft.node_target_ids || []).length}`;

@@ -638,7 +638,8 @@ GET /api/load-balancer/status
 - 已勾选节点的标签行，以及浮在卡片上的本 pair target 复选框列表；
 - `least_load` / `round_robin` 选择；
 - 指标采样和失败切换开关；
-- 每个节点的启用状态、inFlight、waiting、KV、绑定数和冷却状态；
+- 每个节点的名字（悬停带完整 targetId）与一枚状态词标签，下面是六个等宽指标：
+  inFlight、waiting、KV、绑定数、冷却剩余、指标来源；
 
 v1 不在卡片上展示 β、spill、父子 session 选择、TTL、容量和复杂负载权重。模型 pattern 重叠时按配置顺序显示警告。
 
@@ -685,6 +686,12 @@ UI 修改必须：
   `appearance: none`，箭头改用 `--lb-arrow` 这张 SVG；`.lb-picker-caret` 不再是 `▾` 字符，
   而是同一个 SVG 的 10×10 空 span。两个下拉右端各裁 34 px，pixelmatch 报 0 个像素差。
   hover 只能写 `background-color`，写 `background` 简写会把 `background-image` 洗掉。
+- LB-18 重排了节点状态：名字单独一行（名字取自 target 的 `name`，没名字才退回 id，
+  `title` 里带完整 id），名字行右侧是只写状态词的小标签（启用 / 禁用 / 没有采样 /
+  指标过期），名字下面一条分隔线；六个指标分两行、每行三列等宽（`repeat(3, minmax(0, 1fr))`），
+  所以一个指标永远在同一列，数字变长不会推动邻居。`data-lb-rendered` 的签名从“只拼 id”
+  改成“id + 名字”，重命名节点才会重建行。
+  探针量到两个节点的六列全部落在 x = 42 / 157 / 271、宽 109 px，`clipped` 全为 false。
 
 ## 13. 测试计划
 

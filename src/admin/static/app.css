@@ -4464,26 +4464,66 @@ label span {
 }
 .lb-node-states {
   display: grid;
-  gap: 6px;
-  margin-top: 6px;
+  gap: 12px;
+  margin-top: 8px;
 }
 .lb-node-state {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: baseline;
+  display: grid;
   gap: 4px;
   font-size: 11px;
   font-variant-numeric: tabular-nums;
 }
+/* The node name gets its own line: an id nobody can read is not a label, and the
+   state badge sits at the right end of the same line instead of a metric column. */
+.lb-node-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 8px;
+  padding-bottom: 4px;
+  border-bottom: 1px solid #dde5ef;
+}
 .lb-node-name {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
   font-weight: 600;
-  overflow-wrap: anywhere;
+  color: #22303f;
+}
+.lb-node-flag {
+  flex: 0 0 auto;
+  padding: 1px 5px;
+  border-radius: 4px;
+  background: #dcebe0;
+  color: #2f6b46;
+}
+.lb-node-flag.is-off,
+.lb-node-flag.is-stale {
+  background: #f3e8d5;
+  color: #8a6d3b;
+}
+.lb-node-flag.is-nosample {
+  background: #e4ecf5;
+  color: #6b7a8a;
+}
+/* Three equal columns per line: a metric always sits in the same column, so a
+   growing number never pushes the neighbours sideways. */
+.lb-node-metrics {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 6px;
 }
 .lb-node-fact {
+  min-width: 0;
   padding: 1px 5px;
   border-radius: 4px;
   background: #e4ecf5;
   color: #33414f;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  overflow-wrap: normal;
 }
 .lb-takeover-note {
   margin: 0;
