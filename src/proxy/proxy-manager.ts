@@ -82,6 +82,11 @@ export class ProxyManager {
     return this.#state;
   }
 
+  /** The runtime registry, for read-only admin views of load balancing. */
+  get registry(): ProxyRuntimeRegistry {
+    return this.#registry;
+  }
+
   listPairs(): readonly PublicProxyPair[] {
     return this.#config.pairs.map((pair) => this.#registry.publicPair(pair));
   }

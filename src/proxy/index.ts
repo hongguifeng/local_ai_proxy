@@ -99,6 +99,20 @@ export {
   type LoadNodeStatus,
 } from "./load-monitor.js";
 export {
+  MAX_VERIFY_MODELS_BYTES,
+  VERIFY_MODELS_TIMEOUT_MS,
+  createLoadBalancerAdminService,
+  type LoadBalancerAdminOptions,
+  type LoadBalancerAdminSource,
+  type LoadBalancerMetricsSnapshot,
+  type LoadBalancerNodeModelCheck,
+  type LoadBalancerStatusGroup,
+  type LoadBalancerStatusNode,
+  type LoadBalancerStatusPair,
+  type LoadBalancerStatusResponse,
+  type LoadBalancerVerifyModelsResponse,
+} from "./load-balancer-admin.js";
+export {
   EMPTY_LOAD_METRICS,
   VLLM_SLEEP_AWAKE_LABEL,
   parseLoadMetrics,

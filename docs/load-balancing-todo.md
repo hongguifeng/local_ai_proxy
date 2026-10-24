@@ -1,6 +1,6 @@
 # 多节点负载均衡开发 TODO
 
-创建日期：2026-10-22。当前进度：8 / 13 项完成。
+创建日期：2026-10-22。当前进度：9 / 13 项完成。
 
 设计依据：[多节点负载均衡设计（粘性任务路由 v1）](./load-balancing-design.md)。决策记录：[ADR-013](./adr/013-load-balancing-sticky-routing.md)。本清单供后续开发、测试、验收和逐项提交使用。设计发生变化时，必须同时更新设计文档和本清单，不能只改代码。
 
@@ -63,7 +63,7 @@ npx electron-builder -w portable --publish never
 | [x] | LB-06 | request_received 时序与 pricing 一致性 | LB-01、LB-05 | 完成 |
 | [x] | LB-07 | 连接期失败切换与 503 | LB-05、LB-06 | 完成 |
 | [x] | LB-08 | 上游 metrics 采样与负载快照 | LB-04、LB-05 | 完成 |
-| [ ] | LB-09 | 路由记录与状态/模型校验 API | LB-05～LB-08 | 未开始 |
+| [x] | LB-09 | 路由记录与状态/模型校验 API | LB-05～LB-08 | 完成 |
 | [ ] | LB-10 | 管理 UI、i18n 和视觉基线 | LB-01、LB-08、LB-09 | 未开始 |
 | [ ] | LB-11 | 端到端、reload、pending 和价格回归 | LB-02～LB-10 | 未开始 |
 | [ ] | LB-12 | 真实节点验收与性能检查 | LB-11 | 未开始 |
@@ -541,6 +541,18 @@ npx electron-builder -w portable --publish never
 - 设计偏差：见设计文档 §8.1 落地说明——一个定时器同时驱动采样和亲和清理；什么都没解析出来时清空样本而不是存一个 0 样本；监视器默认自己的 logger 写 stderr（registry 暂无 logger 注入点）。
 - 提交标题：`feat(load-balancing): [LB-08] sample upstream engines and keep load snapshots`
 - 提交 SHA：`6d8d798`
+- 备注：无。
+
+### LB-09
+
+- 状态：完成
+- 实际变更：新增 `src/proxy/load-balancer-admin.ts`（只读内存的状态视图 + `GET /models` 节点校验，base path 后跟根路径回退）；`src/admin/admin-server.ts` 加两个路由、请求/响应 schema 和 `LoadBalancerAdminService` 接口；`src/proxy/proxy-manager.ts` 暴露 `registry` getter；`src/app/runtime.ts` 装配服务；`src/proxy/index.ts` 补导出。
+- 测试命令：`npx vitest run test-node/admin/load-balancer.test.ts test-node/proxy/load-balancer-pipeline.test.ts test-node/app/runtime.test.ts`，随后 `npx vitest run`（全量）、`npx tsc -p tsconfig.json --noEmit`、`npm run lint`、`npx prettier --check .`
+- 测试结果：新增 LB09-01、LB09-02（流水线）、LB09-03（两条）、LB09-04、LB09-05（三条）、LB09-06（管理路由缺失 + assembled app）；全量 102 文件 / 898 例通过
+- UI 基线：未涉及
+- 设计偏差：见设计文档 §11.2 落地说明——字段名用 camelCase；`inRotation` 只看启用且不在冷却；每个节点多了 `bindings`；`logged_by` 写在 `load_balance` 里。
+- 提交标题：`feat(load-balancing): [LB-09] add route records and the load balancer admin API`
+- 提交 SHA：待填写
 - 备注：无。
 
 每完成一个任务，在这里追加一条记录：

@@ -177,10 +177,10 @@ function startListener(
   return listener.start().then((address) => ({ port: address.port, listener }));
 }
 
-function bodyFor(model: string, turn: string): string {
+function bodyFor(model: string, ...turns: string[]): string {
   return JSON.stringify({
     model,
-    input: [{ role: "user", content: turn }],
+    input: turns.map((turn) => ({ role: "user", content: turn })),
     stream: true,
   });
 }
@@ -955,6 +955,203 @@ function errorOf(record: Readonly<Record<string, unknown>> | undefined): string 
   const error = record?.["error"];
   return typeof error === "string" ? error : "";
 }
+
+/** The only `load_balance` keys a record may carry; detail stays in memory. */
+const LOAD_BALANCE_RECORD_KEYS: readonly string[] = [
+  "decision",
+  "failover_from",
+  "group_id",
+  "group_name",
+  "kv_usage",
+  "load",
+  "logged_by",
+  "matched_by",
+  "metrics_source",
+  "strategy",
+];
+
+describe("route records that explain the choice", () => {
+  it("LB09-01 every decision stays short and readable in the history record", async () => {
+    const healthy = await startEchoNode("healthy");
+    const records: Readonly<Record<string, unknown>>[] = [];
+    const trafficLog = collectWriter(records);
+    const balancer = new LoadBalancer("pair-lb");
+    balancer.reconfigure(
+      pair(
+        [target("target-healthy", healthy.port), target("target-refused", 1)],
+        [group("lb-shapes", ["target-healthy", "target-refused"])],
+      ),
+    );
+    const pipeline = new ProxyRequestPipeline({
+      pairId: "pair-lb",
+      defaultTargetId: "target-healthy",
+      loadBalancer: balancer,
+      loadSamples: () => EMPTY_LOAD_SAMPLES,
+      targets: [
+        pipelineTarget("target-healthy", healthy.port, trafficLog),
+        pipelineTarget("target-refused", 1, trafficLog),
+      ],
+    });
+    const { port, listener } = await startListener((request, response, context) =>
+      pipeline.handle(request, response, context),
+    );
+
+    // A task with no history goes to the node carrying no load.
+    const first = await post(
+      port,
+      "/v1/responses",
+      bodyFor("Qwen3.8-Flash-Next", "shape-turn-one"),
+      session("shape-session"),
+    );
+    expect(first.status).toBe(200);
+
+    // The same task comes back to the node it was bound to.
+    const second = await post(
+      port,
+      "/v1/responses",
+      bodyFor("Qwen3.8-Flash-Next", "shape-turn-one", "shape-turn-two"),
+      session("shape-session"),
+    );
+    expect(second.status).toBe(200);
+
+    // With the idle node busy, a fresh task starts on the refused node and switches.
+    balancer.reserve("target-healthy");
+    const third = await post(
+      port,
+      "/v1/responses",
+      bodyFor("Qwen3.8-Flash-Next", "shape-turn-three"),
+      session("shape-session-two"),
+    );
+    expect(third.status).toBe(200);
+    balancer.release("target-healthy");
+
+    // Nothing usable left: the group answers 503 instead of bypassing itself.
+    balancer.reconfigure(
+      pair(
+        [
+          target("target-healthy", healthy.port, { enabled: false }),
+          target("target-refused", 1, { enabled: false }),
+        ],
+        [group("lb-shapes", ["target-healthy", "target-refused"])],
+      ),
+    );
+    const fourth = await post(
+      port,
+      "/v1/responses",
+      bodyFor("Qwen3.8-Flash-Next", "shape-turn-four"),
+      session("another-session"),
+    );
+    expect(fourth.status).toBe(503);
+
+    const decisions = eventRecords(records, "request_finished").map((record) => {
+      const route = routeOf(record);
+      const loadBalance = isRecord(route["load_balance"]) ? route["load_balance"] : {};
+      const decision = loadBalance["decision"];
+      return typeof decision === "string" ? decision : "";
+    });
+    expect(decisions).toEqual(["new_task", "affinity", "failover", "no_healthy_node"]);
+
+    for (const record of eventRecords(records, "request_finished")) {
+      const route = routeOf(record);
+      expect(route["route_mode"]).toBe("load_balance");
+      const loadBalance = isRecord(route["load_balance"]) ? route["load_balance"] : {};
+      expect(Object.keys(loadBalance).every((key) => LOAD_BALANCE_RECORD_KEYS.includes(key))).toBe(
+        true,
+      );
+      // A record explains the choice without repeating anything the user typed.
+      expect(JSON.stringify(loadBalance)).not.toContain("shape-turn");
+    }
+
+    const refusedRecord = eventRecords(records, "request_finished")[3];
+    const refusedRoute = routeOf(refusedRecord);
+    const refusedBalance = isRecord(refusedRoute["load_balance"])
+      ? refusedRoute["load_balance"]
+      : undefined;
+    expect(isRecord(refusedBalance) ? refusedBalance["logged_by"] : undefined).toBe(
+      "target-healthy",
+    );
+    expect(responseStatusOf(refusedRecord)).toBe(503);
+    expect(pricingOf(refusedRecord)).toMatchObject({
+      pricing_status: "unpriced",
+      cost_nano_cny: null,
+    });
+
+    await listener.close();
+    await close(healthy.server);
+  });
+
+  it("LB09-02 a disabled group or an unmatched model keeps ordinary routing and invents nothing", async () => {
+    const node = await startEchoNode("plain");
+
+    // The group matches the model but is turned off.
+    const offRecords: Readonly<Record<string, unknown>>[] = [];
+    const offLog = collectWriter(offRecords);
+    const offBalancer = new LoadBalancer("pair-lb");
+    offBalancer.reconfigure(
+      pair([target("target-a", node.port)], [group("lb-off", ["target-a"], { enabled: false })]),
+    );
+    const offPipeline = new ProxyRequestPipeline({
+      pairId: "pair-lb",
+      defaultTargetId: "target-a",
+      loadBalancer: offBalancer,
+      loadSamples: () => EMPTY_LOAD_SAMPLES,
+      targets: [pipelineTarget("target-a", node.port, offLog)],
+    });
+    const off = await startListener((request, response, context) =>
+      offPipeline.handle(request, response, context),
+    );
+    const offAnswer = await post(
+      off.port,
+      "/v1/responses",
+      bodyFor("Qwen3.8-Flash-Next", "one"),
+      session("disabled-group-session"),
+    );
+    expect(offAnswer.status).toBe(200);
+    expect(echoed(offAnswer.body).model).toBe("Qwen3.8-Flash-Next");
+
+    // The group is on, but for a model this request never asked for.
+    const otherRecords: Readonly<Record<string, unknown>>[] = [];
+    const otherLog = collectWriter(otherRecords);
+    const otherBalancer = new LoadBalancer("pair-lb");
+    otherBalancer.reconfigure(
+      pair(
+        [target("target-a", node.port)],
+        [group("lb-other", ["target-a"], { model_pattern: "Other-Model" })],
+      ),
+    );
+    const otherPipeline = new ProxyRequestPipeline({
+      pairId: "pair-lb",
+      defaultTargetId: "target-a",
+      loadBalancer: otherBalancer,
+      loadSamples: () => EMPTY_LOAD_SAMPLES,
+      targets: [pipelineTarget("target-a", node.port, otherLog)],
+    });
+    const other = await startListener((request, response, context) =>
+      otherPipeline.handle(request, response, context),
+    );
+    const otherAnswer = await post(
+      other.port,
+      "/v1/responses",
+      bodyFor("Qwen3.8-Flash-Next", "one"),
+      session("unmatched-session"),
+    );
+    expect(otherAnswer.status).toBe(200);
+
+    for (const collected of [offRecords, otherRecords]) {
+      const route = routeOf(eventRecords(collected, "request_finished")[0]);
+      expect(Object.keys(route).length).toBeGreaterThan(0);
+      expect(Object.hasOwn(route, "load_balance")).toBe(false);
+      expect(Object.hasOwn(route, "route_mode")).toBe(false);
+      expect(Object.hasOwn(route, "fallback_disabled")).toBe(false);
+      // Ordinary routing still explains where the request went.
+      expect(route["target_id"]).toBe("target-a");
+    }
+
+    await off.listener.close();
+    await other.listener.close();
+    await close(node.server);
+  });
+});
 
 describe("connection failover and refused groups", () => {
   it("LB07-01 switches once when the chosen node refuses the connection", async () => {

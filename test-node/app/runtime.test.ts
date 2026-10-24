@@ -206,6 +206,38 @@ describe("createNodeApplication", () => {
       expect(metricsBody.error).toBeTruthy();
       expect(metricsBody.durationMs).toBeGreaterThanOrEqual(0);
 
+      // The load balancing routes must exist on the assembled application, and the
+      // status route must answer from memory even when nothing is configured.
+      const lbStatus = await fetch(`http://127.0.0.1:${adminPort}/api/load-balancer/status`);
+      expect(lbStatus.status).toBe(200);
+      const lbBody = (await lbStatus.json()) as { now: number; pairs: unknown[] };
+      expect(lbBody.now).toBeTypeOf("number");
+      expect(lbBody.pairs).toEqual([]);
+
+      // A 404 with its own code proves the verify route was registered; a missing
+      // route would answer with the generic not_found code instead.
+      const lbVerify = await fetch(
+        `http://127.0.0.1:${adminPort}/api/load-balancer/verify-models`,
+        {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({ groupId: "missing-group", pairId: "missing-pair" }),
+        },
+      );
+      expect(lbVerify.status).toBe(404);
+      const lbVerifyBody = (await lbVerify.json()) as { error?: { code?: string } };
+      expect(lbVerifyBody.error?.code).toBe("load_balancer_group_not_found");
+
+      const lbVerifyBadBody = await fetch(
+        `http://127.0.0.1:${adminPort}/api/load-balancer/verify-models`,
+        {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({ groupId: "" }),
+        },
+      );
+      expect(lbVerifyBadBody.status).toBe(400);
+
       const cleanupPayloads = [
         { group_ids: ["missing-group"] },
         { keep_latest: 1 },

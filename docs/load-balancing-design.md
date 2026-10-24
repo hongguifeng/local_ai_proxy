@@ -548,6 +548,7 @@ v1 不根据 prompt 长度估算 token，也不对异构 GPU 做权重。长 pro
     "group_name": "Qwen x2",
     "decision": "new_task",
     "strategy": "least_load",
+    "matched_by": "new_task",
     "load": 0,
     "kv_usage": 0.18,
     "metrics_source": "vllm",
@@ -579,35 +580,43 @@ GET /api/load-balancer/status
 
 ```json
 {
+  "now": 1792830671228,
   "pairs": [
     {
-      "pair_id": "default",
+      "id": "default",
+      "name": "Default",
+      "enabled": true,
       "running": true,
       "groups": [
         {
           "id": "lb-qwen-dual",
           "name": "Qwen x2",
-          "model_pattern": "Qwen3.8-Flash-Next",
+          "modelPattern": "Qwen3.8-Flash-Next",
           "strategy": "least_load",
+          "enabled": true,
+          "metricsEnabled": true,
+          "failoverEnabled": true,
+          "nodeTargetIds": ["target-9393", "target-9394"],
           "bindings": 3,
           "nodes": [
             {
-              "target_id": "target-9393",
-              "name": "GPU-1",
+              "targetId": "target-9393",
+              "canonicalKey": "http://127.0.0.1:9393/v1",
               "enabled": true,
-              "in_rotation": true,
-              "in_flight": 1,
+              "inRotation": true,
+              "inFlight": 1,
               "bindings": 2,
               "failures": 0,
-              "cooldown_until": null,
-              "last_dispatched_at": "2026-10-13T10:00:00+08:00",
+              "cooldownRemainingMs": 0,
+              "lastDispatchedAt": 1792830660000,
               "metrics": {
-                "sampled_at": "2026-10-13T09:59:58+08:00",
+                "sampledAt": 1792830671228,
                 "running": 1,
                 "waiting": 0,
-                "kv_usage": 0.42,
+                "kvUsage": 0.42,
                 "source": "vllm"
-              }
+              },
+              "stale": false
             }
           ]
         }
@@ -618,6 +627,17 @@ GET /api/load-balancer/status
 ```
 
 接口只读取内存，不做数据库或上游网络请求。服务存在时注册路由；没有负载均衡服务时保持既有的 404 约定。路由装配必须加入 `test-node/app/runtime.test.ts` 的 assembled-app 冒烟测试。
+
+落地说明（LB-09）：
+
+- 字段名跟管理接口的其余部分一致，用 camelCase，不用设计草图里的 snake_case。
+- `cooldownRemainingMs` 是还剩多少毫秒；`lastDispatchedAt` 和 `sampledAt` 是毫秒时间戳，从没有过就是 null。
+- `inRotation` 只看启用且不在冷却。睡眠是每次请求拿新鲜 metrics 判的，不在这个标志里。
+- 每个节点的 `bindings` 直接取亲和快照的 byTarget。
+- 从没采过的节点 `metrics` 是 null、`stale` 是 true。过期的样本选择时一律不用。
+- 响应里没有 API key、没有请求内容、没有会话 ID，LB09-04 直接断言了这三点。
+- `POST /api/load-balancer/verify-models` 收 `{pairId, groupId}`：先试 base path 下的 `/models`，404 再退回根路径；默认 8 秒超时（可注入）；完全没回答的节点 `status` 是 null；组里一个 target 已经不在本 pair 里就明确报错，不静默跳过；pair 或 group 不存在返 404，错误码 `load_balancer_group_not_found`。
+- 记录里的 `decision` 只有四个值。组禁用或模型没匹配时，`model_route` 里既没有 `load_balance` 也没有 `route_mode`，更不会编出一个 `fallback_disabled`。
 
 ## 12. 管理 UI
 

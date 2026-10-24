@@ -21,6 +21,10 @@ import type {
 import { recordText } from "../persistence/repository.js";
 import type { ModelPriceImportRequest, ModelPriceImportResult } from "../pricing/index.js";
 import type { UsageStatisticsService } from "../maintenance/usage-statistics-service.js";
+import type {
+  LoadBalancerStatusResponse,
+  LoadBalancerVerifyModelsResponse,
+} from "../proxy/index.js";
 import { StructuredLogger } from "../shared/index.js";
 
 export type HealthStatus = "degraded" | "ok" | "starting" | "stopping";
@@ -39,6 +43,7 @@ export interface AdminServerOptions {
   readonly staticAssets?: AdminStaticAssets | (() => Promise<AdminStaticAssets>);
   readonly targetCheckService?: TargetCheckAdminService;
   readonly targetMetricsService?: TargetMetricsAdminService;
+  readonly loadBalancerService?: LoadBalancerAdminService;
   readonly summaryModelService?: SummaryModelAdminService;
   readonly modelCatalogService?: ModelCatalogAdminService;
   readonly usageStatisticsService?: UsageStatisticsService;
@@ -122,6 +127,15 @@ export interface TargetMetricsResponse {
 
 export interface TargetMetricsAdminService {
   fetchTargetMetrics(request: TargetMetricsRequest): Promise<TargetMetricsResponse>;
+}
+
+/** Read-only load balancing state, plus a check of what models each node really serves. */
+export interface LoadBalancerAdminService {
+  getStatus(): LoadBalancerStatusResponse;
+  verifyModels(
+    pairId: string,
+    groupId: string,
+  ): Promise<LoadBalancerVerifyModelsResponse | undefined>;
 }
 
 export interface AdminRequestLogger {
@@ -316,6 +330,141 @@ export const TARGET_METRICS_RESPONSE_SCHEMA = {
     text: { type: "string", maxLength: 1_048_576 },
     truncated: { type: "boolean" },
     error: { type: "string", maxLength: 8_192 },
+  },
+} as const;
+
+const LOAD_BALANCER_NODE_SCHEMA = {
+  type: "object",
+  additionalProperties: false,
+  required: [
+    "bindings",
+    "canonicalKey",
+    "cooldownRemainingMs",
+    "enabled",
+    "failures",
+    "inFlight",
+    "inRotation",
+    "lastDispatchedAt",
+    "metrics",
+    "stale",
+    "targetId",
+  ],
+  properties: {
+    bindings: { type: "integer", minimum: 0 },
+    canonicalKey: { type: "string", maxLength: 8_192 },
+    cooldownRemainingMs: { type: "integer", minimum: 0 },
+    enabled: { type: "boolean" },
+    failures: { type: "integer", minimum: 0 },
+    inFlight: { type: "integer", minimum: 0 },
+    inRotation: { type: "boolean" },
+    lastDispatchedAt: { type: ["integer", "null"] },
+    metrics: {
+      type: ["object", "null"],
+      additionalProperties: false,
+      required: ["running", "waiting", "sampledAt", "source"],
+      properties: {
+        kvUsage: { type: ["number", "null"] },
+        running: { type: "integer", minimum: 0 },
+        sampledAt: { type: "integer", minimum: 0 },
+        source: { type: "string", maxLength: 256 },
+        waiting: { type: "integer", minimum: 0 },
+      },
+    },
+    stale: { type: "boolean" },
+    targetId: { type: "string", maxLength: 512 },
+  },
+} as const;
+
+const LOAD_BALANCER_GROUP_SCHEMA = {
+  type: "object",
+  additionalProperties: false,
+  required: [
+    "bindings",
+    "enabled",
+    "failoverEnabled",
+    "id",
+    "metricsEnabled",
+    "modelPattern",
+    "name",
+    "nodeTargetIds",
+    "nodes",
+    "strategy",
+  ],
+  properties: {
+    bindings: { type: "integer", minimum: 0 },
+    enabled: { type: "boolean" },
+    failoverEnabled: { type: "boolean" },
+    id: { type: "string", maxLength: 512 },
+    metricsEnabled: { type: "boolean" },
+    modelPattern: { type: "string", maxLength: 512 },
+    name: { type: "string", maxLength: 512 },
+    nodeTargetIds: { type: "array", maxItems: 256, items: { type: "string", maxLength: 512 } },
+    nodes: { type: "array", maxItems: 256, items: LOAD_BALANCER_NODE_SCHEMA },
+    strategy: { type: "string", maxLength: 64 },
+  },
+} as const;
+
+export const LOAD_BALANCER_STATUS_RESPONSE_SCHEMA = {
+  type: "object",
+  additionalProperties: false,
+  required: ["now", "pairs"],
+  properties: {
+    now: { type: "integer", minimum: 0 },
+    pairs: {
+      type: "array",
+      maxItems: 256,
+      items: {
+        type: "object",
+        additionalProperties: false,
+        required: ["enabled", "groups", "id", "name", "running"],
+        properties: {
+          enabled: { type: "boolean" },
+          groups: { type: "array", maxItems: 256, items: LOAD_BALANCER_GROUP_SCHEMA },
+          id: { type: "string", maxLength: 512 },
+          name: { type: "string", maxLength: 512 },
+          running: { type: "boolean" },
+        },
+      },
+    },
+  },
+} as const;
+
+export const LOAD_BALANCER_VERIFY_MODELS_REQUEST_SCHEMA = {
+  type: "object",
+  additionalProperties: false,
+  required: ["pairId", "groupId"],
+  properties: {
+    pairId: { type: "string", minLength: 1, maxLength: 512 },
+    groupId: { type: "string", minLength: 1, maxLength: 512 },
+  },
+} as const;
+
+export const LOAD_BALANCER_VERIFY_MODELS_RESPONSE_SCHEMA = {
+  type: "object",
+  additionalProperties: false,
+  required: ["groupId", "modelPattern", "nodes", "pairId"],
+  properties: {
+    groupId: { type: "string", maxLength: 512 },
+    modelPattern: { type: "string", maxLength: 512 },
+    nodes: {
+      type: "array",
+      maxItems: 256,
+      items: {
+        type: "object",
+        additionalProperties: false,
+        required: ["durationMs", "matched", "models", "ok", "status", "targetId"],
+        properties: {
+          durationMs: { type: "number", minimum: 0 },
+          error: { type: "string", maxLength: 8_192 },
+          matched: { type: "array", maxItems: 4_096, items: { type: "string", maxLength: 512 } },
+          models: { type: "array", maxItems: 4_096, items: { type: "string", maxLength: 512 } },
+          ok: { type: "boolean" },
+          status: { type: ["integer", "null"] },
+          targetId: { type: "string", maxLength: 512 },
+        },
+      },
+    },
+    pairId: { type: "string", maxLength: 512 },
   },
 } as const;
 
@@ -690,6 +839,39 @@ export function createAdminServer(options: AdminServerOptions): FastifyInstance 
           }
           throw error;
         }
+      },
+    );
+  }
+  if (options.loadBalancerService !== undefined) {
+    const loadBalancerService = options.loadBalancerService;
+    server.get(
+      "/api/load-balancer/status",
+      {
+        schema: {
+          response: { 200: LOAD_BALANCER_STATUS_RESPONSE_SCHEMA },
+        },
+      },
+      () => loadBalancerService.getStatus(),
+    );
+    server.post<{ Body: { groupId: string; pairId: string } }>(
+      "/api/load-balancer/verify-models",
+      {
+        schema: {
+          body: LOAD_BALANCER_VERIFY_MODELS_REQUEST_SCHEMA,
+          response: { 200: LOAD_BALANCER_VERIFY_MODELS_RESPONSE_SCHEMA },
+        },
+      },
+      async (request, reply) => {
+        const result = await loadBalancerService.verifyModels(
+          request.body.pairId,
+          request.body.groupId,
+        );
+        if (result === undefined) {
+          return reply
+            .code(404)
+            .send(adminError("load_balancer_group_not_found", "Load balancing group not found."));
+        }
+        return result;
       },
     );
   }
