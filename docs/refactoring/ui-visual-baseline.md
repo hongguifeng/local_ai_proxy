@@ -12,8 +12,8 @@
 | --- | --- | --- | --- | --- | --- |
 | Proxy | 中文 | `doc/ui_proxy_cn.png` | 1278 x 1215 | `641a8465939bb624c50ce8d1b001cbd0eb2c4c5adcea076bcff5a982290d6076` | 当前任务卡片与顶部时间范围为 2026-07-18 12:00:00 的静态 fixture(不是测试当前时间);侧栏日志组为 4 个任务 fixture(1 个 3 调用任务 + 1 个长任务)。转发地址卡片头部为名称输入框 + 测试/指标/删除按钮(默认选择器已移出头部行)，卡片左下角同一行依次是默认单选与启用复选框；默认选中时启用复选框保持勾选并置为禁用态。 |
 | Proxy | 英文 | `doc/ui_proxy_en.png` | 1278 x 1208 | `dcec51e547b5c76b6d54885305c105d73142620d2a36d1bbac164650021b7c17` | 当前任务卡片与顶部时间范围为 2026-07-18 12:00:00 的静态 fixture(不是测试当前时间);侧栏日志组为 4 个任务 fixture(1 个 3 调用任务 + 1 个长任务)。Target 卡片头部为名称输入框 + Test/Metrics/Delete 按钮(Default 选择器已移出头部行)，卡片左下角同一行依次是 Default 单选与 Enabled 复选框；Default 选中时 Enabled 保持勾选并禁用。 |
-| Load balancing | 中文 | `doc/ui_lb_cn.png` | 1278 x 1167 | `76ace97b6e79fc42cb2efa113e211f67016b4ef779deb54ce550268a94927d75` | Proxy 页整页截图（viewport 高度自适应到整页，不是只截可视区），只保留第一个代理卡片以免整页过长。转发地址三张卡片全部启用（默认那张绿底、另外两张蓝底），下面以虚线分隔出负载均衡区：两张组卡片与转发地址卡片同宽、左对齐，右侧留白。左边那张参与节点一行只有 `lmstudio` 与 `Target` 两枚标签，右边那张是另一个组 Cloud relay（轮转策略），参与节点是 `openrouter` 与 `lmstudio`。两张卡片都是正常状态：成员全部启用，所以画面里没有「禁用」标记，也没有琥珀色警告行；匹配预览输入是空值（只有灰色占位文本），命中/不命中说明行不显示；成员浮层保持关闭，节点状态 details 保持折叠。禁用成员、各类警告与未选节点的空态都由功能用例覆盖，不进基线。 |
-| Load balancing | 英文 | `doc/ui_lb_en.png` | 1278 x 1212 | `0fc1e81ffdae89260b79d6a001458d122164b745b2b377c0cf3c44174f247b48` | 与中文基线同一 fixture 的英文界面：Dual GPU 的 Member nodes 是 `lmstudio` 与 `Target`，Cloud relay 是 Round robin、成员 `openrouter` 与 `lmstudio`；两张卡片都是正常状态，没有 off 标记也没有警告行，Choose nodes 触发器、Match preview input、Verify node models 依次排列。fixture 不含名为“新代理”的第二个代理，所以画面里没有任何中文。 |
+| Load balancing | 中文 | `doc/ui_lb_cn.png` | 1278 x 1075 | `87918dca4a0eb5960f1d6647e6f4ab5af13a51f336a1127e2cbe2b8728f2e036` | Proxy 页整页截图（viewport 高度自适应到整页，不是只截可视区），只保留第一个代理卡片以免整页过长。转发地址三张卡片全部启用（默认那张绿底、另外两张蓝底），下面以虚线分隔出负载均衡区：两张组卡片与转发地址卡片同宽、左对齐，右侧留白。左边那张参与节点一行只有 `lmstudio` 与 `Target` 两枚标签，右边那张是另一个组 Cloud relay（轮转策略），参与节点是 `openrouter` 与 `lmstudio`。两张卡片都是正常状态：成员全部启用，所以画面里没有「禁用」标记，也没有琥珀色警告行；成员浮层保持关闭，节点状态 details 保持折叠。禁用成员、各类警告与未选节点的空态都由功能用例覆盖，不进基线。 |
+| Load balancing | 英文 | `doc/ui_lb_en.png` | 1278 x 1120 | `71f05d0dfbe373b5dc810eaaab58b6ce6adf56202552894f2211600a57397f36` | 与中文基线同一 fixture 的英文界面：Dual GPU 的 Member nodes 是 `lmstudio` 与 `Target`，Cloud relay 是 Round robin、成员 `openrouter` 与 `lmstudio`；两张卡片都是正常状态，没有 off 标记也没有警告行，Member nodes 下面是芯片行和 Choose nodes 触发器，卡片到 Node state · 2 为止。fixture 不含名为“新代理”的第二个代理，所以画面里没有任何中文。 |
 | History | 中文 | `doc/ui_logs_cn.png` | 1384 x 1212 | `bed0bf0037b90b4b4ee50f37c978f7d70a7d53433b6ac7cd1726b122102c7ec3` | 当前任务卡片与顶部时间范围为 2026-07-18 12:00:00 的静态 fixture(不是测试当前时间);侧栏日志组为 4 个任务 fixture(1 个 3 调用任务 + 1 个长任务)。 |
 | History | 英文 | `doc/ui_logs_en.png` | 1384 x 1224 | `b6b772d73d32a6d3b4d10f8e3c4b105263ae8457caa42348f943743f010f3c8d` | 当前任务卡片与顶部时间范围为 2026-07-18 12:00:00 的静态 fixture(不是测试当前时间);侧栏日志组为 4 个任务 fixture(1 个 3 调用任务 + 1 个长任务)。 |
 | Usage statistics | 中文 | `doc/ui_stats_cn.png` | 1278 x 1553 | `34cceb92e067801100368911dd581d6994176106847e9be238ee9ba86377125f` | “总体使用量”标题下“按当前时间范围汇总”后以琥珀色（原提示条颜色）括号内联未计价请求数量（不再使用独立提示条） |
@@ -44,7 +44,7 @@ sha256sum doc/ui_proxy_cn.png doc/ui_proxy_en.png doc/ui_lb_cn.png doc/ui_lb_en.
 - 每张 Target 卡片头部左侧是 ⠿ 拖拽手柄（同一代理只有一个 Target 时置灰禁用），拖动手柄可调整卡片顺序，顺序即模型映射的匹配优先级。
 - API Key 输入框包含显隐与复制按钮。
 - 代理卡片底部右侧包含添加 Target 和删除代理操作。
-- 转发地址区下方以虚线分隔出「负载均衡组 / Load balancing groups」区：标题行左侧是加粗标题，右侧是「添加负载均衡组 / Add load balancing group」按钮，组卡片（若有）与转发地址卡片同宽（`repeat(auto-fit, minmax(300px, 360px))` + `justify-content: start`）左对齐换行，不会被拉伸到整行，也不会被同行的邻居拉到等高。`ui_proxy_cn.png` / `ui_proxy_en.png` 的 fixture `load_balancers` 为空数组，所以两张代理卡片里都只有标题与按钮，没有组卡片、节点状态或模型校验结果；带组卡片的状态由 `ui_lb_cn.png` / `ui_lb_en.png` 覆盖。
+- 转发地址区下方以虚线分隔出「负载均衡组 / Load balancing groups」区：标题行左侧是加粗标题，右侧是「添加负载均衡组 / Add load balancing group」按钮，组卡片（若有）与转发地址卡片同宽（`repeat(auto-fit, minmax(300px, 360px))` + `justify-content: start`）左对齐换行，不会被拉伸到整行，也不会被同行的邻居拉到等高。`ui_proxy_cn.png` / `ui_proxy_en.png` 的 fixture `load_balancers` 为空数组，所以两张代理卡片里都只有标题与按钮，没有组卡片和节点状态；带组卡片的状态由 `ui_lb_cn.png` / `ui_lb_en.png` 覆盖。
 - 运行代理使用绿色状态圆点和绿色开关；停止代理使用灰色状态。
 - 中文和英文界面保持同一布局，不因文字长度改变主要列结构。
 
@@ -57,7 +57,7 @@ sha256sum doc/ui_proxy_cn.png doc/ui_proxy_en.png doc/ui_lb_cn.png doc/ui_lb_en.
 - 「参与节点 / Member nodes」标题下只列已勾选的成员，每个成员一枚白底描边标签；禁用成员的标签右侧带琥珀色「禁用 / off」标记，标记始终单行不换行（基线里成员全部启用，画面里没有这枚标记）。
 - 标签行下方是「选择节点 / Choose nodes」触发器（右侧 ▾）。展开后在本 pair 全部转发节点上浮出复选框列表，浮层覆盖卡片下方内容而不改变卡片高度，点浮层外或按 Esc 关闭；基线里浮层保持关闭。
 - 一张都没勾选时那一行显示「未选择节点 / No nodes selected」；基线里两组都有成员，所以这句只由功能用例覆盖，不在画面中。
-- 「匹配预览输入 / Match preview input」是标签与输入框同行；基线里输入框是空值（只有灰色占位文本），所以后面的命中/不命中说明行不显示。「校验节点模型 / Verify node models」独占一行，最下方「节点状态 · N / Node state · N」是折叠 details，基线中保持折叠。组里含禁用成员时卡片下部会出现琥珀色警告行；基线里两组都是正常状态，画面里没有警告行。
+- 基线里两张卡片到「节点状态 · 2 / Node state · 2」为止；LB-16 删掉了匹配预览输入和校验按钮，所以两张基线图都比旧基线矮 92 px。「节点状态 · N / Node state · N」是折叠 details，基线中保持折叠。组里含禁用成员时卡片下部会出现琥珀色警告行；基线里两组都是正常状态，画面里没有警告行。
 - 中英文界面同一列结构，英文界面文案无中文。
 
 ## History 页面状态

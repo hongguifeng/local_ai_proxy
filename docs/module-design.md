@@ -730,7 +730,7 @@ create pending record
 - `load-metrics.ts` / `load-monitor.ts`：解析 vLLM / SGLang / llama.cpp 指标名，
   每 5 秒采样，单飞按 canonical key，4 秒超时，定时器 `unref()`，
   失败与恢复每个 key 只写一行日志。采样失败不影响转发。
-- `load-balancer-admin.ts`：状态与模型校验接口的内存读数，响应里不包含 key、
+- `load-balancer-admin.ts`：状态接口的内存读数，响应里不包含 key、
   请求文本或会话 id。
 
 pipeline 只做三件事：问组要一个节点、预留它、请求结束时释放一次。

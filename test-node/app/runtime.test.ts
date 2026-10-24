@@ -66,33 +66,14 @@ describe("createNodeApplication", () => {
     const proxyPort = body.pairs[0]?.actual_listen_port;
     expect(proxyPort).toBeTypeOf("number");
 
-    // A draft group is verified against the saved targets of a running pair, so the
-    // proxy page can check nodes before the group has ever been saved.
-    const draftVerify = await fetch(
+    // LB-16 removed the model check, so this route no longer exists at all.
+    const removedVerify = await fetch(
       `http://127.0.0.1:${adminPort}/api/load-balancer/verify-models`,
-      {
-        method: "POST",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify({
-          groupId: "lb-draft",
-          pairId: "enabled",
-          modelPattern: "Qwen*",
-          nodeTargetIds: ["target", "target-gone"],
-        }),
-      },
+      { method: "POST" },
     );
-    expect(draftVerify.status).toBe(200);
-    const draftBody = (await draftVerify.json()) as {
-      modelPattern: string;
-      nodes: { error?: string; ok: boolean; status: number | null; targetId: string }[];
-      source: string;
-    };
-    expect(draftBody.source).toBe("draft");
-    expect(draftBody.modelPattern).toBe("Qwen*");
-    expect(draftBody.nodes.map((node) => node.targetId)).toEqual(["target", "target-gone"]);
-    expect(draftBody.nodes[0]?.ok).toBe(false);
-    expect(draftBody.nodes[0]?.status).toBeNull();
-    expect(draftBody.nodes[1]?.error).toBe("target is not configured in this pair");
+    expect(removedVerify.status).toBe(404);
+    const removedBody = (await removedVerify.json()) as { error?: { code?: string } };
+    expect(removedBody.error?.code).toBe("not_found");
 
     await runtime.application.stop();
     await expect(fetch(`http://127.0.0.1:${adminPort}/api/health`)).rejects.toThrow();
@@ -242,9 +223,9 @@ describe("createNodeApplication", () => {
       expect(lbBody.now).toBeTypeOf("number");
       expect(lbBody.pairs).toEqual([]);
 
-      // A 404 with its own code proves the verify route was registered; a missing
-      // route would answer with the generic not_found code instead.
-      const lbVerify = await fetch(
+      // LB-16 removed the model check: the route answers with the generic not_found code,
+      // which is how Fastify reports a route that was never registered.
+      const removedVerify = await fetch(
         `http://127.0.0.1:${adminPort}/api/load-balancer/verify-models`,
         {
           method: "POST",
@@ -252,38 +233,9 @@ describe("createNodeApplication", () => {
           body: JSON.stringify({ groupId: "missing-group", pairId: "missing-pair" }),
         },
       );
-      expect(lbVerify.status).toBe(404);
-      const lbVerifyBody = (await lbVerify.json()) as { error?: { code?: string } };
-      expect(lbVerifyBody.error?.code).toBe("load_balancer_group_not_found");
-
-      const lbVerifyBadBody = await fetch(
-        `http://127.0.0.1:${adminPort}/api/load-balancer/verify-models`,
-        {
-          method: "POST",
-          headers: { "content-type": "application/json" },
-          body: JSON.stringify({ groupId: "" }),
-        },
-      );
-      expect(lbVerifyBadBody.status).toBe(400);
-
-      // Draft fields pass validation even on a pair that does not exist; the route
-      // still reports the group as missing instead of inventing an upstream.
-      const lbDraftVerify = await fetch(
-        `http://127.0.0.1:${adminPort}/api/load-balancer/verify-models`,
-        {
-          method: "POST",
-          headers: { "content-type": "application/json" },
-          body: JSON.stringify({
-            groupId: "lb-draft",
-            pairId: "missing-pair",
-            modelPattern: "Qwen*",
-            nodeTargetIds: ["target"],
-          }),
-        },
-      );
-      expect(lbDraftVerify.status).toBe(404);
-      const draftBody = (await lbDraftVerify.json()) as { error?: { code?: string } };
-      expect(draftBody.error?.code).toBe("load_balancer_group_not_found");
+      expect(removedVerify.status).toBe(404);
+      const removedBody = (await removedVerify.json()) as { error?: { code?: string } };
+      expect(removedBody.error?.code).toBe("not_found");
 
       const cleanupPayloads = [
         { group_ids: ["missing-group"] },

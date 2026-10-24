@@ -238,17 +238,6 @@ const translations = {
     lbMembers: "参与节点",
     lbMembersNone: "未选择节点",
     lbChooseNodes: "选择节点",
-    lbPreview: "匹配预览输入",
-    lbPreviewMatch: "会进入本组",
-    lbPreviewNoMatch: "不会进入本组",
-    lbVerifyModels: "校验节点模型",
-    lbVerifyMatched: "个模型匹配",
-    lbVerifyUnreachable: "不可达",
-    lbVerifyNoMatch: "没有模型匹配这个 pattern",
-    lbVerifyNoMembers: "先勾选至少一个参与节点",
-    lbVerifyNoPattern: "先填模型匹配",
-    lbVerifySourceDraft: "校验的是你现在填的内容（还没保存）",
-    lbVerifySourceSaved: "校验的是已保存的配置",
     lbNodeMissingMember: "组里引用了本 pair 没有的节点",
     lbNodeState: "节点状态",
     lbStateInFlight: "进行中",
@@ -710,17 +699,6 @@ const translations = {
     lbMembers: "Member nodes",
     lbMembersNone: "No nodes selected",
     lbChooseNodes: "Choose nodes",
-    lbPreview: "Match preview input",
-    lbPreviewMatch: "would be handled by this group",
-    lbPreviewNoMatch: "would not be handled by this group",
-    lbVerifyModels: "Verify node models",
-    lbVerifyMatched: "models match",
-    lbVerifyUnreachable: "unreachable",
-    lbVerifyNoMatch: "no model matches this pattern",
-    lbVerifyNoMembers: "check at least one node first",
-    lbVerifyNoPattern: "fill in the model pattern first",
-    lbVerifySourceDraft: "checked against what you typed here, not yet saved",
-    lbVerifySourceSaved: "checked against the saved configuration",
     lbNodeMissingMember: "The group names a node this pair does not have",
     lbNodeState: "Node state",
     lbStateInFlight: "In flight",
@@ -1209,11 +1187,6 @@ function newLoadBalancerGroup() {
     failover_enabled: true,
   };
 }
-function lbPatternMatches(pattern, model) {
-  if (!pattern || !model) return false;
-  if (!pattern.includes("*")) return pattern === model;
-  return wildcardPriceMatch(pattern, model);
-}
 function patternToRegex(pattern) {
   return pattern
     .split("*")
@@ -1343,12 +1316,9 @@ function lbGroupCard(group, pair, pairIndex, groupIndex) {
         <div class="lb-picker-pop" id="${popId}" data-lb-picker-pop hidden>${memberRows}</div>
       </div>
     </div>
-    <label class="lb-preview"><span>${escapeHtml(t("lbPreview"))}</span><input data-lb-preview placeholder="Qwen3.8-Flash-Next"><output aria-live="polite"></output></label>
     <div class="lb-tools">
-      <button type="button" data-verify-lb-models>${escapeHtml(t("lbVerifyModels"))}</button>
       <p class="lb-warning" data-lb-warning hidden></p>
     </div>
-    <div class="lb-verify-results" data-lb-verify hidden></div>
     <details class="lb-status" ${open ? "open" : ""}>
       <summary>${escapeHtml(t("lbNodeState"))} · ${nodeIds.length}</summary>
       <div class="lb-node-states" data-lb-rendered="${nodeIds.join(",")}">${nodeIds.map((targetId) => lbStatusRowHtml(targetId)).join("")}</div>
@@ -1522,17 +1492,6 @@ function refreshLbCards() {
     cards.forEach((lbCard) => {
       const groupIndex = Number(lbCard.dataset.lbIndex);
       const draft = drafts[groupIndex] || {};
-      const preview = lbCard.querySelector("[data-lb-preview]");
-      const output = lbCard.querySelector(".lb-preview output");
-      if (preview !== null && output !== null) {
-        const typed = preview.value.trim();
-        output.textContent =
-          draft.model_pattern === "" || typed === ""
-            ? ""
-            : lbPatternMatches(draft.model_pattern, typed)
-              ? t("lbPreviewMatch")
-              : t("lbPreviewNoMatch");
-      }
       const line = lbCard.querySelector("[data-lb-warning]");
       if (line !== null) {
         const mine = warnings.filter((item) => item.groupIndex === groupIndex);
@@ -1579,60 +1538,6 @@ function forgetLbGroupOpen(pair, group) {
   writeLbGroupOpen(map);
 }
 
-async function runLoadBalancerModelCheck(pair, group, resultsBox, button) {
-  resultsBox.hidden = true;
-  resultsBox.textContent = "";
-  resultsBox.classList.remove("is-error");
-  resultsBox.classList.remove("is-warn");
-  const pattern = (group.model_pattern || "").trim();
-  const memberIds = (group.node_target_ids || []).filter(Boolean);
-  if (pattern === "" || memberIds.length === 0) {
-    resultsBox.hidden = false;
-    resultsBox.classList.add("is-warn");
-    resultsBox.textContent = t(pattern === "" ? "lbVerifyNoPattern" : "lbVerifyNoMembers");
-    return;
-  }
-  button.disabled = true;
-  try {
-    const data = await api("/api/load-balancer/verify-models", {
-      method: "POST",
-      body: JSON.stringify({
-        pairId: pair.id,
-        groupId: group.id,
-        modelPattern: pattern,
-        nodeTargetIds: memberIds,
-      }),
-    });
-    resultsBox.hidden = false;
-    resultsBox.textContent = "";
-    const source = document.createElement("p");
-    source.className = "lb-verify-source";
-    source.textContent = t(data.source === "draft" ? "lbVerifySourceDraft" : "lbVerifySourceSaved");
-    resultsBox.appendChild(source);
-    (data.nodes || []).forEach((node) => {
-      const line = document.createElement("p");
-      line.className = "lb-verify-line";
-      if (!node.ok) {
-        line.classList.add("is-error");
-        line.textContent = `${node.targetId}: ${node.error || t("lbVerifyUnreachable")}`;
-      } else if (node.matched.length > 0) {
-        line.classList.add("is-ok");
-        line.textContent = `${node.targetId}: ${node.matched.length} ${t("lbVerifyMatched")} (${node.matched.join(", ")})`;
-      } else {
-        line.classList.add("is-warn");
-        line.textContent = `${node.targetId}: ${t("lbVerifyNoMatch")}`;
-      }
-      resultsBox.appendChild(line);
-    });
-  } catch (error) {
-    resultsBox.hidden = false;
-    resultsBox.classList.add("is-error");
-    resultsBox.textContent = error instanceof Error ? error.message : String(error);
-  } finally {
-    button.disabled = false;
-  }
-}
-
 /** Returns true when the click belonged to a load balancing control. */
 function handleLoadBalancerClick(event, pair, card) {
   const lbCard = event.target.closest(".lb-card");
@@ -1655,13 +1560,6 @@ function handleLoadBalancerClick(event, pair, card) {
     if (group) forgetLbGroupOpen(pair, group);
     (pair.load_balancers || []).splice(Number(lbCard.dataset.lbIndex), 1);
     renderPairs();
-    return true;
-  }
-  if (lbCard && event.target.matches("[data-verify-lb-models]")) {
-    collectPairs();
-    const group = (pair.load_balancers || [])[Number(lbCard.dataset.lbIndex)];
-    if (!group) return true;
-    runLoadBalancerModelCheck(pair, group, lbCard.querySelector("[data-lb-verify]"), event.target);
     return true;
   }
   return false;
@@ -6365,7 +6263,7 @@ $("proxyGrid").addEventListener("keydown", (event) => {
   moveTargetCardByKey(handle, offset);
 });
 $("proxyGrid").addEventListener("input", (event) => {
-  if (event.target.matches("[data-lb-field], [data-lb-preview]")) {
+  if (event.target.matches("[data-lb-field]")) {
     refreshLbCards();
     return;
   }

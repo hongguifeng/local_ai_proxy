@@ -4405,21 +4405,6 @@ label span {
   flex: 0 0 auto;
   overflow-wrap: normal;
 }
-.lb-preview {
-  display: grid;
-  grid-template-columns: auto minmax(0, 1fr);
-  align-items: center;
-  gap: 6px;
-}
-.lb-preview > input {
-  min-width: 0;
-}
-.lb-preview output {
-  grid-column: 1 / -1;
-  font-size: 11px;
-  color: #3b4a5a;
-  overflow-wrap: anywhere;
-}
 .lb-tools {
   display: grid;
   gap: 6px;
@@ -4430,32 +4415,7 @@ label span {
   color: #8a6d3b;
   overflow-wrap: anywhere;
 }
-.lb-verify-results {
-  display: grid;
-  gap: 4px;
-  font-size: 11px;
-}
-.lb-verify-line {
-  margin: 0;
-  overflow-wrap: anywhere;
-}
-.lb-verify-line.is-ok {
-  color: #2f6b46;
-}
-.lb-verify-line.is-warn {
-  color: #8a6d3b;
-}
-.lb-verify-line.is-error,
-.lb-verify-results.is-error {
-  color: #9c3b34;
-}
-.lb-verify-results.is-warn {
-  color: #8a6d3b;
-}
-.lb-verify-source {
-  margin: 0;
-  color: #6b7280;
-}
+
 .lb-status > summary {
   font-size: 12px;
   cursor: pointer;
@@ -4496,9 +4456,6 @@ label span {
 }
 @media (max-width: 520px) {
   .lb-groups {
-    grid-template-columns: 1fr;
-  }
-  .lb-preview {
     grid-template-columns: 1fr;
   }
 }

@@ -21,11 +21,7 @@ import type {
 import { recordText } from "../persistence/repository.js";
 import type { ModelPriceImportRequest, ModelPriceImportResult } from "../pricing/index.js";
 import type { UsageStatisticsService } from "../maintenance/usage-statistics-service.js";
-import type {
-  LoadBalancerStatusResponse,
-  LoadBalancerVerifyModelsRequest,
-  LoadBalancerVerifyModelsResponse,
-} from "../proxy/index.js";
+import type { LoadBalancerStatusResponse } from "../proxy/index.js";
 import { StructuredLogger } from "../shared/index.js";
 
 export type HealthStatus = "degraded" | "ok" | "starting" | "stopping";
@@ -130,12 +126,9 @@ export interface TargetMetricsAdminService {
   fetchTargetMetrics(request: TargetMetricsRequest): Promise<TargetMetricsResponse>;
 }
 
-/** Read-only load balancing state, plus a check of what models each node really serves. */
+/** Read-only load balancing state, answered entirely from memory. */
 export interface LoadBalancerAdminService {
   getStatus(): LoadBalancerStatusResponse;
-  verifyModels(
-    request: LoadBalancerVerifyModelsRequest,
-  ): Promise<LoadBalancerVerifyModelsResponse | undefined>;
 }
 
 export interface AdminRequestLogger {
@@ -426,54 +419,6 @@ export const LOAD_BALANCER_STATUS_RESPONSE_SCHEMA = {
         },
       },
     },
-  },
-} as const;
-
-export const LOAD_BALANCER_VERIFY_MODELS_REQUEST_SCHEMA = {
-  type: "object",
-  additionalProperties: false,
-  required: ["pairId", "groupId"],
-  properties: {
-    pairId: { type: "string", minLength: 1, maxLength: 512 },
-    groupId: { type: "string", minLength: 1, maxLength: 512 },
-    /** With `nodeTargetIds` this unsaved draft is checked instead of the stored group. */
-    modelPattern: { type: "string", minLength: 1, maxLength: 512 },
-    nodeTargetIds: {
-      type: "array",
-      minItems: 1,
-      maxItems: 64,
-      items: { type: "string", minLength: 1, maxLength: 512 },
-    },
-  },
-} as const;
-
-export const LOAD_BALANCER_VERIFY_MODELS_RESPONSE_SCHEMA = {
-  type: "object",
-  additionalProperties: false,
-  required: ["groupId", "modelPattern", "nodes", "pairId", "source"],
-  properties: {
-    groupId: { type: "string", maxLength: 512 },
-    modelPattern: { type: "string", maxLength: 512 },
-    nodes: {
-      type: "array",
-      maxItems: 256,
-      items: {
-        type: "object",
-        additionalProperties: false,
-        required: ["durationMs", "matched", "models", "ok", "status", "targetId"],
-        properties: {
-          durationMs: { type: "number", minimum: 0 },
-          error: { type: "string", maxLength: 8_192 },
-          matched: { type: "array", maxItems: 4_096, items: { type: "string", maxLength: 512 } },
-          models: { type: "array", maxItems: 4_096, items: { type: "string", maxLength: 512 } },
-          ok: { type: "boolean" },
-          status: { type: ["integer", "null"] },
-          targetId: { type: "string", maxLength: 512 },
-        },
-      },
-    },
-    pairId: { type: "string", maxLength: 512 },
-    source: { type: "string", enum: ["draft", "saved"] },
   },
 } as const;
 
@@ -861,24 +806,6 @@ export function createAdminServer(options: AdminServerOptions): FastifyInstance 
         },
       },
       () => loadBalancerService.getStatus(),
-    );
-    server.post<{ Body: { groupId: string; pairId: string } }>(
-      "/api/load-balancer/verify-models",
-      {
-        schema: {
-          body: LOAD_BALANCER_VERIFY_MODELS_REQUEST_SCHEMA,
-          response: { 200: LOAD_BALANCER_VERIFY_MODELS_RESPONSE_SCHEMA },
-        },
-      },
-      async (request, reply) => {
-        const result = await loadBalancerService.verifyModels(request.body);
-        if (result === undefined) {
-          return reply
-            .code(404)
-            .send(adminError("load_balancer_group_not_found", "Load balancing group not found."));
-        }
-        return result;
-      },
     );
   }
   if (options.modelCatalogService !== undefined) {

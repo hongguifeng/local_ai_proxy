@@ -1,23 +1,11 @@
-import { performance } from "node:perf_hooks";
-
 import type { LoadBalancer } from "./load-balancer.js";
 import type { LoadMonitor, LoadNodeStatus } from "./load-monitor.js";
 import type { LoadBalancerGroup, PublicProxyPair } from "../config/index.js";
-import { modelPatternMatches } from "./routing.js";
-import { parseTargetUrl } from "./target.js";
 
 /**
- * Read-only view of load balancing for the admin UI, plus a model check that asks the
- * nodes of a group what models they actually serve. A group that has not been saved yet
- * can still be checked, because its members are already saved targets.
- * The status half never touches the database or the network: everything it returns is
- * already in memory.
+ * Read-only view of load balancing for the admin UI. Nothing here touches the database
+ * or the network: every number it returns is already in memory.
  */
-
-export const VERIFY_MODELS_TIMEOUT_MS = 8_000;
-export const MAX_VERIFY_MODELS_BYTES = 262_144;
-/** How many nodes one check will walk, so a draft cannot make the server fan out too far. */
-export const MAX_VERIFY_NODES = 64;
 
 export interface LoadBalancerAdminSource {
   pairs(): readonly PublicProxyPair[];
@@ -75,184 +63,7 @@ export interface LoadBalancerStatusResponse {
   readonly pairs: readonly LoadBalancerStatusPair[];
 }
 
-export interface LoadBalancerNodeModelCheck {
-  readonly durationMs: number;
-  readonly error: string | undefined;
-  readonly matched: readonly string[];
-  readonly models: readonly string[];
-  readonly ok: boolean;
-  /** The HTTP status, or null when no answer came back at all. */
-  readonly status: number | null;
-  readonly targetId: string;
-}
-
-export interface LoadBalancerVerifyModelsResponse {
-  readonly groupId: string;
-  /** Which pattern actually got checked: the one sent with the request, or the saved group's. */
-  readonly modelPattern: string;
-  readonly nodes: readonly LoadBalancerNodeModelCheck[];
-  readonly pairId: string;
-  /** `draft` when the request carried the pattern and member list, `saved` when a stored group was looked up. */
-  readonly source: "draft" | "saved";
-}
-
-/**
- * One model check. A group that has not been saved yet can still be verified:
- * send `modelPattern` plus `nodeTargetIds`, and the service resolves those ids
- * against the saved targets of the pair. URLs and API keys are never taken from
- * the request, so a draft cannot make the server call an arbitrary upstream.
- */
-export interface LoadBalancerVerifyModelsRequest {
-  readonly pairId: string;
-  readonly groupId?: string | undefined;
-  readonly modelPattern?: string | undefined;
-  readonly nodeTargetIds?: readonly string[] | undefined;
-}
-
 /** The model ids an engine reports through `GET /models`. */
-function modelIdsFromPayload(payload: unknown): string[] {
-  if (!Array.isArray(payload)) {
-    return [];
-  }
-  const ids: string[] = [];
-  for (const item of payload) {
-    if (typeof item === "string") {
-      ids.push(item);
-      continue;
-    }
-    if (item !== null && typeof item === "object") {
-      const id = (item as { id?: unknown }).id;
-      if (typeof id === "string") {
-        ids.push(id);
-      }
-    }
-  }
-  return ids;
-}
-
-async function readLimitedBody(response: Response, maxBytes: number): Promise<string> {
-  const stream = response.body;
-  if (stream === null) {
-    return await response.text();
-  }
-  const reader = stream.getReader();
-  const chunks: Uint8Array[] = [];
-  let size = 0;
-  for (;;) {
-    const { done, value } = await reader.read();
-    if (done) break;
-    chunks.push(value);
-    size += value.byteLength;
-    if (size >= maxBytes) {
-      await reader.cancel().catch(() => undefined);
-      break;
-    }
-  }
-  const decoder = new TextDecoder();
-  let text = "";
-  for (const chunk of chunks) {
-    text += decoder.decode(chunk, { stream: true });
-  }
-  return text.slice(0, maxBytes);
-}
-
-/**
- * Asks one node for its model list. The base-path variant is tried first and the host
- * root is used as a fallback, the same way the metrics sampler reaches an engine.
- */
-async function fetchModelList(
-  targetUrl: string,
-  apiKey: string,
-  timeoutMs: number,
-): Promise<{
-  durationMs: number;
-  error: string | undefined;
-  models: string[];
-  ok: boolean;
-  status: number | null;
-}> {
-  const parsed = parseTargetUrl(targetUrl);
-  const candidates = [
-    `${parsed.basePath}/models`,
-    ...(parsed.basePath === "" || parsed.basePath === "/" ? [] : ["/models"]),
-  ];
-  const headers: Record<string, string> = {
-    accept: "application/json",
-    ...(apiKey === "" ? {} : { authorization: `Bearer ${apiKey}` }),
-  };
-  const startedAt = performance.now();
-  let lastError: string | undefined;
-  for (const candidate of candidates) {
-    const url = new URL(`${parsed.scheme}://${parsed.host}:${parsed.port}${candidate}`);
-    const controller = new AbortController();
-    const timer = setTimeout(() => {
-      controller.abort();
-    }, timeoutMs);
-    try {
-      const response = await fetch(url, { headers, method: "GET", signal: controller.signal });
-      if (response.status === 404 || response.status === 405) {
-        await response.body?.cancel().catch(() => undefined);
-        lastError = `HTTP ${response.status} for ${candidate}`;
-        continue;
-      }
-      const text = await readLimitedBody(response, MAX_VERIFY_MODELS_BYTES);
-      const durationMs = Math.max(0, performance.now() - startedAt);
-      if (!response.ok) {
-        return {
-          durationMs,
-          error: `HTTP ${response.status}${text === "" ? "" : `: ${text.slice(0, 256)}`}`,
-          models: [],
-          ok: false,
-          status: response.status,
-        };
-      }
-      let payload: unknown;
-      try {
-        payload = JSON.parse(text) as unknown;
-      } catch {
-        return {
-          durationMs,
-          error: "model list is not JSON",
-          models: [],
-          ok: false,
-          status: response.status,
-        };
-      }
-      const data =
-        payload !== null && typeof payload === "object" && !Array.isArray(payload)
-          ? (payload as { data?: unknown }).data
-          : payload;
-      return {
-        durationMs,
-        error: undefined,
-        models: modelIdsFromPayload(data),
-        ok: true,
-        status: response.status,
-      };
-    } catch (error) {
-      return {
-        durationMs: Math.max(0, performance.now() - startedAt),
-        error: controller.signal.aborted
-          ? `timeout after ${Math.round(timeoutMs)} ms`
-          : error instanceof Error
-            ? error.message
-            : String(error),
-        models: [],
-        ok: false,
-        status: null,
-      };
-    } finally {
-      clearTimeout(timer);
-    }
-  }
-  return {
-    durationMs: Math.max(0, performance.now() - startedAt),
-    error: lastError ?? "model endpoint not found",
-    models: [],
-    ok: false,
-    status: null,
-  };
-}
 
 function statusGroup(
   group: LoadBalancerGroup,
@@ -295,23 +106,13 @@ function statusGroup(
   };
 }
 
-export interface LoadBalancerAdminOptions {
-  /** How long one model list request may take; defaults to 8 seconds. */
-  readonly verifyTimeoutMs?: number | undefined;
-}
-
 export interface LoadBalancerAdminService {
   getStatus(): LoadBalancerStatusResponse;
-  verifyModels(
-    request: LoadBalancerVerifyModelsRequest,
-  ): Promise<LoadBalancerVerifyModelsResponse | undefined>;
 }
 
 export function createLoadBalancerAdminService(
   source: LoadBalancerAdminSource,
-  options: LoadBalancerAdminOptions = {},
 ): LoadBalancerAdminService {
-  const verifyTimeoutMs = options.verifyTimeoutMs ?? VERIFY_MODELS_TIMEOUT_MS;
   return {
     /** Pure memory reads: no database, no upstream request, no request content. */
     getStatus(): LoadBalancerStatusResponse {
@@ -329,67 +130,6 @@ export function createLoadBalancerAdminService(
             running: pair.running,
           };
         }),
-      };
-    },
-
-    async verifyModels(
-      request: LoadBalancerVerifyModelsRequest,
-    ): Promise<LoadBalancerVerifyModelsResponse | undefined> {
-      const pair = source.pairs().find((candidate) => candidate.id === request.pairId);
-      if (pair === undefined) {
-        return undefined;
-      }
-      const draftPattern =
-        typeof request.modelPattern === "string" ? request.modelPattern.trim() : "";
-      const draftNodes = (request.nodeTargetIds ?? [])
-        .filter((targetId) => targetId.trim() !== "")
-        .slice(0, MAX_VERIFY_NODES);
-      const useDraft = draftPattern !== "" && draftNodes.length > 0;
-      const saved = useDraft
-        ? undefined
-        : pair.load_balancers.find((candidate) => candidate.id === request.groupId);
-      if (saved === undefined && !useDraft) {
-        return undefined;
-      }
-      const groupId = request.groupId ?? saved?.id ?? "";
-      const modelPattern = useDraft ? draftPattern : (saved?.model_pattern ?? "");
-      const targetIds = useDraft ? draftNodes : (saved?.node_target_ids ?? []);
-      const nodes = await Promise.all(
-        targetIds.map(async (targetId) => {
-          const configured = pair.targets.find((target) => target.id === targetId);
-          if (configured === undefined) {
-            return {
-              durationMs: 0,
-              error: "target is not configured in this pair",
-              matched: [],
-              models: [],
-              ok: false,
-              status: null,
-              targetId,
-            };
-          }
-          const fetched = await fetchModelList(
-            configured.target_url,
-            configured.target_api_key,
-            verifyTimeoutMs,
-          );
-          return {
-            durationMs: fetched.durationMs,
-            error: fetched.error,
-            matched: fetched.models.filter((model) => modelPatternMatches(modelPattern, model)),
-            models: fetched.models,
-            ok: fetched.ok,
-            status: fetched.status ?? null,
-            targetId,
-          };
-        }),
-      );
-      return {
-        groupId,
-        modelPattern,
-        nodes,
-        pairId: pair.id,
-        source: useDraft ? "draft" : "saved",
       };
     },
   };

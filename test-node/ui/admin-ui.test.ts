@@ -20,11 +20,6 @@ import {
 } from "../../src/admin/index.js";
 import type { ProxyPair, PublicProxyPair } from "../../src/config/index.js";
 import { ConfigValidationError } from "../../src/config/index.js";
-import type {
-  LoadBalancerNodeModelCheck,
-  LoadBalancerVerifyModelsRequest,
-  LoadBalancerVerifyModelsResponse,
-} from "../../src/proxy/index.js";
 import type { LogListItem, LogPendingRecord } from "../../src/maintenance/index.js";
 
 let browser: Browser;
@@ -72,15 +67,8 @@ const targetMetricsCalls: { targetUrl: string; apiKey?: string }[] = [];
 // The load balancer status payload is built per read, because it has to reflect
 // whatever the page has just saved.
 let lbStatusRound = 0;
-let lbVerifyOutcome: "matched" | "unmatched" | "unreachable" = "matched";
 let pairsSaveIssues: readonly { code: string; message: string; path: string }[] | null = null;
 const lbStatusReads: number[] = [];
-const lbVerifyReads: {
-  pairId: string;
-  groupId?: string | undefined;
-  modelPattern?: string | undefined;
-  nodeTargetIds?: readonly string[] | undefined;
-}[] = [];
 
 function loadBalancerStatusFixture() {
   return {
@@ -121,61 +109,6 @@ function loadBalancerStatusFixture() {
         })),
       })),
     })),
-  };
-}
-
-function loadBalancerVerifyFixture(
-  request: LoadBalancerVerifyModelsRequest,
-): LoadBalancerVerifyModelsResponse | undefined {
-  const draftPattern = typeof request.modelPattern === "string" ? request.modelPattern : "";
-  const draftNodes = request.nodeTargetIds ?? [];
-  const isDraft = draftPattern !== "" && draftNodes.length > 0;
-  const pair = pairs.find((item) => item.id === request.pairId);
-  const group = isDraft
-    ? undefined
-    : (pair?.load_balancers ?? []).find((item) => item.id === request.groupId);
-  if (!isDraft && group === undefined) return undefined;
-  const pattern = isDraft ? draftPattern : (group?.model_pattern ?? "");
-  const nodeIds = isDraft ? draftNodes : (group?.node_target_ids ?? []);
-  const nodes = nodeIds.map((targetId): LoadBalancerNodeModelCheck => {
-    if (lbVerifyOutcome === "unreachable") {
-      return {
-        targetId,
-        ok: false,
-        status: null,
-        matched: [],
-        models: [],
-        error: "timeout after 8000 ms",
-        durationMs: 8_000,
-      };
-    }
-    if (lbVerifyOutcome === "unmatched") {
-      return {
-        targetId,
-        ok: true,
-        status: 200,
-        matched: [],
-        models: ["other-model"],
-        error: undefined,
-        durationMs: 12,
-      };
-    }
-    return {
-      targetId,
-      ok: true,
-      status: 200,
-      matched: [pattern],
-      models: [pattern, "other-model"],
-      error: undefined,
-      durationMs: 9,
-    };
-  });
-  return {
-    groupId: request.groupId ?? "",
-    modelPattern: pattern,
-    pairId: request.pairId,
-    nodes,
-    source: isDraft ? "draft" : "saved",
   };
 }
 
@@ -552,15 +485,6 @@ beforeAll(async () => {
       getStatus: () => {
         lbStatusReads.push(lbStatusReads.length);
         return loadBalancerStatusFixture();
-      },
-      verifyModels: (request) => {
-        lbVerifyReads.push({
-          groupId: request.groupId,
-          modelPattern: request.modelPattern,
-          nodeTargetIds: request.nodeTargetIds,
-          pairId: request.pairId,
-        });
-        return Promise.resolve(loadBalancerVerifyFixture(request));
       },
     },
     pairService: {
@@ -1023,8 +947,6 @@ beforeEach(async () => {
   modelCatalogError = null;
   lbStatusRound = 0;
   lbStatusReads.length = 0;
-  lbVerifyReads.length = 0;
-  lbVerifyOutcome = "matched";
   pairsSaveIssues = null;
   modelCatalogOutcome = {
     models: [],
@@ -3184,14 +3106,14 @@ describe("admin UI load balancing groups", { timeout: UI_TEST_TIMEOUT_MS }, () =
     await expectPage(pop.locator(".lb-member")).toHaveCount(2);
     await expectPage(group.locator(".lb-chip")).toHaveCount(0);
     // The list floats over the card instead of pushing its content down, so the
-    // card keeps its height and the match preview sits underneath the list.
+    // card keeps its height and the node status panel sits underneath the list.
     const heightAfter = await group.evaluate((element) => element.getBoundingClientRect().height);
     expect(heightAfter).toBe(heightBefore);
     const popBox = await pop.boundingBox();
-    const previewBox = await group.locator(".lb-preview").boundingBox();
-    if (popBox === null || previewBox === null) throw new Error("the picker was not laid out");
-    expect(popBox.y).toBeLessThan(previewBox.y);
-    expect(popBox.y + popBox.height).toBeGreaterThan(previewBox.y);
+    const statusBox = await group.locator(".lb-status").boundingBox();
+    if (popBox === null || statusBox === null) throw new Error("the picker was not laid out");
+    expect(popBox.y).toBeLessThan(statusBox.y);
+    expect(popBox.y + popBox.height).toBeGreaterThan(statusBox.y);
 
     await pop.locator(".lb-member").nth(0).locator("input").check();
     await expectPage(pop).toBeVisible();
@@ -3328,8 +3250,6 @@ describe("admin UI load balancing groups", { timeout: UI_TEST_TIMEOUT_MS }, () =
     await tickMembers(card.locator(".lb-card"), [0, 1]);
     await page.locator("#saveProxies").click();
     await expectPage(page.locator("#toast")).toContainText("Config saved");
-    await card.locator(".lb-card [data-verify-lb-models]").click();
-    await expectPage(card.locator(".lb-verify-line")).toHaveCount(2);
     await card.locator(".lb-status > summary").click();
     await expectPage(card.locator(".lb-node-state")).toHaveCount(2);
     await expectPage(card.locator('[data-lb-fact="source"]').nth(0)).toHaveText(
@@ -3360,7 +3280,8 @@ describe("admin UI load balancing groups", { timeout: UI_TEST_TIMEOUT_MS }, () =
     await expectPage(patternInput).toHaveValue("Qwen3.8-Flash-Next-plus");
     await expectPage(patternInput).toBeFocused();
     await expectPage(card.locator(".lb-status")).toHaveAttribute("open");
-    await expectPage(card.locator(".lb-verify-line")).toHaveCount(2);
+    // A poll only rewrites numbers: the two chosen nodes stay on the card.
+    await expectPage(card.locator(".lb-chip")).toHaveCount(2);
     const stored = await page.evaluate(() => localStorage.getItem("llmProxyLbGroupOpen"));
     expect(stored).toContain("proxy-one");
     expect(stored).toContain("true");
@@ -3391,79 +3312,11 @@ describe("admin UI load balancing groups", { timeout: UI_TEST_TIMEOUT_MS }, () =
     await waitForLbPoll(seen);
   });
 
-  it("reports matched, unmatched and unreachable nodes for a model check", async () => {
-    const card = await openPairWithGroup();
-    const group = card.locator(".lb-card");
-    await group.locator("[data-lb-field='model_pattern']").fill("Qwen3.8-Flash-Next");
-    await tickMembers(group, [0]);
-    await group.locator("[data-verify-lb-models]").click();
-    // A group that was never saved is still checked: the card's own draft is sent.
-    await expectPage(card.locator("[data-lb-verify]")).not.toBeHidden();
-    await expectPage(card.locator(".lb-verify-source")).toContainText("what you typed here");
-    await expectPage(card.locator(".lb-verify-line")).toHaveCount(1);
-    await expectPage(card.locator(".lb-verify-line")).toContainText("1 models match");
-    await page.locator("#saveProxies").click();
-    await expectPage(page.locator("#toast")).toContainText("Config saved");
-    await group.locator("[data-verify-lb-models]").click();
-    await expectPage(card.locator(".lb-verify-line")).toHaveCount(1);
-    await expectPage(card.locator(".lb-verify-line")).toContainText("1 models match");
-    await expectPage(card.locator(".lb-verify-line")).toContainText("Qwen3.8-Flash-Next");
-    // Both clicks reached the server, and both carried the card's draft.
-    expect(lbVerifyReads).toHaveLength(2);
-    expect(lbVerifyReads[0]).toMatchObject({
-      pairId: "proxy-one",
-      modelPattern: "Qwen3.8-Flash-Next",
-      nodeTargetIds: [savedGroup().node_target_ids[0]],
-    });
-    expect(typeof lbVerifyReads[0]?.groupId).toBe("string");
-
-    lbVerifyOutcome = "unmatched";
-    await group.locator("[data-verify-lb-models]").click();
-    await expectPage(card.locator(".lb-verify-line")).toHaveCount(1);
-    await expectPage(card.locator(".lb-verify-line")).toContainText("no model matches");
-
-    lbVerifyOutcome = "unreachable";
-    await group.locator("[data-verify-lb-models]").click();
-    await expectPage(card.locator(".lb-verify-line")).toHaveCount(1);
-    await expectPage(card.locator(".lb-verify-line")).toContainText("timeout after 8000 ms");
-
-    lbVerifyOutcome = "matched";
-  });
-
-  it("asks for a pattern or a member instead of calling the server", async () => {
-    const card = await openPairWithGroup();
-    const group = card.locator(".lb-card");
-
-    await group.locator("[data-verify-lb-models]").click();
-    await expectPage(card.locator("[data-lb-verify]")).not.toBeHidden();
-    await expectPage(card.locator("[data-lb-verify]")).toContainText("fill in the model pattern");
-    expect(lbVerifyReads).toHaveLength(0);
-
-    await group.locator("[data-lb-field='model_pattern']").fill("Qwen3.8-Flash-Next");
-    await group.locator("[data-verify-lb-models]").click();
-    await expectPage(card.locator("[data-lb-verify]")).toContainText("check at least one node");
-    expect(lbVerifyReads).toHaveLength(0);
-
-    await tickMembers(group, [0]);
-    await group.locator("[data-verify-lb-models]").click();
-    await expectPage(card.locator(".lb-verify-line")).toHaveCount(1);
-    expect(lbVerifyReads).toHaveLength(1);
-    expect(lbVerifyReads[0]?.nodeTargetIds).toHaveLength(1);
-  });
-
   it("translates every group control and stays readable in a narrow layout", async () => {
     const card = await openPairWithGroup();
     const group = card.locator(".lb-card");
     await group.locator("[data-lb-field='model_pattern']").fill("Qwen3.8-Flash-Next");
     await tickMembers(group, [0]);
-    await group.locator("[data-lb-preview]").fill("Qwen3.8-Flash-Next");
-    await expectPage(group.locator(".lb-preview output")).toHaveText(
-      "would be handled by this group",
-    );
-    await group.locator("[data-lb-preview]").fill("gpt-5");
-    await expectPage(group.locator(".lb-preview output")).toHaveText(
-      "would not be handled by this group",
-    );
     await group.locator(".lb-status > summary").click();
     await expectPage(card.locator('.lb-node-fact[data-lb-fact="inFlight"]')).toHaveText(
       "In flight: 0",
@@ -3477,9 +3330,6 @@ describe("admin UI load balancing groups", { timeout: UI_TEST_TIMEOUT_MS }, () =
     await expectPage(card.locator("[data-add-lb-group]")).toHaveText("添加负载均衡组");
     await expectPage(card.locator("option[value='least_load']")).toHaveText("最少负载");
     await expectPage(card.locator("option[value='round_robin']")).toHaveText("轮转");
-    // A re-render clears the preview probe, so it has to be typed again.
-    await group.locator("[data-lb-preview]").fill("gpt-5");
-    await expectPage(group.locator(".lb-preview output")).toHaveText("不会进入本组");
     await expectPage(card.locator('.lb-node-fact[data-lb-fact="inFlight"]')).toHaveText(
       "进行中: 0",
     );
@@ -3498,10 +3348,6 @@ describe("admin UI load balancing groups", { timeout: UI_TEST_TIMEOUT_MS }, () =
     await expectPage(card.locator("[data-add-lb-group]")).toHaveText("Add load balancing group");
     await expectPage(card.locator("option[value='least_load']")).toHaveText("Least load");
     await expectPage(card.locator("option[value='round_robin']")).toHaveText("Round robin");
-    await group.locator("[data-lb-preview]").fill("gpt-5");
-    await expectPage(group.locator(".lb-preview output")).toHaveText(
-      "would not be handled by this group",
-    );
     await expectPage(card.locator('.lb-node-fact[data-lb-fact="inFlight"]')).toHaveText(
       "In flight: 0",
     );
@@ -3530,7 +3376,7 @@ describe("admin UI load balancing groups", { timeout: UI_TEST_TIMEOUT_MS }, () =
     const clipped = await page.evaluate(() =>
       [
         ...document.querySelectorAll(
-          ".lb-card, .lb-node-state, .lb-preview, .lb-head, .lb-member, .lb-node-name, .lb-members-field, .lb-selected, .lb-chip, .lb-picker, .lb-picker-toggle",
+          ".lb-card, .lb-node-state, .lb-head, .lb-member, .lb-node-name, .lb-members-field, .lb-selected, .lb-chip, .lb-picker, .lb-picker-toggle",
         ),
       ].map((element) => ({
         clipped: element.scrollWidth > element.clientWidth + 1,
