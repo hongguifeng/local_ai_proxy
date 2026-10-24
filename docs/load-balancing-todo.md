@@ -1,6 +1,6 @@
 # 多节点负载均衡开发 TODO
 
-创建日期：2026-10-22。当前进度：13 / 13 项完成。
+创建日期：2026-10-22。当前进度：14 / 14 项完成。
 
 设计依据：[多节点负载均衡设计（粘性任务路由 v1）](./load-balancing-design.md)。决策记录：[ADR-013](./adr/013-load-balancing-sticky-routing.md)。本清单供后续开发、测试、验收和逐项提交使用。设计发生变化时，必须同时更新设计文档和本清单，不能只改代码。
 
@@ -68,6 +68,7 @@ npx electron-builder -w portable --publish never
 | [x] | LB-11 | 端到端、reload、pending 和价格回归 | LB-02～LB-10 | 完成 |
 | [x] | LB-12 | 真实节点验收与性能检查 | LB-11 | 完成 |
 | [x] | LB-13 | 文档收尾、全量检查和交付构建 | LB-12 | 完成 |
+| [x] | LB-14 | 校验节点模型支持未保存的组草稿 | LB-10、LB-09 | 完成 |
 
 ## 4. 逐项实施与验收
 
@@ -445,6 +446,25 @@ npx electron-builder -w portable --publish never
 
 验收标准：代码、测试、文档、视觉基线和 portable 产物一致；所有已知限制和未实现的 v2 能力都有记录。提交定位：`[LB-13]`。
 
+### LB-14：校验节点模型支持未保存的组草稿
+
+背景：用户反馈「肯定是先确认节点没问题才保存配置的」，而 LB-09/LB-10 把校验接口
+实现成只按 `pairId` + `groupId` 查已保存配置，所以新建还没保存的组只能得到
+`Load balancing group not found.`，用起来的顺序和用户的顺序相反。
+
+实现功能：
+
+- 接口同时接受 `modelPattern` + `nodeTargetIds`，按已保存的 pair 解析成员 id，校验一个还没保存的组；
+- 响应新增 `source`（`draft` / `saved`），界面把它写进结果区的第一行；
+- 界面把卡片当前的模型匹配和勾选的成员一起发送，不再要求先保存；
+- 模型匹配为空或一个节点都没勾时界面自己拦住，不发请求；
+- 成员数上限 64（schema `maxItems` + 服务端 `MAX_VERIFY_NODES`）；
+- 更新 README、功能说明书和设计文档里关于「先保存才能校验」的说法。
+
+验收标准：未保存的组可以直接校验并得到逐节点结果；已保存的组仍然可以只发 ids 校验；
+请求里带不进 URL 或 key，所以草稿无法让服务端访问任意上游；新接口在 assembled-app smoke
+里有覆盖；全量测试和六张视觉基线不变。提交定位：`[LB-14]`。
+
 ## 5. 执行记录
 
 ### LB-01
@@ -602,6 +622,19 @@ npx electron-builder -w portable --publish never
 - 提交标题：`docs(load-balancing): [LB-13] document the feature for users and modules`
 - 提交 SHA：`08e13ff`
 - 备注：`npm run check` 把 `better-sqlite3` 留在 Node ABI 137；portable 打包后 native 模块变成 Electron ABI，下次跑 Node 测试前仍需 `npm rebuild better-sqlite3`。临时 `.cjs` 已删除，没有遗留临时文件、浏览器进程或测试实例。
+
+### LB-14
+
+- 状态：完成
+- 来源：交付后的用户反馈。用户指出正常用法是先确认节点没问题再保存，而旧实现只能校验已保存的组。
+- 实际变更：`src/proxy/load-balancer-admin.ts` 把 `verifyModels(pairId, groupId)` 改成 `verifyModels(request)`，`modelPattern` + `nodeTargetIds` 同时存在时走草稿模式，成员 id 仍按已保存的 pair 解析，新增 `MAX_VERIFY_NODES = 64` 和响应里的 `source`；`src/admin/admin-server.ts` 的接口签名、请求 schema（新增两个可选字段，`nodeTargetIds` 限 1–64）和响应 schema（`source` 必填枚举）跟着改，路由直接把 body 透传；`src/proxy/index.ts` 导出新类型；`src/admin/static/app.js` 发送卡片当前值并在缺 pattern / 没勾节点时本地提示（新增 4 个中英文案），结果区多一行来源说明；`src/admin/static/app.css` 新增 `.lb-verify-results.is-warn` 和 `.lb-verify-source`。文档：设计文档 §5.3 / §12.2 / LB-09 落地说明、README、功能说明书 §5.4。
+- 测试命令：`npx tsc -p tsconfig.json --noEmit`、`npm run lint`、`npx prettier --check .`、`npx vitest run test-node/admin/load-balancer.test.ts test-node/app/runtime.test.ts`、`npx vitest run test-node/ui/admin-ui.test.ts -t "admin UI load balancing groups"`、`npx vitest run`、`npm run check`
+- 测试结果：`LB14-01`（从未保存过的组草稿得到逐节点结果，pair 里 `load_balancers` 为空，两台引擎各被访问一次，不存在的 target 明确报错）、`LB14-02`（草稿 pattern 覆盖已保存 pattern，`source` 分别是 `draft` / `saved`）、`LB14-03`（空成员和 65 个成员都在任何上游请求之前被 400 `FST_ERR_VALIDATION` 拒掉）通过；assembled-app smoke 里 `LB14` 在运行中的 pair 上拿到 `source: "draft"` 且死端口节点 `ok: false`、`status: null`，不存在的 pair 带草稿字段仍返 404 `load_balancer_group_not_found`；UI 新增一条测试：没填 pattern 或没勾节点时不发请求，勾上后只发一次。UI LB 区块 10 passed（之前 9），全量 `npx vitest run` 103 文件 / 922 用例全绿，六张视觉基线未变（结果区默认隐藏），`npm run check` exit 0
+- UI 基线：未重录；六张基线在全量测试里原样通过
+- 设计偏差：LB-10 落地说明里「没保存的组得到 404 是预期行为，不是 bug」那句写错了——设计文档 §5.3 从没要求组必须先保存，那是 LB-09 自己实现出来的限制，已改写；其余无新增偏差
+- 提交标题：`feat(load-balancing): [LB-14] verify a group from the card draft`
+- 提交 SHA：`feb36ad`
+- 备注：过程中踩了两次：`Array.isArray` 把 `readonly string[]` 收窄成 `any[]`，触发了 `@typescript-eslint/no-unsafe-assignment`，改用 `?? []` 后消失；`npm run package:electron:portable` 把 `better-sqlite3` 留在 Electron ABI 143，不 rebuild 直接跑 Node 测试会在 `openLogDatabase` 处炸 `NODE_MODULE_VERSION`。
 
 每完成一个任务，在这里追加一条记录：
 
