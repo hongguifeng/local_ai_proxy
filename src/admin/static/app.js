@@ -1393,8 +1393,8 @@ function lbGroupCard(group, pair, pairIndex, groupIndex) {
   return `<section class="lb-card" data-lb-pair="${pairIndex}" data-lb-index="${groupIndex}">
     <div class="lb-head">
       <input data-lb-field="name" value="${escapeHtml(group.name || "")}" placeholder="${escapeHtml(t("lbGroupName"))}" aria-label="${escapeHtml(t("lbGroupName"))}">
-      <label class="switch" title="${escapeHtml(t("switch"))}"><input type="checkbox" data-lb-toggle ${group.enabled !== false ? "checked" : ""}><span class="slider"></span></label>
       <button type="button" data-remove-lb>${escapeHtml(t("delete"))}</button>
+      <label class="switch" title="${escapeHtml(t("switch"))}"><input type="checkbox" data-lb-toggle ${group.enabled !== false ? "checked" : ""}><span class="slider"></span></label>
     </div>
     <label><span>${escapeHtml(t("lbModelPattern"))}</span><input data-lb-field="model_pattern" value="${escapeHtml(group.model_pattern || "")}" placeholder="Qwen3.8-Flash-Next"></label>
     <label><span>${escapeHtml(t("lbStrategy"))}</span><select data-lb-field="strategy">

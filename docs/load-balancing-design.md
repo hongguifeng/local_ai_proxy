@@ -638,7 +638,7 @@ GET /api/load-balancer/status
 
 负载均衡区放在每个 pair 的 target 卡片下方。组卡片与 target 卡片同宽（`repeat(auto-fit, minmax(300px, 360px))` + `justify-content: start`），左对齐换行，不会拉伸到整行。每张组卡片包含：
 
-- 组名、启用开关、删除按钮；
+- 组名、删除按钮、启用开关；
 - 请求模型 pattern；
 - 已勾选节点的标签行，以及浮在卡片上的本 pair target 复选框列表；
 - `least_load` / `round_robin` 选择；
