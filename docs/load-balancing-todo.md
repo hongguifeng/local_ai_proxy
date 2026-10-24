@@ -1,6 +1,6 @@
 # 多节点负载均衡开发 TODO
 
-创建日期：2026-10-22。当前进度：16 / 16 项完成。
+创建日期：2026-10-22。当前进度：17 / 17 项完成。
 
 设计依据：[多节点负载均衡设计（粘性任务路由 v1）](./load-balancing-design.md)。决策记录：[ADR-013](./adr/013-load-balancing-sticky-routing.md)。本清单供后续开发、测试、验收和逐项提交使用。设计发生变化时，必须同时更新设计文档和本清单，不能只改代码。
 
@@ -71,6 +71,7 @@ npx electron-builder -w portable --publish never
 | [x] | LB-14 | 校验节点模型支持未保存的组草稿 | LB-10、LB-09 | 完成 |
 | [x] | LB-15 | 卡片与转发地址同宽，参与节点改成浮动勾选 | LB-10 | 完成 |
 | [x] | LB-16 | 删除匹配预览输入与校验节点模型 | LB-10、LB-14 | 完成 |
+| [x] | LB-17 | 统一组卡片里四个控件的长相 | LB-15、LB-16 | 完成 |
 
 ## 4. 逐项实施与验收
 
@@ -502,6 +503,26 @@ npx electron-builder -w portable --publish never
 `/api/load-balancer/verify-models` 返回 `not_found`，不是 `load_balancer_group_not_found`。
 提交定位：`[LB-16]`。
 
+### LB-17：统一组卡片里四个控件的长相
+
+用户反馈：选择策略的下拉框和选择节点的下拉框颜色、大小都不一样。
+
+统一后的长相（组名、pattern、选择策略、选择节点四个控件共用）：
+
+| 项 | 值 |
+| --- | --- |
+| 背景 | `#ffffff` |
+| 边框 | `1px solid #b8c5d3` |
+| 圆角 | 6 px |
+| 高度 | 32 px |
+| 字号 | 13 px |
+| 悬停背景 | `#eef3f8` |
+| 箭头 | 同一张 SVG，10 px，靠右 10 px，`#55616f` |
+
+验收标准：两个下拉右端各裁 34 px 宽，逐像素相同；`getComputedStyle` 报出的宽高、字号、
+背景、边框、圆角完全一致；中英文负载均衡基线重录并更新完整 SHA-256，其余八张零像素差。
+提交定位：`[LB-17]`。
+
 ## 5. 执行记录
 
 ### LB-01
@@ -725,6 +746,40 @@ npx electron-builder -w portable --publish never
   和节点状态行重建都靠它，恢复这一行之后才有 86 passed；第一轮 8 条失败里有 6 条是这个原因。
   第二个坑：用 `grep | head` 枚举待删引用被截断了，`[data-verify-lb-models]` 的一次点击留在
   轮询用例里，点了已经不存在的按钮，30 秒超时。
+
+### LB-17
+
+- 状态：完成
+- 来源：用户反馈，两个下拉框颜色、大小不一致；选项中选了「统一成输入框样式」。
+- 改之前两个控件的实测差（同一张卡片、同为 338 px 宽）：`select` 19 px 高、12 px 字、
+  纯白底、系统画的 `1px #767676` 边框、直角、零内边距；`.lb-picker-toggle` 36 px 高、
+  14 px 字、`#f1f5f9` 底、`1px #c8d2df`、6 px 圆角、`7px/10px` 内边距，箭头是自己写的
+  `▾`（会被 Windows 的彩色字体接管，渲染出来带橙蓝颜色）。
+- 实际变更：`src/admin/static/app.css` 新增一组 `.lb-card` 前缀的规则，把组名输入、
+  pattern 输入、`select` 和 `.lb-picker-toggle` 共用一套长相（白底、`1px #b8c5d3`、
+  6 px 圆角、`min-height: 32px`、13 px 字、悬停 `#eef3f8`、聚焦换accent 边框），
+  `select` 加 `appearance: none` 并用 `--lb-arrow` 这张 SVG 画箭头；`.lb-card` 上定义了
+  `--lb-arrow`，两处背景共用它。箭头hover 必须写 `background-color`，不能写 `background`，
+  简写会把 `background-image` 洗掉。`src/admin/static/app.js` 把 `.lb-picker-caret` 里的
+  `▾` 字符清空，换成一个 10×10 的空 span 画同一张 SVG。
+- 测试命令：`node tmp-lb-unify.mjs`（探针量 computed styles 并裁两个下拉右端）、
+  `node tmp-lb-arrow-diff.mjs`（pixelmatch 对比两张裁图）、
+  `npx vitest run test-node/ui/admin-ui.test.ts`、
+  `REGEN_BASELINES=1 npx vitest run test-node/ui/admin-ui.test.ts -t "load balancing baseline"`。
+- 测试结果：两个下拉右端裁图 `differing pixels: 0 of 1088`；四项控件 computed styles
+  全部为 338×32、13 px、`rgb(255,255,255)`、`1px solid rgb(184,197,211)`、6 px；
+  UI 86 passed（其中负载均衡区块的窄屏溢出用例没因字号从 14 px 改成 13 px 而坏掉）。
+- UI 基线：重录 `doc/ui_lb_cn.png`（1278×1082，
+  `a12bab9313966d2e01b3c704a0ddec015348c4de1ce6b0691da80be781ffe9f5`）和
+  `doc/ui_lb_en.png`（1278×1127，
+  `b4fece8e773e42327d6ab8dc82d48694156d2bd4cada4784ef316ff9b3ae91c5`），两张都比 LB-16
+  那版高 7 px；其余八张零像素差通过，代理页和统计页没动。
+- 设计偏差：无。设计文档 §12.1 本来只列了卡片内容，没定控件长相；这次补了一条落地说明。
+- 提交标题：`feat(load-balancing): [LB-17] give the group card one shared control look`
+- 提交 SHA：`90f1215`（代码、测试基线与文档）；本条记录单独提交。
+- 备注：`.lb-card` 前缀的规则特异性高于页面全局的 `button`（0,0,1）和 `button:hover`（0,1,1），
+  所以能盖住它们；按 AGENTS 的说法 CSS 文件里靠后的块并不权威，这次是靠特异性赢的，
+  不是靠位置。`▾` 这种几何字符在 Windows Chromium 上会被彩色字体替换，所以不能当图标用。
 
 每完成一个任务，在这里追加一条记录：
 
