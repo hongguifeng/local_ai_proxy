@@ -347,6 +347,17 @@ interface Binding {
 
 绑定超过 24 小时未使用时惰性清理，并由每 5 分钟一次的清理任务回收；每组最多保留 4096 条绑定，超出后按 `lastSeenAt` 淘汰。每个前缀桶还受 `MAX_BUCKET_SIZE` 限制，桶内淘汰不应影响其他桶。组、节点或模型 pattern 重新配置时，只清理失效节点和失效组的绑定，其他绑定保留。
 
+落地说明（LB-03）：
+
+- 入口是 `src/proxy/load-affinity.ts` 的 `LoadAffinityTable`：`lookup`、`bind`、`rebind`、`attachResponseIds`、`remove`、`pruneTargets`、`clear`、`sweepExpired`、`snapshot`。
+- 绑定只存 kind、endpoint、model、`boundaryWithoutUser` 和 `userHashes`。上面 `Binding` 草图中的 `contentFingerprint` 没有存入：桶内判定只看用户哈希前缀，存指纹不会改变结果，只会多占内存。
+- 桶键是 `hash(kind, model, boundaryWithoutUser)`。同模型同边界的 task 同桶，不同边界或不同模型自然分开。
+- endpoint 规则与 matcher 一致：存下的 endpoint 为空时任何 endpoint 都兼容，否则必须相等。
+- 精确键被别的 task 抢走时只摘键，不删绑定。原 task 仍能从自己的桶找回原节点，亲和不会因为键被抢而丢失。
+- `bind` 默认不把绑定改到新 target；只有失败切换传 `allowRebind: true`。这是 LB-05 的接口。
+- 全局淘汰在超限时线性扫描全表，扫描上限就是 4096。实测 4097 次绑定约耗时 170 ms。
+- `test-node/proxy/load-affinity.test.ts` 共 20 例，覆盖 LB03-01 到 LB03-07，包括真实 4096 上限和“请求原文不得进入亲和状态”的断言。
+
 路由判定必须是日志 `TaskMatcher` 在**共享运行时证据**上的超集。对于当前数据面不能产生的 `record.prompt_cache_key` 和 `record.client_metadata`，只能保留 matcher 的历史兼容行为，不能把它们计入路由契约。这样即使路由把两个独立 task 合并到同一节点，也只是流量略偏；如果路由比共享 matcher 证据更严格，就可能把同一个历史 task 分到两个节点，破坏 KV 亲和。共享纯函数和集成测试共同保证这一方向。
 
 ## 8. 新 task 的节点选择

@@ -1,6 +1,6 @@
 # 多节点负载均衡开发 TODO
 
-创建日期：2026-10-22。当前进度：2 / 13 项完成。
+创建日期：2026-10-22。当前进度：3 / 13 项完成。
 
 设计依据：[多节点负载均衡设计（粘性任务路由 v1）](./load-balancing-design.md)。决策记录：[ADR-013](./adr/013-load-balancing-sticky-routing.md)。本清单供后续开发、测试、验收和逐项提交使用。设计发生变化时，必须同时更新设计文档和本清单，不能只改代码。
 
@@ -57,7 +57,7 @@ npx electron-builder -w portable --publish never
 | --- | --- | --- | --- | --- |
 | [x] | LB-01 | 配置 schema、normalizer 和 pair 校验 | 无 | 完成 |
 | [x] | LB-02 | 共享 task identity 与 matcher 边界 | LB-01 | 完成 |
-| [ ] | LB-03 | 亲和表与桶容量限制 | LB-02 | 未开始 |
+| [x] | LB-03 | 亲和表与桶容量限制 | LB-02 | 完成 |
 | [ ] | LB-04 | canonical node key 与 runtime 生命周期 | LB-01 | 未开始 |
 | [ ] | LB-05 | 新 task 选路与 pipeline 预留 | LB-02、LB-03、LB-04 | 未开始 |
 | [ ] | LB-06 | request_received 时序与 pricing 一致性 | LB-01、LB-05 | 未开始 |
@@ -470,6 +470,18 @@ npx electron-builder -w portable --publish never
 - 提交标题：`refactor(load-balancing): [LB-02] share task identity projections with the task matcher`
 - 提交 SHA：`e1741b5`
 - 备注：临时目录清理加了 `maxRetries`（Windows 上 `traffic.db` 刚关闭时会短暂 EBUSY）。
+
+### LB-03
+
+- 状态：完成
+- 实际变更：新增 `src/proxy/load-affinity.ts`（`LoadAffinityTable`：精确键索引 + 前缀桶 + LRU + TTL + 响应 id 回填 + rebind + prune/clear/sweep/snapshot），并在 `src/proxy/index.ts` 导出。常量 `AFFINITY_TTL_MS`、`MAX_BINDINGS_PER_GROUP`、`MAX_BUCKET_SIZE`、`MAX_BUCKET_SCAN` 与设计一致。
+- 测试命令：`npx vitest run test-node/proxy/load-affinity.test.ts`，随后 `npx vitest run`（全量）、`npx tsc -p tsconfig.json --noEmit`、`npm run lint`、`npx prettier --check .`
+- 测试结果：新增 20 例（LB03-01 到 LB03-07 加验收例）全部通过；全量 94 文件 / 837 例通过；类型、lint、格式检查通过
+- UI 基线：未涉及
+- 设计偏差：见设计文档 §7.3 落地说明——绑定不存 `contentFingerprint`（桶内判定只看哈希前缀）；endpoint 为“存下为空则兼容、否则严格相等”；精确键被抢时只摘键不删绑定；全局淘汰在超限时线性扫描全表（上限 4096，实测 4097 次绑定约 170 ms）。
+- 提交标题：`feat(load-balancing): [LB-03] add affinity table with bounded buckets`
+- 提交 SHA：待填写
+- 备注：无。
 
 每完成一个任务，在这里追加一条记录：
 

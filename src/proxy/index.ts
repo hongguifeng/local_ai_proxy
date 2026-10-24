@@ -72,6 +72,18 @@ export {
   type TaskIdentityInput,
 } from "./task-identity.js";
 export {
+  AFFINITY_TTL_MS,
+  MAX_BINDINGS_PER_GROUP,
+  MAX_BUCKET_SCAN,
+  MAX_BUCKET_SIZE,
+  LoadAffinityTable,
+  type AffinityBinding,
+  type AffinityEvidence,
+  type AffinityHit,
+  type AffinitySnapshot,
+  type LoadAffinityOptions,
+} from "./load-affinity.js";
+export {
   parseInjectRequestFields,
   parseStripRequestFields,
   transformRequestJsonFields,
