@@ -516,7 +516,7 @@ npx electron-builder -w portable --publish never
 - UI 基线：未涉及
 - 设计偏差：见设计文档 §6.4 落地说明——本任务只验证；组内价格一致由 LB-01 的保存校验保证（LB01-05）。
 - 提交标题：`test(load-balancing): [LB-06] pin down record timing and pricing consistency`
-- 提交 SHA：待填写
+- 提交 SHA：`808c7c9`
 - 备注：无。
 
 每完成一个任务，在这里追加一条记录：
