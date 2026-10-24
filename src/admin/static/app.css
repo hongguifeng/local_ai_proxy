@@ -3461,10 +3461,10 @@ label span {
   }
   .stats-overview .stat-card strong {
     order: 2;
-    margin-top: 4px !important;
+    margin-top: 4px;
     min-width: 0;
     overflow: hidden !important;
-    text-overflow: ellipsis !important;
+    text-overflow: ellipsis;
     white-space: nowrap;
     max-width: 100%;
   }
@@ -3560,8 +3560,8 @@ label span {
   border: 1px solid var(--border, #d0d5dd) !important;
   border-radius: 9px !important;
   background: var(--panel, #fff) !important;
-  box-sizing: border-box !important;
-  font: inherit !important;
+  box-sizing: border-box;
+  font: inherit;
 }
 .distribution-card-title .chart-control select {
   width: 88px !important;

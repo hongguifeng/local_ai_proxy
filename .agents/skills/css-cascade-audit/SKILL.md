@@ -35,9 +35,17 @@ connected block, so any layer boundary between them changes what the page draws.
 `@layer` restructure here without first rewriting selectors so precedence comes from
 layers instead of specificity - that changes pixels and needs regenerated baselines.
 
-Only two of the sheet's `!important` were proven load-bearing and nine were proven
-decorative; most of the rest have no opponent in the measured states, so deleting
-them cannot be shown to be safe.
+Proving an `!important` may be deleted is a per-declaration argument: no other rule
+that can land on the same element may declare the same property with higher
+specificity, or with `!important`, or at equal specificity written later in the file.
+That test cleared 4 of the 36 declarations at the flagged rules here; those were
+removed (86 down to 82) after the oracle reported no difference and pixel baselines
+stayed put. Judge whether two selectors can style one element from their subject
+compounds alone: descendant combinators move class requirements onto ancestors, which
+coexist freely, so comparing class token sets wrongly separates
+`.stats-live input[type=checkbox]` from `.stats-date-row input`, both of which match
+one checkbox. Two selectors are impossible on one element only when their subjects
+contradict - different element types, or one attribute required with two values.
 
 Two script bugs produced confident nonsense while measuring this, and both are worth
 remembering: passing a specificity tuple to `Math.max` yields `NaN`, after which every
