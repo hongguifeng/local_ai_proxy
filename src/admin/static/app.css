@@ -360,12 +360,10 @@ body.drag-target-active {
   grid-row: 1;
 }
 .price-test output {
-  grid-row: 1;
-}
-.price-test output {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+  grid-row: 1;
 }
 @media (max-width: 520px) {
   .price-tools {
@@ -3088,10 +3086,6 @@ label span {
 .trend-legend i.cache_write {
   background: #9b51e0;
 }
-.stats-trend table {
-  width: 100%;
-  border-collapse: collapse;
-}
 .stats-trend th,
 .stats-trend td {
   padding: 8px;
@@ -3180,10 +3174,6 @@ label span {
   min-height: 2px;
   background: #2f80ed;
   border-radius: 4px 4px 0 0;
-}
-.trend-segment {
-  display: block;
-  width: 100%;
 }
 .trend-segment.input {
   background: #2f80ed;
@@ -3526,9 +3516,13 @@ label span {
   box-shadow: 0 0 0 1px #ffffff55;
 }
 .trend-segment {
+  display: block;
+  width: 100%;
   min-height: 0;
 }
 .stats-trend table {
+  width: 100%;
+  border-collapse: collapse;
   margin-top: 14px;
 }
 .stats-trend th {
@@ -3786,11 +3780,6 @@ label span {
   white-space: nowrap;
   font-size: clamp(18px, 1.6vw, 22px);
 }
-.stats-overview .stat-card-tokens .token-details {
-  min-width: 0;
-  max-width: 100%;
-  overflow: hidden;
-}
 .stats-overview .stat-card-tokens .token-details span {
   min-width: 0;
   overflow: hidden;
@@ -3854,6 +3843,9 @@ label span {
 }
 
 .stats-overview .stat-card-tokens .token-details {
+  min-width: 0;
+  max-width: 100%;
+  overflow: hidden;
   grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: 3px 8px;
 }
