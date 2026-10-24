@@ -490,7 +490,204 @@ describe("ProxyRuntimeRegistry", () => {
       await rm(logRoot, { force: true, recursive: true, maxRetries: 5, retryDelay: 100 });
     }
   });
+
+  it("LB11-07 keeps affinity, reservations and sampling alive across a live reload", async () => {
+    const slow = await startStickyEngine("slow", 250);
+    const fast = await startStickyEngine("fast", 0);
+    const logRoot = await mkdtemp(path.join(os.tmpdir(), "llm-proxy-runtime-reload-sticky-"));
+    const registry = new ProxyRuntimeRegistry();
+    const pair = reloadStickyFixture(slow.port, fast.port, logRoot);
+
+    try {
+      const started = await registry.startPair(pair);
+      const listenPort = started.actualListenPort ?? 0;
+      const balancer = registry.loadBalancer(pair.id);
+      if (balancer === undefined) {
+        throw new Error("Starting a pair must create its load balancer.");
+      }
+      const monitor = registry.loadMonitor(pair.id);
+      if (monitor === undefined) {
+        throw new Error("Starting a pair must create its load monitor.");
+      }
+
+      const table = balancer.tableFor("reload-lb");
+      if (table === undefined) {
+        throw new Error("An enabled group must have an affinity table.");
+      }
+
+      // Take the first measurement by hand so the reload happens against a monitor that
+      // has already seen both engines.
+      expect(await monitor.sampleNow()).toMatchObject({ failed: 0, sampled: 2 });
+      const beforeReload = monitor.nodeStatuses();
+
+      const firstTask = postJson(
+        listenPort,
+        "/v1/responses",
+        {
+          model: "Qwen3.8-Flash-Next",
+          input: [{ role: "user", content: "hello" }],
+          stream: true,
+        },
+        { "x-claude-code-session-id": "reload-session" },
+      );
+      await expect
+        .poll(() => balancer.inFlight("slow-target") + balancer.inFlight("fast-target"), {
+          timeout: 5_000,
+        })
+        .toBe(1);
+
+      // Save the configuration while that request is still on the wire.
+      const reloaded = await registry.reloadPair(pair);
+      expect(reloaded.running).toBe(true);
+      expect(registry.loadBalancer(pair.id)).toBe(balancer);
+      expect(registry.loadMonitor(pair.id)).toBe(monitor);
+
+      const chosen = nodeOf(await firstTask);
+      expect(chosen).toBe("slow");
+      expect(balancer.inFlight("slow-target")).toBe(0);
+
+      // Sampling state survived: the same monitor still reports the same two engines,
+      // each with a real measurement behind it.
+      const afterReload = monitor.nodeStatuses();
+      expect(afterReload.map((status) => status.canonicalKey).sort()).toEqual(
+        beforeReload.map((status) => status.canonicalKey).sort(),
+      );
+      for (const status of afterReload) {
+        expect(status.metrics?.sampledAt).toBeTypeOf("number");
+        expect(status.metrics?.running).toBe(3);
+      }
+
+      const second = nodeOf(
+        await postJson(
+          listenPort,
+          "/v1/responses",
+          {
+            model: "Qwen3.8-Flash-Next",
+            input: [
+              { role: "user", content: "hello" },
+              { role: "user", content: "and then" },
+            ],
+            stream: true,
+          },
+          { "x-claude-code-session-id": "reload-session" },
+        ),
+      );
+      // Round robin would have moved this turn; the binding kept it on the same engine.
+      expect(second).toBe(chosen);
+      expect(table.size).toBe(1);
+      expect(balancer.snapshot().bindings).toEqual({ "reload-lb": 1 });
+      expect(balancer.inFlight("slow-target") + balancer.inFlight("fast-target")).toBe(0);
+
+      await registry.stopPair(pair.id);
+      expect(monitor.running).toBe(false);
+      expect(table.size).toBe(0);
+      expect(balancer.inFlight("slow-target") + balancer.inFlight("fast-target")).toBe(0);
+    } finally {
+      await registry.stopAll();
+      await close(slow.server);
+      await close(fast.server);
+      await rm(logRoot, { force: true, recursive: true, maxRetries: 5, retryDelay: 100 });
+    }
+  });
 });
+
+/** Two engines behind one group, one of them deliberately slow to answer. */
+function startStickyEngine(
+  label: string,
+  delayMs: number,
+): Promise<{ server: http.Server; port: number; hits: number }> {
+  let hits = 0;
+  const server = http.createServer((request, response) => {
+    if (request.method === "GET" && (request.url === "/metrics" || request.url === "/v1/metrics")) {
+      response.writeHead(200, { "content-type": "text/plain; version=0.0.4" });
+      response.end(
+        [
+          "# HELP vllm:num_requests_running Requests currently running.",
+          "# TYPE vllm:num_requests_running gauge",
+          "vllm:num_requests_running 3",
+          "vllm:num_requests_waiting 0",
+          "vllm:kv_cache_usage_perc 0.2",
+          "vllm:engine_sleep_state 0",
+        ].join("\n") + "\n",
+      );
+      return;
+    }
+    let body = "";
+    request.setEncoding("utf8");
+    request.on("data", (chunk: string) => {
+      body += chunk;
+    });
+    request.on("end", () => {
+      hits += 1;
+      setTimeout(() => {
+        response.writeHead(200, { "content-type": "application/json" });
+        response.end(JSON.stringify({ node: label, body_length: body.length }));
+      }, delayMs);
+    });
+  });
+  return listen(server).then((port) => ({
+    server,
+    port,
+    get hits() {
+      return hits;
+    },
+  }));
+}
+
+/** A pair whose two members are different engines, so a switch is observable. */
+function reloadStickyFixture(slowPort: number, fastPort: number, logRoot: string): ProxyPair {
+  return {
+    id: "reload-sticky-pair",
+    name: "Reload sticky pair",
+    enabled: true,
+    listen_host: "127.0.0.1",
+    listen_port: 0,
+    access_log: false,
+    default_target_id: "slow-target",
+    load_balancers: [
+      {
+        id: "reload-lb",
+        name: "Reload group",
+        enabled: true,
+        model_pattern: "Qwen3.8-Flash-Next",
+        node_target_ids: ["slow-target", "fast-target"],
+        strategy: "round_robin",
+        metrics_enabled: true,
+        failover_enabled: true,
+      },
+    ],
+    targets: [
+      {
+        id: "slow-target",
+        name: "Slow engine",
+        enabled: true,
+        target_url: `http://127.0.0.1:${slowPort}`,
+        target_api_key: "",
+        target_headers: [],
+        strip_request_fields: "",
+        inject_request_fields: "",
+        log_root: logRoot,
+        redact_logs: false,
+        model_mappings: [],
+        model_prices: [],
+      },
+      {
+        id: "fast-target",
+        name: "Fast engine",
+        enabled: true,
+        target_url: `http://127.0.0.1:${fastPort}`,
+        target_api_key: "",
+        target_headers: [],
+        strip_request_fields: "",
+        inject_request_fields: "",
+        log_root: logRoot,
+        redact_logs: false,
+        model_mappings: [],
+        model_prices: [],
+      },
+    ],
+  };
+}
 
 function pairFixture(upstreamPort: number, pairId = "runtime-pair"): ProxyPair {
   return {
@@ -611,7 +808,19 @@ function sendChatCompletion(response: ServerResponse): void {
   );
 }
 
-function postJson(port: number, requestPath: string, body: unknown): Promise<string> {
+/** Which engine a JSON answer says it was. */
+function nodeOf(text: string): string {
+  const parsed: unknown = JSON.parse(text);
+  const node = isRecord(parsed) ? parsed["node"] : undefined;
+  return typeof node === "string" ? node : "";
+}
+
+function postJson(
+  port: number,
+  requestPath: string,
+  body: unknown,
+  headers: Record<string, string> = {},
+): Promise<string> {
   return new Promise((resolve, reject) => {
     const payload = Buffer.from(JSON.stringify(body), "utf8");
     const request = http.request(
@@ -623,6 +832,7 @@ function postJson(port: number, requestPath: string, body: unknown): Promise<str
         headers: {
           "content-type": "application/json",
           "content-length": String(payload.byteLength),
+          ...headers,
         },
       },
       (response) => {

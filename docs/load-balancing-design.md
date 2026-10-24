@@ -722,6 +722,30 @@ UI 修改必须：
 12. 多 target 请求在 body 读取前没有持久化 record，选路后的 `request_received` 能被 `?ids=` 批量接口取到；
 13. 失败切换后 pricing snapshot 与原节点一致。
 
+落地说明（LB-11）：
+
+LB-11 只增加测试，不改产品代码。三个落点分别是
+`test-node/proxy/load-balancer-integration.test.ts`（LB11-01～06、09～11）、
+`test-node/proxy/proxy-runtime-registry.test.ts`（LB11-07）和
+`test-node/logging/load-balancer-log-records.test.ts`（LB11-08）。
+集成文件里两个 stub 上游都会回显收到的模型名，所以模型直通和映射绕过都能直接看见。
+
+写这组测试时发现四条与设计不同步的实际行为：
+
+- 全部成员都在冷却时，选路仍然会挑一个节点，冷却是建议不是禁止。
+  所以 503 只在成员被禁用或引擎睡着时出现；两个成员都拒绝连接时，
+  客户端拿到的是切换一次之后的 502，默认 target 依然没有被使用。
+- 引擎发出响应头后掐断连接会冷却该节点，客户端自己走开不会。
+  响应头之后仍然不切换，客户端也只收到一帧。
+- 切换之后 pricing snapshot 继续写原计划节点的 `target_id`，路由记录才写真正回答的节点。
+  这正是"价格不漂移"要求的形状：组内价格已验证相等。
+- 首条 user 相同的同构请求按路由定义就是同一个 task，会直接命中 exact key。
+  要测桶上限必须用不同的首条 user，这样它们同桶却互不亲和。
+
+测试客户端复用 keep-alive socket。Windows 会在短时间内耗尽临时端口，
+每个请求新建连接会让 40 次循环随机抛出 `ENOBUFS`。
+监视器的首个采样落在 5 秒定时器上，所以 reload 测试先显式调用 `sampleNow()`。
+
 ### 13.3 管理 API 和 UI 测试
 
 - `PUT /api/pairs` 的配置往返；

@@ -126,8 +126,10 @@ function close(server: http.Server): Promise<void> {
 function startSlowEcho(
   label: string,
   delayMs: number,
-): Promise<{ server: http.Server; port: number }> {
+): Promise<{ server: http.Server; port: number; hits: number }> {
+  let hits = 0;
   const server = http.createServer((request, response) => {
+    hits += 1;
     let body = "";
     request.setEncoding("utf8");
     request.on("data", (chunk: string) => {
@@ -148,7 +150,13 @@ function startSlowEcho(
       }, delayMs);
     });
   });
-  return listen(server).then((port) => ({ server, port }));
+  return listen(server).then((port) => ({
+    server,
+    port,
+    get hits() {
+      return hits;
+    },
+  }));
 }
 
 function post(
@@ -179,6 +187,43 @@ function post(
     );
     request.on("error", reject);
     request.end(body);
+  });
+}
+
+/** Sends a body in pieces with a delay, so the proxy is still reading it for a while. */
+function postSlowBody(
+  port: number,
+  requestPath: string,
+  body: string,
+  chunkDelayMs: number,
+): Promise<{ status: number; body: string }> {
+  return new Promise((resolve, reject) => {
+    const request = http.request(
+      {
+        host: "127.0.0.1",
+        port,
+        path: requestPath,
+        method: "POST",
+        headers: { "content-type": "application/json" },
+      },
+      (response) => {
+        let text = "";
+        response.setEncoding("utf8");
+        response.on("data", (chunk: string) => {
+          text += chunk;
+        });
+        response.on("end", () => {
+          resolve({ status: response.statusCode ?? 0, body: text });
+        });
+        response.on("error", reject);
+      },
+    );
+    request.on("error", reject);
+    const half = Math.floor(body.length / 2);
+    request.write(body.slice(0, half));
+    setTimeout(() => {
+      request.end(body.slice(half));
+    }, chunkDelayMs);
   });
 }
 
@@ -267,6 +312,85 @@ describe("load balanced records in the history", () => {
     expect(balancer.inFlight("target-a")).toBe(0);
     await listener.close();
     await close(engine.server);
+    await trafficLog.close();
+  });
+
+  it("LB11-08 keeps a multi target request out of the log until a node is chosen", async () => {
+    const root = await mkdtemp(path.join(os.tmpdir(), "llm-proxy-lb-multi-pending-"));
+    temporaryDirectories.push(root);
+    const trafficLog = new TrafficLogService(root);
+    const queries = new LogQueryService([root]);
+    const engineA = await startSlowEcho("a", 250);
+    const engineB = await startSlowEcho("b", 250);
+
+    const balancer = new LoadBalancer("pair-lb");
+    balancer.reconfigure(
+      pair(
+        [target("target-a", engineA.port), target("target-b", engineB.port)],
+        [group("lb-multi", ["target-a", "target-b"], { strategy: "round_robin" })],
+      ),
+    );
+    const pipeline = new ProxyRequestPipeline({
+      pairId: "pair-lb",
+      defaultTargetId: "target-a",
+      loadBalancer: balancer,
+      loadSamples: () => EMPTY_LOAD_SAMPLES,
+      // Both members write to the same history: a group may not split a task across roots.
+      targets: [
+        pipelineTarget("target-a", engineA.port, trafficLog),
+        pipelineTarget("target-b", engineB.port, trafficLog),
+      ],
+    });
+    const listener = new ProxyListener({
+      host: "127.0.0.1",
+      port: 0,
+      createId: () => "lb-multi-pending",
+      onRequest: (request, response, context) => pipeline.handle(request, response, context),
+    });
+    const address = await listener.start();
+
+    const inflight = postSlowBody(
+      address.port,
+      "/v1/responses",
+      JSON.stringify({
+        model: "Qwen3.8-Flash-Next",
+        input: [{ role: "user", content: "a long request that arrives slowly" }],
+        stream: true,
+      }),
+      250,
+    );
+
+    // While the body is still coming in there is nothing to select a node from, so no
+    // database holds a row for this request yet.
+    await new Promise((resolve) => setTimeout(resolve, 40));
+    expect(queries.listRecordsByIds(["lb-multi-pending"]).records).toEqual([]);
+
+    // Once the body is complete and a node was picked, the row appears and the batch
+    // endpoint returns it without touching the stored body.
+    await expect
+      .poll(() => queries.listRecordsByIds(["lb-multi-pending"]).records.length, { timeout: 5_000 })
+      .toBe(1);
+    const row = queries.listRecordsByIds(["lb-multi-pending"]).records[0];
+    if (row === undefined) {
+      throw new Error("the batch read stopped returning the pending row");
+    }
+    const chosen = row.target === `http://127.0.0.1:${engineA.port}/v1/responses` ? "a" : "b";
+    expect(row).toMatchObject({ id: "lb-multi-pending", pending: true });
+
+    const answer = await inflight;
+    expect(answer.status).toBe(200);
+
+    // Only the chosen engine ever saw the request.
+    const finished = queries.getRecordDetail("lb-multi-pending");
+    expect(finished?.response).toMatchObject({ node: chosen });
+    expect(finished?.pending).toBe(false);
+    const idleEngine = chosen === "a" ? engineB : engineA;
+    expect(idleEngine.hits).toBe(0);
+    expect(balancer.inFlight("target-a") + balancer.inFlight("target-b")).toBe(0);
+
+    await listener.close();
+    await close(engineA.server);
+    await close(engineB.server);
     await trafficLog.close();
   });
 });
