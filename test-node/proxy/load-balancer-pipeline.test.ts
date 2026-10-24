@@ -16,6 +16,7 @@ import {
   LoadBalancer,
   ProxyListener,
   ProxyRequestPipeline,
+  type LoadSample,
   type ProxyPipelineTarget,
   type ProxyRequestHandler,
   type TrafficLogWriter,
@@ -478,10 +479,11 @@ describe("load balancing inside the request pipeline", () => {
     balancer.release("target-a");
     expect(balancer.inFlight("target-a")).toBe(0);
 
-    // An upstream that refuses the connection also releases its reservation.
+    // An upstream that refuses the connection also releases its reservation. Failover is
+    // switched off here so the refusal itself stays visible to the client.
     const refusedTargets = pair(
       [target("target-a", nodeA.port), target("target-b", 1)],
-      [group("lb-refused", ["target-a", "target-b"])],
+      [group("lb-refused", ["target-a", "target-b"], { failover_enabled: false })],
     );
     balancer.reconfigure(refusedTargets);
     const refusedPipeline = new ProxyRequestPipeline({
@@ -848,5 +850,482 @@ describe("record timing and pricing around load balancing", () => {
     await listener.close();
     await close(nodeA.server);
     await close(nodeB.server);
+  });
+});
+
+/** An engine that answers with a chosen status, so a plain 4xx/5xx stays an upstream answer. */
+async function startStatusNode(
+  label: string,
+  status: number,
+): Promise<{ server: http.Server; port: number; seen: string[] }> {
+  const seen: string[] = [];
+  const server = http.createServer((request, response) => {
+    let body = "";
+    request.setEncoding("utf8");
+    request.on("data", (chunk: string) => {
+      body += chunk;
+    });
+    request.on("end", () => {
+      const parsed: unknown = JSON.parse(body === "" ? "{}" : body);
+      const model = isRecord(parsed) ? parsed["model"] : undefined;
+      seen.push(typeof model === "string" ? model : "");
+      response.writeHead(status, { "content-type": "application/json" });
+      response.end(JSON.stringify({ error: true, node: label, status }));
+    });
+  });
+  const port = await listen(server);
+  return { server, port, seen };
+}
+
+/** An engine that sends headers and one chunk, waits, then breaks the connection mid-body. */
+async function startResetNode(label: string): Promise<{ server: http.Server; port: number }> {
+  const server = http.createServer((_request, response) => {
+    response.writeHead(200, { "content-type": "application/x-my-sse" });
+    response.write(`data: {"id":"resp-${label}","node":"${label}"}\n\n`);
+    // Wait long enough that the client has certainly taken the response head, so a
+    // switch here would mix two bodies into one response.
+    setTimeout(() => response.socket?.destroy(), 150);
+  });
+  const port = await listen(server);
+  return { server, port };
+}
+
+/** Reads a response that may end early, the way a broken upstream connection does. */
+function postTolerant(
+  port: number,
+  requestPath: string,
+  body: string,
+  headers: Record<string, string> = {},
+): Promise<{ status: number; body: string; truncated: boolean }> {
+  return new Promise((resolve) => {
+    let text = "";
+    let settled = false;
+    const finish = (status: number, truncated: boolean): void => {
+      if (settled) {
+        return;
+      }
+      settled = true;
+      resolve({ status, body: text, truncated });
+    };
+    const request = http.request(
+      {
+        host: "127.0.0.1",
+        port,
+        path: requestPath,
+        method: "POST",
+        headers: { "content-type": "application/json", ...headers },
+      },
+      (response) => {
+        response.setEncoding("utf8");
+        response.on("data", (chunk: string) => {
+          text += chunk;
+        });
+        response.on("end", () => {
+          finish(response.statusCode ?? 0, false);
+        });
+        response.on("error", () => {
+          finish(response.statusCode ?? 0, true);
+        });
+      },
+    );
+    request.on("error", () => {
+      finish(0, true);
+    });
+    request.end(body);
+  });
+}
+
+function engineSample(overrides: { awake?: boolean; running?: number } = {}): LoadSample {
+  return {
+    sampledAt: Date.now(),
+    running: overrides.running ?? 0,
+    waiting: 0,
+    kvUsage: undefined,
+    source: "vllm",
+    ...(overrides.awake === undefined ? {} : { awake: overrides.awake }),
+  };
+}
+
+function responseStatusOf(record: Readonly<Record<string, unknown>> | undefined): unknown {
+  const response = record?.["response"];
+  return isRecord(response) ? response["status"] : undefined;
+}
+
+function errorOf(record: Readonly<Record<string, unknown>> | undefined): string {
+  const error = record?.["error"];
+  return typeof error === "string" ? error : "";
+}
+
+describe("connection failover and refused groups", () => {
+  it("LB07-01 switches once when the chosen node refuses the connection", async () => {
+    const healthy = await startEchoNode("healthy");
+    const records: Readonly<Record<string, unknown>>[] = [];
+    const trafficLog = collectWriter(records);
+    const balancer = new LoadBalancer("pair-lb");
+    // The refused node is listed first, so an even load sends the task there.
+    balancer.reconfigure(
+      pair(
+        [target("target-refused", 1), target("target-healthy", healthy.port)],
+        [group("lb-failover", ["target-refused", "target-healthy"])],
+      ),
+    );
+    const pipeline = new ProxyRequestPipeline({
+      pairId: "pair-lb",
+      defaultTargetId: "target-refused",
+      loadBalancer: balancer,
+      loadSamples: () => EMPTY_LOAD_SAMPLES,
+      targets: [
+        pipelineTarget("target-refused", 1, trafficLog),
+        pipelineTarget("target-healthy", healthy.port, trafficLog),
+      ],
+    });
+    const { port, listener } = await startListener((request, response, context) =>
+      pipeline.handle(request, response, context),
+    );
+
+    const answer = echoed(
+      (
+        await post(
+          port,
+          "/v1/responses",
+          bodyFor("Qwen3.8-Flash-Next", "one"),
+          session("switched-session"),
+        )
+      ).body,
+    );
+    expect(answer).toMatchObject({ node: "healthy", model: "Qwen3.8-Flash-Next" });
+    // The client sees exactly one response head and one body.
+    expect(healthy.seen).toEqual(["Qwen3.8-Flash-Next"]);
+
+    const finished = eventRecords(records, "request_finished")[0];
+    expect(responseStatusOf(finished)).toBe(200);
+    expect(finished?.["error"]).toBeUndefined();
+    expect(routeOf(finished)).toMatchObject({
+      route_mode: "load_balance",
+      target_id: "target-healthy",
+      load_balance: {
+        group_id: "lb-failover",
+        decision: "failover",
+        failover_from: "target-refused",
+      },
+    });
+    expect(balancer.cooldownRemaining("target-refused", Date.now())).toBeGreaterThan(0);
+    expect(balancer.cooldownRemaining("target-healthy", Date.now())).toBe(0);
+    expect(balancer.inFlight("target-refused")).toBe(0);
+    expect(balancer.inFlight("target-healthy")).toBe(0);
+
+    // LB07-05: the task now belongs to the node that answered, not the one that refused.
+    const second = echoed(
+      (
+        await post(
+          port,
+          "/v1/responses",
+          bodyFor("Qwen3.8-Flash-Next", "two"),
+          session("switched-session"),
+        )
+      ).body,
+    );
+    expect(second.node).toBe("healthy");
+    expect(routeOf(eventRecords(records, "request_finished")[1])).toMatchObject({
+      load_balance: { decision: "affinity", failover_from: null },
+    });
+
+    await listener.close();
+    await close(healthy.server);
+  });
+
+  it("LB07-02 does not chain retries when both nodes refuse", async () => {
+    const records: Readonly<Record<string, unknown>>[] = [];
+    const trafficLog = collectWriter(records);
+    const balancer = new LoadBalancer("pair-lb");
+    balancer.reconfigure(
+      pair(
+        [target("target-a", 1), target("target-b", 1)],
+        [group("lb-dead", ["target-a", "target-b"])],
+      ),
+    );
+    const pipeline = new ProxyRequestPipeline({
+      pairId: "pair-lb",
+      defaultTargetId: "target-a",
+      loadBalancer: balancer,
+      loadSamples: () => EMPTY_LOAD_SAMPLES,
+      targets: [
+        pipelineTarget("target-a", 1, trafficLog),
+        pipelineTarget("target-b", 1, trafficLog),
+      ],
+    });
+    const { port, listener } = await startListener((request, response, context) =>
+      pipeline.handle(request, response, context),
+    );
+
+    const answer = await post(
+      port,
+      "/v1/responses",
+      bodyFor("Qwen3.8-Flash-Next", "one"),
+      session("dead-session"),
+    );
+    expect(answer.status).toBe(502);
+    expect(answer.body).toContain("Bad Gateway");
+
+    const finished = eventRecords(records, "request_finished")[0];
+    expect(responseStatusOf(finished)).toBe(502);
+    expect(errorOf(finished)).toContain("ECONNREFUSED");
+    expect(routeOf(finished)).toMatchObject({
+      route_mode: "load_balance",
+      target_id: "target-b",
+      load_balance: { decision: "failover", failover_from: "target-a" },
+    });
+    // One attempt per node, and both are cooled down.
+    expect(eventRecords(records, "request_received")).toHaveLength(1);
+    expect(balancer.cooldownRemaining("target-a", Date.now())).toBeGreaterThan(0);
+    expect(balancer.cooldownRemaining("target-b", Date.now())).toBeGreaterThan(0);
+    expect(balancer.inFlight("target-a")).toBe(0);
+    expect(balancer.inFlight("target-b")).toBe(0);
+
+    await listener.close();
+  });
+
+  it("LB07-03 leaves an upstream 4xx or 5xx alone: no switch, no cooldown", async () => {
+    const angry = await startStatusNode("angry", 503);
+    const calm = await startEchoNode("calm");
+    const records: Readonly<Record<string, unknown>>[] = [];
+    const trafficLog = collectWriter(records);
+    const balancer = new LoadBalancer("pair-lb");
+    balancer.reconfigure(
+      pair(
+        [target("target-angry", angry.port), target("target-calm", calm.port)],
+        [group("lb-status", ["target-angry", "target-calm"])],
+      ),
+    );
+    const pipeline = new ProxyRequestPipeline({
+      pairId: "pair-lb",
+      defaultTargetId: "target-angry",
+      loadBalancer: balancer,
+      loadSamples: () => EMPTY_LOAD_SAMPLES,
+      targets: [
+        pipelineTarget("target-angry", angry.port, trafficLog),
+        pipelineTarget("target-calm", calm.port, trafficLog),
+      ],
+    });
+    const { port, listener } = await startListener((request, response, context) =>
+      pipeline.handle(request, response, context),
+    );
+
+    const answer = await post(
+      port,
+      "/v1/responses",
+      bodyFor("Qwen3.8-Flash-Next", "one"),
+      session("status-session"),
+    );
+    expect(answer.status).toBe(503);
+    expect(echoed(answer.body).node).toBe("angry");
+    expect(calm.seen).toEqual([]);
+    expect(balancer.cooldownRemaining("target-angry", Date.now())).toBe(0);
+    expect(routeOf(eventRecords(records, "request_finished")[0])).toMatchObject({
+      route_mode: "load_balance",
+      target_id: "target-angry",
+      load_balance: { decision: "new_task", failover_from: null },
+    });
+
+    await listener.close();
+    await close(angry.server);
+    await close(calm.server);
+  });
+
+  it("LB07-04 never switches after the response head reached the client", async () => {
+    const breaker = await startResetNode("breaker");
+    const idle = await startEchoNode("idle");
+    const records: Readonly<Record<string, unknown>>[] = [];
+    const trafficLog = collectWriter(records);
+    const balancer = new LoadBalancer("pair-lb");
+    balancer.reconfigure(
+      pair(
+        [target("target-breaker", breaker.port), target("target-idle", idle.port)],
+        [group("lb-midstream", ["target-breaker", "target-idle"])],
+      ),
+    );
+    const pipeline = new ProxyRequestPipeline({
+      pairId: "pair-lb",
+      defaultTargetId: "target-breaker",
+      loadBalancer: balancer,
+      loadSamples: () => EMPTY_LOAD_SAMPLES,
+      targets: [
+        pipelineTarget("target-breaker", breaker.port, trafficLog),
+        pipelineTarget("target-idle", idle.port, trafficLog),
+      ],
+    });
+    const { port, listener } = await startListener((request, response, context) =>
+      pipeline.handle(request, response, context),
+    );
+
+    const answer = await postTolerant(
+      port,
+      "/v1/responses",
+      bodyFor("Qwen3.8-Flash-Next", "one"),
+      session("mid-session"),
+    );
+    expect(answer.status).toBe(200);
+    expect(answer.truncated).toBe(true);
+    expect(answer.body).toContain("breaker");
+    // Switching now would append a second body to a response already half delivered.
+    expect(idle.seen).toEqual([]);
+    expect(routeOf(eventRecords(records, "request_finished")[0])).toMatchObject({
+      route_mode: "load_balance",
+      target_id: "target-breaker",
+      load_balance: { decision: "new_task", failover_from: null },
+    });
+    await expect.poll(() => balancer.inFlight("target-breaker"), { timeout: 5_000 }).toBe(0);
+
+    await listener.close();
+    await close(breaker.server);
+    await close(idle.server);
+  });
+
+  it("LB07-06 answers 503 when the group has no usable node and never bypasses the group", async () => {
+    const records: Readonly<Record<string, unknown>>[] = [];
+    const trafficLog = collectWriter(records);
+    const balancer = new LoadBalancer("pair-lb");
+
+    // Every member disabled.
+    balancer.reconfigure(
+      pair(
+        [target("target-a", 1, { enabled: false }), target("target-b", 1, { enabled: false })],
+        [group("lb-off", ["target-a", "target-b"])],
+      ),
+    );
+    const disabledPipeline = new ProxyRequestPipeline({
+      pairId: "pair-lb",
+      defaultTargetId: "target-a",
+      loadBalancer: balancer,
+      loadSamples: () => EMPTY_LOAD_SAMPLES,
+      targets: [
+        pipelineTarget("target-a", 1, trafficLog, [], []),
+        pipelineTarget("target-b", 1, trafficLog),
+      ],
+    });
+    const off = await startListener((request, response, context) =>
+      disabledPipeline.handle(request, response, context),
+    );
+    const refused = await post(
+      off.port,
+      "/v1/responses",
+      bodyFor("Qwen3.8-Flash-Next", "one"),
+      session("off-session"),
+    );
+    expect(refused.status).toBe(503);
+    expect(refused.body).toContain("lb-off");
+    const refusal = eventRecords(records, "request_finished")[0];
+    expect(responseStatusOf(refusal)).toBe(503);
+    expect(errorOf(refusal)).toContain("lb-off");
+    expect(routeOf(refusal)).toMatchObject({
+      route_mode: "load_balance",
+      load_balance: { group_id: "lb-off", decision: "no_healthy_node", logged_by: "target-a" },
+    });
+    expect(pricingOf(refusal)).toMatchObject({ pricing_status: "unpriced", cost_nano_cny: null });
+    await off.listener.close();
+
+    // Every engine asleep.
+    const sleeping = new Map<string, LoadSample>([
+      ["target-a", engineSample({ awake: false })],
+      ["target-b", engineSample({ awake: false })],
+    ]);
+    balancer.reconfigure(
+      pair(
+        [target("target-a", 1), target("target-b", 1)],
+        [group("lb-asleep", ["target-a", "target-b"])],
+      ),
+    );
+    const asleepPipeline = new ProxyRequestPipeline({
+      pairId: "pair-lb",
+      defaultTargetId: "target-a",
+      loadBalancer: balancer,
+      loadSamples: () => sleeping,
+      targets: [
+        pipelineTarget("target-a", 1, trafficLog),
+        pipelineTarget("target-b", 1, trafficLog),
+      ],
+    });
+    const asleep = await startListener((request, response, context) =>
+      asleepPipeline.handle(request, response, context),
+    );
+    const asleepAnswer = await post(
+      asleep.port,
+      "/v1/responses",
+      bodyFor("Qwen3.8-Flash-Next", "two"),
+      session("asleep-session"),
+    );
+    expect(asleepAnswer.status).toBe(503);
+    expect(routeOf(eventRecords(records, "request_finished")[1])).toMatchObject({
+      load_balance: { group_id: "lb-asleep", decision: "no_healthy_node" },
+    });
+    await asleep.listener.close();
+
+    // A group that names no node cannot answer, and has no log host to describe it.
+    balancer.reconfigure(pair([target("target-a", 1)], [group("lb-empty", [])]));
+    const emptyPipeline = new ProxyRequestPipeline({
+      pairId: "pair-lb",
+      defaultTargetId: "target-a",
+      loadBalancer: balancer,
+      loadSamples: () => EMPTY_LOAD_SAMPLES,
+      targets: [pipelineTarget("target-a", 1, trafficLog)],
+    });
+    const empty = await startListener((request, response, context) =>
+      emptyPipeline.handle(request, response, context),
+    );
+    const emptyAnswer = await post(
+      empty.port,
+      "/v1/responses",
+      bodyFor("Qwen3.8-Flash-Next", "three"),
+      session("empty-session"),
+    );
+    expect(emptyAnswer.status).toBe(503);
+    await empty.listener.close();
+  });
+
+  it("LB07-07 cools a failed node but never punishes one the client walked away from", async () => {
+    const stalled = await startStallNode();
+    const records: Readonly<Record<string, unknown>>[] = [];
+    const trafficLog = collectWriter(records);
+    const balancer = new LoadBalancer("pair-lb");
+    balancer.reconfigure(
+      pair(
+        [target("target-stall", stalled.port), target("target-refused", 1)],
+        [group("lb-abort", ["target-stall", "target-refused"], { failover_enabled: false })],
+      ),
+    );
+    const pipeline = new ProxyRequestPipeline({
+      pairId: "pair-lb",
+      defaultTargetId: "target-stall",
+      loadBalancer: balancer,
+      loadSamples: () => EMPTY_LOAD_SAMPLES,
+      targets: [
+        pipelineTarget("target-stall", stalled.port, trafficLog),
+        pipelineTarget("target-refused", 1, trafficLog),
+      ],
+    });
+    const { port, listener } = await startListener((request, response, context) =>
+      pipeline.handle(request, response, context),
+    );
+
+    await postAndAbandon(port, "/v1/responses", bodyFor("Qwen3.8-Flash-Next", "one"));
+    await expect.poll(() => balancer.inFlight("target-stall"), { timeout: 5_000 }).toBe(0);
+    expect(balancer.cooldownRemaining("target-stall", Date.now())).toBe(0);
+
+    // A refused connection does cool its node.
+    balancer.reserve("target-stall");
+    const refused = await post(
+      port,
+      "/v1/responses",
+      bodyFor("Qwen3.8-Flash-Next", "two"),
+      session("refused-session"),
+    );
+    expect(refused.status).toBe(502);
+    expect(balancer.cooldownRemaining("target-refused", Date.now())).toBeGreaterThan(0);
+    expect(balancer.cooldownRemaining("target-stall", Date.now())).toBe(0);
+    expect(balancer.inFlight("target-refused")).toBe(0);
+    balancer.release("target-stall");
+
+    await listener.close();
+    await close(stalled.server);
   });
 });

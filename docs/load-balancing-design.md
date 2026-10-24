@@ -504,6 +504,15 @@ v1 不根据 prompt 长度估算 token，也不对异构 GPU 做权重。长 pro
 
 上游已经返回 4xx/5xx 时不切换，因为这通常是模型、请求或认证错误。响应头或首字节已经发送后绝不切换，否则会造成响应内容混杂。客户端中止和上游异常都必须执行最终释放，避免 inFlight 永久增加。
 
+落地说明（LB-07）：
+
+- `ProxyRequestPipeline.#tryFailover` 只跑一次：连接期错误 + 未发响应头 + 组启用 failover + 组内还有可用节点。
+- `markFailure` 指数冷却，上限 60 秒；上游连上了就调 `noteSuccess`，清掉失败计数和冷却。
+- 客户端走开不算节点的错：`signal.aborted` 时不记失败，也不冷却。
+- `plan` 的 `exclude` 同时屏蔽亲和命中。不然重选会直接被刚绑到死节点的绑定拉回去，切换等于没发生。
+- 切换成功后重写 record 的 `target` 块和 `model_route`：`decision: "failover"`、`failover_from` 和新的 `target_id`。pricing 快照里的 target 名字保持原样，因为组内价格已经校过一致。
+- 无可用节点时回 503，并往组内第一个配置节点的日志库写一条 `request_finished`，带 `decision: "no_healthy_node"`、错误原因和 `logged_by`。流量日志按 target 存储，没别的库可写。组里一个配置节点都没有时没有日志库可用，只剩 503。
+
 ### 10.2 无可用节点
 
 如果组没有启用节点，或组匹配成功但没有可选择的节点，返回 HTTP 503，并写入一条带错误原因的 `request_finished` 记录。不能回落到普通 `model_mappings` 或 pair 默认 target。

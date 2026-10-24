@@ -4,6 +4,7 @@ import { performance } from "node:perf_hooks";
 
 import type { RepositoryRecord } from "../persistence/index.js";
 import type { LoadBalancerGroup } from "../config/index.js";
+import { isRecord } from "../shared/index.js";
 import {
   completeRequestPricing,
   freezeRequestPricing,
@@ -37,7 +38,7 @@ import {
 import { endpointKind, responseIdsFromBody } from "./records.js";
 import { requestModelFromBody, rewriteRequestModel, selectTargetByModel } from "./routing.js";
 import type { LoadBalancer, LoadBalancerReservation, LoadSample } from "./load-balancer.js";
-import { taskIdentity } from "./task-identity.js";
+import { taskIdentity, type TaskIdentity } from "./task-identity.js";
 import { joinTargetPath } from "./target.js";
 import { openUpstreamResponse } from "./upstream-forwarder.js";
 
@@ -87,6 +88,7 @@ export interface ProxyRequestPipelineOptions {
 interface LoadBalanceSelection {
   readonly group: LoadBalancerGroup;
   readonly reservation: LoadBalancerReservation;
+  readonly identity: TaskIdentity;
 }
 
 interface PipelineTargetSelection {
@@ -98,12 +100,15 @@ interface PipelineTargetSelection {
 
 /** A matched group had no usable node. The caller must answer 503, never bypass the group. */
 export class LoadBalancerExhaustedError extends Error {
-  readonly groupId: string;
+  readonly group: LoadBalancerGroup;
+  /** Where the refusal record is written: traffic logs live per target. */
+  readonly logHost: ProxyPipelineTarget | undefined;
 
-  constructor(groupId: string) {
-    super(`Load balancing group ${groupId} has no usable node.`);
+  constructor(group: LoadBalancerGroup, logHost: ProxyPipelineTarget | undefined) {
+    super(`Load balancing group ${group.id} has no usable node.`);
     this.name = "LoadBalancerExhaustedError";
-    this.groupId = groupId;
+    this.group = group;
+    this.logHost = logHost;
   }
 }
 
@@ -179,31 +184,33 @@ export class ProxyRequestPipeline {
       selection = this.#selectTarget(request, requestBody);
     } catch (error) {
       if (error instanceof LoadBalancerExhaustedError) {
-        respondLoadBalancerUnavailable(response, error.groupId);
+        respondLoadBalancerUnavailable(response, error.group.id);
+        await this.#recordRejectedRequest(request, context, error, requestBody);
         return;
       }
       throw error;
     }
-    const selectedTarget = selection.target;
+    let activeTarget = selection.target;
+    let activeReservation = selection.loadBalance?.reservation;
     try {
       const rewrittenBody = rewriteRequestModel(requestBody, selection.upstreamModel);
       const transformed = transformRequestJsonFields(
         rewrittenBody,
-        selectedTarget.stripRequestFields ?? new Set(),
-        selectedTarget.injectRequestFields ?? {},
+        activeTarget.stripRequestFields ?? new Set(),
+        activeTarget.injectRequestFields ?? {},
       );
       const pricingContext = freezeRequestPricing(
         requestModelFromBody(transformed.body),
-        selectedTarget.modelPrices ?? [],
+        activeTarget.modelPrices ?? [],
         {
           frozenAt: context.startedAt,
-          targetId: selectedTarget.id,
-          targetName: selectedTarget.name,
+          targetId: activeTarget.id,
+          targetName: activeTarget.name,
         },
       );
       const baseRecord: RepositoryRecord = {
         ...withRequestDetails(
-          this.#initialRecord(request, context, selectedTarget),
+          this.#initialRecord(request, context, activeTarget),
           requestBody,
           transformed.body,
           selection,
@@ -213,11 +220,9 @@ export class ProxyRequestPipeline {
         pricing: pendingRequestPricing(pricingContext),
       };
       if (this.#options.targets.length > 1) {
-        await selectedTarget.trafficLog.write(eventRecord(baseRecord, "request_received", 0));
+        await activeTarget.trafficLog.write(eventRecord(baseRecord, "request_received", 0));
       }
-      await selectedTarget.trafficLog.update(
-        eventRecord(baseRecord, "request_pending_response", 0),
-      );
+      await activeTarget.trafficLog.update(eventRecord(baseRecord, "request_pending_response", 0));
       let responseCapture = new ResponseLogCapture(false, this.#options.responseCapture);
       let responseStatus: number;
       let responseHeaders: Record<string, string[]>;
@@ -226,16 +231,47 @@ export class ProxyRequestPipeline {
       let generatedEvents = 0;
       let lastGeneratedMs: number | undefined;
       try {
-        selection.loadBalance?.reservation.markDispatched();
-        const upstream = await openUpstreamResponse({
-          target: selectedTarget,
-          method: request.method ?? "GET",
-          path: joinTargetPath(selectedTarget.targetBasePath, request.url ?? "/"),
-          headers: upstreamRequestHeaders(request, selectedTarget, transformed.body.byteLength),
-          body: transformed.body,
-          signal,
-        });
+        activeReservation?.markDispatched();
+        let upstream: IncomingMessage;
+        try {
+          upstream = await openUpstreamResponse({
+            target: activeTarget,
+            method: request.method ?? "GET",
+            path: joinTargetPath(activeTarget.targetBasePath, request.url ?? "/"),
+            headers: upstreamRequestHeaders(request, activeTarget, transformed.body.byteLength),
+            body: transformed.body,
+            signal,
+          });
+        } catch (error) {
+          const switched = this.#tryFailover({
+            error,
+            selection,
+            request,
+            body: transformed.body,
+            signal,
+            response,
+          });
+          if (switched === undefined) {
+            throw error;
+          }
+          activeTarget = switched.target;
+          activeReservation = switched.reservation;
+          activeReservation.markDispatched();
+          applyFailoverRoute(baseRecord, activeTarget, switched.fromTargetId, selection);
+          upstream = await openUpstreamResponse({
+            target: activeTarget,
+            method: request.method ?? "GET",
+            path: joinTargetPath(activeTarget.targetBasePath, request.url ?? "/"),
+            headers: upstreamRequestHeaders(request, activeTarget, transformed.body.byteLength),
+            body: transformed.body,
+            signal,
+          });
+        }
         responseStatus = upstream.statusCode ?? 502;
+        // A connection that came up ends the node's failure history and cooldown.
+        if (selection.loadBalance !== undefined) {
+          this.#options.loadBalancer?.noteSuccess(activeTarget.id);
+        }
         responseHeaders = incomingHeaders(upstream);
         sseResponse = isSseResponse(upstream);
         responseCapture = new ResponseLogCapture(sseResponse, {
@@ -267,6 +303,16 @@ export class ProxyRequestPipeline {
           createResponseBodyDecoder(upstream.headers["content-encoding"], observeResponseBody),
         );
       } catch (error) {
+        // A second connection failure also cools the node down, but never triggers another
+        // switch: one safe attempt is all a load balancing group gets. A client that went
+        // away is not the node's fault, so the abort signal keeps the cooldown off.
+        if (
+          selection.loadBalance !== undefined &&
+          !signal.aborted &&
+          isConnectionPhaseError(error)
+        ) {
+          this.#options.loadBalancer?.markFailure(activeTarget.id, Date.now());
+        }
         responseStatus = response.headersSent ? response.statusCode : 502;
         responseHeaders = response.headersSent
           ? {}
@@ -298,7 +344,7 @@ export class ProxyRequestPipeline {
         responsePayload,
         responseCapture.usageCapture,
       );
-      await selectedTarget.trafficLog.write(
+      await activeTarget.trafficLog.write(
         eventRecord(
           baseRecord,
           "request_finished",
@@ -315,7 +361,7 @@ export class ProxyRequestPipeline {
     } finally {
       // The reservation covers the whole upstream response, including a long SSE decode,
       // and it fires for client aborts and upstream failures alike.
-      selection.loadBalance?.reservation.release();
+      activeReservation?.release();
     }
   }
 
@@ -332,6 +378,133 @@ export class ProxyRequestPipeline {
     this.#options.loadBalancer
       ?.tableFor(loadBalance.group.id)
       ?.attachResponseIds(loadBalance.reservation.binding, responseIds);
+  }
+
+  /**
+   * One safe switch. It only happens for a connection-phase error, before any response
+   * header reached the client, and only when the group allows failover and still has
+   * another usable node. A 4xx/5xx from the engine is not a connection error.
+   */
+  #tryFailover(input: {
+    readonly error: unknown;
+    readonly selection: PipelineTargetSelection;
+    readonly request: IncomingMessage;
+    readonly body: Uint8Array;
+    readonly signal: AbortSignal;
+    readonly response: ServerResponse;
+  }):
+    | {
+        readonly target: ProxyPipelineTarget;
+        readonly reservation: LoadBalancerReservation;
+        readonly fromTargetId: string;
+      }
+    | undefined {
+    const loadBalance = input.selection.loadBalance;
+    const balancer = this.#options.loadBalancer;
+    if (loadBalance === undefined || balancer === undefined) {
+      return undefined;
+    }
+    if (!loadBalance.group.failover_enabled) {
+      return undefined;
+    }
+    if (input.response.headersSent) {
+      return undefined;
+    }
+    if (!isConnectionPhaseError(input.error)) {
+      return undefined;
+    }
+
+    const fromTargetId = loadBalance.reservation.decision.targetId;
+    balancer.markFailure(fromTargetId, Date.now());
+    // The failed node stops carrying this request; the task then moves once, and only once.
+    loadBalance.reservation.release();
+    const next = balancer.plan({
+      group: loadBalance.group,
+      identity: loadBalance.identity,
+      samples: this.#options.loadSamples?.(),
+      exclude: new Set([fromTargetId]),
+    });
+    if (next === undefined) {
+      return undefined;
+    }
+    const target = this.#options.targets.find(({ id }) => id === next.decision.targetId);
+    if (target === undefined) {
+      return undefined;
+    }
+    return { target, reservation: next, fromTargetId };
+  }
+
+  /** A refusal is a finished request: it must show up in the history with its reason. */
+  async #recordRejectedRequest(
+    request: IncomingMessage,
+    context: ProxyRequestContext,
+    error: LoadBalancerExhaustedError,
+    requestBody: Uint8Array,
+  ): Promise<void> {
+    const host = error.logHost;
+    if (host === undefined) {
+      return;
+    }
+    const requestPath = request.url ?? "/";
+    const durationMs = elapsedMilliseconds(context);
+    const requestModel = requestModelFromBody(requestBody);
+    const text = `No usable node in load balancing group ${error.group.id} (${error.group.name}).`;
+    const baseRecord: RepositoryRecord = {
+      ...withRequestDetails(
+        this.#initialRecord(request, context, host),
+        requestBody,
+        requestBody,
+        {
+          target: host,
+          requestModel,
+          upstreamModel: requestModel,
+          loadBalance: undefined,
+        },
+        [],
+        [],
+      ),
+      pricing: completeRequestPricing(
+        freezeRequestPricing(requestModel, host.modelPrices ?? [], {
+          frozenAt: context.startedAt,
+          targetId: host.id,
+          targetName: host.name,
+        }),
+        endpointKind(requestPath),
+        {},
+        undefined,
+      ),
+      error: text,
+    };
+    const requestBlock = isRecord(baseRecord["request"]) ? baseRecord["request"] : {};
+    requestBlock["model_route"] = {
+      ...(isRecord(requestBlock["model_route"]) ? requestBlock["model_route"] : {}),
+      route_mode: "load_balance",
+      load_balance: {
+        group_id: error.group.id,
+        group_name: error.group.name,
+        decision: "no_healthy_node",
+        strategy: error.group.strategy,
+        load: 0,
+        failover_from: null,
+        // The record lives in the first configured member's log because traffic logs are
+        // written per target and no node ever received this request.
+        logged_by: host.id,
+      },
+    };
+    baseRecord["request"] = requestBlock;
+    await host.trafficLog.write(
+      eventRecord(
+        baseRecord,
+        "request_finished",
+        durationMs,
+        {
+          status: 503,
+          headers: { "content-type": ["text/plain; charset=utf-8"] },
+          body: bytesPayload(Buffer.from(text, "utf8")),
+        },
+        undefined,
+      ),
+    );
   }
 
   #selectTarget(request: IncomingMessage, requestBody: Uint8Array): PipelineTargetSelection {
@@ -362,17 +535,21 @@ export class ProxyRequestPipeline {
       return plain;
     }
 
+    const identity = taskIdentity({
+      payload: parseRequestJson(requestBody),
+      headers: incomingHeaders(request),
+      path: request.url ?? "/",
+    });
     const reservation = balancer.plan({
       group: match.group,
-      identity: taskIdentity({
-        payload: parseRequestJson(requestBody),
-        headers: incomingHeaders(request),
-        path: request.url ?? "/",
-      }),
+      identity,
       samples: this.#options.loadSamples?.(),
     });
     if (reservation === undefined) {
-      throw new LoadBalancerExhaustedError(match.group.id);
+      throw new LoadBalancerExhaustedError(
+        match.group,
+        this.#options.targets.find(({ id }) => match.group.node_target_ids.includes(id)),
+      );
     }
     const chosen = candidates.find(({ id }) => id === reservation.decision.targetId);
     if (chosen === undefined) {
@@ -385,7 +562,7 @@ export class ProxyRequestPipeline {
       // A load balancing group forwards the requested model unchanged. Member mappings
       // must not rewrite the same task onto two different model names.
       upstreamModel: requestModel,
-      loadBalance: { group: match.group, reservation },
+      loadBalance: { group: match.group, reservation, identity },
     };
   }
 
@@ -571,6 +748,71 @@ function respondLoadBalancerUnavailable(response: ServerResponse, groupId: strin
     connection: "close",
   });
   response.end(`No load balancing node is available for group ${groupId}.`);
+}
+
+/** Errors that mean the upstream connection never came up, so switching is still safe. */
+const CONNECTION_ERROR_CODES: readonly string[] = [
+  "ECONNREFUSED",
+  "ECONNRESET",
+  "EHOSTUNREACH",
+  "ENETUNREACH",
+  "ENOTFOUND",
+  "EAI_AGAIN",
+  "ETIMEDOUT",
+  "UND_ERR_CONNECT_TIMEOUT",
+];
+
+function isConnectionPhaseError(error: unknown): boolean {
+  let current: unknown = error;
+  for (let depth = 0; depth < 4 && current instanceof Error; depth += 1) {
+    const code = errorCode(current);
+    if (code !== undefined && CONNECTION_ERROR_CODES.includes(code)) {
+      return true;
+    }
+    current = current.cause;
+  }
+  return false;
+}
+
+/** Point the stored route and target at the node that served the request after a switch. */
+function applyFailoverRoute(
+  baseRecord: RepositoryRecord,
+  servedTarget: ProxyPipelineTarget,
+  fromTargetId: string,
+  selection: PipelineTargetSelection,
+): void {
+  const loadBalance = selection.loadBalance;
+  if (loadBalance === undefined) {
+    return;
+  }
+  const targetBlock = isRecord(baseRecord["target"]) ? baseRecord["target"] : {};
+  const requestBlock = isRecord(baseRecord["request"]) ? baseRecord["request"] : {};
+  const requestPath = typeof requestBlock["path"] === "string" ? requestBlock["path"] : "/";
+  baseRecord["target"] = {
+    ...targetBlock,
+    id: servedTarget.id,
+    name: servedTarget.name,
+    scheme: servedTarget.targetScheme,
+    host: servedTarget.targetHost,
+    port: servedTarget.targetPort,
+    path: joinTargetPath(servedTarget.targetBasePath, requestPath),
+  };
+  const modelRoute = isRecord(requestBlock["model_route"]) ? requestBlock["model_route"] : {};
+  const decision = loadBalance.reservation.decision;
+  requestBlock["model_route"] = {
+    ...modelRoute,
+    target_id: servedTarget.id,
+    target_name: servedTarget.name,
+    load_balance: {
+      ...(isRecord(modelRoute["load_balance"]) ? modelRoute["load_balance"] : {}),
+      decision: "failover",
+      failover_from: fromTargetId,
+      load: decision.load,
+      ...(decision.kvUsage === undefined ? {} : { kv_usage: decision.kvUsage }),
+      ...(decision.metricsSource === undefined ? {} : { metrics_source: decision.metricsSource }),
+    },
+  };
+  baseRecord["request"] = requestBlock;
 }
 
 function incomingHeaders(request: IncomingMessage): Record<string, string[]> {

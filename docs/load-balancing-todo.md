@@ -1,6 +1,6 @@
 # 多节点负载均衡开发 TODO
 
-创建日期：2026-10-22。当前进度：6 / 13 项完成。
+创建日期：2026-10-22。当前进度：7 / 13 项完成。
 
 设计依据：[多节点负载均衡设计（粘性任务路由 v1）](./load-balancing-design.md)。决策记录：[ADR-013](./adr/013-load-balancing-sticky-routing.md)。本清单供后续开发、测试、验收和逐项提交使用。设计发生变化时，必须同时更新设计文档和本清单，不能只改代码。
 
@@ -61,7 +61,7 @@ npx electron-builder -w portable --publish never
 | [x] | LB-04 | canonical node key 与 runtime 生命周期 | LB-01 | 完成 |
 | [x] | LB-05 | 新 task 选路与 pipeline 预留 | LB-02、LB-03、LB-04 | 完成 |
 | [x] | LB-06 | request_received 时序与 pricing 一致性 | LB-01、LB-05 | 完成 |
-| [ ] | LB-07 | 连接期失败切换与 503 | LB-05、LB-06 | 未开始 |
+| [x] | LB-07 | 连接期失败切换与 503 | LB-05、LB-06 | 完成 |
 | [ ] | LB-08 | 上游 metrics 采样与负载快照 | LB-04、LB-05 | 未开始 |
 | [ ] | LB-09 | 路由记录与状态/模型校验 API | LB-05～LB-08 | 未开始 |
 | [ ] | LB-10 | 管理 UI、i18n 和视觉基线 | LB-01、LB-08、LB-09 | 未开始 |
@@ -517,6 +517,18 @@ npx electron-builder -w portable --publish never
 - 设计偏差：见设计文档 §6.4 落地说明——本任务只验证；组内价格一致由 LB-01 的保存校验保证（LB01-05）。
 - 提交标题：`test(load-balancing): [LB-06] pin down record timing and pricing consistency`
 - 提交 SHA：`808c7c9`
+- 备注：无。
+
+### LB-07
+
+- 状态：完成
+- 实际变更：`src/proxy/load-balancer.ts` 的 `plan` 接受 `exclude`，并把它同时用于亲和命中。`src/proxy/proxy-request-pipeline.ts` 新增 `#tryFailover`（一次安全切换）、`applyFailoverRoute`（重写 record 的 target 块与 `model_route`）、`isConnectionPhaseError`、`#recordRejectedRequest`（503 的 `no_healthy_node` 记录）、连接成功后的 `noteSuccess`，`LoadBalancerExhaustedError` 改为携带 group 与 log host；上游目标变量改成 `activeTarget`/`activeReservation`，`finally` 释放当前预留。
+- 测试命令：`npx vitest run test-node/proxy/load-balancer-pipeline.test.ts`，随后 `npx vitest run`（全量）、`npx tsc -p tsconfig.json --noEmit`、`npm run lint`、`npx prettier --check .`
+- 测试结果：新增 6 例（LB07-01 内含 LB07-05）；全量 99 文件 / 881 例通过；类型、lint、格式检查通过
+- UI 基线：未涉及
+- 设计偏差：见设计文档 §10.1 落地说明——客户端中止不记失败；pricing 快照保留原 target 名字；无可用节点的记录写进组内第一个配置节点的日志库，组内没有配置节点时只剩 503。
+- 提交标题：`feat(load-balancing): [LB-07] add one safe failover and 503 refusals`
+- 提交 SHA：待填写
 - 备注：无。
 
 每完成一个任务，在这里追加一条记录：

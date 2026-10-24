@@ -81,6 +81,8 @@ export interface LoadBalancerPlanInput {
   readonly identity: TaskIdentity;
   readonly samples?: ReadonlyMap<string, LoadSample> | undefined;
   readonly now?: number | undefined;
+  /** Nodes to leave out of the candidate list, used by a failover attempt. */
+  readonly exclude?: ReadonlySet<string> | undefined;
 }
 
 export interface LoadBalancerOptions {
@@ -228,7 +230,9 @@ export class LoadBalancer {
       return undefined;
     }
     const samples = input.samples;
-    const selectable = this.#selectableNodes(input.group, samples, now);
+    const selectable = this.#selectableNodes(input.group, samples, now).filter(
+      (node) => !input.exclude?.has(node.targetId),
+    );
     if (selectable.length === 0) {
       return undefined;
     }
@@ -239,7 +243,7 @@ export class LoadBalancer {
       input.group.node_target_ids.filter((targetId) => this.#nodes.get(targetId)?.enabled === true),
     );
     const hit = table.lookup(input.identity, boundNodes);
-    if (hit !== undefined) {
+    if (hit !== undefined && !input.exclude?.has(hit.binding.targetId)) {
       const targetId = hit.binding.targetId;
       // The recorded load is what the node carried when it was chosen, not counting the
       // reservation this request is about to make.
