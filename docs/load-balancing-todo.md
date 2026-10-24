@@ -1,6 +1,6 @@
 # 多节点负载均衡开发 TODO
 
-创建日期：2026-10-22。当前进度：18 / 18 项完成。
+创建日期：2026-10-22。当前进度：19 / 19 项完成。
 
 设计依据：[多节点负载均衡设计（粘性任务路由 v1）](./load-balancing-design.md)。决策记录：[ADR-013](./adr/013-load-balancing-sticky-routing.md)。本清单供后续开发、测试、验收和逐项提交使用。设计发生变化时，必须同时更新设计文档和本清单，不能只改代码。
 
@@ -73,6 +73,7 @@ npx electron-builder -w portable --publish never
 | [x] | LB-16 | 删除匹配预览输入与校验节点模型 | LB-10、LB-14 | 完成 |
 | [x] | LB-17 | 统一组卡片里四个控件的长相 | LB-15、LB-16 | 完成 |
 | [x] | LB-18 | 节点状态改成名字开头、固定列宽、三行排版 | LB-10、LB-17 | 完成 |
+| [x] | LB-19 | 组成员各自的模型 id 映射（含删掉成员上方的标签行） | LB-05、LB-10、LB-18 | 完成 |
 
 ## 4. 逐项实施与验收
 
@@ -540,6 +541,41 @@ npx electron-builder -w portable --publish never
 
 验收标准：两个节点的同一指标 `getBoundingClientRect()` 的 x 与宽完全相同；名字行写的是
 节点名而不是 id；全量测试绿；负载均衡基线零像素差通过（基线里 details 是折叠的，所以画面不变）。
+### LB-19：成员各自的模型 id
+
+用户要的是「一张卡对应一个上游模型名」：`vllm-win -> Qwen3.8-Flash-Next-WIN`、
+`vllm-win2 -> Qwen3.8-Flash-Next-WIN2`；留空表示这一行不映射。
+两条后续反馈：成员上方那行重复的节点标签删掉，节点名沿用标签的描边配色并与输入框等高。
+
+决策摘要（每条是一个可验证的契约）：
+
+1. 组成员存成 `members: [{ target_id, model_id }]`。
+2. `model_id` 为空时上游收到客户端原始的模型名。
+3. `model_id` 非空时上游收到它；成员自己的 `model_mappings` 既不参与选择也不改写。
+4. 亲和键记客户端请求的模型名，不记改写后的名字。
+5. 失败切换按新成员的 `model_id` 重写请求体，并记 `model_route.upstream_model`。
+6. 每个勾选成员占一行：左边节点名，右边这一行自己的模型输入框。
+7. 在输入框里打字不重建行；取消勾选删掉该行连同它的映射。
+8. 保存请求只接受 `members`；旧的 `node_target_ids` 由 normalizer 折算，老组行为不变。
+
+| 项 | 内容 |
+| --- | --- |
+| 配置形状 | `members`，每项 `{ target_id, model_id }`，`min(1)` |
+| 校验路径 | `pairs.0.load_balancers.0.members.N.target_id` |
+| 空 `model_id` | 归一成 `undefined`，照原样转发 |
+| 日志字段 | `model_route.upstream_model`；切换后一并更新 `upstream_body`、`stripped_fields`、`injected_fields` |
+| 行渲染签名 | id + 名字 + 启用状态，不含模型文本 |
+| 成员顺序 | 已配置的成员保持在前，新勾选的追加在后 |
+| 名字框外观 | 白底、`1px #b8c5d3`、6 px 圆角、32 px 高、13 px 字 |
+
+非目标：不让 target 级映射在组内复活，不做模型名别名池，不引入第二套上游配置。
+
+验收标准：`LB19-01`～`LB19-03` 覆盖形状、迁移与拒绝旧形状；`LB19-06` 证明两个成员各发自己的模型名
+且后续轮回原节点；`LB19-07` 证明切换后按应答节点重写且日志里只剩新模型名；`LB19-10` 证明改映射名
+不会搬走已绑定的任务；UI 两条用例证明每行一个输入框、取消勾选连映射一起消失；探针量到名字框与
+输入框同为 32 px 高、列坐标固定、整卡片只有超长节点名的内层 span 被裁。
+提交定位：`[LB-19]`。
+
 提交定位：`[LB-18]`。
 
 ## 5. 执行记录
@@ -800,6 +836,68 @@ npx electron-builder -w portable --publish never
   所以能盖住它们；按 AGENTS 的说法 CSS 文件里靠后的块并不权威，这次是靠特异性赢的，
   不是靠位置。`▾` 这种几何字符在 Windows Chromium 上会被彩色字体替换，所以不能当图标用。
 
+### LB-19
+
+- 状态：完成
+- 来源：用户要求给负载均衡成员加自己的模型 id（`vllm-win -> Qwen3.8-Flash-Next-WIN`），
+  每个勾选的节点一行：左边节点名、右边模型输入框，留空即不映射。选项里定了
+  配置形状 `members: [{ target_id, model_id }]`（取代 `node_target_ids`）、保留浮动勾选列表 + 每行一个输入框、
+  以及把真正发往上游的模型名记进日志。后续两条反馈：成员上方那行「已添加节点」标签删掉
+  （下面的映射列表已经说明同一件事），节点名沿用原来标签的配色并带描边框；再一条反馈：
+  名字框要和右边输入框等高。
+- 实际变更：`src/config/config-schema.ts` 新增 `loadBalancerMemberSchema`，组的 `members` 用
+  `min(1)`，重复 id 的路径改成 `members.N.target_id`，pair 校验路径跟着变成
+  `pairs.0.load_balancers.0.members.N.target_id`，并加 `loadBalancerMemberTargetIds()` /
+  `loadBalancerMemberModelId()`（空串归一成 `undefined`）；`src/config/config-normalizer.ts` 把旧的
+  `node_target_ids` 折成 `members`、`model_id` 留空，按 `target_id` 去重但保留空 id 条目让 schema
+  指出到底缺哪一个；`src/config/index.ts` 导出新形状。`src/proxy/proxy-request-pipeline.ts` 用
+  `memberModelId ?? requestModel` 决定上游模型，`rewrittenBody` / `transformed` 改成可变，
+  `#tryFailover` 连组一起返回，切换后按新成员的 `model_id` 重写请求体并更新
+  `upstream_body` / `stripped_fields` / `injected_fields` / `model_route.upstream_model`；
+  `load-balancer.ts`、`load-monitor.ts`、`load-balancer-admin.ts` 改读 `loadBalancerMemberTargetIds(group)`。
+  管理端保存只接受 `members`，旧的纯 id 数组被拒。`src/admin/static/app.js` 新增
+  `lbMemberIds` / `lbMemberModelId` / `lbMemberRowsHtml` / `lbMemberRowsSignature` / `lbCollectMembers`，
+  卡片渲染成员行（名字框 + `data-lb-member-model` 输入框）、`purgeLoadBalancerMember` 按 `target_id`
+  过滤、警告与 `collectPairs` 走成员列表，新增 `lbMemberModel` / `lbMemberModelPlaceholder` /
+  `lbMemberModelHint` 三个中英词条；LB-19.1 删掉 `lbSelectedNodesHtml` 与卡片上的 `.lb-selected`，
+  名字改用内层 `.lb-member-row-label` 承载省略号，并把启用状态加进行重建的签名。
+  `src/admin/static/app.css` 加 `.lb-member-rows`（`minmax(0,5fr) minmax(0,7fr)`）、`.lb-member-row`、
+  `.lb-member-row-name`（白底、`1px #b8c5d3`、6 px 圆角、32 px 高、13 px 字，与右边输入框等高）、
+  `.lb-member-row-label`、`.lb-member-hint`，窄屏塌成单列；删掉 `.lb-selected` / `.lb-chip` / `.lb-chip-name`。
+- 测试命令：`node tmp-lb19-ui.mjs`、`node tmp-lb-name.mjs`、`node tmp-lb-diff.mjs`、
+  `npx vitest run test-node/config/ test-node/admin/load-balancer.test.ts test-node/admin/pairs.test.ts`、
+  `npx vitest run test-node/proxy/ test-node/logging/load-balancer-log-records.test.ts`、
+  `npx vitest run test-node/ui/admin-ui.test.ts`、`npx vitest run`、`npm run check`。
+- 测试结果：新增 `LB19-01`（schema 修剪成员 id、缺省 `model_id`）、`LB19-02`（normalizer 折旧形状、
+  去重、老组行为不变）、`LB19-03`（保存拒绝旧 id 数组，路径落在 `members`）、`LB19-06`（各成员发自己的
+  模型名，后续轮次仍回同一节点）、`LB19-07`（切换后按应答节点的 `model_id` 重写，日志里出现
+  `Model-On-B` 且没有 `Model-On-A`）、`LB19-10`（改映射名不会把已绑定任务挪走）、两条 UI 用例
+  （每行一个输入框；取消勾选连行带映射一起消失）。UI 88 passed；全量 103 文件 / 926 用例；
+  `npm run check` exit 0。探针量到三行的名字框都在 x = 42、宽 138 px，输入框都在 x = 188、宽 193 px，
+  两框都是 32 px 高、13 px 字、圆角 6 px；整卡片只有一个元素被裁，就是那个超长节点名的内层 span
+  （正是省略号该起作用的地方）；空态是 0 行 + 「未选择节点」+ 警告保持隐藏；取消勾选 target-a 之后
+  只剩 target-b 一行，映射值还在，警告是「这个组只有一个节点，起不到均衡作用 组里有禁用的节点…」。
+- UI 基线：加成员行后两张长到 1278×1207 / 1278×1252；LB-19.1 删掉标签行后各矮 27 px，
+  现在中文 1278×1180（`4e1004c2d34c5e725999648281fe24855489fe9d476f57e56be45b96dbb9d20e`）、
+  英文 1278×1225（`570ac996cf97ba0bd0b328ca774c7ed58407749b189c9859a61104243ea54fe0`）。
+  与 HEAD 逐像素比对分别是 14539 / 13561 个像素差、底部多出的行有内容，属于真实画面变化；
+  两张 proxy 基线 0 像素差，其余六张原样通过。
+- 设计偏差：设计文档 §5.1 的 schema 草稿和 R4 原本写的是「组命中透传请求模型、成员映射屏蔽」；
+  LB-19 把上游模型名改成由成员 `model_id` 决定，已同步改 §5.1、§5.2、§4.5、R4、决策 3 和
+  ADR-013 决策 3（含「切换会连带换模型名」这条后果），`docs/module-design.md` 也补了成员形状。
+- 提交标题：`feat(load-balancing): [LB-19] let each member carry its own upstream model id`
+- 提交 SHA：`336e30a`（代码、测试、两张基线与面向用户的文档）；本条记录单独提交。
+- 备注：一路踩到的坑——`LB19-06` 先是 `expected 'a' to be 'b'`，因为两轮用了相同的首条用户消息，
+  exact key 把两个任务合成一个，换掉首条消息才对；UI 浮层重叠那条断言把探针从 `.lb-status` 换成
+  `.lb-member-rows` 才通过；加行之后基线高度差 125 px 超了容差，必须重录；normalizer 那条把缺失的
+  组期望写成非空成员，应是 `members: []`。TS7053 出在 `"model_id"` 不能索引那个联合类型，
+  给 record 定成单一 `Record<string, unknown>` 就好了；lint 这边 `noPropertyAccessFromIndexSignature`
+  要求方括号、`dot-notation` 又嫌方括号，真正报错的是那个联合类型——索引签名属性一律用方括号，
+  并且给 `Array.isArray` 收窄出来的 `any[]` 元素标注 `unknown`。`npm run check` 第一遍撞上
+  `connect ENOBUFS`（AGENTS 里那条 Windows 临时端口耗尽），单独跑那个文件 32 passed，重跑全量 exit 0。
+  探针里 `window.state` 读不到（`state` 是词法全局），`uncheckAll` 在这份 playwright-core 1.62 里不存在，
+  浮动列表的复选框要先点一次 `.lb-picker-toggle` 才可见。
+
 ### LB-18
 
 - 状态：完成
@@ -853,7 +951,7 @@ npx electron-builder -w portable --publish never
 - [x] LB-01～LB-13 全部完成并有提交定位；
 - [x] 同一 task 正常情况下保持单节点亲和（LB11-02、LB12 真机四轮全回原节点）；
 - [x] 新 task 按固定字典序选择，metrics 缺失时能退化（LB05、LB08、LB12 死成员仍转发）；
-- [x] 组内模型映射屏蔽，模型名一致（LB05、LB12 真机 404 文案为证）；
+- [x] 成员 `model_mappings` 屏蔽，上游模型名由成员自己的 `model_id` 决定（LB05、LB12 真机 404 文案、LB19-06/07/10）；
 - [x] 价格规则一致，失败切换不造成无依据的 `unpriced`（LB06、LB12 快照停在原节点）；
 - [x] 多 target `request_received` 时序和 `?ids=` pending 行为有测试（LB06-03、LB11-08）；
 - [x] 每个前缀桶和每组绑定都有容量上限（LB03、LB11-10）；
