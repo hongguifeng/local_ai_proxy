@@ -1,6 +1,6 @@
 # 多节点负载均衡开发 TODO
 
-创建日期：2026-10-22。当前进度：11 / 13 项完成。
+创建日期：2026-10-22。当前进度：12 / 13 项完成。
 
 设计依据：[多节点负载均衡设计（粘性任务路由 v1）](./load-balancing-design.md)。决策记录：[ADR-013](./adr/013-load-balancing-sticky-routing.md)。本清单供后续开发、测试、验收和逐项提交使用。设计发生变化时，必须同时更新设计文档和本清单，不能只改代码。
 
@@ -66,7 +66,7 @@ npx electron-builder -w portable --publish never
 | [x] | LB-09 | 路由记录与状态/模型校验 API | LB-05～LB-08 | 完成 |
 | [x] | LB-10 | 管理 UI、i18n 和视觉基线 | LB-01、LB-08、LB-09 | 完成 |
 | [x] | LB-11 | 端到端、reload、pending 和价格回归 | LB-02～LB-10 | 完成 |
-| [ ] | LB-12 | 真实节点验收与性能检查 | LB-11 | 未开始 |
+| [x] | LB-12 | 真实节点验收与性能检查 | LB-11 | 完成 |
 | [ ] | LB-13 | 文档收尾、全量检查和交付构建 | LB-12 | 未开始 |
 
 ## 4. 逐项实施与验收
@@ -578,6 +578,18 @@ npx electron-builder -w portable --publish never
 - 提交标题：`test(load-balancing): [LB-11] prove the whole route, reload, pending and pricing chain`
 - 提交 SHA：`08f2263`
 - 备注：本项没有新增产品代码；没有遗留临时文件、定时器或浏览器进程；`.pi/` 仍然未跟踪也没有被提交。
+
+### LB-12
+
+- 状态：完成
+- 实际变更：没有改产品代码，只写了临时验证脚本（跑完即删）和设计文档 §13.4 的落地说明。验证跑在独立实例上：`release/win-unpacked/LLM Proxy.exe` + 临时 `proxies.json`（只保留 9393/9394 两个成员，价格规则对齐，`summary_model.target_url` 改指临时监听口）+ 临时 `llm-proxy.json`（管理端 18099）+ 绝对路径的临时日志目录 + 全新 `LLM_PROXY_DATA_DIR` + 代理端 12399；生产 `D:\Portable Program\llm_proxy\logs\proxies.json` 和 `llm-proxy.json` 的 mtime 都在本次验证之前，没有被写过。
+- 测试命令：`python tmp-lb12-verify.py traffic|records|cache|model|config|perf|latency`（临时脚本，验证后删除）、`curl /api/load-balancer/status`、`curl /metrics`（9393/9394）、`psutil` 按进程创建时间区分自己与用户实例
+- 测试结果：验收清单 10 项全部通过——四个并发新会话两张卡各两个；同一会话四轮全部回原节点且历史写入 `affinity`；组内直通时上游收到原始模型名（引擎 404 文案为证），关组后同一模型被成员映射改写并 200；死端口成员下四次请求全 200、只切换一次、历史写入 `decision: "failover"` 和来源节点；无关配置（`access_log`）保存后绑定 10 不变且会话回原节点；死成员的指标采样失败不阻断转发；切换后价格仍 `priced` 且 `pricing_snapshot.target_id` 停在原计划节点；`localhost:9393` 归一成 `http://127.0.0.1:9393/v1`；API key 没出现在状态响应、应用日志或记录详情里，记录也没有存 `authorization` 头。性能：开组 16 条中位数 210 ms，关组 247 ms（差异来自单卡拥挤，不是选路成本），状态接口中位数 0.75 ms，1.5 MB 请求体 193,207 prompt token / 41.3 s / 首 token 41.2 s
+- UI 基线：未涉及
+- 设计偏差：见设计文档 §13.4 落地说明——生产 pair 两张卡的价格规则现在不一致（`cache_write_per_million` `0` vs `1.25`），LB-01 校验会拒绝这样的组；组匹配区分大小写，小写别名不进组；进组后成员映射失效，客户端必须发引擎真实模型名；这台 vLLM 不保存 response，`previous_response_id` 一律 404 且 SSE 摘要里没有 response id，所以流式 Responses 无法靠 id 回到原节点（已记入 P2）；混合 Mamba 引擎把 follow-up 的前缀全算成 `local_compute`、`cached_tokens` 报 0，但冷启动首 token 528 ms vs 已缓存 325 ms，亲和的收益只能间接度量
+- 提交标题：`docs(load-balancing): [LB-12] record real node acceptance findings`
+- 提交 SHA：`21a1cfd`
+- 备注：验证结束后只杀掉自己 17:32 启动的三个进程，用户 21:58 启动的实例和两张卡上的引擎都还在；临时目录、临时脚本和 `/tmp/lb12-app.log` 已删除；`release/win-unpacked` 在本次验证前重建过，`better-sqlite3` 现在是 Electron ABI，LB-13 跑 Node 测试前需要 `npm rebuild better-sqlite3`。
 
 每完成一个任务，在这里追加一条记录：
 
