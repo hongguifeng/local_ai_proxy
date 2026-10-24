@@ -564,7 +564,7 @@ npx electron-builder -w portable --publish never
 - UI 基线：已重录 `doc/ui_proxy_cn.png` = `641a8465939bb624c50ce8d1b001cbd0eb2c4c5adcea076bcff5a982290d6076`、`doc/ui_proxy_en.png` = `dcec51e547b5c76b6d54885305c105d73142620d2a36d1bbac164650021b7c17`；两张图完整检视过，英文界面没有中文、标签没有被截断；其余六张基线未重录且在全量测试里保持通过
 - 设计偏差：见设计文档 §12.3 落地说明——「添加负载均衡组」按钮与标题同行；节点状态行随勾选成员重建；模型校验读已保存配置，未保存的组得到 404；短标签必须显式压过页面级 `label span { overflow-wrap: anywhere }`
 - 提交标题：`feat(load-balancing): [LB-10] add load balancing group cards to the proxy page`
-- 提交 SHA：见下一条文档提交记录
+- 提交 SHA：`e13aa69`
 - 备注：验证用的 `probe-lb-card.mts` 与三张临时截图已删除，没有遗留浏览器进程或定时器。
 
 每完成一个任务，在这里追加一条记录：
