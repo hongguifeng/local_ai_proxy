@@ -903,7 +903,11 @@ body.drag-target-active {
 }
 .proxy-head {
   display: grid;
-  grid-template-columns: minmax(180px, 1fr) minmax(160px, 220px) 100px auto;
+  /* The pair name box is a fixed width, not a stretching column: the listen fields,
+     the delete button and the enable switch keep their own tracks. The last track is
+     flexible and the switch sits at its right edge, so the delete button never stretches
+     into the empty space. */
+  grid-template-columns: 240px minmax(160px, 220px) 100px max-content 1fr;
   gap: 8px;
   align-items: end;
 }
@@ -4460,13 +4464,15 @@ label span {
   padding-top: 8px;
   border-top: 1px dashed #b8c5d3;
 }
-.lb-section-head {
+.lb-section-head,
+.targets-head {
   display: flex;
   align-items: center;
   justify-content: space-between;
   gap: 8px;
 }
-.lb-section-head > strong {
+.lb-section-head > strong,
+.targets-head > strong {
   font-size: 14px;
 }
 .lb-groups {

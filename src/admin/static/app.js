@@ -1768,16 +1768,19 @@ function renderPairs() {
         <div class="proxy-title"><span class="status ${p.running ? "running" : ""}"></span><input data-field="name" value="${escapeHtml(p.name || "")}"></div>
         <label><span>${escapeHtml(t("listenHost"))}</span><input data-field="listen_host" value="${escapeHtml(p.listen_host || "")}"></label>
         <label><span>${escapeHtml(t("port"))}</span><input type="number" data-field="listen_port" value="${p.listen_port || 0}"></label>
+        <button type="button" data-remove>${escapeHtml(t("delete"))}</button>
         <label class="switch" title="${escapeHtml(t("switch"))}"><input type="checkbox" data-toggle ${p.enabled ? "checked" : ""}><span class="slider"></span></label>
       </div>
-      <strong>${escapeHtml(t("targets"))}</strong>
+      <div class="targets-head">
+        <strong>${escapeHtml(t("targets"))}</strong>
+        <button type="button" data-add-target>${escapeHtml(t("addTarget"))}</button>
+      </div>
       <div class="targets-row">
         ${pairTargets(p)
           .map((target, targetIndex) => renderTarget(target, p, i, targetIndex))
           .join("")}
       </div>
       ${lbSectionHtml(p, i)}
-      <div class="row-actions"><button data-add-target>${escapeHtml(t("addTarget"))}</button><button data-remove>${escapeHtml(t("delete"))}</button></div>
     </article>`,
     )
     .join("");
