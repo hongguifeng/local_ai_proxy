@@ -5262,18 +5262,19 @@ describe("CSS cascade neutrality (opt-in via CSS_CANDIDATE)", () => {
     "object-position",
   ];
 
-  async function signaturesWithCss(
+  interface Digest {
+    sigs: Record<string, number>;
+    facts: Record<string, { n: number; who: string[] }>;
+  }
+
+  // Walks every measured state with one stylesheet and calls `read` at each
+  // checkpoint. The neutrality check and the cascade census share this walk so both
+  // look at exactly the same page states under the same frozen page clock.
+  async function walkStates<StateT>(
     css: string,
-  ): Promise<
-    Record<
-      string,
-      { sigs: Record<string, number>; facts: Record<string, { n: number; who: string[] }> }
-    >
-  > {
-    const out: Record<
-      string,
-      { sigs: Record<string, number>; facts: Record<string, { n: number; who: string[] }> }
-    > = {};
+    read: (probe: Page, label: string) => Promise<StateT>,
+  ): Promise<Record<string, StateT>> {
+    const out: Record<string, StateT> = {};
     for (const width of [1280, 1050, 780, 480]) {
       const probe = await browser.newPage({ viewport: { width, height: 900 } });
       // The metrics dialog polls on a timer, so a digest could otherwise land in
@@ -5304,37 +5305,16 @@ describe("CSS cascade neutrality (opt-in via CSS_CANDIDATE)", () => {
       await probe.addStyleTag({
         content: "*,*::before,*::after{animation:none !important;transition:none !important}",
       });
-      const digest = async (label: string) => {
+      const collect = async (label: string) => {
         // Hover and focus are run-to-run artifacts of where the click landed, so
-        // clear both before reading computed styles.
+        // clear both before reading anything off the page.
         await probe.mouse.move(2, 2);
         await probe.evaluate(() => {
           const active = document.activeElement;
           if (active instanceof HTMLElement) active.blur();
         });
-        out[`${width}/${label}`] = await probe.evaluate((names: string[]) => {
-          const sigs: Record<string, number> = {};
-          const facts: Record<string, { n: number; who: string[] }> = {};
-          for (const el of Array.from(document.querySelectorAll("*"))) {
-            const cs = getComputedStyle(el);
-            const kind = el.tagName + "|" + el.className;
-            let sig = "";
-            for (const n of names) {
-              const v = cs.getPropertyValue(n);
-              sig += n + ":" + v + ";";
-              const fact = n + ":" + v;
-              facts[fact] ??= { n: 0, who: [] };
-              facts[fact].n += 1;
-              if (facts[fact].who.length < 3 && !facts[fact].who.includes(kind)) {
-                facts[fact].who.push(kind);
-              }
-            }
-            sigs[sig] = (sigs[sig] ?? 0) + 1;
-          }
-          return { sigs, facts };
-        }, SAMPLED);
+        out[`${width}/${label}`] = await read(probe, label);
       };
-
       await probe.goto(`${baseUrl}/`, { waitUntil: "load" });
       // Auto refresh and the pending-row sweep rotate state between renders,
       // which would make two runs of the same sheet differ.
@@ -5343,7 +5323,7 @@ describe("CSS cascade neutrality (opt-in via CSS_CANDIDATE)", () => {
         if (box instanceof HTMLInputElement && box.checked) box.click();
       });
       await probe.waitForSelector(".target-card");
-      await digest("proxy");
+      await collect("proxy");
       await probe.click("[data-metrics-target]");
       await probe.waitForSelector("#metricsDialog[open]");
       // The metrics list arrives asynchronously; #metricsRefresh is disabled
@@ -5352,7 +5332,7 @@ describe("CSS cascade neutrality (opt-in via CSS_CANDIDATE)", () => {
         const button = document.getElementById("metricsRefresh");
         return button instanceof HTMLButtonElement && !button.disabled;
       });
-      await digest("metrics-dialog");
+      await collect("metrics-dialog");
       await probe.evaluate(() => {
         const dialog = document.getElementById("metricsDialog");
         if (dialog instanceof HTMLDialogElement) dialog.close();
@@ -5364,7 +5344,7 @@ describe("CSS cascade neutrality (opt-in via CSS_CANDIDATE)", () => {
         const button = document.getElementById("targetCheckModels");
         return button instanceof HTMLButtonElement && !button.disabled;
       });
-      await digest("target-check-dialog");
+      await collect("target-check-dialog");
       await probe.evaluate(() => {
         const dialog = document.getElementById("targetCheckDialog");
         if (dialog instanceof HTMLDialogElement) dialog.close();
@@ -5373,13 +5353,13 @@ describe("CSS cascade neutrality (opt-in via CSS_CANDIDATE)", () => {
       await probe.waitForSelector(".log-group");
       await probe.locator(".log-group-caret").first().click();
       await probe.waitForSelector(".log-item");
-      await digest("logs-expanded");
+      await collect("logs-expanded");
       await probe.locator(".log-group-head").first().click();
       await probe.waitForSelector("#pricingPanel .task-summary");
-      await digest("task-panel");
+      await collect("task-panel");
       await probe.click('[data-tab="statistics"]');
       await probe.waitForSelector("#statsBreakdown");
-      await digest("stats");
+      await collect("stats");
       const breakdownValues = await probe.evaluate(() =>
         Array.from(document.querySelectorAll("#statsBreakdown option"))
           .map((option) => (option instanceof HTMLOptionElement ? option.value : ""))
@@ -5388,11 +5368,40 @@ describe("CSS cascade neutrality (opt-in via CSS_CANDIDATE)", () => {
       for (const value of breakdownValues) {
         await probe.selectOption("#statsBreakdown", value);
         await probe.waitForTimeout(200);
-        await digest(`stats-${value}`);
+        await collect(`stats-${value}`);
       }
+
       await probe.close();
     }
     return out;
+  }
+
+  async function readDigest(probe: Page): Promise<Digest> {
+    return probe.evaluate((names: string[]) => {
+      const sigs: Record<string, number> = {};
+      const facts: Record<string, { n: number; who: string[] }> = {};
+      for (const el of Array.from(document.querySelectorAll("*"))) {
+        const cs = getComputedStyle(el);
+        const kind = el.tagName + "|" + el.className;
+        let sig = "";
+        for (const n of names) {
+          const v = cs.getPropertyValue(n);
+          sig += n + ":" + v + ";";
+          const fact = n + ":" + v;
+          facts[fact] ??= { n: 0, who: [] };
+          facts[fact].n += 1;
+          if (facts[fact].who.length < 3 && !facts[fact].who.includes(kind)) {
+            facts[fact].who.push(kind);
+          }
+        }
+        sigs[sig] = (sigs[sig] ?? 0) + 1;
+      }
+      return { sigs, facts };
+    }, SAMPLED);
+  }
+
+  async function signaturesWithCss(css: string): Promise<Record<string, Digest>> {
+    return walkStates(css, (probe) => readDigest(probe));
   }
 
   it.skipIf(!process.env["CSS_CANDIDATE"])(
@@ -5434,5 +5443,305 @@ describe("CSS cascade neutrality (opt-in via CSS_CANDIDATE)", () => {
       expect(problems.slice(0, 30)).toEqual([]);
     },
     240_000,
+  );
+  interface CensusDecl {
+    name: string;
+    value: string;
+    important: boolean;
+  }
+
+  interface CensusRule {
+    order: number;
+    selector: string;
+    media: string[];
+    supports: string[];
+    declCount: number;
+    decls: CensusDecl[];
+  }
+
+  interface CensusPair {
+    n: number;
+    by: string;
+    prop: string;
+    winner: number;
+    loser: number;
+    flipIfStripped: boolean;
+    sameValue: boolean;
+    who: string[];
+  }
+
+  interface CensusState {
+    rules: CensusRule[];
+    pairs: Record<string, CensusPair>;
+    elements: number;
+    unreadableSelectors: number;
+    nestedRules: number;
+  }
+
+  // Opt-in planning tool for a layered restructure (CSS_CENSUS=1, optional
+  // CSS_CENSUS_OUT=<path>). On today's unlayered sheet the cascade ranks by
+  // importance, then specificity, then source order, so this records which two
+  // declarations actually compete for the same element and which of those three
+  // decided it. A pair decided by source order can be reproduced inside layers by
+  // putting the later rule in the later layer; a pair decided by specificity cannot,
+  // because crossing a layer boundary outranks specificity and would flip it. Pairs
+  // whose two declarations already agree on the value are harmless either way.
+  it.skipIf(!process.env["CSS_CENSUS"])(
+    "cascade census records which declarations compete for the same element",
+    async () => {
+      const liveCss = await readFile(
+        new URL("../../src/admin/static/app.css", import.meta.url),
+        "utf8",
+      );
+      const read = async (probe: Page): Promise<CensusState> =>
+        probe.evaluate((names: string[]) => {
+          interface Decl {
+            name: string;
+            value: string;
+            important: boolean;
+          }
+          interface RuleInfo {
+            order: number;
+            selector: string;
+            media: string[];
+            supports: string[];
+            declCount: number;
+            decls: Decl[];
+          }
+          interface PairInfo {
+            n: number;
+            by: string;
+            prop: string;
+            winner: number;
+            loser: number;
+            flipIfStripped: boolean;
+            sameValue: boolean;
+            who: string[];
+          }
+          interface Candidate {
+            order: number;
+            spec: [number, number, number];
+            important: boolean;
+            value: string;
+          }
+          const wanted = new Set(names);
+          const rules: RuleInfo[] = [];
+          const specificityCache = new Map<string, [number, number, number]>();
+          // Counts id, class-level (class, attribute, pseudo-class, pseudo-element)
+          // and type selectors. :where() adds nothing, and :not() is counted as one
+          // class-level token instead of the specificity of its argument, which is
+          // an approximation worth naming because it can only misreport a tie.
+          const specificityOf = (part: string): [number, number, number] => {
+            const cached = specificityCache.get(part);
+            if (cached) return cached;
+            const text = part.replace(/:where\([^)]*\)/g, "");
+            let ids = 0;
+            let classes = 0;
+            let types = 0;
+            ids += Array.from(text.matchAll(/#[\w-]+/g)).length;
+            for (const match of text.matchAll(/\[[^\]]*\]|\.[\w-]+|::?[\w-]+(?:\([^)]*\))?/g)) {
+              if (!match[0].startsWith("#")) classes += 1;
+            }
+            for (const match of text.matchAll(/(?:^|[\s>+~])[\w-]+/g)) {
+              const token = match[0].trim();
+              if (token && !/^[.#[]/.test(token)) types += 1;
+            }
+            const value: [number, number, number] = [ids, classes, types];
+            specificityCache.set(part, value);
+            return value;
+          };
+          const conditionCache = new Map<string, boolean>();
+          const applies = (media: string[], supports: string[]) => {
+            for (const condition of media) {
+              let ok = conditionCache.get(condition);
+              if (ok === undefined) {
+                ok = window.matchMedia(condition).matches;
+                conditionCache.set(condition, ok);
+              }
+              if (!ok) return false;
+            }
+            for (const condition of supports) {
+              let ok = conditionCache.get(condition);
+              if (ok === undefined) {
+                ok = CSS.supports(condition);
+                conditionCache.set(condition, ok);
+              }
+              if (!ok) return false;
+            }
+            return true;
+          };
+          let nestedRules = 0;
+          const collect = (list: CSSRuleList, media: string[], supports: string[]) => {
+            for (const rule of Array.from(list)) {
+              if (rule instanceof CSSStyleRule) {
+                if (rule.cssRules.length > 0) nestedRules += 1;
+                const decls: Decl[] = [];
+                for (const name of Array.from(rule.style)) {
+                  if (!wanted.has(name)) continue;
+                  decls.push({
+                    name,
+                    value: rule.style.getPropertyValue(name),
+                    important: rule.style.getPropertyPriority(name) === "important",
+                  });
+                }
+                rules.push({
+                  order: rules.length,
+                  selector: rule.selectorText,
+                  media,
+                  supports,
+                  declCount: decls.length,
+                  decls,
+                });
+              } else if (rule instanceof CSSMediaRule) {
+                collect(rule.cssRules, media.concat(rule.conditionText), supports);
+              } else if (rule instanceof CSSSupportsRule) {
+                collect(rule.cssRules, media, supports.concat(rule.conditionText));
+              }
+            }
+          };
+          // Only the app stylesheet counts: the animation killer this harness adds
+          // and any inline style would otherwise show up as a winner everywhere.
+          for (const sheet of Array.from(document.styleSheets)) {
+            const href = sheet.href ?? "";
+            if (!href.includes("/static/app.css")) continue;
+            collect(sheet.cssRules, [], []);
+          }
+          const owners = new Map<Element, { order: number; spec: [number, number, number] }[]>();
+          let unreadableSelectors = 0;
+          for (const rule of rules) {
+            if (!applies(rule.media, rule.supports)) continue;
+            let found: Element[];
+            try {
+              found = Array.from(document.querySelectorAll(rule.selector));
+            } catch {
+              unreadableSelectors += 1;
+              continue;
+            }
+            const parts = rule.selector.split(",").map((part) => part.trim());
+            for (const element of found) {
+              let spec: [number, number, number] | null = null;
+              for (const part of parts) {
+                try {
+                  if (element.matches(part)) {
+                    spec = specificityOf(part);
+                    break;
+                  }
+                } catch {
+                  unreadableSelectors += 1;
+                }
+              }
+              const entry = {
+                order: rule.order,
+                spec: spec ?? specificityOf(parts[0] ?? rule.selector),
+              };
+              const list = owners.get(element) ?? [];
+              list.push(entry);
+              owners.set(element, list);
+            }
+          }
+          // Today every declaration is unlayered, so the ranking is exactly
+          // importance, then specificity, then source order.
+          const rank = (a: Candidate, b: Candidate) =>
+            (b.important ? 1 : 0) - (a.important ? 1 : 0) ||
+            b.spec[0] - a.spec[0] ||
+            b.spec[1] - a.spec[1] ||
+            b.spec[2] - a.spec[2] ||
+            b.order - a.order;
+          const pairs: Record<string, PairInfo> = {};
+          for (const [element, entries] of owners) {
+            const buckets = new Map<string, Candidate[]>();
+            for (const entry of entries) {
+              const rule = rules[entry.order];
+              if (rule === undefined) continue;
+              for (const decl of rule.decls) {
+                const bucket = buckets.get(decl.name) ?? [];
+                bucket.push({
+                  order: entry.order,
+                  spec: entry.spec,
+                  important: decl.important,
+                  value: decl.value,
+                });
+                buckets.set(decl.name, bucket);
+              }
+            }
+            const kind = element.tagName + "|" + element.className;
+            for (const [prop, bucket] of buckets) {
+              if (bucket.length < 2) continue;
+              const ranked = bucket.slice().sort(rank);
+              const winner = ranked[0];
+              const loser = ranked[1];
+              if (winner === undefined || loser === undefined) continue;
+              if (winner.order === loser.order) continue;
+              let by = "order";
+              if (winner.important && loser.important) by = "important-order";
+              else if (winner.important !== loser.important) by = "importance";
+              else if (winner.spec.join(",") !== loser.spec.join(",")) by = "specificity";
+              const stripped = ranked.map((candidate, index) =>
+                index === 0 ? { ...candidate, important: false } : candidate,
+              );
+              const top = stripped.sort(rank)[0];
+              const flipIfStripped = top !== undefined && top.order !== winner.order;
+              const key = `${winner.order}>${loser.order}|${prop}|${by}`;
+              const record: PairInfo = pairs[key] ?? {
+                n: 0,
+                by,
+                prop,
+                winner: winner.order,
+                loser: loser.order,
+                flipIfStripped: false,
+                sameValue: winner.value === loser.value,
+                who: [],
+              };
+              record.n += 1;
+              record.flipIfStripped = record.flipIfStripped || flipIfStripped;
+              if (record.who.length < 3 && !record.who.includes(kind)) record.who.push(kind);
+              pairs[key] = record;
+            }
+          }
+          return { rules, pairs, elements: owners.size, unreadableSelectors, nestedRules };
+        }, SAMPLED);
+      let rules: CensusRule[] = [];
+      const pairs: Record<string, CensusPair> = {};
+      const states: Record<string, { elements: number; unreadable: number; nested: number }> = {};
+      await walkStates(liveCss, async (probe, label) => {
+        const state = await read(probe);
+        if (rules.length === 0) rules = state.rules;
+        states[label] = {
+          elements: state.elements,
+          unreadable: state.unreadableSelectors,
+          nested: state.nestedRules,
+        };
+        for (const [key, value] of Object.entries(state.pairs)) {
+          const record: CensusPair = pairs[key] ?? {
+            n: 0,
+            by: value.by,
+            prop: value.prop,
+            winner: value.winner,
+            loser: value.loser,
+            flipIfStripped: false,
+            sameValue: value.sameValue,
+            who: [],
+          };
+          record.n += value.n;
+          record.flipIfStripped = record.flipIfStripped || value.flipIfStripped;
+          for (const kind of value.who) {
+            if (!record.who.includes(kind) && record.who.length < 4) record.who.push(kind);
+          }
+          pairs[key] = record;
+        }
+      });
+      const target = process.env["CSS_CENSUS_OUT"];
+      if (target) await writeFile(target, JSON.stringify({ rules, pairs, states }));
+      const byCounts: Record<string, number> = {};
+      for (const pair of Object.values(pairs)) {
+        byCounts[pair.by] = (byCounts[pair.by] ?? 0) + pair.n;
+      }
+      console.log("census rules:", rules.length, "| competing pairs:", Object.keys(pairs).length);
+      console.log("decided by:", JSON.stringify(byCounts));
+      console.log("states:", JSON.stringify(states));
+      expect(rules.length).toBeGreaterThan(700);
+      expect(Object.keys(pairs).length).toBeGreaterThan(50);
+    },
+    900_000,
   );
 });
