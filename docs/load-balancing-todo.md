@@ -1,6 +1,6 @@
 # 多节点负载均衡开发 TODO
 
-创建日期：2026-10-22。当前进度：17 / 17 项完成。
+创建日期：2026-10-22。当前进度：18 / 18 项完成。
 
 设计依据：[多节点负载均衡设计（粘性任务路由 v1）](./load-balancing-design.md)。决策记录：[ADR-013](./adr/013-load-balancing-sticky-routing.md)。本清单供后续开发、测试、验收和逐项提交使用。设计发生变化时，必须同时更新设计文档和本清单，不能只改代码。
 
@@ -72,6 +72,7 @@ npx electron-builder -w portable --publish never
 | [x] | LB-15 | 卡片与转发地址同宽，参与节点改成浮动勾选 | LB-10 | 完成 |
 | [x] | LB-16 | 删除匹配预览输入与校验节点模型 | LB-10、LB-14 | 完成 |
 | [x] | LB-17 | 统一组卡片里四个控件的长相 | LB-15、LB-16 | 完成 |
+| [x] | LB-18 | 节点状态改成名字开头、固定列宽、三行排版 | LB-10、LB-17 | 完成 |
 
 ## 4. 逐项实施与验收
 
@@ -523,6 +524,24 @@ npx electron-builder -w portable --publish never
 背景、边框、圆角完全一致；中英文负载均衡基线重录并更新完整 SHA-256，其余八张零像素差。
 提交定位：`[LB-17]`。
 
+### LB-18：节点状态排版与命名
+
+用户反馈三件事：`target-xxxx` 看不出是谁；芯片宽度随内容变，位置一直在动；全都挤在一起。
+
+选定形状（用户在选项里选了「指标分两行、每行三列」）：
+
+| 项 | 内容 |
+| --- | --- |
+| 第一行 | 节点名字（取 target 的 `name`，没有名字才退回 id），`title` 带完整 id |
+| 名字行右侧 | 一枚只写状态词的标签：启用 / 禁用 / 没有采样 / 指标过期 |
+| 名字下方 | 一条分隔线 |
+| 指标 | 两行，每行三列等宽（`repeat(3, minmax(0, 1fr))`），列宽固定 |
+| 列宽不够 | 只截断当前一项，悬停给完整文本 |
+
+验收标准：两个节点的同一指标 `getBoundingClientRect()` 的 x 与宽完全相同；名字行写的是
+节点名而不是 id；全量测试绿；负载均衡基线零像素差通过（基线里 details 是折叠的，所以画面不变）。
+提交定位：`[LB-18]`。
+
 ## 5. 执行记录
 
 ### LB-01
@@ -780,6 +799,38 @@ npx electron-builder -w portable --publish never
 - 备注：`.lb-card` 前缀的规则特异性高于页面全局的 `button`（0,0,1）和 `button:hover`（0,1,1），
   所以能盖住它们；按 AGENTS 的说法 CSS 文件里靠后的块并不权威，这次是靠特异性赢的，
   不是靠位置。`▾` 这种几何字符在 Windows Chromium 上会被彩色字体替换，所以不能当图标用。
+
+### LB-18
+
+- 状态：完成
+- 来源：用户反馈：节点状态里打的是 `target-xxxx`，看不出是谁；宽度随内容变，位置一直动；
+  都挤在一块。选项中选了「指标分两行、每行三列」+「名字 + 悬停看 id」+「只留状态词」。
+- 实际变更：`src/admin/static/app.js` 重写 `lbStatusRowHtml(targetId, target)`（名字行 +
+  两行三列指标，每枚芯片带 `title`），新增 `lbNodeRenderSignature(targetIds, targets)` 和
+  `lbNodeStatesHtml`，两处调用点（初始渲染与 `refreshLbCards`）都改用它们；
+  `data-lb-rendered` 的签名从「只拼 id」改成「id + 名字」，重命名才会重建行；
+  `setLbFact` 同步更新 `title`；`enabled` 不再走 `setLbFact`，新 `setLbBadge` 只写状态词并
+  切 `is-off` / `is-nosample` / `is-stale` 三个类。
+  `src/admin/static/app.css` 把 `.lb-node-state` 从 wrap flex 改成三行 grid，新增
+  `.lb-node-head` / `.lb-node-flag`（三个状态色）/ `.lb-node-metrics`，`.lb-node-fact` 加上
+  `min-width: 0` + ellipsis，`.lb-node-states` 行间距从 6 px 提到 12 px。
+- 测试命令：`node tmp-lb-states.mjs`（带状态 stub 的探针，量名字、标签、六列坐标）、
+  `npx vitest run test-node/ui/admin-ui.test.ts`、`npx vitest run`、
+  `npx vitest run test-node/admin/static-source.test.ts`。
+- 测试结果：探针里两个节点的六列全部落在 x = 42 / 157 / 271、宽 109 px，`clipped` 全为
+  `false`；名字行是 `vllm-win` / `vllm-win2`，`title` 是 `target-a` / `target-b`；第二个节点
+  标签是「禁用 · 没有采样」，类名 `lb-node-flag is-off is-nosample`。UI 86 passed；
+  全量 103 文件 / 917 用例。
+- UI 基线：未变。负载均衡基线里节点状态 details 保持折叠，所以这两块的新排版不在画面里，
+  八张基线零像素差原样通过。
+- 设计偏差：无。设计文档 §12.1 原本只列了字段清单，没定行形状；这次补了落地说明。
+- 提交标题：`feat(load-balancing): [LB-18] label node rows by name and fix the metric columns`
+- 提交 SHA：`53379fd`（代码与文档）；本条记录单独提交。
+- 备注：全量测试第一遍只有 `keeps the browser source canonically formatted` 一条失败——
+  `test-node/admin/static-source.test.ts` 会拿 prettier 对比 `src/admin/static/app.js`，
+  我写完没先跑 prettier 就被它拦下了。这个守卫比人工看格式快。节点名字进入渲染签名这件事
+  是 AGENTS 里「任何改变标记的状态都要进渲染签名」那条的直接应用：原来只拼 id，
+  重命名后行里的名字不会跟着变。
 
 每完成一个任务，在这里追加一条记录：
 
