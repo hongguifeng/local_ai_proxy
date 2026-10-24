@@ -540,7 +540,7 @@ npx electron-builder -w portable --publish never
 - UI 基线：未涉及
 - 设计偏差：见设计文档 §8.1 落地说明——一个定时器同时驱动采样和亲和清理；什么都没解析出来时清空样本而不是存一个 0 样本；监视器默认自己的 logger 写 stderr（registry 暂无 logger 注入点）。
 - 提交标题：`feat(load-balancing): [LB-08] sample upstream engines and keep load snapshots`
-- 提交 SHA：待填写
+- 提交 SHA：`6d8d798`
 - 备注：无。
 
 每完成一个任务，在这里追加一条记录：
