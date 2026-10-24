@@ -13,7 +13,7 @@ v1 采用以下行为作为稳定契约：
 
 1. **粘性优先于负载。** 命中亲和绑定后直接使用原节点，不因为另一节点更空闲而迁移。
 2. **新 task 使用确定性的负载排序。** 先避开 KV 高压节点，再比较 `max(代理在途, 上游 running + waiting)`，最后用最近分派时间和配置顺序裁决平票。
-3. **组内模型名直通。** 命中负载均衡组后，组成员 target 自己的 `model_mappings` 不参与选择，也不改写该请求的模型名。
+3. **模型名由成员自己决定。** 组命中后，被选成员的 `model_id` 非空就用它转发；为空才透传请求模型。成员的 `model_mappings` 仍然不参与选择，也不改写。
 4. **负载指标只改善选择，不决定转发可用性。** `/metrics` 不可用或采样过期时，退化到代理侧在途计数，仍然可以转发。
 5. **连接期只允许一次失败切换。** 只有在尚未向客户端写出响应头或响应字节时，才可以改投组内其他节点。
 6. **命中组但没有可用节点时返回 503。** 不静默回落到普通模型映射，避免请求被送到语义不同的模型或错误地址。
@@ -46,7 +46,7 @@ v1 采用以下行为作为稳定契约：
 | R1 | 同一 task 的后续请求固定到同一节点 | 内存亲和表；命中后不比较负载 |
 | R2 | 新 task 按实际负载选择节点 | 代理在途、上游 running/waiting、KV 分档 |
 | R3 | 复用已有 target 配置 | 节点使用已有 URL、Key、Headers、日志、脱敏、价格等配置 |
-| R4 | 组内模型名保持一致 | 组命中时屏蔽成员 `model_mappings`，透传请求模型 |
+| R4 | 每个成员可以指定自己的上游模型 | 成员 `model_id` 非空即改写，为空透传；成员 `model_mappings` 仍被屏蔽 |
 | R5 | 提供可配置的负载均衡组 | pair 内卡片、模型 pattern、节点勾选、策略和开关 |
 | R6 | 能解释路由结果 | `model_route`、状态 API、节点实时负载和冷却状态 |
 | R7 | 配置保存不打断活跃 task | `LoadBalancer` 在 `reloadPair()` 前后复用 |
@@ -108,8 +108,9 @@ v1 采用最容易验证的约束：组成员的完整 `model_prices` 数组规�
 
 命中负载均衡组后：
 
-- 组成员 target 的 `model_mappings` 不参与本次 target 选择；
-- `upstream_model` 等于请求原始模型名；
+- 组成员 target 的 `model_mappings` 不参与本次 target 选择，也不改写模型名；
+- 被选成员的 `model_id` 非空时，`upstream_model` 等于该 `model_id`；为空时等于请求原始模型名；
+- 失败切换改投另一成员时，请求体按新成员的 `model_id` 再改写一次，日志同时记录改写后的上游体、被剥离字段和注入字段；
 - target 的 URL、API key、headers、strip/inject、日志、脱敏和价格配置继续生效；
 - 未被该组 pattern 覆盖的其他模型，仍然使用 target 自己的普通模型映射。
 
@@ -133,7 +134,10 @@ const loadBalancerGroupSchema = z.object({
   name: z.string(),
   enabled: z.boolean().default(true),
   model_pattern: z.string().trim().min(1),
-  node_target_ids: z.array(z.string().trim().min(1)).min(1),
+  members: z.array(z.object({
+    target_id: z.string().trim().min(1),
+    model_id: z.string().trim().default(""),
+  })).min(1),
   strategy: z.enum(["least_load", "round_robin"]).default("least_load"),
   metrics_enabled: z.boolean().default(true),
   failover_enabled: z.boolean().default(true),
@@ -158,8 +162,9 @@ const METRICS_STALE_AFTER_MS = 15000;
 `superRefine` 必须检查：
 
 - pair 内的组 `id` 唯一；
-- `node_target_ids` 都存在于同一个 pair；
-- `node_target_ids` 不重复；
+- `members[].target_id` 都存在于同一个 pair；
+- `members[].target_id` 不重复；
+- `members[].model_id` 为空表示该成员不做映射，照原样转发请求模型；
 - `model_pattern` 完全相同的组不允许同时存在；可部分重叠的 pattern 允许保存，但 UI 必须给出顺序匹配警告；
 - 组成员解析后的 `log_root` 必须一致；所有成员为空时表示该组关闭日志；
 - 组成员的 `model_prices` 必须完全一致，包括规则顺序和价格字符串；如果所有成员都为空，则表示该组明确不计费；
@@ -170,7 +175,7 @@ const METRICS_STALE_AFTER_MS = 15000;
 未知 target ID 必须保留到 schema 校验阶段并返回带路径的错误，例如：
 
 ```text
-pairs.0.load_balancers.1.node_target_ids.0:
+pairs.0.load_balancers.1.members.0.target_id:
 load balancer node target not found in pair
 ```
 
@@ -692,6 +697,17 @@ UI 修改必须：
   所以一个指标永远在同一列，数字变长不会推动邻居。`data-lb-rendered` 的签名从“只拼 id”
   改成“id + 名字”，重命名节点才会重建行。
   探针量到两个节点的六列全部落在 x = 42 / 157 / 271、宽 109 px，`clipped` 全为 false。
+- LB-19 把组成员从 `node_target_ids` 改成 `members: [{ target_id, model_id }]`。
+  `model_id` 为空就是这一行不映射，请求模型原样发给这个节点；非空时组命中就用它改写上游模型，
+  成员自己的 `model_mappings` 依旧不参与。保存请求只接受 `members`，旧的 id 数组被拒绝，
+  问题路径落在 `...members.N.target_id`；已保存的旧配置由 normalizer 折成 `members`、`model_id` 留空，
+  老组行为不变。失败切换后按新成员的 `model_id` 再改写一次请求体，`model_route.upstream_model`
+  记录真正发出去的那个模型名。卡片里每个勾选成员占一行：左边节点名是一枚
+  白底描边框（与右边输入框同为 32 px 高、13 px 字），右边是这一行自己的模型输入框；
+  名字太长时由内层 `span` 省略号截断（`text-overflow` 对 inline-flex 里的裸文本无效，
+  必须给它自己的盒子）。行重建的签名只含 id、名字和启用标记，所以在输入框里打字不会
+  重建行；取消勾选就删掉那一行连同它的映射。LB-19.1 删掉了成员上方那行重复的标签，
+  两张负载均衡基线各矮 27 px，现在是中文 1278×1180、英文 1278×1225。
 
 ## 13. 测试计划
 

@@ -238,6 +238,9 @@ const translations = {
     lbMembers: "参与节点",
     lbMembersNone: "未选择节点",
     lbChooseNodes: "选择节点",
+    lbMemberModel: "映射模型",
+    lbMemberModelPlaceholder: "留空不映射",
+    lbMemberModelHint: "留空表示不映射：请求模型原样发给这个节点。",
     lbNodeMissingMember: "组里引用了本 pair 没有的节点",
     lbNodeState: "节点状态",
     lbStateInFlight: "进行中",
@@ -699,6 +702,9 @@ const translations = {
     lbMembers: "Member nodes",
     lbMembersNone: "No nodes selected",
     lbChooseNodes: "Choose nodes",
+    lbMemberModel: "Mapped model",
+    lbMemberModelPlaceholder: "no mapping",
+    lbMemberModelHint: "An empty model id forwards the requested model to that node.",
     lbNodeMissingMember: "The group names a node this pair does not have",
     lbNodeState: "Node state",
     lbStateInFlight: "In flight",
@@ -1181,7 +1187,7 @@ function newLoadBalancerGroup() {
     name: "",
     enabled: true,
     model_pattern: "",
-    node_target_ids: [],
+    members: [],
     strategy: "least_load",
     metrics_enabled: true,
     failover_enabled: true,
@@ -1210,8 +1216,8 @@ function lbGroupWarnings(pair) {
   const known = new Set((pair.targets || []).map((target) => target.id));
   const warnings = [];
   groups.forEach((group, groupIndex) => {
-    const members = group.node_target_ids || [];
-    if (members.length === 1) warnings.push({ groupIndex, text: t("lbWarnSingleNode") });
+    const memberIds = lbMemberIds(group);
+    if (memberIds.length === 1) warnings.push({ groupIndex, text: t("lbWarnSingleNode") });
     if (group.model_pattern) {
       const overlaps = groups.some(
         (other, otherIndex) =>
@@ -1222,11 +1228,11 @@ function lbGroupWarnings(pair) {
       );
       if (overlaps) warnings.push({ groupIndex, text: t("lbWarnOverlapping") });
     }
-    if (members.some((id) => !known.has(id))) {
+    if (memberIds.some((id) => !known.has(id))) {
       warnings.push({ groupIndex, text: t("lbNodeMissingMember") });
     }
     if (
-      members.some((id) =>
+      memberIds.some((id) =>
         pairTargets(pair).some((target) => target.id === id && target.enabled === false),
       )
     ) {
@@ -1292,35 +1298,97 @@ function lbMemberOptionHtml(target, checked) {
     target.enabled === false ? `<em class="lb-off">${escapeHtml(t("lbStateOff"))}</em>` : "";
   return `<label class="lb-member"><input type="checkbox" data-lb-node="${id}" ${checked ? "checked" : ""}><span class="lb-member-name" title="${escapeHtml(name)}">${escapeHtml(name)}</span>${off}</label>`;
 }
-/** The members that were ticked, as chips. Unticked targets are not shown here. */
-function lbSelectedNodesHtml(targetIds, targets) {
+/** Member ids in the order they were configured. */
+function lbMemberIds(group) {
+  return (group.members || []).map((member) => member.target_id);
+}
+
+function lbMemberModelId(group, targetId) {
+  const member = (group.members || []).find((item) => item.target_id === targetId);
+  return (member && member.model_id) || "";
+}
+
+/** One row per ticked member: node name on the left, its model id on the right. */
+function lbMemberRowsHtml(members, targets) {
   const byId = new Map(targets.map((target) => [target.id, target]));
-  const chips = targetIds
-    .map((targetId) => byId.get(targetId))
-    .filter((target) => target !== undefined)
-    .map(
-      (target) =>
-        `<span class="lb-chip"><span class="lb-chip-name">${escapeHtml(target.name || target.id)}</span>${target.enabled === false ? `<em class="lb-off">${escapeHtml(t("lbStateOff"))}</em>` : ""}</span>`,
-    )
+  const rows = members
+    .map((member) => {
+      const target = byId.get(member.target_id);
+      const name = (target && target.name) || member.target_id;
+      const id = escapeHtml(member.target_id);
+      const off =
+        target !== undefined && target.enabled === false
+          ? `<em class="lb-off">${escapeHtml(t("lbStateOff"))}</em>`
+          : "";
+      return `<div class="lb-member-row">
+        <span class="lb-member-row-name" title="${id}"><span class="lb-member-row-label">${escapeHtml(name)}</span>${off}</span>
+        <input type="text" class="lb-member-row-model" data-lb-member-model="${id}" value="${escapeHtml(member.model_id || "")}" placeholder="${escapeHtml(t("lbMemberModelPlaceholder"))}" aria-label="${escapeHtml(`${t("lbMemberModel")}: ${name}`)}">
+      </div>`;
+    })
     .join("");
-  return chips || `<p class="lb-empty">${escapeHtml(t("lbMembersNone"))}</p>`;
+  return rows || `<p class="lb-empty">${escapeHtml(t("lbMembersNone"))}</p>`;
 }
-/** Members plus disabled flags: the pair the chips have to be rebuilt for. */
-function lbSelectionSignature(targetIds, disabledIds) {
-  return `${targetIds.join(",")}|${disabledIds.join(",")}`;
-}
+
+/** Which members are switched off: a disabled member gains a mark on its row. */
 function lbDisabledTargetIds(targets) {
   return targets.filter((target) => target.enabled === false).map((target) => target.id);
 }
+
+/** Only the id, the name and the enabled flag decide whether the rows have to be
+   rebuilt, so typing in a model box never rebuilds them. */
+function lbMemberRowsSignature(members, targets, disabledIds) {
+  const disabled = new Set(disabledIds || []);
+  return members
+    .map((member) => {
+      const target = (targets || []).find((item) => item.id === member.target_id);
+      return `${member.target_id}:${(target && target.name) || ""}:${disabled.has(member.target_id) ? "off" : "on"}`;
+    })
+    .join("|");
+}
+
+/** Checked nodes plus whatever is typed in their model boxes, in configured order. */
+function lbCollectMembers(lbCard, previous) {
+  const checkedIds = [...lbCard.querySelectorAll("[data-lb-node]")]
+    .filter((input) => input.checked)
+    .map((input) => input.dataset.lbNode);
+  const typed = new Map(
+    [...lbCard.querySelectorAll("[data-lb-member-model]")].map((input) => [
+      input.dataset.lbMemberModel,
+      input.value.trim(),
+    ]),
+  );
+  const members = [];
+  const used = new Set();
+  (previous || []).forEach((member) => {
+    if (!checkedIds.includes(member.target_id) || used.has(member.target_id)) {
+      return;
+    }
+    used.add(member.target_id);
+    members.push({
+      target_id: member.target_id,
+      model_id: typed.has(member.target_id) ? typed.get(member.target_id) : member.model_id || "",
+    });
+  });
+  checkedIds.forEach((targetId) => {
+    if (used.has(targetId)) {
+      return;
+    }
+    used.add(targetId);
+    members.push({ target_id: targetId, model_id: typed.get(targetId) || "" });
+  });
+  return members;
+}
+
 function lbGroupCard(group, pair, pairIndex, groupIndex) {
   const open = isLbGroupOpen(pair, group);
-  const members = new Set(group.node_target_ids || []);
+  const memberList = group.members || [];
+  const members = new Set(lbMemberIds(group));
   const targets = pairTargets(pair);
   const memberRows = targets
     .map((target) => lbMemberOptionHtml(target, members.has(target.id)))
     .join("");
-  const nodeIds = group.node_target_ids || [];
-  const selectionKey = lbSelectionSignature(nodeIds, lbDisabledTargetIds(targets));
+  const nodeIds = lbMemberIds(group);
+  const rowsKey = lbMemberRowsSignature(memberList, targets, lbDisabledTargetIds(targets));
   const popId = `lb-picker-pop-${pairIndex}-${groupIndex}`;
   return `<section class="lb-card" data-lb-pair="${pairIndex}" data-lb-index="${groupIndex}">
     <div class="lb-head">
@@ -1339,12 +1407,13 @@ function lbGroupCard(group, pair, pairIndex, groupIndex) {
     </div>
     <div class="lb-members-field">
       <strong>${escapeHtml(t("lbMembers"))}</strong>
-      <div class="lb-selected" data-lb-selected-nodes="${selectionKey}">${lbSelectedNodesHtml(nodeIds, targets)}</div>
       <div class="lb-picker" data-lb-picker>
         <button type="button" class="lb-picker-toggle" data-lb-picker-toggle aria-expanded="false" aria-controls="${popId}"><span>${escapeHtml(t("lbChooseNodes"))}</span><span class="lb-picker-caret" aria-hidden="true"></span></button>
         <div class="lb-picker-pop" id="${popId}" data-lb-picker-pop hidden>${memberRows}</div>
       </div>
     </div>
+    <div class="lb-member-rows" data-lb-member-rows="${escapeHtml(rowsKey)}">${lbMemberRowsHtml(memberList, targets)}</div>
+    <p class="lb-member-hint">${escapeHtml(t("lbMemberModelHint"))}</p>
     <div class="lb-tools">
       <p class="lb-warning" data-lb-warning hidden></p>
     </div>
@@ -1513,9 +1582,7 @@ function refreshLbCards() {
       const draft = drafts[Number(lbCard.dataset.lbIndex)];
       if (draft === undefined) return;
       draft.model_pattern = lbCard.querySelector("[data-lb-field='model_pattern']")?.value || "";
-      draft.node_target_ids = [...lbCard.querySelectorAll("[data-lb-node]")]
-        .filter((input) => input.checked)
-        .map((input) => input.dataset.lbNode);
+      draft.members = lbCollectMembers(lbCard, draft.members);
       const toggle = lbCard.querySelector("[data-lb-toggle]");
       if (toggle !== null) draft.enabled = toggle.checked;
     });
@@ -1541,25 +1608,27 @@ function refreshLbCards() {
         line.textContent = mine.map((item) => item.text).join(" ");
         line.hidden = mine.length === 0;
       }
-      // Only ticked nodes stay on the card, so a tick redraws this line right away.
-      const selected = lbCard.querySelector(".lb-selected");
-      const selectionKey = lbSelectionSignature(
-        draft.node_target_ids || [],
+      // Each ticked node owns one row with its model box; typing in a box never
+      // rebuilds them, only a tick or a rename does.
+      const rows = lbCard.querySelector(".lb-member-rows");
+      const rowsKey = lbMemberRowsSignature(
+        draft.members || [],
+        shadowTargets,
         lbDisabledTargetIds(shadowTargets),
       );
-      if (selected !== null && selected.dataset.lbSelectedNodes !== selectionKey) {
-        selected.dataset.lbSelectedNodes = selectionKey;
-        selected.innerHTML = lbSelectedNodesHtml(draft.node_target_ids || [], shadowTargets);
+      if (rows !== null && rows.dataset.lbMemberRows !== rowsKey) {
+        rows.dataset.lbMemberRows = rowsKey;
+        rows.innerHTML = lbMemberRowsHtml(draft.members || [], shadowTargets);
       }
       // The node rows follow the ticked members; the next poll refills their numbers.
       const states = lbCard.querySelector(".lb-node-states");
-      const checked = lbNodeRenderSignature(draft.node_target_ids || [], shadowTargets);
+      const checked = lbNodeRenderSignature(lbMemberIds(draft), shadowTargets);
       if (states !== null && states.dataset.lbRendered !== checked) {
         states.dataset.lbRendered = checked;
-        states.innerHTML = lbNodeStatesHtml(draft.node_target_ids || [], shadowTargets);
+        states.innerHTML = lbNodeStatesHtml(lbMemberIds(draft), shadowTargets);
         const summary = lbCard.querySelector(".lb-status > summary");
         if (summary !== null) {
-          summary.textContent = `${t("lbNodeState")} · ${(draft.node_target_ids || []).length}`;
+          summary.textContent = `${t("lbNodeState")} · ${lbMemberIds(draft).length}`;
         }
       }
     });
@@ -1569,7 +1638,7 @@ function refreshLbCards() {
 /** Removing a target also removes it from every group of that pair. */
 function purgeLoadBalancerMember(pair, targetId) {
   (pair.load_balancers || []).forEach((group) => {
-    group.node_target_ids = (group.node_target_ids || []).filter((id) => id !== targetId);
+    group.members = (group.members || []).filter((member) => member.target_id !== targetId);
   });
 }
 
@@ -1765,9 +1834,7 @@ function collectPairs() {
         const input = lbCard.querySelector(`[data-lb-flag="${flag}"]`);
         group[flag] = input ? input.checked : true;
       });
-      group.node_target_ids = [...lbCard.querySelectorAll("[data-lb-node]")]
-        .filter((input) => input.checked)
-        .map((input) => input.dataset.lbNode);
+      group.members = lbCollectMembers(lbCard, group.members);
     });
     pairTargets(pair).forEach((target) => {
       if (target.id === pair.default_target_id) target.enabled = true;

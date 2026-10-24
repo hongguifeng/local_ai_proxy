@@ -1,6 +1,7 @@
 import type { LoadBalancer } from "./load-balancer.js";
 import type { LoadMonitor, LoadNodeStatus } from "./load-monitor.js";
 import type { LoadBalancerGroup, PublicProxyPair } from "../config/index.js";
+import { loadBalancerMemberTargetIds } from "../config/index.js";
 
 /**
  * Read-only view of load balancing for the admin UI. Nothing here touches the database
@@ -83,8 +84,8 @@ function statusGroup(
     metricsEnabled: group.metrics_enabled,
     modelPattern: group.model_pattern,
     name: group.name,
-    nodeTargetIds: [...group.node_target_ids],
-    nodes: group.node_target_ids.map((targetId) => {
+    nodeTargetIds: loadBalancerMemberTargetIds(group),
+    nodes: loadBalancerMemberTargetIds(group).map((targetId) => {
       const node = balancer?.nodeFor(targetId);
       const status = statuses.get(targetId);
       const cooldownRemainingMs = balancer?.cooldownRemaining(targetId, now) ?? 0;

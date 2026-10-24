@@ -133,8 +133,10 @@ LLM Proxy 是面向本地开发和调试场景的 LLM HTTP 代理与流量审查
 
 - 一个组只有一个 `model_pattern`，匹配算法与 §6.2 第 4 条完全相同：区分大小写，
   `*` 匹配任意前后缀，不支持正则。
-- 命中组时，成员的 `model_mappings` 被绕过，上游收到客户端原始的模型名。
+- 组成员存成 `members: [{ target_id, model_id }]`。`model_id` 非空时，组命中就用它改写上游模型；
+  为空时上游收到客户端原始的模型名。成员自己的 `model_mappings` 一律不参与，也不改写。
   成员的其他设置（headers、字段删除与注入、Redact logs、价格）仍然生效。
+- 安全切换改投另一个成员时，请求体按新成员的 `model_id` 再改写一次，日志记录改写后的上游体。
 - 保存时拒绝：组 id 重复、组成员 id 重复、成员不属于本 pair、
   组成员日志目录不一致、组成员价格规则不一致、完全相同的 `model_pattern` 重复出现。
   后三类中前两类是错误，`overlapping_pattern`、`single_node`、`disabled_member` 是警告。
@@ -177,7 +179,7 @@ LLM Proxy 是面向本地开发和调试场景的 LLM HTTP 代理与流量审查
 ### 6.2 路由算法
 
 0. 若存在启用的负载均衡组且其 `model_pattern` 命中请求模型名，则由负载均衡选路（§5.4），
-   并跳过成员模型映射的改写；未命中时完全走下面的普通流程。
+   并跳过成员 `model_mappings`；发往哪个模型由该成员的 `model_id` 决定，为空时照原样发送。未命中时完全走下面的普通流程。
 1. 从 `default_target_id` 找到默认目标；找不到时使用目标列表第一项。
 2. 若请求存在字符串模型名，则按目标配置顺序遍历。
 3. 对非默认且 `enabled=false` 的目标跳过匹配。
@@ -204,14 +206,16 @@ Default: Target C
 带负载均衡组时：
 
 ```text
-Group lb-1: model_pattern=Qwen3.8-Flash-Next*, members=[A, B]
+Group lb-1: model_pattern=Qwen3.8-Flash-Next*,
+  members=[{A, model_id=Qwen3.8-Flash-Next-A}, {B, model_id=""}]
 Target A mapping: Qwen3.8-Flash-Next* => Qwen3.8-Flash-Next
 ```
 
-- `model=Qwen3.8-Flash-Next`：命中组，由 A 或 B 服务，上游收到 `Qwen3.8-Flash-Next`。
-- 同一个任务的下一轮：回到上一轮那张卡，不会被映射改写。
-- `model=Qwen3.8-Flash-Next-DFlash7`：命中组，上游收到原名，即使 A 的映射想改写它。
+- `model=Qwen3.8-Flash-Next`：命中组。落到 A 时上游收到 `Qwen3.8-Flash-Next-A`，落到 B 时收到原名 `Qwen3.8-Flash-Next`。
+- 同一个任务的下一轮：回到上一轮那张卡，因此上游模型名与上一轮相同。
+- `model=Qwen3.8-Flash-Next-DFlash7`：命中组。落到 A 时收到 `Qwen3.8-Flash-Next-A`，落到 B 时收到原名，即使 A 的映射想改写它。
 - `model=qwen3.8-flash-next-win`：小写别名不命中区分大小写的组，走 A 的映射并被改写。
+- A 连接失败并切换到 B：请求体按 B 的 `model_id` 重写，这里即回到原名 `Qwen3.8-Flash-Next`。
 - 组内没有可用节点：返回 503，不会改发 C。
 
 ## 7. HTTP 转发行为

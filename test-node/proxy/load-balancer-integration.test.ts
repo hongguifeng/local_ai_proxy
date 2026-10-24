@@ -61,7 +61,7 @@ function group(
     name: id,
     enabled: true,
     model_pattern: "Qwen3.8-Flash-Next",
-    node_target_ids: [...nodeTargetIds],
+    members: nodeTargetIds.map((targetId) => ({ target_id: targetId, model_id: "" })),
     strategy: "least_load",
     metrics_enabled: true,
     failover_enabled: true,
@@ -678,6 +678,79 @@ describe("load balancing end to end", () => {
     expect(nodeA.seen).toContain("different-name");
     await through.listener.close();
 
+    await close(nodeA.server);
+    await close(nodeA.server);
+    await close(nodeB.server);
+  });
+
+  it("LB19-10 keeps a task on its node when a save renames that node's model", async () => {
+    const nodeA = await startEchoNode("a");
+    const nodeB = await startEchoNode("b");
+    const balancer = new LoadBalancer("pair-integration");
+    const targets = [target("target-a", nodeA.port), target("target-b", nodeB.port)];
+    const nodes = [
+      { id: "target-a", port: nodeA.port },
+      { id: "target-b", port: nodeB.port },
+    ];
+    const first = await assembledPipeline(
+      balancer,
+      pair(targets, [
+        group("lb-19-rename", ["target-a", "target-b"], {
+          members: [
+            { target_id: "target-a", model_id: "Model-On-A" },
+            { target_id: "target-b", model_id: "" },
+          ],
+        }),
+      ]),
+      nodes,
+    );
+
+    const opened = echoed(
+      (
+        await post(
+          first.port,
+          "/v1/responses",
+          bodyFor("Qwen3.8-Flash-Next", "hello"),
+          session("rename-session"),
+        )
+      ).body,
+    );
+    const home = opened.node;
+    expect(opened.model).toBe(home === "a" ? "Model-On-A" : "Qwen3.8-Flash-Next");
+    await first.listener.close();
+
+    // A save that renames the model on node A must not move the task anywhere.
+    const second = await assembledPipeline(
+      balancer,
+      pair(targets, [
+        group("lb-19-rename", ["target-a", "target-b"], {
+          members: [
+            { target_id: "target-a", model_id: "Model-Renamed-On-A" },
+            { target_id: "target-b", model_id: "" },
+          ],
+        }),
+      ]),
+      nodes,
+    );
+
+    const follow = echoed(
+      (
+        await post(
+          second.port,
+          "/v1/responses",
+          bodyFor("Qwen3.8-Flash-Next", "hello", "and then"),
+          session("rename-session"),
+        )
+      ).body,
+    );
+
+    expect(follow.node).toBe(home);
+    expect(follow.model).toBe(home === "a" ? "Model-Renamed-On-A" : "Qwen3.8-Flash-Next");
+    // The other node never carried this task, so its prefix cache stayed untouched.
+    const follower = home === "a" ? nodeB : nodeA;
+    expect(follower.seen).toEqual([]);
+
+    await second.listener.close();
     await close(nodeA.server);
     await close(nodeB.server);
   });

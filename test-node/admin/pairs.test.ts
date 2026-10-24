@@ -237,7 +237,10 @@ describe("load balancer configuration through the pairs API", () => {
     id: "lb-1",
     name: "Dual card",
     model_pattern: "Qwen3.8-Flash-Next",
-    node_target_ids: [firstTargetId, secondTarget.id],
+    members: [
+      { target_id: firstTargetId, model_id: "" },
+      { target_id: secondTarget.id, model_id: "" },
+    ],
   };
 
   function lbPair(overrides: Record<string, unknown> = {}): Record<string, unknown> {
@@ -284,7 +287,10 @@ describe("load balancer configuration through the pairs API", () => {
         name: "Dual card",
         enabled: true,
         model_pattern: "Qwen3.8-Flash-Next",
-        node_target_ids: [firstTarget.id, secondTarget.id],
+        members: [
+          { target_id: firstTarget.id, model_id: "" },
+          { target_id: secondTarget.id, model_id: "" },
+        ],
         strategy: "least_load",
         metrics_enabled: true,
         failover_enabled: true,
@@ -308,7 +314,17 @@ describe("load balancer configuration through the pairs API", () => {
   it("LB01-02 rejects a node target outside the pair with its exact path", async () => {
     const manager = managerWith();
     const result = await putPairs(manager, [
-      lbPair({ load_balancers: [{ ...group, node_target_ids: [firstTarget.id, "ghost"] }] }),
+      lbPair({
+        load_balancers: [
+          {
+            ...group,
+            members: [
+              { target_id: firstTarget.id, model_id: "" },
+              { target_id: "ghost", model_id: "" },
+            ],
+          },
+        ],
+      }),
     ]);
 
     expect(result.statusCode).toBe(400);
@@ -316,7 +332,7 @@ describe("load balancer configuration through the pairs API", () => {
       result.body as { error: { code: string; issues: { path: string; message: string }[] } }
     ).error;
     expect(error.code).toBe("invalid_config");
-    expect(error.issues[0]?.path).toBe("pairs.0.load_balancers.0.node_target_ids.1");
+    expect(error.issues[0]?.path).toBe("pairs.0.load_balancers.0.members.1.target_id");
     expect(error.issues[0]?.message).toContain("not found in pair lb-pair: ghost");
     expect(manager.listPairs().map((pair) => pair.id)).toEqual([template.id]);
   });
@@ -335,8 +351,32 @@ describe("load balancer configuration through the pairs API", () => {
       result.body as { error: { code: string; issues: { path: string; message: string }[] } }
     ).error;
     expect(error.code).toBe("invalid_config");
-    expect(error.issues[0]?.path).toBe("pairs.0.load_balancers.0.node_target_ids.1");
+    expect(error.issues[0]?.path).toBe("pairs.0.load_balancers.0.members.1.target_id");
     expect(error.issues[0]?.message).toContain("must share one log root");
+  });
+
+  it("LB19-03 rejects an old id-only group in a save request instead of guessing members", async () => {
+    const manager = managerWith();
+    const result = await putPairs(manager, [
+      lbPair({
+        load_balancers: [
+          {
+            id: "lb-1",
+            name: "Old shape",
+            model_pattern: "qwen*",
+            node_target_ids: [firstTarget.id],
+          },
+        ],
+      }),
+    ]);
+
+    expect(result.statusCode).toBe(400);
+    const error = (
+      result.body as { error: { code: string; issues: { path: string; message: string }[] } }
+    ).error;
+    expect(error.code).toBe("invalid_config");
+    expect(error.issues.some((issue) => issue.path.endsWith("members"))).toBe(true);
+    expect(manager.listPairs().map((pair) => pair.id)).toEqual([template.id]);
   });
 
   it("LB01-05 rejects members that price the same model differently", async () => {

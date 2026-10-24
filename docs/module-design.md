@@ -732,9 +732,14 @@ create pending record
   失败与恢复每个 key 只写一行日志。采样失败不影响转发。
 - `load-balancer-admin.ts`：状态接口的内存读数，响应里不包含 key、
   请求文本或会话 id。
+- 组成员存成 `members: [{ target_id, model_id }]`（config schema + normalizer）。
+  `loadBalancerMemberTargetIds()` 取 id，`loadBalancerMemberModelId()` 取映射，
+  空字符串归一成 `undefined`；旧的 `node_target_ids` 由 normalizer 折成 `members`。
 
 pipeline 只做三件事：问组要一个节点、预留它、请求结束时释放一次。
-切换只发生在连接阶段且响应头未发出时，一次为限。
+上游模型名取该成员的 `model_id`，为空时透传请求模型；成员自己的 `model_mappings` 不参与。
+切换只发生在连接阶段且响应头未发出时，一次为限，改投后按新成员的 `model_id` 重发请求体，
+`model_route.upstream_model` 记真正发出去的模型名。
 
 #### StreamSummary
 

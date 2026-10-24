@@ -288,19 +288,25 @@ describe("loadBalancerGroupSchema", () => {
     name: "Dual card",
     enabled: true,
     model_pattern: "Qwen3.8-Flash-Next",
-    node_target_ids: ["lb-target-a", "lb-target-b"],
+    members: [
+      { target_id: "lb-target-a", model_id: "Qwen3.8-Flash-Next-A" },
+      { target_id: "lb-target-b", model_id: "" },
+    ],
     strategy: "least_load",
     metrics_enabled: true,
     failover_enabled: true,
   };
 
-  it("LB01-07 keeps strategy, switches and node order through a schema round trip", () => {
+  it("LB01-07 keeps strategy, switches, node order and member models through a round trip", () => {
     const submitted = {
       ...groupFixture,
       strategy: "round_robin",
       metrics_enabled: false,
       failover_enabled: false,
-      node_target_ids: ["lb-target-b", "lb-target-a"],
+      members: [
+        { target_id: "lb-target-b", model_id: "Qwen3.8-Flash-Next-B" },
+        { target_id: "lb-target-a", model_id: "" },
+      ],
     };
 
     const once = loadBalancerGroupSchema.parse(submitted);
@@ -309,8 +315,26 @@ describe("loadBalancerGroupSchema", () => {
       strategy: "round_robin",
       metrics_enabled: false,
       failover_enabled: false,
-      node_target_ids: ["lb-target-b", "lb-target-a"],
+      members: [
+        { target_id: "lb-target-b", model_id: "Qwen3.8-Flash-Next-B" },
+        { target_id: "lb-target-a", model_id: "" },
+      ],
     });
+  });
+
+  it("LB19-01 trims a member model id and defaults a missing one to no mapping", () => {
+    const parsed = loadBalancerGroupSchema.parse({
+      ...groupFixture,
+      members: [
+        { target_id: " lb-target-a ", model_id: "  Qwen3.8-Flash-Next-A  " },
+        { target_id: "lb-target-b" },
+      ],
+    });
+
+    expect(parsed.members).toEqual([
+      { target_id: "lb-target-a", model_id: "Qwen3.8-Flash-Next-A" },
+      { target_id: "lb-target-b", model_id: "" },
+    ]);
   });
 
   it("applies v1 defaults for a minimal group", () => {
@@ -319,14 +343,14 @@ describe("loadBalancerGroupSchema", () => {
         id: " lb-1 ",
         name: "Dual",
         model_pattern: " qwen* ",
-        node_target_ids: ["lb-target-a"],
+        members: [{ target_id: "lb-target-a" }],
       }),
     ).toEqual({
       id: "lb-1",
       name: "Dual",
       enabled: true,
       model_pattern: "qwen*",
-      node_target_ids: ["lb-target-a"],
+      members: [{ target_id: "lb-target-a", model_id: "" }],
       strategy: "least_load",
       metrics_enabled: true,
       failover_enabled: true,
@@ -335,29 +359,38 @@ describe("loadBalancerGroupSchema", () => {
 
   it("LB01-03 accepts a group with a single node", () => {
     expect(
-      loadBalancerGroupSchema.parse({ ...groupFixture, node_target_ids: ["lb-target-a"] }),
-    ).toMatchObject({ node_target_ids: ["lb-target-a"] });
+      loadBalancerGroupSchema.parse({
+        ...groupFixture,
+        members: [{ target_id: "lb-target-a", model_id: "" }],
+      }),
+    ).toMatchObject({ members: [{ target_id: "lb-target-a", model_id: "" }] });
   });
 
   it("LB01-03 rejects an empty node list, a missing model pattern and a missing id", () => {
-    expect(() => loadBalancerGroupSchema.parse({ ...groupFixture, node_target_ids: [] })).toThrow(
+    expect(() => loadBalancerGroupSchema.parse({ ...groupFixture, members: [] })).toThrow(
       /at least one node target/u,
     );
     expect(() => loadBalancerGroupSchema.parse({ ...groupFixture, model_pattern: " " })).toThrow();
     expect(() => loadBalancerGroupSchema.parse({ ...groupFixture, id: "" })).toThrow();
+    expect(() =>
+      loadBalancerGroupSchema.parse({ ...groupFixture, members: [{ target_id: " " }] }),
+    ).toThrow(/node target id is required/u);
   });
 
   it("LB01-02 reports a node target listed twice with its group path", () => {
     const result = loadBalancerGroupSchema.safeParse({
       ...groupFixture,
-      node_target_ids: ["lb-target-a", "lb-target-a"],
+      members: [
+        { target_id: "lb-target-a", model_id: "" },
+        { target_id: "lb-target-a", model_id: "Other" },
+      ],
     });
 
     expect(result.success).toBe(false);
     expect(result.error?.issues[0]?.message).toContain(
       "duplicate load balancer node target in group lb-1",
     );
-    expect(result.error?.issues[0]?.path).toEqual(["node_target_ids", 1]);
+    expect(result.error?.issues[0]?.path).toEqual(["members", 1, "target_id"]);
   });
 
   it("rejects a strategy text the runtime cannot execute", () => {
@@ -387,7 +420,10 @@ describe("proxyConfigFileSchema load balancer validation", () => {
     name: "Dual card",
     enabled: true,
     model_pattern: "Qwen3.8-Flash-Next",
-    node_target_ids: ["lb-target-a", "lb-target-b"],
+    members: [
+      { target_id: "lb-target-a", model_id: "" },
+      { target_id: "lb-target-b", model_id: "" },
+    ],
     strategy: "least_load",
     metrics_enabled: true,
     failover_enabled: true,
@@ -480,13 +516,21 @@ describe("proxyConfigFileSchema load balancer validation", () => {
   it("LB01-02 rejects a node target that is not in the pair", () => {
     const found = issues(
       file({
-        groups: [{ ...groupFixture, node_target_ids: ["lb-target-a", "ghost"] }],
+        groups: [
+          {
+            ...groupFixture,
+            members: [
+              { target_id: "lb-target-a", model_id: "" },
+              { target_id: "ghost", model_id: "" },
+            ],
+          },
+        ],
       }),
     );
 
     expect(found).toContainEqual({
       message: "load balancer node target not found in pair proxy-1: ghost",
-      path: "pairs.0.load_balancers.0.node_target_ids.1",
+      path: "pairs.0.load_balancers.0.members.1.target_id",
     });
   });
 
@@ -500,12 +544,12 @@ describe("proxyConfigFileSchema load balancer validation", () => {
       access_log: false,
       targets: [targetWith({ id: "lb-target-b" })],
       default_target_id: "lb-target-b",
-      load_balancers: [{ ...groupFixture, node_target_ids: ["lb-target-a"] }],
+      load_balancers: [{ ...groupFixture, members: [{ target_id: "lb-target-a", model_id: "" }] }],
     };
 
     expect(issues(file({ pairs: [pairValue(), otherPair] }))).toContainEqual({
       message: "load balancer node target not found in pair proxy-2: lb-target-a",
-      path: "pairs.1.load_balancers.0.node_target_ids.0",
+      path: "pairs.1.load_balancers.0.members.0.target_id",
     });
   });
 
@@ -557,7 +601,9 @@ describe("proxyConfigFileSchema load balancer validation", () => {
 
   it("LB01-03 warns when a group has only one node", () => {
     const pair = firstPair(
-      file({ groups: [{ ...groupFixture, node_target_ids: ["lb-target-a"] }] }),
+      file({
+        groups: [{ ...groupFixture, members: [{ target_id: "lb-target-a", model_id: "" }] }],
+      }),
     );
 
     expect(collectLoadBalancerWarnings(pair)).toEqual([
@@ -582,7 +628,7 @@ describe("proxyConfigFileSchema load balancer validation", () => {
     ).toContainEqual({
       message:
         'load balancer group lb-1 nodes must share one log root: lb-target-a uses "logs" but lb-target-b uses "logs/secondary"',
-      path: "pairs.0.load_balancers.0.node_target_ids.1",
+      path: "pairs.0.load_balancers.0.members.1.target_id",
     });
   });
 
@@ -598,7 +644,11 @@ describe("proxyConfigFileSchema load balancer validation", () => {
           groups: [
             {
               ...groupFixture,
-              node_target_ids: ["lb-target-a", "lb-target-b", "lb-target-c"],
+              members: [
+                { target_id: "lb-target-a", model_id: "" },
+                { target_id: "lb-target-b", model_id: "" },
+                { target_id: "lb-target-c", model_id: "" },
+              ],
             },
           ],
         }),
@@ -626,7 +676,7 @@ describe("proxyConfigFileSchema load balancer validation", () => {
     );
 
     expect(found[0]?.message).toContain("must share one log root");
-    expect(found[0]?.path).toBe("pairs.0.load_balancers.0.node_target_ids.1");
+    expect(found[0]?.path).toBe("pairs.0.load_balancers.0.members.1.target_id");
   });
 
   it("LB01-05 rejects price rules that differ in order, pattern or amount", () => {
@@ -646,7 +696,7 @@ describe("proxyConfigFileSchema load balancer validation", () => {
     expect(reordered[0]?.message).toContain(
       "load balancer group lb-1 nodes must share identical model prices: lb-target-a differs from lb-target-b",
     );
-    expect(reordered[0]?.path).toBe("pairs.0.load_balancers.0.node_target_ids.1");
+    expect(reordered[0]?.path).toBe("pairs.0.load_balancers.0.members.1.target_id");
 
     expect(
       issues(

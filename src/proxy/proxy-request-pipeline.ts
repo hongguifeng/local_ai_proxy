@@ -4,6 +4,7 @@ import { performance } from "node:perf_hooks";
 
 import type { RepositoryRecord } from "../persistence/index.js";
 import type { LoadBalancerGroup } from "../config/index.js";
+import { loadBalancerMemberModelId, loadBalancerMemberTargetIds } from "../config/index.js";
 import { isRecord } from "../shared/index.js";
 import {
   completeRequestPricing,
@@ -30,6 +31,7 @@ import {
 } from "./headers.js";
 import type { ProxyRequestContext } from "./proxy-listener.js";
 import { transformRequestJsonFields } from "./request-transform.js";
+import type { RequestTransformResult } from "./request-transform.js";
 import {
   ResponseLogCapture,
   type ResponseLogCaptureOptions,
@@ -193,8 +195,10 @@ export class ProxyRequestPipeline {
     let activeTarget = selection.target;
     let activeReservation = selection.loadBalance?.reservation;
     try {
-      const rewrittenBody = rewriteRequestModel(requestBody, selection.upstreamModel);
-      const transformed = transformRequestJsonFields(
+      // A member with a model id rewrites the body once; a failover to another member
+      // rewrites it again, because each node may answer under a different model name.
+      let rewrittenBody = rewriteRequestModel(requestBody, selection.upstreamModel);
+      let transformed = transformRequestJsonFields(
         rewrittenBody,
         activeTarget.stripRequestFields ?? new Set(),
         activeTarget.injectRequestFields ?? {},
@@ -257,7 +261,18 @@ export class ProxyRequestPipeline {
           activeTarget = switched.target;
           activeReservation = switched.reservation;
           activeReservation.markDispatched();
-          applyFailoverRoute(baseRecord, activeTarget, switched.fromTargetId, selection);
+          const failoverModelId =
+            loadBalancerMemberModelId(switched.group, activeTarget.id) ?? selection.requestModel;
+          rewrittenBody = rewriteRequestModel(requestBody, failoverModelId);
+          transformed = transformRequestJsonFields(
+            rewrittenBody,
+            activeTarget.stripRequestFields ?? new Set(),
+            activeTarget.injectRequestFields ?? {},
+          );
+          applyFailoverRoute(baseRecord, activeTarget, switched.fromTargetId, selection, {
+            upstreamModel: failoverModelId,
+            transformed,
+          });
           upstream = await openUpstreamResponse({
             target: activeTarget,
             method: request.method ?? "GET",
@@ -397,6 +412,7 @@ export class ProxyRequestPipeline {
         readonly target: ProxyPipelineTarget;
         readonly reservation: LoadBalancerReservation;
         readonly fromTargetId: string;
+        readonly group: LoadBalancerGroup;
       }
     | undefined {
     const loadBalance = input.selection.loadBalance;
@@ -431,7 +447,7 @@ export class ProxyRequestPipeline {
     if (target === undefined) {
       return undefined;
     }
-    return { target, reservation: next, fromTargetId };
+    return { target, reservation: next, fromTargetId, group: loadBalance.group };
   }
 
   /** A refusal is a finished request: it must show up in the history with its reason. */
@@ -548,7 +564,9 @@ export class ProxyRequestPipeline {
     if (reservation === undefined) {
       throw new LoadBalancerExhaustedError(
         match.group,
-        this.#options.targets.find(({ id }) => match.group.node_target_ids.includes(id)),
+        this.#options.targets.find(({ id }) =>
+          loadBalancerMemberTargetIds(match.group).includes(id),
+        ),
       );
     }
     const chosen = candidates.find(({ id }) => id === reservation.decision.targetId);
@@ -556,12 +574,13 @@ export class ProxyRequestPipeline {
       // The balancer named a target this pipeline does not know; keep the old route.
       return plain;
     }
+    // The chosen member's own model id wins; an empty id forwards the requested model.
+    // The member card's model mappings still never apply to a group hit.
+    const memberModelId = loadBalancerMemberModelId(match.group, chosen.target.id);
     return {
       target: chosen.target,
       requestModel,
-      // A load balancing group forwards the requested model unchanged. Member mappings
-      // must not rewrite the same task onto two different model names.
-      upstreamModel: requestModel,
+      upstreamModel: memberModelId ?? requestModel,
       loadBalance: { group: match.group, reservation, identity },
     };
   }
@@ -780,6 +799,10 @@ function applyFailoverRoute(
   servedTarget: ProxyPipelineTarget,
   fromTargetId: string,
   selection: PipelineTargetSelection,
+  forwarded: {
+    readonly upstreamModel: string | undefined;
+    readonly transformed: RequestTransformResult;
+  },
 ): void {
   const loadBalance = selection.loadBalance;
   if (loadBalance === undefined) {
@@ -803,6 +826,8 @@ function applyFailoverRoute(
     ...modelRoute,
     target_id: servedTarget.id,
     target_name: servedTarget.name,
+    // The answering node may forward under another model name than the planned one.
+    ...(forwarded.upstreamModel === undefined ? {} : { upstream_model: forwarded.upstreamModel }),
     load_balance: {
       ...(isRecord(modelRoute["load_balance"]) ? modelRoute["load_balance"] : {}),
       decision: "failover",
@@ -812,6 +837,14 @@ function applyFailoverRoute(
       ...(decision.metricsSource === undefined ? {} : { metrics_source: decision.metricsSource }),
     },
   };
+  // The retry sent its own body: what was written is what the answering node received.
+  requestBlock["upstream_body"] = bytesPayload(forwarded.transformed.body);
+  if (forwarded.transformed.strippedFields.length > 0) {
+    requestBlock["stripped_fields"] = forwarded.transformed.strippedFields;
+  }
+  if (forwarded.transformed.injectedFields.length > 0) {
+    requestBlock["injected_fields"] = forwarded.transformed.injectedFields;
+  }
   baseRecord["request"] = requestBlock;
 }
 

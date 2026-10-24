@@ -58,7 +58,7 @@ function group(
     name: id,
     enabled: true,
     model_pattern: "Qwen3.8-Flash-Next*",
-    node_target_ids: [...nodeTargetIds],
+    members: nodeTargetIds.map((targetId) => ({ target_id: targetId, model_id: "" })),
     strategy: "least_load",
     metrics_enabled: true,
     failover_enabled: true,
@@ -438,6 +438,158 @@ describe("load balancing inside the request pipeline", () => {
     });
     await listener.close();
     await close(nodeA.server);
+    await close(nodeB.server);
+  });
+
+  it("LB19-06 forwards each member's own model id and keeps follow-ups on it", async () => {
+    const nodeA = await startEchoNode("a");
+    const nodeB = await startEchoNode("b");
+    const records: Readonly<Record<string, unknown>>[] = [];
+    const trafficLog = collectWriter(records);
+    const balancer = new LoadBalancer("pair-lb");
+    balancer.reconfigure(
+      pair(
+        [target("target-a", nodeA.port), target("target-b", nodeB.port)],
+        [
+          {
+            ...group("lb-19", ["target-a", "target-b"]),
+            members: [
+              { target_id: "target-a", model_id: "Model-On-A" },
+              { target_id: "target-b", model_id: "" },
+            ],
+          },
+        ],
+      ),
+    );
+    const pipeline = new ProxyRequestPipeline({
+      pairId: "pair-lb",
+      defaultTargetId: "target-a",
+      loadBalancer: balancer,
+      loadSamples: () => EMPTY_LOAD_SAMPLES,
+      targets: [
+        pipelineTarget("target-a", nodeA.port, trafficLog),
+        pipelineTarget("target-b", nodeB.port, trafficLog),
+      ],
+    });
+    const { port, listener } = await startListener((request, response, context) =>
+      pipeline.handle(request, response, context),
+    );
+
+    const answers = [];
+    // Two different first turns: identical content would collapse into one task key.
+    const turns = {
+      "session-lb19-a": ["one", "two"],
+      "session-lb19-b": ["alpha", "beta"],
+    };
+    for (const [sessionId, sessionTurns] of Object.entries(turns)) {
+      for (const turn of sessionTurns) {
+        answers.push(
+          echoed(
+            (
+              await post(
+                port,
+                "/v1/responses",
+                bodyFor("Qwen3.8-Flash-Next", turn),
+                session(sessionId),
+              )
+            ).body,
+          ),
+        );
+      }
+    }
+
+    // Each session stays on one node, and that node only ever hears its own name.
+    expect(answers[0]?.node).toBe(answers[1]?.node);
+    expect(answers[2]?.node).toBe(answers[3]?.node);
+    expect(answers[0]?.node).not.toBe(answers[2]?.node);
+    expect(nodeA.seen.every((model) => model === "Model-On-A")).toBe(true);
+    expect(nodeB.seen.every((model) => model === "Qwen3.8-Flash-Next")).toBe(true);
+    expect(nodeA.seen.length + nodeB.seen.length).toBe(4);
+    expect(answers.map((answer) => answer.model)).toEqual(
+      answers.map((answer) => (answer.node === "a" ? "Model-On-A" : "Qwen3.8-Flash-Next")),
+    );
+
+    const finished = finishedRecords(records);
+    expect(finished).toHaveLength(4);
+    finished.forEach((record) => {
+      const route = routeOf(record);
+      expect(route["requested_model"]).toBe("Qwen3.8-Flash-Next");
+      expect(route["upstream_model"]).toBe(
+        route["target_id"] === "target-a" ? "Model-On-A" : "Qwen3.8-Flash-Next",
+      );
+      expect(route["route_mode"]).toBe("load_balance");
+    });
+    await listener.close();
+    await close(nodeA.server);
+    await close(nodeB.server);
+  });
+
+  it("LB19-07 rewrites the model again for the node that takes over", async () => {
+    const nodeB = await startEchoNode("b");
+    const records: Readonly<Record<string, unknown>>[] = [];
+    const trafficLog = collectWriter(records);
+    const balancer = new LoadBalancer("pair-lb");
+    balancer.reconfigure(
+      pair(
+        [target("target-a", 1), target("target-b", nodeB.port)],
+        [
+          {
+            ...group("lb-19-fail", ["target-a", "target-b"]),
+            members: [
+              { target_id: "target-a", model_id: "Model-On-A" },
+              { target_id: "target-b", model_id: "Model-On-B" },
+            ],
+          },
+        ],
+      ),
+    );
+    const pipeline = new ProxyRequestPipeline({
+      pairId: "pair-lb",
+      defaultTargetId: "target-a",
+      loadBalancer: balancer,
+      loadSamples: () => EMPTY_LOAD_SAMPLES,
+      targets: [
+        pipelineTarget("target-a", 1, trafficLog),
+        pipelineTarget("target-b", nodeB.port, trafficLog),
+      ],
+    });
+    const { port, listener } = await startListener((request, response, context) =>
+      pipeline.handle(request, response, context),
+    );
+
+    const answer = echoed(
+      (
+        await post(
+          port,
+          "/v1/responses",
+          bodyFor("Qwen3.8-Flash-Next", "one"),
+          session("session-lb19-fail"),
+        )
+      ).body,
+    );
+
+    // The takeover node answers under its own name, not the one the dead node wanted.
+    expect(answer.node).toBe("b");
+    expect(answer.model).toBe("Model-On-B");
+    expect(nodeB.seen).toEqual(["Model-On-B"]);
+
+    const finished = eventRecords(records, "request_finished")[0];
+    expect(routeOf(finished)).toMatchObject({
+      route_mode: "load_balance",
+      target_id: "target-b",
+      requested_model: "Qwen3.8-Flash-Next",
+      upstream_model: "Model-On-B",
+      load_balance: { decision: "failover", failover_from: "target-a" },
+    });
+    // What the log calls the upstream body is what the answering node received.
+    const upstreamBody = requestOf(finished)["upstream_body"];
+    if (!isRecord(upstreamBody)) {
+      throw new Error("the failover record did not carry the body it sent");
+    }
+    expect(String(upstreamBody["text"])).toContain("Model-On-B");
+    expect(String(upstreamBody["text"])).not.toContain("Model-On-A");
+
+    await listener.close();
     await close(nodeB.server);
   });
 

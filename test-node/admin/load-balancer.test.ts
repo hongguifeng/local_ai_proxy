@@ -63,7 +63,7 @@ function group(
     name: id,
     enabled: true,
     model_pattern: "Qwen3.8-Flash-Next",
-    node_target_ids: [...nodeTargetIds],
+    members: nodeTargetIds.map((targetId) => ({ target_id: targetId, model_id: "" })),
     strategy: "least_load",
     metrics_enabled: true,
     failover_enabled: true,

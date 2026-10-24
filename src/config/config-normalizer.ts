@@ -2,6 +2,7 @@ import { isRecord } from "../shared/index.js";
 
 import type {
   LoadBalancerGroup,
+  LoadBalancerMember,
   LoadBalancerStrategy,
   ModelMapping,
   ModelPrice,
@@ -172,20 +173,46 @@ export function normalizeLoadBalancerGroups(value: unknown): LoadBalancerGroup[]
   );
 }
 
+function normalizeLoadBalancerMembers(value: Record<string, unknown>): LoadBalancerMember[] {
+  const listed = value["members"];
+  const legacy = value["node_target_ids"];
+  const source: unknown[] = Array.isArray(listed)
+    ? listed
+    : // A group saved before per-node model ids existed listed only target ids.
+      // Those ids become unmapped members, which forwards the requested model.
+      Array.isArray(legacy)
+      ? legacy.map((targetId: unknown) => ({ target_id: targetId, model_id: "" }))
+      : legacy === undefined
+        ? []
+        : [{ target_id: legacy, model_id: "" }];
+  const members: LoadBalancerMember[] = [];
+  const seen = new Set<string>();
+  for (const item of source) {
+    const record: Record<string, unknown> = isRecord(item)
+      ? item
+      : { target_id: item, model_id: "" };
+    const targetId = primitiveText(record["target_id"]).trim();
+    // An empty id stays: the schema can then name the exact entry that is missing one.
+    if (seen.has(targetId)) {
+      continue;
+    }
+    seen.add(targetId);
+    members.push({ target_id: targetId, model_id: primitiveText(record["model_id"]).trim() });
+  }
+  return members;
+}
+
 function normalizeLoadBalancerGroup(
   value: Record<string, unknown>,
   index: number,
 ): LoadBalancerGroup {
   const id = primitiveText(value["id"]).trim() || `lb-${index + 1}`;
-  const nodeTargetIds = Array.isArray(value["node_target_ids"])
-    ? value["node_target_ids"].map((targetId) => primitiveText(targetId).trim())
-    : [primitiveText(value["node_target_ids"]).trim()];
   return {
     id,
     name: primitiveText(value["name"]) || id,
     enabled: value["enabled"] === undefined ? true : Boolean(value["enabled"]),
     model_pattern: primitiveText(value["model_pattern"]).trim(),
-    node_target_ids: nodeTargetIds,
+    members: normalizeLoadBalancerMembers(value),
     strategy: normalizeLoadBalancerStrategy(value["strategy"]),
     metrics_enabled:
       value["metrics_enabled"] === undefined ? true : Boolean(value["metrics_enabled"]),

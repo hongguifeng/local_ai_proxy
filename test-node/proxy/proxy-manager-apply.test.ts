@@ -142,7 +142,7 @@ describe("ProxyManager configuration apply", () => {
           name: "Dual card",
           enabled: true,
           model_pattern: "qwen*",
-          node_target_ids: ["managed-target"],
+          members: [{ target_id: "managed-target", model_id: "" }],
           strategy: "least_load",
           metrics_enabled: true,
           failover_enabled: true,

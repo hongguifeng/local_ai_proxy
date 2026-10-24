@@ -4339,29 +4339,6 @@ label span {
   color: #3b4a5a;
 }
 /* Only the ticked members are listed on the card, one chip each. */
-.lb-selected {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 4px 6px;
-  min-width: 0;
-}
-.lb-chip {
-  display: inline-flex;
-  align-items: center;
-  gap: 4px;
-  max-width: 100%;
-  padding: 2px 6px;
-  border: 1px solid #b8c5d3;
-  border-radius: 5px;
-  background: #ffffff;
-  font-size: 12px;
-}
-.lb-chip-name {
-  min-width: 0;
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
 .lb-picker {
   position: relative;
   min-width: 0;
@@ -4446,6 +4423,51 @@ label span {
 .lb-flag > span {
   flex: 0 0 auto;
   overflow-wrap: normal;
+}
+/* One row per ticked member: the node name on the left, its model id on the right.
+   The columns are fixed shares, so a longer name never squeezes the model box. */
+.lb-member-rows {
+  display: grid;
+  gap: 6px;
+  margin-top: 8px;
+  padding-top: 8px;
+  border-top: 1px solid #dde5ef;
+}
+.lb-member-row {
+  display: grid;
+  grid-template-columns: minmax(0, 5fr) minmax(0, 7fr);
+  align-items: center;
+  gap: 8px;
+}
+.lb-member-row-name {
+  min-width: 0;
+  max-width: 100%;
+  min-height: 32px;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 0 6px;
+  border: 1px solid #b8c5d3;
+  border-radius: 6px;
+  background: #ffffff;
+  font-size: 13px;
+}
+/* The name needs a box of its own to clip in: text-overflow does nothing to the
+   anonymous flex item that bare text becomes inside an inline-flex container. */
+.lb-member-row-label {
+  min-width: 0;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.lb-member-row-model {
+  min-width: 0;
+  font-size: 12px;
+}
+.lb-member-hint {
+  margin: 6px 0 0;
+  font-size: 11px;
+  color: #6b7a8a;
 }
 .lb-tools {
   display: grid;
@@ -4539,5 +4561,9 @@ label span {
 @media (max-width: 520px) {
   .lb-groups {
     grid-template-columns: 1fr;
+  }
+  .lb-member-row {
+    grid-template-columns: minmax(0, 1fr);
+    gap: 4px;
   }
 }

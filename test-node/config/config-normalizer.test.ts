@@ -179,6 +179,7 @@ describe("normalizeLoadBalancerGroups", () => {
     name: "Dual card",
     enabled: false,
     model_pattern: " qwen* ",
+    // Written the way a group was saved before member model ids existed.
     node_target_ids: [" target-b ", "target-a"],
     strategy: "round_robin",
     metrics_enabled: false,
@@ -189,6 +190,41 @@ describe("normalizeLoadBalancerGroups", () => {
     expect(normalizeLoadBalancerGroups(undefined)).toEqual([]);
   });
 
+  it("LB19-02 reads member model ids, trims them and folds an id list into members", () => {
+    expect(
+      normalizeLoadBalancerGroups([
+        {
+          model_pattern: "qwen*",
+          members: [
+            { target_id: " target-a ", model_id: "  Qwen3.8-A  " },
+            { target_id: "target-a", model_id: "Ignored" },
+            { target_id: "target-b", model_id: "   " },
+          ],
+        },
+      ])[0]?.members,
+    ).toEqual([
+      { target_id: "target-a", model_id: "Qwen3.8-A" },
+      { target_id: "target-b", model_id: "" },
+    ]);
+  });
+
+  it("LB19-02 keeps an old id-only group as a group of unmapped members", () => {
+    const groups = normalizeLoadBalancerGroups([
+      {
+        id: "lb-old",
+        name: "Old",
+        model_pattern: "qwen*",
+        node_target_ids: ["target-a", "target-a", "target-b"],
+      },
+    ]);
+
+    expect(groups[0]?.members).toEqual([
+      { target_id: "target-a", model_id: "" },
+      { target_id: "target-b", model_id: "" },
+    ]);
+    expect(loadBalancerGroupSchema.parse(groups[0]).members).toEqual(groups[0]?.members);
+  });
+
   it("fills generated ids, keeps supplied values and trims text", () => {
     expect(normalizeLoadBalancerGroups([groupFixture, {}])).toEqual([
       {
@@ -196,7 +232,10 @@ describe("normalizeLoadBalancerGroups", () => {
         name: "Dual card",
         enabled: false,
         model_pattern: "qwen*",
-        node_target_ids: ["target-b", "target-a"],
+        members: [
+          { target_id: "target-b", model_id: "" },
+          { target_id: "target-a", model_id: "" },
+        ],
         strategy: "round_robin",
         metrics_enabled: false,
         failover_enabled: false,
@@ -206,7 +245,7 @@ describe("normalizeLoadBalancerGroups", () => {
         name: "lb-2",
         enabled: true,
         model_pattern: "",
-        node_target_ids: [""],
+        members: [],
         strategy: "least_load",
         metrics_enabled: true,
         failover_enabled: true,
@@ -227,7 +266,7 @@ describe("normalizeLoadBalancerGroups", () => {
           targets: [createDefaultTarget("logs")],
           default_target_id: "target-1",
           load_balancers: normalizeLoadBalancerGroups([
-            { model_pattern: "qwen*", node_target_ids: ["ghost"] },
+            { model_pattern: "qwen*", members: [{ target_id: "ghost", model_id: "GhostModel" }] },
           ]),
         },
       ],
@@ -239,7 +278,7 @@ describe("normalizeLoadBalancerGroups", () => {
     expect(firstIssue?.message).toContain(
       "load balancer node target not found in pair proxy-1: ghost",
     );
-    expect(firstIssue?.path).toEqual(["pairs", 0, "load_balancers", 0, "node_target_ids", 0]);
+    expect(firstIssue?.path).toEqual(["pairs", 0, "load_balancers", 0, "members", 0, "target_id"]);
   });
 
   it("LB01-07 keeps an unknown strategy text instead of guessing a strategy", () => {
@@ -258,7 +297,7 @@ describe("normalizeLoadBalancerGroups", () => {
       { model_pattern: "qwen*", node_target_ids: "target-1" },
     ]);
 
-    expect(groups[0]).toMatchObject({ node_target_ids: ["target-1"] });
+    expect(groups[0]).toMatchObject({ members: [{ target_id: "target-1", model_id: "" }] });
     expect(
       proxyConfigFileSchema.safeParse({
         pairs: [
@@ -305,7 +344,10 @@ describe("normalizeLoadBalancerGroups", () => {
         name: "Dual card",
         enabled: false,
         model_pattern: "qwen*",
-        node_target_ids: ["target-2", "target-1"],
+        members: [
+          { target_id: "target-2", model_id: "" },
+          { target_id: "target-1", model_id: "" },
+        ],
         strategy: "round_robin",
         metrics_enabled: false,
         failover_enabled: false,

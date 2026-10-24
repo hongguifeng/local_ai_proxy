@@ -5,6 +5,8 @@ import type {
   TargetConfig,
 } from "../config/index.js";
 
+import { loadBalancerMemberTargetIds } from "../config/index.js";
+
 import { LoadAffinityTable, type AffinityBinding } from "./load-affinity.js";
 import { tryCanonicalNodeKey } from "./node-identity.js";
 import { modelPatternMatches } from "./routing.js";
@@ -177,7 +179,9 @@ export class LoadBalancer {
       const allowed = new Set<string>(
         group === undefined
           ? []
-          : group.node_target_ids.filter((targetId) => next.get(targetId)?.enabled === true),
+          : loadBalancerMemberTargetIds(group).filter(
+              (targetId) => next.get(targetId)?.enabled === true,
+            ),
       );
       table.pruneTargets(allowed);
     }
@@ -285,7 +289,9 @@ export class LoadBalancer {
     // An affinity hit may still land on a cooling node: moving the task would cost a
     // cold prefill, which is the more expensive mistake.
     const boundNodes = new Set(
-      input.group.node_target_ids.filter((targetId) => this.#nodes.get(targetId)?.enabled === true),
+      loadBalancerMemberTargetIds(input.group).filter(
+        (targetId) => this.#nodes.get(targetId)?.enabled === true,
+      ),
     );
     const hit = table.lookup(input.identity, boundNodes);
     if (hit !== undefined && !input.exclude?.has(hit.binding.targetId)) {
@@ -420,7 +426,7 @@ export class LoadBalancer {
     samples: ReadonlyMap<string, LoadSample> | undefined,
     now: number,
   ): LoadBalancerNode[] {
-    const members = group.node_target_ids
+    const members = loadBalancerMemberTargetIds(group)
       .map((targetId) => this.#nodes.get(targetId))
       .filter((node): node is LoadBalancerNode => node?.enabled === true);
     if (members.length === 0) {

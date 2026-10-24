@@ -1,5 +1,7 @@
 import { StructuredLogger } from "../shared/index.js";
 
+import { loadBalancerMemberTargetIds } from "../config/index.js";
+
 import {
   METRIC_FRESH_WINDOW_MS,
   type LoadBalancer,
@@ -202,7 +204,7 @@ export class LoadMonitor {
       if (!group?.enabled || !group.metrics_enabled) {
         continue;
       }
-      for (const targetId of group.node_target_ids) {
+      for (const targetId of loadBalancerMemberTargetIds(group)) {
         const node = this.#balancer.nodeFor(targetId);
         if (!node?.enabled) {
           continue;

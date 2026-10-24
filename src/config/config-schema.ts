@@ -47,6 +47,18 @@ export const loadBalancerStrategySchema = z.enum(["least_load", "round_robin"]);
 export type LoadBalancerStrategy = z.infer<typeof loadBalancerStrategySchema>;
 
 /**
+ * One member of a load balancing group: an existing target of the same pair,
+ * plus the model name forwarded to it. An empty model id means no mapping, so
+ * the requested model reaches that node unchanged.
+ */
+export const loadBalancerMemberSchema = z.object({
+  target_id: z.string().trim().min(1, "load balancer node target id is required"),
+  model_id: z.string().trim().default(""),
+});
+
+export type LoadBalancerMember = z.infer<typeof loadBalancerMemberSchema>;
+
+/**
  * One load balancing group inside a proxy pair. Group members are existing
  * targets of the same pair; the group only decides which node serves a request
  * and which model name is forwarded, every other target setting still applies.
@@ -57,24 +69,24 @@ export const loadBalancerGroupSchema = z
     name: z.string(),
     enabled: z.boolean().default(true),
     model_pattern: z.string().trim().min(1, "load balancer model pattern is required"),
-    node_target_ids: z
-      .array(z.string().trim().min(1, "load balancer node target id is required"))
+    members: z
+      .array(loadBalancerMemberSchema)
       .min(1, "load balancer group needs at least one node target"),
     strategy: loadBalancerStrategySchema.default("least_load"),
     metrics_enabled: z.boolean().default(true),
     failover_enabled: z.boolean().default(true),
   })
-  .superRefine(({ id, node_target_ids: nodeTargetIds }, context) => {
+  .superRefine(({ id, members }, context) => {
     const seen = new Set<string>();
-    for (const [index, targetId] of nodeTargetIds.entries()) {
-      if (seen.has(targetId)) {
+    for (const [index, member] of members.entries()) {
+      if (seen.has(member.target_id)) {
         context.addIssue({
           code: "custom",
-          message: `duplicate load balancer node target in group ${id}: ${targetId}`,
-          path: ["node_target_ids", index],
+          message: `duplicate load balancer node target in group ${id}: ${member.target_id}`,
+          path: ["members", index, "target_id"],
         });
       }
-      seen.add(targetId);
+      seen.add(member.target_id);
     }
   });
 
@@ -185,57 +197,60 @@ export const proxyConfigFileSchema = z
         }
         exactPatterns.add(group.model_pattern);
 
-        const members: { readonly nodeIndex: number; readonly target: TargetConfig }[] = [];
-        for (const [nodeIndex, targetId] of group.node_target_ids.entries()) {
-          const target = targetsById.get(targetId);
+        const resolved: { readonly memberIndex: number; readonly target: TargetConfig }[] = [];
+        for (const [memberIndex, member] of group.members.entries()) {
+          const target = targetsById.get(member.target_id);
           if (target === undefined) {
             context.addIssue({
               code: "custom",
-              message: `load balancer node target not found in pair ${pair.id}: ${targetId}`,
+              message: `load balancer node target not found in pair ${pair.id}: ${member.target_id}`,
               path: [
                 "pairs",
                 pairIndex,
                 "load_balancers",
                 groupIndex,
-                "node_target_ids",
-                nodeIndex,
+                "members",
+                memberIndex,
+                "target_id",
               ],
             });
             continue;
           }
-          members.push({ nodeIndex, target });
+          resolved.push({ memberIndex, target });
         }
 
-        const reference = members[0];
+        const reference = resolved[0];
         if (reference === undefined) {
           continue;
         }
-        for (const member of members.slice(1)) {
-          if (!sameResolvedLogRoot(reference.target.log_root, member.target.log_root)) {
+        for (const other of resolved.slice(1)) {
+          if (!sameResolvedLogRoot(reference.target.log_root, other.target.log_root)) {
             context.addIssue({
               code: "custom",
-              message: `load balancer group ${group.id} nodes must share one log root: ${reference.target.id} uses "${reference.target.log_root}" but ${member.target.id} uses "${member.target.log_root}"`,
+              message: `load balancer group ${group.id} nodes must share one log root: ${reference.target.id} uses "${reference.target.log_root}" but ${other.target.id} uses "${other.target.log_root}"`,
               path: [
                 "pairs",
                 pairIndex,
                 "load_balancers",
                 groupIndex,
-                "node_target_ids",
-                member.nodeIndex,
+                "members",
+                other.memberIndex,
+                "target_id",
               ],
             });
           }
-          if (!sameModelPriceRules(reference.target.model_prices, member.target.model_prices)) {
+          if (!sameModelPriceRules(reference.target.model_prices, other.target.model_prices)) {
             context.addIssue({
               code: "custom",
-              message: `load balancer group ${group.id} nodes must share identical model prices: ${reference.target.id} differs from ${member.target.id}`,
+              message: `load balancer group ${group.id} nodes must share identical model prices: ${reference.target.id} differs from ${other.target.id}`,
               path: [
                 "pairs",
                 pairIndex,
                 "load_balancers",
                 groupIndex,
-                "node_target_ids",
-                member.nodeIndex,
+                "members",
+                other.memberIndex,
+                "target_id",
               ],
             });
           }
@@ -450,22 +465,36 @@ export interface LoadBalancerWarning {
   readonly related_target_ids: readonly string[];
 }
 
+/** The member ids in configured order; routing code reads this often. */
+export function loadBalancerMemberTargetIds(group: LoadBalancerGroup): string[] {
+  return group.members.map(({ target_id }) => target_id);
+}
+
+/** The model a member forwards to; an empty id means no mapping at all. */
+export function loadBalancerMemberModelId(
+  group: LoadBalancerGroup,
+  targetId: string,
+): string | undefined {
+  const modelId = group.members.find(({ target_id }) => target_id === targetId)?.model_id;
+  return modelId === undefined || modelId === "" ? undefined : modelId;
+}
+
 export function collectLoadBalancerWarnings(pair: ProxyPair): LoadBalancerWarning[] {
   const warnings: LoadBalancerWarning[] = [];
   const targetsById = new Map(pair.targets.map((target) => [target.id, target]));
   for (const [groupIndex, group] of pair.load_balancers.entries()) {
-    if (group.node_target_ids.length === 1) {
+    if (group.members.length === 1) {
       warnings.push({
         group_id: group.id,
         group_index: groupIndex,
         code: "single_node",
         related_group_ids: [],
-        related_target_ids: [...group.node_target_ids],
+        related_target_ids: group.members.map(({ target_id }) => target_id),
       });
     }
-    const disabledTargetIds = group.node_target_ids.filter(
-      (targetId) => targetsById.get(targetId)?.enabled === false,
-    );
+    const disabledTargetIds = group.members
+      .map(({ target_id }) => target_id)
+      .filter((targetId) => targetsById.get(targetId)?.enabled === false);
     if (disabledTargetIds.length > 0) {
       warnings.push({
         group_id: group.id,
