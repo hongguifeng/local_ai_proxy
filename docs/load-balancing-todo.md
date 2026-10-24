@@ -504,7 +504,7 @@ npx electron-builder -w portable --publish never
 - UI 基线：未涉及
 - 设计偏差：见设计文档 §8.4 落地说明——记录的 `load` 不含本次预留；亲和命中可用冷却/睡眠节点而新 task 不用；`release()` 幂等；`loadSamples` 暂时是空表（LB-08 接真实采样）；503 的 `no_healthy_node` 记录由 LB-07 补上。
 - 提交标题：`feat(load-balancing): [LB-05] select nodes and reserve them in the request pipeline`
-- 提交 SHA：待填写
+- 提交 SHA：`6a406fc`
 - 备注：无。
 
 每完成一个任务，在这里追加一条记录：
