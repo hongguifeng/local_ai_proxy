@@ -5125,3 +5125,314 @@ describe("statistics page visual smoke", () => {
     await popup.close();
   });
 });
+
+// Opt-in cascade-neutrality check: set CSS_CANDIDATE to a stylesheet and this
+// compares the exact computed-style multiset of every state between it and the
+// committed sheet. Stub data and a frozen page clock make it deterministic, so
+// unlike the user's live instance it can tell a real cascade change from noise.
+// The walk covers four viewport widths and the proxy tab, both dialogs, the
+// expanded history list, the task-detail panel and every statistics breakdown.
+describe("CSS cascade neutrality (opt-in via CSS_CANDIDATE)", () => {
+  const SAMPLED = [
+    "display",
+    "position",
+    "top",
+    "right",
+    "bottom",
+    "left",
+    "z-index",
+    "float",
+    "clear",
+    "flex-direction",
+    "flex-wrap",
+    "justify-content",
+    "align-items",
+    "align-self",
+    "order",
+    "flex-grow",
+    "flex-shrink",
+    "flex-basis",
+    "grid-template-columns",
+    "grid-template-rows",
+    "grid-auto-flow",
+    "grid-column-start",
+    "grid-column-end",
+    "grid-row-start",
+    "grid-row-end",
+    "gap",
+    "row-gap",
+    "column-gap",
+    "box-sizing",
+    "width",
+    "min-width",
+    "max-width",
+    "height",
+    "min-height",
+    "max-height",
+    "aspect-ratio",
+    "vertical-align",
+    "visibility",
+    "contain",
+    "content-visibility",
+    "contain-intrinsic-size",
+    "overflow",
+    "overflow-x",
+    "overflow-y",
+    "resize",
+    "pointer-events",
+    "cursor",
+    "user-select",
+    "accent-color",
+    "color",
+    "fill",
+    "stroke",
+    "opacity",
+    "clip-path",
+    "mask-image",
+    "filter",
+    "backdrop-filter",
+    "box-shadow",
+    "text-shadow",
+    "font-style",
+    "font-variant",
+    "font-weight",
+    "font-stretch",
+    "font-size",
+    "line-height",
+    "font-family",
+    "text-rendering",
+    "letter-spacing",
+    "word-spacing",
+    "text-align",
+    "text-indent",
+    "text-transform",
+    "text-overflow",
+    "white-space",
+    "word-break",
+    "overflow-wrap",
+    "hyphens",
+    "direction",
+    "writing-mode",
+    "text-decoration-line",
+    "text-decoration-style",
+    "text-decoration-color",
+    "text-decoration-thickness",
+    "background-image",
+    "background-position",
+    "background-size",
+    "background-repeat",
+    "background-attachment",
+    "background-origin",
+    "background-clip",
+    "background-color",
+    "padding-top",
+    "padding-right",
+    "padding-bottom",
+    "padding-left",
+    "margin-top",
+    "margin-right",
+    "margin-bottom",
+    "margin-left",
+    "border-top-width",
+    "border-top-style",
+    "border-top-color",
+    "border-right-width",
+    "border-right-style",
+    "border-right-color",
+    "border-bottom-width",
+    "border-bottom-style",
+    "border-bottom-color",
+    "border-left-width",
+    "border-left-style",
+    "border-left-color",
+    "border-radius",
+    "outline-color",
+    "outline-style",
+    "outline-width",
+    "outline-offset",
+    "appearance",
+    "-webkit-appearance",
+    "scrollbar-color",
+    "scrollbar-width",
+    "transform",
+    "transform-origin",
+    "transition-property",
+    "animation-name",
+    "object-fit",
+    "object-position",
+  ];
+
+  async function signaturesWithCss(
+    css: string,
+  ): Promise<
+    Record<
+      string,
+      { sigs: Record<string, number>; facts: Record<string, { n: number; who: string[] }> }
+    >
+  > {
+    const out: Record<
+      string,
+      { sigs: Record<string, number>; facts: Record<string, { n: number; who: string[] }> }
+    > = {};
+    for (const width of [1280, 1050, 780, 480]) {
+      const probe = await browser.newPage({ viewport: { width, height: 900 } });
+      // The metrics dialog polls on a timer, so a digest could otherwise land in
+      // the middle of a refresh and differ from the other run. Freeze page time
+      // and never advance it: no page timer ever fires during the walk.
+      await probe.clock.install();
+      // The statistics page only renders once its API is stubbed; the overview
+      // fixture rotates across three payloads, so pin the first one to keep the
+      // two runs comparable.
+      const statisticsFixtures = statisticsBaselineFixtures();
+      await probe.route("**/api/usage-statistics/options*", (route) =>
+        route.fulfill({ json: statisticsFixtures.options }),
+      );
+      await probe.route("**/api/usage-statistics/overview*", (route) =>
+        route.fulfill({ json: statisticsFixtures.overview[0] }),
+      );
+      await probe.route("**/api/usage-statistics/trend*", (route) =>
+        route.fulfill({ json: statisticsFixtures.trend }),
+      );
+      await probe.route("**/static/app.css", (route) =>
+        route.fulfill({
+          status: 200,
+          contentType: "text/css; charset=utf-8",
+          body: css,
+          headers: { "cache-control": "no-store" },
+        }),
+      );
+      await probe.addStyleTag({
+        content: "*,*::before,*::after{animation:none !important;transition:none !important}",
+      });
+      const digest = async (label: string) => {
+        // Hover and focus are run-to-run artifacts of where the click landed, so
+        // clear both before reading computed styles.
+        await probe.mouse.move(2, 2);
+        await probe.evaluate(() => {
+          const active = document.activeElement;
+          if (active instanceof HTMLElement) active.blur();
+        });
+        out[`${width}/${label}`] = await probe.evaluate((names: string[]) => {
+          const sigs: Record<string, number> = {};
+          const facts: Record<string, { n: number; who: string[] }> = {};
+          for (const el of Array.from(document.querySelectorAll("*"))) {
+            const cs = getComputedStyle(el);
+            const kind = el.tagName + "|" + el.className;
+            let sig = "";
+            for (const n of names) {
+              const v = cs.getPropertyValue(n);
+              sig += n + ":" + v + ";";
+              const fact = n + ":" + v;
+              facts[fact] ??= { n: 0, who: [] };
+              facts[fact].n += 1;
+              if (facts[fact].who.length < 3 && !facts[fact].who.includes(kind)) {
+                facts[fact].who.push(kind);
+              }
+            }
+            sigs[sig] = (sigs[sig] ?? 0) + 1;
+          }
+          return { sigs, facts };
+        }, SAMPLED);
+      };
+
+      await probe.goto(`${baseUrl}/`, { waitUntil: "load" });
+      // Auto refresh and the pending-row sweep rotate state between renders,
+      // which would make two runs of the same sheet differ.
+      await probe.evaluate(() => {
+        const box = document.getElementById("autoRefreshLogs");
+        if (box instanceof HTMLInputElement && box.checked) box.click();
+      });
+      await probe.waitForSelector(".target-card");
+      await digest("proxy");
+      await probe.click("[data-metrics-target]");
+      await probe.waitForSelector("#metricsDialog[open]");
+      // The metrics list arrives asynchronously; #metricsRefresh is disabled
+      // while the request is in flight, so enabled means the dialog has settled.
+      await probe.waitForFunction(() => {
+        const button = document.getElementById("metricsRefresh");
+        return button instanceof HTMLButtonElement && !button.disabled;
+      });
+      await digest("metrics-dialog");
+      await probe.evaluate(() => {
+        const dialog = document.getElementById("metricsDialog");
+        if (dialog instanceof HTMLDialogElement) dialog.close();
+      });
+      await probe.click("[data-check-target]");
+      await probe.waitForSelector("#targetCheckDialog[open]");
+      // The model picker fills asynchronously and re-enables its button when done.
+      await probe.waitForFunction(() => {
+        const button = document.getElementById("targetCheckModels");
+        return button instanceof HTMLButtonElement && !button.disabled;
+      });
+      await digest("target-check-dialog");
+      await probe.evaluate(() => {
+        const dialog = document.getElementById("targetCheckDialog");
+        if (dialog instanceof HTMLDialogElement) dialog.close();
+      });
+      await probe.click('[data-tab="logs"]');
+      await probe.waitForSelector(".log-group");
+      await probe.locator(".log-group-caret").first().click();
+      await probe.waitForSelector(".log-item");
+      await digest("logs-expanded");
+      await probe.locator(".log-group-head").first().click();
+      await probe.waitForSelector("#pricingPanel .task-summary");
+      await digest("task-panel");
+      await probe.click('[data-tab="statistics"]');
+      await probe.waitForSelector("#statsBreakdown");
+      await digest("stats");
+      const breakdownValues = await probe.evaluate(() =>
+        Array.from(document.querySelectorAll("#statsBreakdown option"))
+          .map((option) => (option instanceof HTMLOptionElement ? option.value : ""))
+          .filter((value) => value !== ""),
+      );
+      for (const value of breakdownValues) {
+        await probe.selectOption("#statsBreakdown", value);
+        await probe.waitForTimeout(200);
+        await digest(`stats-${value}`);
+      }
+      await probe.close();
+    }
+    return out;
+  }
+
+  it.skipIf(!process.env["CSS_CANDIDATE"])(
+    "candidate stylesheet must not change any computed-style count",
+    async () => {
+      const candidateFile = process.env["CSS_CANDIDATE"];
+      if (candidateFile === undefined) return;
+      const liveCss = await readFile(
+        new URL("../../src/admin/static/app.css", import.meta.url),
+        "utf8",
+      );
+      const candidateCss = await readFile(candidateFile, "utf8");
+      const live = await signaturesWithCss(liveCss);
+      const candidate = await signaturesWithCss(candidateCss);
+      const problems: string[] = [];
+      const boring =
+        /: (normal|none|auto|0px|visible|static|start|stretch|baseline|1|row|nowrap|middle)$/i;
+      for (const key of Object.keys(live)) {
+        const a = live[key];
+        const b = candidate[key];
+        if (a === undefined || b === undefined) {
+          problems.push(`${key}: checkpoint missing`);
+          continue;
+        }
+        if (JSON.stringify(a.sigs) !== JSON.stringify(b.sigs)) {
+          problems.push(`${key}: signature multiset changed`);
+        }
+        const factKeys = new Set([...Object.keys(a.facts), ...Object.keys(b.facts)]);
+        for (const fact of factKeys) {
+          const from = a.facts[fact]?.n ?? 0;
+          const to = b.facts[fact]?.n ?? 0;
+          if (from === to || boring.test(fact)) continue;
+          const who = [
+            ...new Set([...(b.facts[fact]?.who ?? []), ...(a.facts[fact]?.who ?? [])]),
+          ].join(", ");
+          problems.push(`${key}: ${fact} ${from} -> ${to} [${who}]`);
+        }
+      }
+      expect(problems.slice(0, 30)).toEqual([]);
+    },
+    240_000,
+  );
+});
