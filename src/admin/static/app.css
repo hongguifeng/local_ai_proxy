@@ -4241,11 +4241,16 @@ label span {
 }
 .lb-groups {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+  /* The same tracks as .targets-row: a group card is as wide as a forwarding
+     address card and never stretches across the whole page. */
+  grid-template-columns: repeat(auto-fit, minmax(300px, 360px));
   gap: 10px;
+  justify-content: start;
+  align-items: start;
 }
 .lb-card {
   min-width: 0;
+  align-self: start;
   border: 1px solid #b8c5d3;
   border-radius: 8px;
   padding: 10px;
@@ -4286,29 +4291,119 @@ label span {
   font-size: 12px;
   color: #3b4a5a;
 }
-.lb-members {
+.lb-members-field {
+  display: grid;
+  gap: 4px;
+  min-width: 0;
+}
+.lb-members-field > strong {
+  font-size: 12px;
+  color: #3b4a5a;
+}
+/* Only the ticked members are listed on the card, one chip each. */
+.lb-selected {
   display: flex;
   flex-wrap: wrap;
-  gap: 6px 12px;
+  gap: 4px 6px;
+  min-width: 0;
 }
-.lb-member {
+.lb-chip {
   display: inline-flex;
   align-items: center;
   gap: 4px;
-  min-width: 0;
+  max-width: 100%;
+  padding: 2px 6px;
+  border: 1px solid #b8c5d3;
+  border-radius: 5px;
+  background: #ffffff;
   font-size: 12px;
 }
-/* The page-wide `label span` rule allows breaking anywhere, which turned these
-   short labels into one-character columns; keep them on one line. */
-.lb-member > span,
-.lb-flag > span {
-  flex: 0 0 auto;
-  overflow-wrap: normal;
+.lb-chip-name {
+  min-width: 0;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
-.lb-member-disabled {
+.lb-picker {
+  position: relative;
+  min-width: 0;
+}
+.lb-picker-toggle {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  width: 100%;
+}
+.lb-picker-toggle > span {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.lb-picker-caret {
+  flex: 0 0 auto;
+  font-size: 11px;
+  color: #55616f;
+}
+/* The candidate nodes float over the card so its height never changes while
+   the list is open; the script picks the side with more room and caps the
+   height so the scrollable page never clips the list. */
+.lb-picker-pop {
+  position: absolute;
+  left: 0;
+  right: 0;
+  top: calc(100% + 4px);
+  z-index: 30;
+  display: grid;
+  gap: 2px;
+  max-height: 240px;
+  overflow-y: auto;
+  padding: 4px;
+  background: #ffffff;
+  border: 1px solid #b8c5d3;
+  border-radius: 6px;
+  box-shadow: 0 2px 8px rgba(23, 32, 42, 0.18);
+}
+/* A display rule beats the hidden attribute's own display: none, so closing the
+   list has to be written out (same as .target-options[hidden]). */
+.lb-picker-pop[hidden] {
+  display: none;
+}
+.lb-picker-pop.is-above {
+  top: auto;
+  bottom: calc(100% + 4px);
+}
+.lb-member {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+  padding: 4px 6px;
+  font-size: 12px;
+}
+.lb-member:hover {
+  background: #eef3f9;
+}
+.lb-member-name {
+  min-width: 0;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+/* A disabled node used to wrap into a one-character column; keep the mark on
+   one line and never let it shrink. */
+.lb-off {
+  flex: 0 0 auto;
+  white-space: nowrap;
   color: #8a6d3b;
   font-style: normal;
   font-size: 11px;
+}
+.lb-flag > span {
+  flex: 0 0 auto;
+  overflow-wrap: normal;
 }
 .lb-preview {
   display: grid;

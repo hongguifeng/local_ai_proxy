@@ -236,6 +236,8 @@ const translations = {
     lbMetricsEnabled: "采样上游指标",
     lbFailoverEnabled: "连接失败时切换一次",
     lbMembers: "参与节点",
+    lbMembersNone: "未选择节点",
+    lbChooseNodes: "选择节点",
     lbPreview: "匹配预览输入",
     lbPreviewMatch: "会进入本组",
     lbPreviewNoMatch: "不会进入本组",
@@ -706,6 +708,8 @@ const translations = {
     lbMetricsEnabled: "Sample upstream metrics",
     lbFailoverEnabled: "Switch once on a connection failure",
     lbMembers: "Member nodes",
+    lbMembersNone: "No nodes selected",
+    lbChooseNodes: "Choose nodes",
     lbPreview: "Match preview input",
     lbPreviewMatch: "would be handled by this group",
     lbPreviewNoMatch: "would not be handled by this group",
@@ -1278,20 +1282,44 @@ function lbStatusRowHtml(targetId) {
     ${fact("source", t("lbStateSource"), "-")}
   </div>`;
 }
+/** One checkbox row in the member picker dropdown: checkbox, name, disabled mark. */
+function lbMemberOptionHtml(target, checked) {
+  const id = escapeHtml(target.id);
+  const name = target.name || target.id;
+  const off =
+    target.enabled === false ? `<em class="lb-off">${escapeHtml(t("lbStateOff"))}</em>` : "";
+  return `<label class="lb-member"><input type="checkbox" data-lb-node="${id}" ${checked ? "checked" : ""}><span class="lb-member-name" title="${escapeHtml(name)}">${escapeHtml(name)}</span>${off}</label>`;
+}
+/** The members that were ticked, as chips. Unticked targets are not shown here. */
+function lbSelectedNodesHtml(targetIds, targets) {
+  const byId = new Map(targets.map((target) => [target.id, target]));
+  const chips = targetIds
+    .map((targetId) => byId.get(targetId))
+    .filter((target) => target !== undefined)
+    .map(
+      (target) =>
+        `<span class="lb-chip"><span class="lb-chip-name">${escapeHtml(target.name || target.id)}</span>${target.enabled === false ? `<em class="lb-off">${escapeHtml(t("lbStateOff"))}</em>` : ""}</span>`,
+    )
+    .join("");
+  return chips || `<p class="lb-empty">${escapeHtml(t("lbMembersNone"))}</p>`;
+}
+/** Members plus disabled flags: the pair the chips have to be rebuilt for. */
+function lbSelectionSignature(targetIds, disabledIds) {
+  return `${targetIds.join(",")}|${disabledIds.join(",")}`;
+}
+function lbDisabledTargetIds(targets) {
+  return targets.filter((target) => target.enabled === false).map((target) => target.id);
+}
 function lbGroupCard(group, pair, pairIndex, groupIndex) {
   const open = isLbGroupOpen(pair, group);
   const members = new Set(group.node_target_ids || []);
-  const memberRows = pairTargets(pair)
-    .map((target) => {
-      const id = escapeHtml(target.id);
-      const off =
-        target.enabled === false
-          ? ` <em class="lb-member-disabled">${escapeHtml(t("lbStateOff"))}</em>`
-          : "";
-      return `<label class="lb-member"><input type="checkbox" data-lb-node="${id}" ${members.has(target.id) ? "checked" : ""}> <span>${escapeHtml(target.name || target.id)}</span>${off}</label>`;
-    })
+  const targets = pairTargets(pair);
+  const memberRows = targets
+    .map((target) => lbMemberOptionHtml(target, members.has(target.id)))
     .join("");
   const nodeIds = group.node_target_ids || [];
+  const selectionKey = lbSelectionSignature(nodeIds, lbDisabledTargetIds(targets));
+  const popId = `lb-picker-pop-${pairIndex}-${groupIndex}`;
   return `<section class="lb-card" data-lb-pair="${pairIndex}" data-lb-index="${groupIndex}">
     <div class="lb-head">
       <input data-lb-field="name" value="${escapeHtml(group.name || "")}" placeholder="${escapeHtml(t("lbGroupName"))}" aria-label="${escapeHtml(t("lbGroupName"))}">
@@ -1307,8 +1335,14 @@ function lbGroupCard(group, pair, pairIndex, groupIndex) {
       <label class="lb-flag"><input type="checkbox" data-lb-flag="metrics_enabled" ${group.metrics_enabled !== false ? "checked" : ""}> <span>${escapeHtml(t("lbMetricsEnabled"))}</span></label>
       <label class="lb-flag"><input type="checkbox" data-lb-flag="failover_enabled" ${group.failover_enabled !== false ? "checked" : ""}> <span>${escapeHtml(t("lbFailoverEnabled"))}</span></label>
     </div>
-    <strong>${escapeHtml(t("lbMembers"))}</strong>
-    <div class="lb-members">${memberRows}</div>
+    <div class="lb-members-field">
+      <strong>${escapeHtml(t("lbMembers"))}</strong>
+      <div class="lb-selected" data-lb-selected-nodes="${selectionKey}">${lbSelectedNodesHtml(nodeIds, targets)}</div>
+      <div class="lb-picker" data-lb-picker>
+        <button type="button" class="lb-picker-toggle" data-lb-picker-toggle aria-expanded="false" aria-controls="${popId}"><span>${escapeHtml(t("lbChooseNodes"))}</span><span class="lb-picker-caret" aria-hidden="true">▾</span></button>
+        <div class="lb-picker-pop" id="${popId}" data-lb-picker-pop hidden>${memberRows}</div>
+      </div>
+    </div>
     <label class="lb-preview"><span>${escapeHtml(t("lbPreview"))}</span><input data-lb-preview placeholder="Qwen3.8-Flash-Next"><output aria-live="polite"></output></label>
     <div class="lb-tools">
       <button type="button" data-verify-lb-models>${escapeHtml(t("lbVerifyModels"))}</button>
@@ -1409,6 +1443,50 @@ function scheduleLoadBalancerStatus() {
   }, loadBalancerStatusIntervalMs);
 }
 
+/** Opens one member picker and points it at the side of the card with more room, so
+ *  the floating list is never clipped by the scrollable page. */
+function toggleLbPicker(picker) {
+  const pop = picker?.querySelector("[data-lb-picker-pop]");
+  const toggle = picker?.querySelector("[data-lb-picker-toggle]");
+  if (!pop || !toggle) return;
+  const willOpen = pop.hidden;
+  if (willOpen) {
+    closeLbPickers(picker);
+    const view = pop.closest(".proxy-view");
+    const toggleRect = toggle.getBoundingClientRect();
+    if (view) {
+      const viewRect = view.getBoundingClientRect();
+      const roomBelow = Math.floor(viewRect.bottom - toggleRect.bottom) - 8;
+      const roomAbove = Math.floor(toggleRect.top - viewRect.top) - 8;
+      // Downwards is the normal dropdown direction; only a card that sits too
+      // close to the bottom of the scrollable page flips the list up. The height
+      // is capped to the chosen side so the page never clips the list.
+      const above = roomBelow < 160 && roomAbove > roomBelow;
+      pop.classList.toggle("is-above", above);
+      pop.style.maxHeight = `${Math.min(240, Math.max(120, above ? roomAbove : roomBelow))}px`;
+    }
+    pop.hidden = false;
+  } else {
+    pop.hidden = true;
+    pop.style.maxHeight = "";
+    pop.classList.remove("is-above");
+  }
+  toggle.setAttribute("aria-expanded", willOpen ? "true" : "false");
+}
+
+function closeLbPickers(except) {
+  document.querySelectorAll("[data-lb-picker]").forEach((picker) => {
+    if (picker === except) return;
+    const pop = picker.querySelector("[data-lb-picker-pop]");
+    const toggle = picker.querySelector("[data-lb-picker-toggle]");
+    if (!pop || !toggle) return;
+    pop.hidden = true;
+    pop.style.maxHeight = "";
+    pop.classList.remove("is-above");
+    toggle.setAttribute("aria-expanded", "false");
+  });
+}
+
 /** Warnings and the match preview follow the live form values, without a re-render. */
 function refreshLbCards() {
   document.querySelectorAll(".proxy-card").forEach((proxyCard) => {
@@ -1460,6 +1538,16 @@ function refreshLbCards() {
         const mine = warnings.filter((item) => item.groupIndex === groupIndex);
         line.textContent = mine.map((item) => item.text).join(" ");
         line.hidden = mine.length === 0;
+      }
+      // Only ticked nodes stay on the card, so a tick redraws this line right away.
+      const selected = lbCard.querySelector(".lb-selected");
+      const selectionKey = lbSelectionSignature(
+        draft.node_target_ids || [],
+        lbDisabledTargetIds(shadowTargets),
+      );
+      if (selected !== null && selected.dataset.lbSelectedNodes !== selectionKey) {
+        selected.dataset.lbSelectedNodes = selectionKey;
+        selected.innerHTML = lbSelectedNodesHtml(draft.node_target_ids || [], shadowTargets);
       }
       // The node rows follow the ticked members; the next poll refills their numbers.
       const states = lbCard.querySelector(".lb-node-states");
@@ -1554,6 +1642,11 @@ function handleLoadBalancerClick(event, pair, card) {
     renderPairs();
     const created = card.querySelector(".lb-card:last-of-type [data-lb-field='name']");
     if (created) created.focus();
+    return true;
+  }
+  const pickerToggle = event.target.closest?.("[data-lb-picker-toggle]");
+  if (pickerToggle) {
+    toggleLbPicker(pickerToggle.closest("[data-lb-picker]"));
     return true;
   }
   if (lbCard && event.target.matches("[data-remove-lb]")) {
@@ -6251,6 +6344,13 @@ $("proxyGrid").addEventListener("change", async (event) => {
   renderPairs();
 });
 $("proxyGrid").addEventListener("pointerdown", (event) => startTargetDrag(event));
+// The member list floats over the card, so a click anywhere outside it closes it.
+document.addEventListener("pointerdown", (event) => {
+  if (!event.target?.closest?.("[data-lb-picker]")) closeLbPickers(null);
+});
+document.addEventListener("keydown", (event) => {
+  if (event.key === "Escape") closeLbPickers(null);
+});
 $("proxyGrid").addEventListener("keydown", (event) => {
   if (targetDrag?.started && event.key === "Escape") {
     event.preventDefault();

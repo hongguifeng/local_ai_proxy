@@ -3091,6 +3091,21 @@ describe("admin UI load balancing groups", { timeout: UI_TEST_TIMEOUT_MS }, () =
     return group;
   }
 
+  /** The candidate nodes float over the card, so the list has to be opened before
+   *  anything can be ticked. It stays open while ticking and Escape clears it. */
+  async function tickMembers(group: Locator, indexes: number[]) {
+    const pop = group.locator("[data-lb-picker-pop]");
+    await expectPage(pop).toBeHidden();
+    await group.locator("[data-lb-picker-toggle]").click();
+    await expectPage(pop).toBeVisible();
+    for (const index of indexes) {
+      await pop.locator("[data-lb-node]").nth(index).check();
+      await expectPage(pop).toBeVisible();
+    }
+    await page.keyboard.press("Escape");
+    await expectPage(pop).toBeHidden();
+  }
+
   it("saves a group with two nodes and brings it back after a reload", async () => {
     const card = await openPairWithGroup();
     await expectPage(card.locator(".lb-takeover-note")).toHaveCount(2);
@@ -3100,8 +3115,8 @@ describe("admin UI load balancing groups", { timeout: UI_TEST_TIMEOUT_MS }, () =
     await card.locator(".lb-card [data-lb-field='strategy']").selectOption("round_robin");
     const boxes = card.locator(".lb-card [data-lb-node]");
     await expectPage(boxes).toHaveCount(2);
-    await boxes.nth(0).check();
-    await boxes.nth(1).check();
+    await tickMembers(card.locator(".lb-card"), [0, 1]);
+    await expectPage(card.locator(".lb-card .lb-chip")).toHaveText(["Fixture Target", "Target"]);
     await card.locator(".lb-card [data-lb-flag='failover_enabled']").uncheck();
     await expectPage(card.locator(".lb-takeover-note")).toHaveCount(2);
 
@@ -3135,6 +3150,11 @@ describe("admin UI load balancing groups", { timeout: UI_TEST_TIMEOUT_MS }, () =
     );
     const reloadedBoxes = reloaded.locator(".lb-card [data-lb-node]");
     await expectPage(reloadedBoxes).toHaveCount(2);
+    await expectPage(reloaded.locator(".lb-card .lb-chip")).toHaveText([
+      "Fixture Target",
+      "Target",
+    ]);
+    await reloaded.locator(".lb-card [data-lb-picker-toggle]").click();
     await expectPage(reloadedBoxes.nth(0)).toBeChecked();
     await expectPage(reloadedBoxes.nth(1)).toBeChecked();
     await expectPage(reloaded.locator(".lb-card [data-lb-toggle]")).toBeChecked();
@@ -3144,17 +3164,86 @@ describe("admin UI load balancing groups", { timeout: UI_TEST_TIMEOUT_MS }, () =
     await expectPage(reloaded.locator(".lb-card")).not.toHaveClass(/expanded/);
   });
 
+  it("lists every node in a floating picker and keeps only the chosen ones on the card", async () => {
+    const card = await openPairWithGroup();
+    await page.setViewportSize({ width: 1278, height: 1215 });
+    const group = card.locator(".lb-card");
+    const pop = group.locator("[data-lb-picker-pop]");
+    const toggle = group.locator("[data-lb-picker-toggle]");
+
+    await expectPage(group.locator(".lb-chip")).toHaveCount(0);
+    await expectPage(group.locator(".lb-selected")).toHaveText("No nodes selected");
+    await expectPage(pop).toBeHidden();
+    await expectPage(toggle).toHaveAttribute("aria-expanded", "false");
+
+    const heightBefore = await group.evaluate((element) => element.getBoundingClientRect().height);
+    await toggle.click();
+    await expectPage(pop).toBeVisible();
+    await expectPage(toggle).toHaveAttribute("aria-expanded", "true");
+    // Every forwarding address is a candidate while the card line stays empty.
+    await expectPage(pop.locator(".lb-member")).toHaveCount(2);
+    await expectPage(group.locator(".lb-chip")).toHaveCount(0);
+    // The list floats over the card instead of pushing its content down, so the
+    // card keeps its height and the match preview sits underneath the list.
+    const heightAfter = await group.evaluate((element) => element.getBoundingClientRect().height);
+    expect(heightAfter).toBe(heightBefore);
+    const popBox = await pop.boundingBox();
+    const previewBox = await group.locator(".lb-preview").boundingBox();
+    if (popBox === null || previewBox === null) throw new Error("the picker was not laid out");
+    expect(popBox.y).toBeLessThan(previewBox.y);
+    expect(popBox.y + popBox.height).toBeGreaterThan(previewBox.y);
+
+    await pop.locator(".lb-member").nth(0).locator("input").check();
+    await expectPage(pop).toBeVisible();
+    await expectPage(group.locator(".lb-chip")).toHaveText(["Fixture Target"]);
+    await pop.locator(".lb-member").nth(1).locator("input").check();
+    await expectPage(group.locator(".lb-chip")).toHaveText(["Fixture Target", "Target"]);
+
+    // A click outside the list closes it; the chosen nodes stay on the card.
+    await page.mouse.click(popBox.x + popBox.width + 140, popBox.y + 12);
+    await expectPage(pop).toBeHidden();
+    await expectPage(toggle).toHaveAttribute("aria-expanded", "false");
+    await expectPage(group.locator(".lb-chip")).toHaveCount(2);
+
+    await toggle.click();
+    await page.keyboard.press("Escape");
+    await expectPage(pop).toBeHidden();
+    await toggle.click();
+    await expectPage(pop.locator("[data-lb-node]").nth(0)).toBeChecked();
+    await expectPage(pop.locator("[data-lb-node]").nth(1)).toBeChecked();
+
+    // A disabled member is marked on one line, in the list and on its chip.
+    await card.locator(".target-card").nth(1).locator("[data-target-enabled]").uncheck();
+    await expectPage(group.locator(".lb-chip .lb-off")).toHaveText("off");
+    const chipMarkHeights = await group
+      .locator(".lb-chip .lb-off")
+      .evaluateAll((marks) => marks.map((mark) => Math.round(mark.getBoundingClientRect().height)));
+    expect(Math.max(...chipMarkHeights)).toBeLessThan(24);
+    const rowHeights = await pop
+      .locator(".lb-member")
+      .evaluateAll((rows) => rows.map((row) => Math.round(row.getBoundingClientRect().height)));
+    expect(Math.max(...rowHeights)).toBeLessThan(34);
+
+    // A node added later is offered in the list but never joins the card line.
+    await page.keyboard.press("Escape");
+    await card.locator("[data-add-target]").click();
+    await expectPage(card.locator(".target-card")).toHaveCount(3);
+    await expectPage(group.locator(".lb-chip")).toHaveCount(2);
+    await toggle.click();
+    await expectPage(pop.locator(".lb-member")).toHaveCount(3);
+    await expectPage(pop.locator("[data-lb-node]").nth(2)).not.toBeChecked();
+  });
+
   it("warns about a single node, a disabled member, and an overlapping pattern", async () => {
     const card = await openPairWithGroup();
     const first = card.locator(".lb-card").first();
     await first.locator("[data-lb-field='model_pattern']").fill("Qwen3.8-Flash-Next");
-    const boxes = first.locator("[data-lb-node]");
-    await boxes.nth(0).check();
     const firstWarning = first.locator("[data-lb-warning]");
+    await tickMembers(first, [0]);
     await expectPage(firstWarning).toBeVisible();
     await expectPage(firstWarning).toContainText("one node");
 
-    await boxes.nth(1).check();
+    await tickMembers(first, [1]);
     await expectPage(firstWarning).toBeHidden();
 
     await card.locator(".target-card").nth(1).locator("[data-target-enabled]").uncheck();
@@ -3163,7 +3252,7 @@ describe("admin UI load balancing groups", { timeout: UI_TEST_TIMEOUT_MS }, () =
     await card.locator("[data-add-lb-group]").click();
     const second = card.locator(".lb-card").nth(1);
     await second.locator("[data-lb-field='model_pattern']").fill("Qwen3.8-Flash-Next");
-    await second.locator("[data-lb-node]").nth(0).check();
+    await tickMembers(second, [0]);
     await expectPage(second.locator("[data-lb-warning]")).toContainText("overlaps");
     await expectPage(firstWarning).toContainText("overlaps");
 
@@ -3176,9 +3265,7 @@ describe("admin UI load balancing groups", { timeout: UI_TEST_TIMEOUT_MS }, () =
   it("points at the rejected field when the server refuses the configuration", async () => {
     const card = await openPairWithGroup();
     await card.locator(".lb-card [data-lb-field='model_pattern']").fill("Qwen3.8-Flash-Next");
-    const boxes = card.locator(".lb-card [data-lb-node]");
-    await boxes.nth(0).check();
-    await boxes.nth(1).check();
+    await tickMembers(card.locator(".lb-card"), [0, 1]);
     pairsSaveIssues = [
       {
         code: "custom",
@@ -3203,9 +3290,7 @@ describe("admin UI load balancing groups", { timeout: UI_TEST_TIMEOUT_MS }, () =
   it("drops a deleted node from every group of the same pair", async () => {
     const card = await openPairWithGroup();
     await card.locator(".lb-card [data-lb-field='model_pattern']").fill("Qwen3.8-Flash-Next");
-    const boxes = card.locator(".lb-card [data-lb-node]");
-    await boxes.nth(0).check();
-    await boxes.nth(1).check();
+    await tickMembers(card.locator(".lb-card"), [0, 1]);
     await page.locator("#saveProxies").click();
     await expectPage(page.locator("#toast")).toContainText("Config saved");
     expect(savedGroup().node_target_ids).toHaveLength(2);
@@ -3240,9 +3325,7 @@ describe("admin UI load balancing groups", { timeout: UI_TEST_TIMEOUT_MS }, () =
   it("updates node numbers on a poll without losing the open panel, the draft, or the caret", async () => {
     const card = await openPairWithGroup();
     await card.locator(".lb-card [data-lb-field='model_pattern']").fill("Qwen3.8-Flash-Next");
-    const boxes = card.locator(".lb-card [data-lb-node]");
-    await boxes.nth(0).check();
-    await boxes.nth(1).check();
+    await tickMembers(card.locator(".lb-card"), [0, 1]);
     await page.locator("#saveProxies").click();
     await expectPage(page.locator("#toast")).toContainText("Config saved");
     await card.locator(".lb-card [data-verify-lb-models]").click();
@@ -3287,7 +3370,7 @@ describe("admin UI load balancing groups", { timeout: UI_TEST_TIMEOUT_MS }, () =
     await loadAdminPage();
     const card = page.locator('.proxy-card[data-index="0"]');
     await card.locator("[data-add-lb-group]").click();
-    await card.locator(".lb-card [data-lb-node]").nth(0).check();
+    await tickMembers(card.locator(".lb-card"), [0]);
     await waitForLbPoll(0);
     const seen = lbStatusReads.length;
 
@@ -3312,7 +3395,7 @@ describe("admin UI load balancing groups", { timeout: UI_TEST_TIMEOUT_MS }, () =
     const card = await openPairWithGroup();
     const group = card.locator(".lb-card");
     await group.locator("[data-lb-field='model_pattern']").fill("Qwen3.8-Flash-Next");
-    await group.locator("[data-lb-node]").nth(0).check();
+    await tickMembers(group, [0]);
     await group.locator("[data-verify-lb-models]").click();
     // A group that was never saved is still checked: the card's own draft is sent.
     await expectPage(card.locator("[data-lb-verify]")).not.toBeHidden();
@@ -3361,7 +3444,7 @@ describe("admin UI load balancing groups", { timeout: UI_TEST_TIMEOUT_MS }, () =
     await expectPage(card.locator("[data-lb-verify]")).toContainText("check at least one node");
     expect(lbVerifyReads).toHaveLength(0);
 
-    await group.locator("[data-lb-node]").nth(0).check();
+    await tickMembers(group, [0]);
     await group.locator("[data-verify-lb-models]").click();
     await expectPage(card.locator(".lb-verify-line")).toHaveCount(1);
     expect(lbVerifyReads).toHaveLength(1);
@@ -3372,7 +3455,7 @@ describe("admin UI load balancing groups", { timeout: UI_TEST_TIMEOUT_MS }, () =
     const card = await openPairWithGroup();
     const group = card.locator(".lb-card");
     await group.locator("[data-lb-field='model_pattern']").fill("Qwen3.8-Flash-Next");
-    await group.locator("[data-lb-node]").nth(0).check();
+    await tickMembers(group, [0]);
     await group.locator("[data-lb-preview]").fill("Qwen3.8-Flash-Next");
     await expectPage(group.locator(".lb-preview output")).toHaveText(
       "would be handled by this group",
@@ -3433,7 +3516,7 @@ describe("admin UI load balancing groups", { timeout: UI_TEST_TIMEOUT_MS }, () =
     await card.locator("[data-add-lb-group]").click();
     const second = card.locator(".lb-card").nth(1);
     await second.locator("[data-lb-field='name']").fill("Very Long Group Name For Width Testing");
-    await second.locator("[data-lb-node]").nth(0).check();
+    await tickMembers(second, [0]);
     const boxes = await page.evaluate(() =>
       [...document.querySelectorAll(".lb-groups > .lb-card")].map((element) => {
         const box = element.getBoundingClientRect();
@@ -3447,7 +3530,7 @@ describe("admin UI load balancing groups", { timeout: UI_TEST_TIMEOUT_MS }, () =
     const clipped = await page.evaluate(() =>
       [
         ...document.querySelectorAll(
-          ".lb-card, .lb-node-state, .lb-preview, .lb-head, .lb-member, .lb-node-name",
+          ".lb-card, .lb-node-state, .lb-preview, .lb-head, .lb-member, .lb-node-name, .lb-members-field, .lb-selected, .lb-chip, .lb-picker, .lb-picker-toggle",
         ),
       ].map((element) => ({
         clipped: element.scrollWidth > element.clientWidth + 1,
@@ -3461,7 +3544,7 @@ describe("admin UI load balancing groups", { timeout: UI_TEST_TIMEOUT_MS }, () =
     const card = await openPairWithGroup();
     const group = card.locator(".lb-card");
     await group.locator("[data-lb-field='model_pattern']").fill("Qwen3.8-Flash-Next");
-    await group.locator("[data-lb-node]").nth(0).check();
+    await tickMembers(group, [0]);
     await group.locator(".lb-status > summary").click();
     await expectPage(group.locator(".lb-status")).toHaveAttribute("open");
     // The toggle event is a queued task, so the write lands a moment after the click.
@@ -3500,6 +3583,20 @@ describe("admin UI visual regression", { timeout: UI_TEST_TIMEOUT_MS }, () => {
     await expectPage(page.locator("#saveProxies")).toHaveText("Save config");
 
     expect(await screenshotDifference("doc/ui_proxy_en.png")).toBeLessThan(0.12);
+  });
+
+  it("matches the Chinese load balancing baseline", async () => {
+    await loadLbBaseline("zh");
+    await expectPage(page.locator(".lb-card").nth(1).locator(".lb-chip")).toHaveCount(2);
+
+    expect(await screenshotDifference("doc/ui_lb_cn.png")).toBeLessThan(0.12);
+  });
+
+  it("matches the English load balancing baseline", async () => {
+    await loadLbBaseline("en");
+    await expectPage(page.locator(".lb-card").nth(1).locator(".lb-chip")).toHaveCount(2);
+
+    expect(await screenshotDifference("doc/ui_lb_en.png")).toBeLessThan(0.12);
   });
 
   it("matches the Chinese history page baseline", async () => {
@@ -4180,6 +4277,59 @@ function visualPairs(): PublicProxyPair[] {
       ],
     },
   ];
+}
+
+/**
+ * The proxies page with load balancing groups, in the normal state the README wants to show:
+ * two groups, both with enabled members, no warnings. The second pair is left out of this
+ * fixture so the full-page capture stays a reasonable height; the plain proxy baselines keep
+ * both pairs and no groups at all.
+ */
+function visualLbPairs(): PublicProxyPair[] {
+  const fixture = visualPairs();
+  const first = fixture[0];
+  if (first === undefined) throw new Error("the visual fixture lost its first pair");
+  first.load_balancers = [
+    {
+      id: "visual-lb-dual",
+      name: "Dual GPU",
+      enabled: true,
+      model_pattern: "qwen3.6-27b*",
+      node_target_ids: ["visual-lmstudio", "visual-target"],
+      strategy: "least_load",
+      metrics_enabled: true,
+      failover_enabled: true,
+    },
+    {
+      id: "visual-lb-cloud",
+      name: "Cloud relay",
+      enabled: true,
+      model_pattern: "Qwen*",
+      node_target_ids: ["visual-openrouter", "visual-lmstudio"],
+      strategy: "round_robin",
+      metrics_enabled: true,
+      failover_enabled: true,
+    },
+  ];
+  return [first];
+}
+
+// Opens the proxies page with the group fixture and makes the viewport as tall as the whole
+// page: group cards make it taller than the plain proxy baseline, and a too-short viewport
+// would cut the second pair and its own group section out of the capture.
+async function loadLbBaseline(language: "zh" | "en"): Promise<void> {
+  pairs.splice(0, pairs.length, ...visualLbPairs());
+  await page.setViewportSize({ width: 1278, height: 900 });
+  await loadAdminPage();
+  await page.locator("#languageSelect").selectOption(language);
+  await expectPage(page.locator(".lb-card")).toHaveCount(2);
+  await expectPage(page.locator(".lb-chip")).toHaveCount(4);
+  await expectPage(page.locator(".lb-picker-pop").first()).toBeHidden();
+  const height = await page.evaluate(() => {
+    const el = document.querySelector("#proxies");
+    return el ? el.scrollHeight : 0;
+  });
+  await page.setViewportSize({ width: 1278, height: Math.min(Math.max(height + 52, 900), 4200) });
 }
 
 async function screenshotDifference(baselinePath: string): Promise<number> {

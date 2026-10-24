@@ -8,6 +8,8 @@ const baselineDoc = "docs/refactoring/ui-visual-baseline.md";
 const images = [
   "ui_proxy_cn.png",
   "ui_proxy_en.png",
+  "ui_lb_cn.png",
+  "ui_lb_en.png",
   "ui_logs_cn.png",
   "ui_logs_en.png",
   "ui_stats_cn.png",

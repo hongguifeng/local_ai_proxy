@@ -648,11 +648,11 @@ GET /api/load-balancer/status
 
 ### 12.1 结构
 
-负载均衡区放在每个 pair 的 target 卡片下方。每张组卡片包含：
+负载均衡区放在每个 pair 的 target 卡片下方。组卡片与 target 卡片同宽（`repeat(auto-fit, minmax(300px, 360px))` + `justify-content: start`），左对齐换行，不会拉伸到整行。每张组卡片包含：
 
 - 组名、启用开关、删除按钮；
 - 请求模型 pattern；
-- 本 pair target 的勾选列表；
+- 已勾选节点的标签行，以及浮在卡片上的本 pair target 复选框列表；
 - `least_load` / `round_robin` 选择；
 - 指标采样和失败切换开关；
 - 匹配预览输入框；
@@ -683,9 +683,12 @@ UI 修改必须：
 
 落地说明（LB-10）：
 
-- 负载均衡区在每个 `.proxy-card` 内，排在转发地址行下方，用虚线分隔；标题行左边是加粗标题，右边是「添加负载均衡组」按钮。组卡片按可用宽度自动换行。
+- 负载均衡区在每个 `.proxy-card` 内，排在转发地址行下方，用虚线分隔；标题行左边是加粗标题，右边是「添加负载均衡组」按钮。组卡片用与 `.targets-row` 相同的 `repeat(auto-fit, minmax(300px, 360px))` + `justify-content: start` + `align-items: start`，所以一张卡片只有转发地址卡片那么宽，也不会被同行邻居拉到等高。
 - 组卡片只用 `lb-*` 新类名，不复用 `.stat-card` 等通用类，因此不会继承统计页那些 `clamp()` 字号和 `strong` 省略号规则。
-- 页面级的 `label span { overflow-wrap: anywhere }` 会把「GPU 0」这类短标签拆成一个字一列；`.lb-member > span, .lb-flag > span` 必须显式写 `flex: 0 0 auto` 和 `overflow-wrap: normal` 才能压回去。1278 px 和 380 px 两种宽度都实测过：无截断、无换行错位。
+- 页面级的 `label span { overflow-wrap: anywhere }` 会把「GPU 0」这类短标签拆成一个字一列；`.lb-flag > span` 必须显式写 `flex: 0 0 auto` 和 `overflow-wrap: normal` 才能压回去。节点名（`.lb-member-name`、`.lb-chip-name`）写 `white-space: nowrap` 加 `overflow: hidden; text-overflow: ellipsis`，「禁用」标记（`.lb-off`）写 `flex: 0 0 auto; white-space: nowrap`，否则两个字的标记会被挤成一列竖排。1278 px 和 380 px 两种宽度都实测过：无截断、无换行错位。
+- 参与节点只把已勾选的成员写在卡片上，全部候选项在浮层里。浮层用 `position: absolute` + `z-index` 浮在卡片下方内容上，所以卡片高度在打开前后完全相等；打开时按 `.proxy-view` 的上下剩余空间选方向（默认朝下，只有下方不足 160 px 且上方更宽才朝上）并把 `max-height` 限到那一侧的剩余空间，列表自己滚动，不会被视口裁掉。点浮层外（document `pointerdown`）或按 Esc 都会关掉，一次只开一个。
+- `display: grid` 会盖掉 `[hidden]` 自带的 `display: none`，所以关掉浮层必须再写一条 `.lb-picker-pop[hidden] { display: none }`，和 `.target-options[hidden]` 是同一个坑。勾选成员时 `refreshLbCards()` 只重建 `.lb-selected`：签名同时包含成员和禁用 id，所以 target 开关一换标记就跟着变，而浮层保持打开。
+- 复选框仍然留在卡片 DOM 里（浮层关闭时只是不可见），所以 `collectPairs()` 与警告/预览的 DOM 读取一行都没改；UI 测试因此必须先点开浮层才能 `check()`。
 - 轮询用一个常驻 `setInterval(2000)`，但 `refreshLoadBalancerStatus()` 在 `document.hidden` 或 proxy 标签未激活时直接返回，所以不可见时一条请求都不发。UI 测试断言了这一点。
 - `applyLoadBalancerStatus()` 只改 `[data-lb-fact]` 的文本，从不重建输入控件；UI 测试证明轮询后焦点、草稿文本和展开状态都还在。
 - 节点状态行跟着勾选的成员走，由 `refreshLbCards()` 重建；`data-lb-rendered` 记住上一次渲染的集合，集合没变就不重建。轮询会在下一拍把数字填回来。
@@ -695,6 +698,7 @@ UI 修改必须：
 - 删除 target 时前端立刻把它从本 pair 的组成员里清掉；已保存的配置在下次保存前仍然可能引用被删的节点，所以后端校验才是权威，UI 测试同时覆盖了这两边。
 - 配置被拒时 400 带 `error.issues`，`configIssueText()` 最多显示三条 `path: message`，用户能看到具体是哪个字段。
 - 中英文代理页基线已重录并更新完整 SHA-256；其余六张基线在全量测试里保持原样通过。
+- LB-15 之后负载均衡卡片有自己的一对整页基线（`doc/ui_lb_cn.png` / `doc/ui_lb_en.png`，由 `visualLbPairs()` fixture 驱动：viewport 高度自适应到整页，但 fixture 只留第一个代理卡片，画面高度因此与代理页基线相当）；代理页基线仍然保持 `load_balancers: []`，因此字节不变，而 `scripts/regen_ui_baselines.mjs` 的捕获与同步清单已经包含这两张。
 
 ## 13. 测试计划
 
@@ -757,7 +761,9 @@ LB-11 只增加测试，不改产品代码。三个落点分别是
 - 非法节点、日志目录和价格规则错误的路径定位；
 - `GET /api/load-balancer/status` 的空状态、过期指标、冷却节点和多 pair 结构；
 - 模型校验接口的成功、模型不存在、上游不可达；
-- 新增组、勾选节点、保存、刷新后恢复；
+- 新增组、打开节点浮层勾选成员、保存、刷新后恢复；
+- 浮层列出全部候选而卡片只留已选成员、卡片高度不被浮层改变、浮层外点击与 Esc 关闭、
+  禁用节点在浮层和卡片标签上都只占一行；
 - 删除 target 后组引用同步清理；
 - 中英文案和英文视觉基线；
 - proxy 页状态刷新不会重建输入框。
