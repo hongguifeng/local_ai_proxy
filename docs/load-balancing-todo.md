@@ -552,7 +552,7 @@ npx electron-builder -w portable --publish never
 - UI 基线：未涉及
 - 设计偏差：见设计文档 §11.2 落地说明——字段名用 camelCase；`inRotation` 只看启用且不在冷却；每个节点多了 `bindings`；`logged_by` 写在 `load_balance` 里。
 - 提交标题：`feat(load-balancing): [LB-09] add route records and the load balancer admin API`
-- 提交 SHA：待填写
+- 提交 SHA：`7a53ebb`
 - 备注：无。
 
 每完成一个任务，在这里追加一条记录：
