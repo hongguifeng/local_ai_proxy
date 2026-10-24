@@ -1,6 +1,6 @@
 # 多节点负载均衡开发 TODO
 
-创建日期：2026-10-22。当前进度：14 / 14 项完成。
+创建日期：2026-10-22。当前进度：15 / 16 项完成。
 
 设计依据：[多节点负载均衡设计（粘性任务路由 v1）](./load-balancing-design.md)。决策记录：[ADR-013](./adr/013-load-balancing-sticky-routing.md)。本清单供后续开发、测试、验收和逐项提交使用。设计发生变化时，必须同时更新设计文档和本清单，不能只改代码。
 
@@ -69,6 +69,8 @@ npx electron-builder -w portable --publish never
 | [x] | LB-12 | 真实节点验收与性能检查 | LB-11 | 完成 |
 | [x] | LB-13 | 文档收尾、全量检查和交付构建 | LB-12 | 完成 |
 | [x] | LB-14 | 校验节点模型支持未保存的组草稿 | LB-10、LB-09 | 完成 |
+| [x] | LB-15 | 卡片与转发地址同宽，参与节点改成浮动勾选 | LB-10 | 完成 |
+| [ ] | LB-16 | 删除匹配预览输入与校验节点模型 | LB-10、LB-14 | 未开始 |
 
 ## 4. 逐项实施与验收
 
@@ -464,6 +466,41 @@ npx electron-builder -w portable --publish never
 验收标准：未保存的组可以直接校验并得到逐节点结果；已保存的组仍然可以只发 ids 校验；
 请求里带不进 URL 或 key，所以草稿无法让服务端访问任意上游；新接口在 assembled-app smoke
 里有覆盖；全量测试和六张视觉基线不变。提交定位：`[LB-14]`。
+
+### LB-16：删除匹配预览输入与校验节点模型
+
+用户结论：这两件事没带来什么价值，直接删。本项会反方向撤掉 LB-14 的全部校验相关代码。
+
+前置条件已满足：LB-15 的「选择节点」浮动列表已经提交（`019560d`），
+`src/admin/static/app.js` 和 `app.css` 的工作区是干净的。
+
+删除内容：
+
+- 界面：`.lb-preview` 整块（标签、输入、`output`）、`[data-lb-preview]` 的 input 监听、
+  `refreshLbCards()` 里的预览计算、`lbPatternMatches`（只有预览在用）；
+  `patternToRegex` 和 `lbPatternsMayOverlap` 服务于重叠警告，保留。
+- 界面：`校验节点模型` 按钮、`[data-lb-verify]` 结果区、`runLoadBalancerModelCheck`、
+  没填 pattern / 没勾节点时的本地守卫，以及只给这两件事用的六个中英文案。
+- 样式：`.lb-verify-results`、`.lb-verify-line` 及其三个状态色、`.lb-verify-source`、
+  `.lb-verify-results.is-warn`。
+- 服务端：`verifyModels`、`fetchModelList`、`LoadBalancerVerifyModelsRequest`、
+  `LoadBalancerVerifyModelsResponse`、`LoadBalancerNodeModelCheck`、
+  `VERIFY_MODELS_TIMEOUT_MS`、`MAX_VERIFY_MODELS_BYTES`、`MAX_VERIFY_NODES`；
+  `POST /api/load-balancer/verify-models` 路由和三处 schema；admin 接口的 `verifyModels`。
+  `getStatus` 和状态轮询不动。
+- 测试：`test-node/admin/load-balancer.test.ts` 里 LB09-05 的三个 `it` 和 LB14-01～03；
+  `test-node/app/runtime.test.ts` 里的 verify 断言（换成确认这条路由已经不存在）；
+  `test-node/ui/admin-ui.test.ts` 里的模型校验测试和守卫测试、其它测试中对
+  `[data-lb-preview]` 的填写和断言、stub 的 `verifyModels`、`lbVerify*` 状态变量与 fixture。
+  状态轮询和节点数字的测试保留。
+- 文档：README 的「校验节点模型」行；功能说明书 §5.4 的两个 bullet；
+  设计文档 §5.3、§12 里关于预览和校验的落地说明、LB-09 API 说明里的 verify 部分。
+
+验收标准：卡片上不再有这两块；全量 tsc、lint、prettier、vitest 全绿；
+`GET /api/load-balancer/status` 仍然正常；中英文代理页基线重录并更新完整 SHA-256，
+其余六张零像素差；portable 产物重建后在 asar 里确认已经没有校验相关代码；
+`/api/load-balancer/verify-models` 返回 `not_found`，不是 `load_balancer_group_not_found`。
+提交定位：`[LB-16]`。
 
 ## 5. 执行记录
 
