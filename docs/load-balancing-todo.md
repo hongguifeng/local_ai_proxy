@@ -1,6 +1,6 @@
 # 多节点负载均衡开发 TODO
 
-创建日期：2026-10-22。当前进度：12 / 13 项完成。
+创建日期：2026-10-22。当前进度：13 / 13 项完成。
 
 设计依据：[多节点负载均衡设计（粘性任务路由 v1）](./load-balancing-design.md)。决策记录：[ADR-013](./adr/013-load-balancing-sticky-routing.md)。本清单供后续开发、测试、验收和逐项提交使用。设计发生变化时，必须同时更新设计文档和本清单，不能只改代码。
 
@@ -67,7 +67,7 @@ npx electron-builder -w portable --publish never
 | [x] | LB-10 | 管理 UI、i18n 和视觉基线 | LB-01、LB-08、LB-09 | 完成 |
 | [x] | LB-11 | 端到端、reload、pending 和价格回归 | LB-02～LB-10 | 完成 |
 | [x] | LB-12 | 真实节点验收与性能检查 | LB-11 | 完成 |
-| [ ] | LB-13 | 文档收尾、全量检查和交付构建 | LB-12 | 未开始 |
+| [x] | LB-13 | 文档收尾、全量检查和交付构建 | LB-12 | 完成 |
 
 ## 4. 逐项实施与验收
 
@@ -591,6 +591,18 @@ npx electron-builder -w portable --publish never
 - 提交 SHA：`21a1cfd`
 - 备注：验证结束后只杀掉自己 17:32 启动的三个进程，用户 21:58 启动的实例和两张卡上的引擎都还在；临时目录、临时脚本和 `/tmp/lb12-app.log` 已删除；`release/win-unpacked` 在本次验证前重建过，`better-sqlite3` 现在是 Electron ABI，LB-13 跑 Node 测试前需要 `npm rebuild better-sqlite3`。
 
+### LB-13
+
+- 状态：完成
+- 实际变更：`README.md` 新增「负载均衡」一节（组的位置、成员选择、模型直通、两种策略、粘性及其四类例外、无健康节点 503、价格与日志目录约束、节点状态轮询、指标来源与回退、校验模型按钮、展开状态、容量上限、重启后果、示例配置和路由记录字段）；`docs/software-functional-specification.md` 新增 §5.4 用户可见行为、§6.2 第 0 步和 §6.3 的组内路由示例；`docs/module-design.md` §7.3 补齐七个 LB 模块文件名、§7.4 新增模块职责；`docs/adr/013-load-balancing-sticky-routing.md` 状态改为已采纳并已实现，补实施 TODO 链接和两条真机修正；本 TODO 进度、LB-13 行和第 6 节交付清单。
+- 测试命令：`npm rebuild better-sqlite3`、`npm run check`（= `format:check` + `lint` + `typecheck` + `test` + `build`）、`npm run package:electron:portable`、`npx asar list release/win-unpacked/resources/app.asar`、一次性 `tmp-lb13-artifact.cjs`（用 `@electron/asar` 把 asar 里的 `app.js` / `app.css` 读回来比对，用完删除）
+- 测试结果：`npm run check` exit 0：Prettier 全部文件通过、eslint 零问题、tsc 零错误、103 个测试文件 / 918 个用例全部通过（包含六张视觉基线比对）、build 成功。portable 产物 `release/LLM-Proxy-0.4.10-x64-portable.exe` 111,611,496 字节构建成功；asar 内的 `app.js` 同时含 `lb-card`、`data-lb-fact`、`llmProxyLbGroupOpen`、`data-add-lb-group`、`data-verify-lb-models`、`lb-takeover-note`、`applyLoadBalancerStatus`、`purgeLoadBalancerMember`、`configIssueText`、`loadBalancerStatusIntervalMs` 和中文「添加负载均衡组」与英文 `Add load balancing group`；`app.css` 里 `.lb-*` 选择器 39 个；15 个 LB 模块条目在包里。`fallback_disabled` 只在断言和文档里作为「不会出现」出现，产品代码不会产生它。两个新接口在 assembled-app smoke 里有覆盖（`test-node/app/runtime.test.ts`：status 200 空态、verify 404 `load_balancer_group_not_found`、错误请求体 400）
+- UI 基线：本次未重录；LB-10 的哈希保持不变并在全量测试里通过（`ui_proxy_cn` `641a8465…`、`ui_proxy_en` `dcec51e5…`）
+- 设计偏差：无新增。v2 未实现能力已在设计文档 §15（重启丢亲和、prompt 长度、异构节点、KV 饱和迁移、更精细的缓存感知、同构请求碰撞）和 §14 的 P1/P2/P3 里记录，ADR-013 补了两条真机约束
+- 提交标题：`docs(load-balancing): [LB-13] document the feature for users and modules`
+- 提交 SHA：`08e13ff`
+- 备注：`npm run check` 把 `better-sqlite3` 留在 Node ABI 137；portable 打包后 native 模块变成 Electron ABI，下次跑 Node 测试前仍需 `npm rebuild better-sqlite3`。临时 `.cjs` 已删除，没有遗留临时文件、浏览器进程或测试实例。
+
 每完成一个任务，在这里追加一条记录：
 
 ```text
@@ -609,17 +621,17 @@ npx electron-builder -w portable --publish never
 
 ## 6. 最终交付清单
 
-- [ ] LB-01～LB-13 全部完成并有提交定位；
-- [ ] 同一 task 正常情况下保持单节点亲和；
-- [ ] 新 task 按固定字典序选择，metrics 缺失时能退化；
-- [ ] 组内模型映射屏蔽，模型名一致；
-- [ ] 价格规则一致，失败切换不造成无依据的 `unpriced`；
-- [ ] 多 target `request_received` 时序和 `?ids=` pending 行为有测试；
-- [ ] 每个前缀桶和每组绑定都有容量上限；
-- [ ] matcher 与路由只对运行时可达证据承诺超集关系；
-- [ ] canonical node key 不受本地 host 别名影响；
-- [ ] 无健康节点返回 503，不回落普通路由；
-- [ ] reload、abort、failover、stop 后没有资源泄漏；
-- [ ] API、UI、中文/英文基线和文档同步；
-- [ ] `npm run check` 或等价全量检查通过；
-- [ ] portable executable 构建完成并经过 artifact 检查。
+- [x] LB-01～LB-13 全部完成并有提交定位；
+- [x] 同一 task 正常情况下保持单节点亲和（LB11-02、LB12 真机四轮全回原节点）；
+- [x] 新 task 按固定字典序选择，metrics 缺失时能退化（LB05、LB08、LB12 死成员仍转发）；
+- [x] 组内模型映射屏蔽，模型名一致（LB05、LB12 真机 404 文案为证）；
+- [x] 价格规则一致，失败切换不造成无依据的 `unpriced`（LB06、LB12 快照停在原节点）；
+- [x] 多 target `request_received` 时序和 `?ids=` pending 行为有测试（LB06-03、LB11-08）；
+- [x] 每个前缀桶和每组绑定都有容量上限（LB03、LB11-10）；
+- [x] matcher 与路由只对运行时可达证据承诺超集关系（LB02-08）；
+- [x] canonical node key 不受本地 host 别名影响（LB04、LB12 `localhost` 归一）；
+- [x] 无健康节点返回 503，不回落普通路由（LB07-06、LB11-06）；
+- [x] reload、abort、failover、stop 后没有资源泄漏（LB04-04/05、LB11-07、LB11-11）；
+- [x] API、UI、中文/英文基线和文档同步（LB09、LB10 基线哈希、LB13 四处文档）；
+- [x] `npm run check` 或等价全量检查通过（2026-10-24，103 文件 / 918 用例）；
+- [x] portable executable 构建完成并经过 artifact 检查（`release/LLM-Proxy-0.4.10-x64-portable.exe`）。
