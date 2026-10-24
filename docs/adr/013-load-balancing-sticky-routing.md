@@ -1,9 +1,9 @@
 # ADR-013：负载均衡采用粘性任务路由 + 最少在途选择
 
-- 状态：提议（待评审）
+- 状态：已采纳并已实现（LB-01～LB-12，2026-10-24 真机验收完成）
 - 日期：2026-10-22
 - 决策范围：转发地址选择、task 亲和性存储、上游负载采样、负载均衡配置与观测
-- 关联文档：[负载均衡设计](../load-balancing-design.md)
+- 关联文档：[负载均衡设计](../load-balancing-design.md)、[实施 TODO](../load-balancing-todo.md)（第 5 节是逐项执行记录）
 
 ## 背景
 
@@ -67,3 +67,14 @@ sort by (tier, load, lastDispatchedAt, kvUsage, configIndex)
 - 记录层不新增列：决策细节写入既有 `request.model_route` JSON（`route_mode` / `load_balance.{decision,load,kv_usage,failover_from}`），并已通过请求元信息面板可见。
 - 代理重启、绑定淘汰、节点移除、失败切换是「同一 task 可能换节点」的全部已知原因，必须在用户文档中如实列出。
 - 已知限制：prompt 长度不参与打分；异构节点无权重；模型名必须两侧一致；同构前缀的独立会话可能共享一次绑定（方向安全）。
+
+## 实现状态
+
+三项决策都已落地，代码位置见[模块设计 §7.4](../module-design.md)。
+真机验收（设计文档 §13.4）给本 ADR 补了两条约束：
+
+1. 上游不保存 response 时，`previous_response_id` 链无法作为亲和证据：
+   代理只能从非流式响应体里读到 response id，流式 SSE 摘要里没有 id。
+   这类部署的粘性依赖会话头或 `prompt_cache_key`。
+2. “组内价格必须一致”在生产配置上尚未成立：两张卡的 `cache_write_per_million`
+   一个是 `0`、一个是 `1.25`，校验会拒组。要开启负载均衡必须先对齐价格规则。

@@ -607,6 +607,13 @@ src/
     upstream-forwarder.ts
     headers.ts
     target-url.ts
+    task-identity.ts
+    node-identity.ts
+    load-affinity.ts
+    load-balancer.ts
+    load-metrics.ts
+    load-monitor.ts
+    load-balancer-admin.ts
   logging/
     traffic-log-service.ts
     record-analyzer.ts
@@ -706,6 +713,28 @@ create pending record
 - 组合多个日志根的查询结果。
 - DTO 与 repository row 解耦。
 - 保持搜索和分页语义。
+
+#### LoadBalancing（已实现，ADR-013）
+
+一个代理端口一份 `LoadBalancer`，它活在 runtime entry 上，不在 pipeline 里，
+所以 `reloadPair()` 重建 pipeline 不会清空亲和和进行中计数。
+
+- `task-identity.ts`：任务身份的单一来源，task matcher 与选路共用同一投影。
+  路由能用的证据永远是 matcher 的子集，不会多出 matcher 看不到的键。
+- `node-identity.ts`：把 scheme/host/默认端口/base path/回环别名归一成 canonical key，
+  只用于采样单飞和物理聚合；亲和继续用 pair 内部的 `targetId`。
+- `load-affinity.ts`：exact key 索引 + 前缀桶，桶容量 32，每组上限 4096，24 小时过期，
+  按最近最少使用淘汰。绑定不存请求文本。
+- `load-balancer.ts`：选路、预留、失败计数、冷却、派发时间。
+  负载 = `max(本地进行中, 上游 running + waiting)`。
+- `load-metrics.ts` / `load-monitor.ts`：解析 vLLM / SGLang / llama.cpp 指标名，
+  每 5 秒采样，单飞按 canonical key，4 秒超时，定时器 `unref()`，
+  失败与恢复每个 key 只写一行日志。采样失败不影响转发。
+- `load-balancer-admin.ts`：状态与模型校验接口的内存读数，响应里不包含 key、
+  请求文本或会话 id。
+
+pipeline 只做三件事：问组要一个节点、预留它、请求结束时释放一次。
+切换只发生在连接阶段且响应头未发出时，一次为限。
 
 #### StreamSummary
 

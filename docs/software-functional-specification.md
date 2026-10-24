@@ -126,6 +126,32 @@ LLM Proxy 是面向本地开发和调试场景的 LLM HTTP 代理与流量审查
   - 保存失败时按 ADR-004 整体回滚，包括已热重载的代理。
 - 单独切换启用状态时，前端会先保存整份配置，再调用启停接口。
 
+### 5.4 负载均衡组 Load Balancer Group
+
+多个转发节点跑同一个模型时，一个代理端口可以配置负载均衡组。详见
+[负载均衡设计](./load-balancing-design.md) 与 [ADR-013](./adr/013-load-balancing-sticky-routing.md)。
+
+- 一个组只有一个 `model_pattern`，匹配算法与 §6.2 第 4 条完全相同：区分大小写，
+  `*` 匹配任意前后缀，不支持正则。
+- 命中组时，成员的 `model_mappings` 被绕过，上游收到客户端原始的模型名。
+  成员的其他设置（headers、字段删除与注入、Redact logs、价格）仍然生效。
+- 保存时拒绝：组 id 重复、组成员 id 重复、成员不属于本 pair、
+  组成员日志目录不一致、组成员价格规则不一致、完全相同的 `model_pattern` 重复出现。
+  后三类中前两类是错误，`overlapping_pattern`、`single_node`、`disabled_member` 是警告。
+- 界面在转发节点列表下方新增“负载均衡组”区段，标题行右侧是
+  **添加负载均衡组** 按钮，每个组一张卡片：模型匹配、策略、指标开关、
+  切换开关、参与节点勾选、匹配预览、节点状态。
+- 转发节点卡片上会出现一行接管提示，说明被组命中的模型不会走这里的映射。
+- 节点状态展开区每 2 秒刷新一次，只替换数字，不重建输入控件；
+  窗口隐藏或切到其他标签时停止轮询。
+- 组卡片的展开与关闭状态存在浏览器本地存储，不写进配置文件。
+- 删除转发节点时，本 pair 各组的成员列表立即丢掉这个 id。
+  已保存的配置仍可能引用它，直到下一次保存；后端校验是最终结论。
+- **校验节点模型** 按钮逐成员读上游模型列表，基路径 404 时回退到主机根路径。
+  它读已保存的配置，所以刚新建还没保存的组会得“未找到负载均衡组”。
+- 状态与校验接口的字段名是 camelCase（`nodeTargetIds`、`cooldownRemainingMs` 等）。
+  状态响应里没有 API key、请求文本或会话 id。
+
 ## 6. 模型路由规则
 
 ### 6.1 路由输入
@@ -141,6 +167,8 @@ LLM Proxy 是面向本地开发和调试场景的 LLM HTTP 代理与流量审查
 
 ### 6.2 路由算法
 
+0. 若存在启用的负载均衡组且其 `model_pattern` 命中请求模型名，则由负载均衡选路（§5.4），
+   并跳过成员模型映射的改写；未命中时完全走下面的普通流程。
 1. 从 `default_target_id` 找到默认目标；找不到时使用目标列表第一项。
 2. 若请求存在字符串模型名，则按目标配置顺序遍历。
 3. 对非默认且 `enabled=false` 的目标跳过匹配。
@@ -163,6 +191,19 @@ Default: Target C
 - `model=qwen-local`：发往 B，上游收到 `model=qwen3`。
 - `model=unknown`：发往 C，模型名保持 `unknown`。
 - 无 JSON `model`：发往 C，请求体保持原样。
+
+带负载均衡组时：
+
+```text
+Group lb-1: model_pattern=Qwen3.8-Flash-Next*, members=[A, B]
+Target A mapping: Qwen3.8-Flash-Next* => Qwen3.8-Flash-Next
+```
+
+- `model=Qwen3.8-Flash-Next`：命中组，由 A 或 B 服务，上游收到 `Qwen3.8-Flash-Next`。
+- 同一个任务的下一轮：回到上一轮那张卡，不会被映射改写。
+- `model=Qwen3.8-Flash-Next-DFlash7`：命中组，上游收到原名，即使 A 的映射想改写它。
+- `model=qwen3.8-flash-next-win`：小写别名不命中区分大小写的组，走 A 的映射并被改写。
+- 组内没有可用节点：返回 503，不会改发 C。
 
 ## 7. HTTP 转发行为
 
