@@ -5,6 +5,7 @@ import {
   freezeRequestPricing,
   pendingRequestPricing,
 } from "../../src/pricing/index.js";
+import { isRecord } from "../../src/shared/index.js";
 
 const price = {
   model_pattern: "gpt-5",
@@ -180,5 +181,49 @@ describe("request pricing lifecycle", () => {
       pricing_reason: "no_matching_price",
       usage: null,
     });
+  });
+
+  it("LB06-06 freezes the same amounts on every member of a load balancing group", () => {
+    // The configuration save already rejects members whose price rules differ, so the
+    // only thing a node switch can change is which card the snapshot names.
+    const left = freezeRequestPricing("gpt-5", prices, {
+      frozenAt: "2026-10-22T10:00:00.000+08:00",
+      targetId: "node-a",
+      targetName: "GPU-1",
+    });
+    const right = freezeRequestPricing("gpt-5", prices, {
+      frozenAt: "2026-10-22T10:00:00.000+08:00",
+      targetId: "node-b",
+      targetName: "GPU-2",
+    });
+
+    const usage = { usage: { prompt_tokens: 1_000, completion_tokens: 500 } };
+    const leftPending = pendingRequestPricing(left);
+    const rightPending = pendingRequestPricing(right);
+    const leftFinished = completeRequestPricing(left, "chat", usage, undefined);
+    const rightFinished = completeRequestPricing(right, "chat", usage, undefined);
+
+    expect(leftFinished).toMatchObject({ pricing_status: "priced", cost_nano_cny: "20000000" });
+    expect(rightFinished).toMatchObject({ pricing_status: "priced", cost_nano_cny: "20000000" });
+    expect({ ...leftPending, pricing_snapshot: null }).toEqual({
+      ...rightPending,
+      pricing_snapshot: null,
+    });
+    expect({ ...leftFinished, pricing_snapshot: null }).toEqual({
+      ...rightFinished,
+      pricing_snapshot: null,
+    });
+
+    const leftSnapshot = isRecord(leftPending.pricing_snapshot) ? leftPending.pricing_snapshot : {};
+    const rightSnapshot = isRecord(rightPending.pricing_snapshot)
+      ? rightPending.pricing_snapshot
+      : {};
+    expect({ ...leftSnapshot, target_id: null, target_name: null }).toEqual({
+      ...rightSnapshot,
+      target_id: null,
+      target_name: null,
+    });
+    expect(leftSnapshot).toMatchObject({ target_id: "node-a", target_name: "GPU-1" });
+    expect(rightSnapshot).toMatchObject({ target_id: "node-b", target_name: "GPU-2" });
   });
 });

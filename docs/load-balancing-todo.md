@@ -1,6 +1,6 @@
 # 多节点负载均衡开发 TODO
 
-创建日期：2026-10-22。当前进度：5 / 13 项完成。
+创建日期：2026-10-22。当前进度：6 / 13 项完成。
 
 设计依据：[多节点负载均衡设计（粘性任务路由 v1）](./load-balancing-design.md)。决策记录：[ADR-013](./adr/013-load-balancing-sticky-routing.md)。本清单供后续开发、测试、验收和逐项提交使用。设计发生变化时，必须同时更新设计文档和本清单，不能只改代码。
 
@@ -60,7 +60,7 @@ npx electron-builder -w portable --publish never
 | [x] | LB-03 | 亲和表与桶容量限制 | LB-02 | 完成 |
 | [x] | LB-04 | canonical node key 与 runtime 生命周期 | LB-01 | 完成 |
 | [x] | LB-05 | 新 task 选路与 pipeline 预留 | LB-02、LB-03、LB-04 | 完成 |
-| [ ] | LB-06 | request_received 时序与 pricing 一致性 | LB-01、LB-05 | 未开始 |
+| [x] | LB-06 | request_received 时序与 pricing 一致性 | LB-01、LB-05 | 完成 |
 | [ ] | LB-07 | 连接期失败切换与 503 | LB-05、LB-06 | 未开始 |
 | [ ] | LB-08 | 上游 metrics 采样与负载快照 | LB-04、LB-05 | 未开始 |
 | [ ] | LB-09 | 路由记录与状态/模型校验 API | LB-05～LB-08 | 未开始 |
@@ -505,6 +505,18 @@ npx electron-builder -w portable --publish never
 - 设计偏差：见设计文档 §8.4 落地说明——记录的 `load` 不含本次预留；亲和命中可用冷却/睡眠节点而新 task 不用；`release()` 幂等；`loadSamples` 暂时是空表（LB-08 接真实采样）；503 的 `no_healthy_node` 记录由 LB-07 补上。
 - 提交标题：`feat(load-balancing): [LB-05] select nodes and reserve them in the request pipeline`
 - 提交 SHA：`6a406fc`
+- 备注：无。
+
+### LB-06
+
+- 状态：完成
+- 实际变更：产品代码未动（本任务验证现有时序与 pricing 契约）。测试新增：`test-node/proxy/load-balancer-pipeline.test.ts` 增加 `record timing and pricing around load balancing` 4 例（LB06-01/02/04/05）、新文件 `test-node/logging/load-balancer-log-records.test.ts`（LB06-03）、`test-node/pricing/request-pricing.test.ts` 增加 LB06-06。`test-node/proxy/load-balancer-pipeline.test.ts` 的 fixture 上游现在回答 `usage`，且 `pipelineTarget` 可以携带 `modelPrices`。
+- 测试命令：`npx vitest run test-node/logging/load-balancer-log-records.test.ts test-node/proxy/load-balancer-pipeline.test.ts test-node/pricing/request-pricing.test.ts`，随后 `npx vitest run`（全量）、`npx tsc -p tsconfig.json --noEmit`、`npm run lint`、`npx prettier --check .`
+- 测试结果：新增 6 例；全量 99 文件 / 875 例通过；类型、lint、格式检查通过
+- UI 基线：未涉及
+- 设计偏差：见设计文档 §6.4 落地说明——本任务只验证；组内价格一致由 LB-01 的保存校验保证（LB01-05）。
+- 提交标题：`test(load-balancing): [LB-06] pin down record timing and pricing consistency`
+- 提交 SHA：待填写
 - 备注：无。
 
 每完成一个任务，在这里追加一条记录：

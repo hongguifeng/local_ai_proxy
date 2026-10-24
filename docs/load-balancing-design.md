@@ -280,6 +280,14 @@ loadMonitor: LoadMonitor | undefined;
 
 v1 必须明确这一时序，不能声称多 target 具备单 target 的早期在途可见性。pending sweep 只能刷新已经进入日志列表的 record。若产品要求在读取大 body 期间也显示该请求，后续应增加 pair/runtime 级 pending registry 和对应的管理端数据源；不能把未知最终 target 的占位行随意写入某个 target 的日志库。
 
+落地说明（LB-06）：
+
+- 本任务只验证现有行为，不改产品代码；单 target 的早期写入保持原样：`request_received` 先于读 body，带空 body 占位和 `body_pending: true`，没模型也没路由。
+- 多 target/LB 在 body 读完、节点选定之前确实一条 record 都没有；`request_received` 和 `request_pending_response` 随后用同一 record ID 和同一选中 target 写入。
+- record 一旦存在，`GET /api/logs/records?ids=` 就能取到不展开 body 的 pending 行；body 列为空是转存后的存储契约，详情接口仍读得到正文。
+- v1 没有 runtime pending registry，所以不承诺“读大 body 期间也能查到该请求”。
+- pricing 在选定节点后冻结，用的是那个节点的 `model_prices`；组内价格已由保存时校验一致，所以切换节点只换快照里的 target 名字，金额和费用状态不变。
+
 ## 7. task 亲和与路由身份
 
 ### 7.1 证据结构
