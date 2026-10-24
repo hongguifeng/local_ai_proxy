@@ -84,6 +84,23 @@ export {
   type LoadAffinityOptions,
 } from "./load-affinity.js";
 export {
+  canonicalNodeKey,
+  tryCanonicalNodeKey,
+  type CanonicalNodeKeyOptions,
+} from "./node-identity.js";
+export {
+  LoadBalancer,
+  type LoadBalancerNode,
+  type LoadBalancerOptions,
+  type LoadBalancerSnapshot,
+} from "./load-balancer.js";
+export {
+  AFFINITY_SWEEP_INTERVAL_MS,
+  LoadMonitor,
+  type LoadMonitorOptions,
+  type LoadMonitorSweepResult,
+} from "./load-monitor.js";
+export {
   parseInjectRequestFields,
   parseStripRequestFields,
   transformRequestJsonFields,

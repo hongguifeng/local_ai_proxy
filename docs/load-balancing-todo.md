@@ -1,6 +1,6 @@
 # 多节点负载均衡开发 TODO
 
-创建日期：2026-10-22。当前进度：3 / 13 项完成。
+创建日期：2026-10-22。当前进度：4 / 13 项完成。
 
 设计依据：[多节点负载均衡设计（粘性任务路由 v1）](./load-balancing-design.md)。决策记录：[ADR-013](./adr/013-load-balancing-sticky-routing.md)。本清单供后续开发、测试、验收和逐项提交使用。设计发生变化时，必须同时更新设计文档和本清单，不能只改代码。
 
@@ -58,7 +58,7 @@ npx electron-builder -w portable --publish never
 | [x] | LB-01 | 配置 schema、normalizer 和 pair 校验 | 无 | 完成 |
 | [x] | LB-02 | 共享 task identity 与 matcher 边界 | LB-01 | 完成 |
 | [x] | LB-03 | 亲和表与桶容量限制 | LB-02 | 完成 |
-| [ ] | LB-04 | canonical node key 与 runtime 生命周期 | LB-01 | 未开始 |
+| [x] | LB-04 | canonical node key 与 runtime 生命周期 | LB-01 | 完成 |
 | [ ] | LB-05 | 新 task 选路与 pipeline 预留 | LB-02、LB-03、LB-04 | 未开始 |
 | [ ] | LB-06 | request_received 时序与 pricing 一致性 | LB-01、LB-05 | 未开始 |
 | [ ] | LB-07 | 连接期失败切换与 503 | LB-05、LB-06 | 未开始 |
@@ -480,6 +480,18 @@ npx electron-builder -w portable --publish never
 - UI 基线：未涉及
 - 设计偏差：见设计文档 §7.3 落地说明——绑定不存 `contentFingerprint`（桶内判定只看哈希前缀）；endpoint 为“存下为空则兼容、否则严格相等”；精确键被抢时只摘键不删绑定；全局淘汰在超限时线性扫描全表（上限 4096，实测 4097 次绑定约 170 ms）。
 - 提交标题：`feat(load-balancing): [LB-03] add affinity table with bounded buckets`
+- 提交 SHA：`07763f4`
+- 备注：无。
+
+### LB-04
+
+- 状态：完成
+- 实际变更：新增 `src/proxy/node-identity.ts`（`canonicalNodeKey` / `tryCanonicalNodeKey`）、`src/proxy/load-balancer.ts`（`LoadBalancer`：node 表、每组一张亲和表、`reconfigure`、在飞账本、`clear`、`snapshot`）、`src/proxy/load-monitor.ts`（`LoadMonitor`：每 5 分钟清理过期绑定，定时器 `unref`）。`src/proxy/proxy-runtime-registry.ts` 的 `ProxyRuntimeEntry` 新增 `loadBalancer` / `loadMonitor`：`startPair` 创建，`reloadPair` 原地 reconfigure，`stopPair` 停表并清空；新增 `loadBalancer(pairId)` / `loadMonitor(pairId)` 读取入口。`src/proxy/index.ts` 导出。
+- 测试命令：`npx vitest run test-node/proxy/node-identity.test.ts test-node/proxy/load-balancer.test.ts test-node/proxy/proxy-runtime-registry.test.ts`，随后 `npx vitest run`（全量）、`npx tsc -p tsconfig.json --noEmit`、`npm run lint`、`npx prettier --check .`
+- 测试结果：新增 `node-identity.test.ts` 9 例、`load-balancer.test.ts` 11 例、registry 新增 LB04-04/05 共 1 例；全量 96 文件 / 858 例通过；类型、lint、格式检查通过
+- UI 基线：未涉及
+- 设计偏差：见设计文档 §6.2 落地说明——监视器现在只做亲和清理（LB-08 接采样进同一个定时器）；`LoadBalancer` 还不选路（LB-05）；`clear()` 保留 node 视图，runtime entry 在 stop 时把对象摘掉；在飞计数放在以 `targetId` 为键的 pair 账本上，不属于任何 pipeline。
+- 提交标题：`feat(load-balancing): [LB-04] add canonical node identity and runtime lifecycle`
 - 提交 SHA：待填写
 - 备注：无。
 

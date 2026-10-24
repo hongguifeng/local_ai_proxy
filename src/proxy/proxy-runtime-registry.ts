@@ -5,6 +5,8 @@ import type { ProxyPair, PublicProxyPair, TargetConfig } from "../config/index.j
 import { TrafficLogService } from "../logging/index.js";
 import { ActiveRequestRegistry } from "./active-requests.js";
 import { parseHeaderOverrides } from "./headers.js";
+import { LoadBalancer } from "./load-balancer.js";
+import { LoadMonitor } from "./load-monitor.js";
 import { ProxyListener } from "./proxy-listener.js";
 import { ProxyRequestPipeline, type ProxyPipelineTarget } from "./proxy-request-pipeline.js";
 import { ProxyRuntimeStateMachine, type ProxyRuntimeSnapshot } from "./proxy-runtime-state.js";
@@ -28,6 +30,9 @@ interface ProxyRuntimeEntry {
   resources: ProxyRuntimeResources | undefined;
   /** Traffic log services reused across reloads while the pair keeps its listener. */
   logServices: Map<string, TrafficLogService>;
+  /** Survives a pipeline rebuild so bindings and reservations are not lost on save. */
+  loadBalancer: LoadBalancer | undefined;
+  loadMonitor: LoadMonitor | undefined;
   readonly state: ProxyRuntimeStateMachine;
 }
 
@@ -86,6 +91,15 @@ export class ProxyRuntimeRegistry {
     return this.#entry(pairId).state.snapshot;
   }
 
+  /** The pair's long-lived load balancing state, if the pair has been started. */
+  loadBalancer(pairId: string): LoadBalancer | undefined {
+    return this.#entry(pairId).loadBalancer;
+  }
+
+  loadMonitor(pairId: string): LoadMonitor | undefined {
+    return this.#entry(pairId).loadMonitor;
+  }
+
   diagnostics(): ProxyRuntimeDiagnostics {
     let activeRequests = 0;
     let resourcePairs = 0;
@@ -133,6 +147,12 @@ export class ProxyRuntimeRegistry {
       throw error;
     }
     entry.logServices = compiled.retained;
+    const loadBalancer = new LoadBalancer(pair.id);
+    loadBalancer.reconfigure(pair);
+    const loadMonitor = new LoadMonitor(loadBalancer);
+    loadMonitor.start();
+    entry.loadBalancer = loadBalancer;
+    entry.loadMonitor = loadMonitor;
     const activeRequests = new ActiveRequestRegistry();
     const pipeline = new ProxyRequestPipeline({
       activeRequests,
@@ -163,6 +183,10 @@ export class ProxyRuntimeRegistry {
     } catch (error) {
       entry.resources = undefined;
       entry.logServices = new Map();
+      loadMonitor.stop();
+      loadBalancer.clear();
+      entry.loadBalancer = undefined;
+      entry.loadMonitor = undefined;
       await closeLogServices(created);
       entry.state.markStartFailed(error);
       throw error;
@@ -198,6 +222,15 @@ export class ProxyRuntimeRegistry {
     });
     entry.logServices = compiled.retained;
     resources.current = { activeRequests, pipeline };
+    // The balancer and monitor are reused as they are: bindings, reservations and the
+    // sampling timer must survive a configuration save.
+    const balancer = entry.loadBalancer ?? new LoadBalancer(pair.id);
+    balancer.reconfigure(pair);
+    entry.loadBalancer = balancer;
+    const monitor = entry.loadMonitor ?? new LoadMonitor(balancer);
+    monitor.reconfigure(balancer);
+    monitor.start();
+    entry.loadMonitor = monitor;
     this.#drain(entry.pairId, superseded.activeRequests, compiled.superseded);
     return entry.state.snapshot;
   }
@@ -238,6 +271,10 @@ export class ProxyRuntimeRegistry {
       }
       await closeLogServices([...entry.logServices.values()]);
       entry.logServices = new Map();
+      entry.loadMonitor?.stop();
+      entry.loadBalancer?.clear();
+      entry.loadBalancer = undefined;
+      entry.loadMonitor = undefined;
       entry.state.markStopped();
       return entry.state.snapshot;
     } catch (error) {
@@ -317,6 +354,8 @@ export class ProxyRuntimeRegistry {
         pairId,
         resources: undefined,
         logServices: new Map(),
+        loadBalancer: undefined,
+        loadMonitor: undefined,
         state: new ProxyRuntimeStateMachine(),
       };
       this.#entries.set(pairId, entry);

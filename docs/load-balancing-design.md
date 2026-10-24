@@ -234,6 +234,17 @@ loadMonitor: LoadMonitor | undefined;
 
 亲和绑定使用 pair 内稳定的 `targetId`。指标采样、单飞请求和物理上游负载汇总如果需要使用 URL 身份，必须使用 `canonicalNodeKey`，不能直接拼接原始 target URL。规范化至少包括 scheme、大小写、默认端口、IPv6 方括号、末尾斜杠和 base path；当前本地部署中的 `localhost` 与 `127.0.0.1` 要归一为同一类本地地址。不同 base path 不能合并，任意 DNS 名称也不能仅凭字符串替换强行合并。v1 不跨 pair 合并负载，但从第一版开始使用规范化函数，避免后续加入共享监视器时重新解释节点身份。
 
+落地说明（LB-04）：
+
+- `src/proxy/node-identity.ts` 提供 `canonicalNodeKey` 和 `tryCanonicalNodeKey`。回环集合是 `localhost`、`127.0.0.1`、`::1`，全部归为 `127.0.0.1`；非回环的 IPv6 字面量保留方括号。默认端口省略，末尾斜杠剪掉，query 和 fragment 忽略。base path 的大小写保留，HTTP 路径本身就是大小写敏感的。
+- 亲和一律走 `targetId`；canonical key 只用来把同一台引擎的多个 target 归在一起。
+- `LoadBalancer` 在 pair 内存活。`reconfigure` 复用旧 node 对象，所以重新保存配置不会把在飞计数洗掉。
+- 在飞计数存在一张以 `targetId` 为键的 pair 账本上，不属于任何 pipeline。reload 后旧请求的释放回调仍然指向同一个 `LoadBalancer`，因此不会被计入新旧两份账本。
+- `clear()` 释放绑定和在飞计数，但保留 node 视图；`stopPair` 会把整个对象从 runtime entry 上摘掉。
+- `LoadMonitor` 是唯一碰定时器的地方。现在它只做每 5 分钟的亲和过期清理，定时器 `unref()`，不会自己拖住进程。LB-08 把采样接进同一个定时器。
+- runtime registry 在 `startPair` 创建、`reloadPair` 原地 reconfigure、`stopPair` 停表并清空。`loadBalancer(pairId)` 和 `loadMonitor(pairId)` 是读取入口，LB-09 的状态 API 会直接用。
+- 当前偏差：监视器还只会清理亲和，上游采样是 LB-08 的活；`LoadBalancer` 还不选人，选路是 LB-05 的活。
+
 ### 6.3 请求处理流程
 
 ```text

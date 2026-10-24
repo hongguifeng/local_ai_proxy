@@ -7,7 +7,7 @@ import { performance } from "node:perf_hooks";
 import { describe, expect, it } from "vitest";
 
 import type { ProxyPair } from "../../src/config/index.js";
-import { ProxyRuntimeRegistry } from "../../src/proxy/index.js";
+import { ProxyRuntimeRegistry, taskIdentity } from "../../src/proxy/index.js";
 import { TrafficRepository } from "../../src/persistence/index.js";
 import { isRecord } from "../../src/shared/index.js";
 
@@ -427,6 +427,69 @@ describe("ProxyRuntimeRegistry", () => {
       await rm(logRoot, { force: true, recursive: true });
     }
   });
+
+  it("LB04-04 keeps load balancing state across a reload and clears it on stop", async () => {
+    const upstream = http.createServer((_request, response) => response.end("balanced"));
+    const upstreamPort = await listen(upstream);
+    const logRoot = await mkdtemp(path.join(os.tmpdir(), "llm-proxy-runtime-load-balancing-"));
+    const registry = new ProxyRuntimeRegistry();
+    const pair = loadBalancedPairFixture(upstreamPort, logRoot);
+
+    try {
+      const runtime = await registry.startPair(pair);
+      expect(runtime.running).toBe(true);
+      const balancer = registry.loadBalancer(pair.id);
+      if (balancer === undefined) {
+        throw new Error("Starting a pair must create its load balancer.");
+      }
+      const monitor = registry.loadMonitor(pair.id);
+      if (monitor === undefined) {
+        throw new Error("Starting a pair must create its load monitor.");
+      }
+
+      expect(monitor.running).toBe(true);
+      expect(balancer.groupIds()).toEqual(["runtime-lb"]);
+      expect(balancer.nodeFor("localhost-target")?.canonicalKey).toBe(
+        `http://127.0.0.1:${upstreamPort}`,
+      );
+      expect(balancer.nodeFor("runtime-target")?.canonicalKey).toBe(
+        `http://127.0.0.1:${upstreamPort}`,
+      );
+
+      const table = balancer.tableFor("runtime-lb");
+      if (table === undefined) {
+        throw new Error("An enabled group must have an affinity table.");
+      }
+      table.bind(affinityEvidence("session-1"), "runtime-target");
+      balancer.reserve("localhost-target");
+
+      const reloaded = await registry.reloadPair(pair);
+      expect(reloaded.running).toBe(true);
+      // LB04-04: the same objects are reconfigured in place, nothing is rebuilt.
+      expect(registry.loadBalancer(pair.id)).toBe(balancer);
+      expect(registry.loadMonitor(pair.id)).toBe(monitor);
+      expect(monitor.running).toBe(true);
+      expect(table.size).toBe(1);
+      expect(balancer.inFlight("localhost-target")).toBe(1);
+
+      // LB04-05: a release callback captured before the reload still points at the one
+      // ledger, so the old request cannot be counted twice.
+      balancer.release("localhost-target");
+      expect(balancer.inFlight("localhost-target")).toBe(0);
+      expect(balancer.snapshot().bindings).toEqual({ "runtime-lb": 1 });
+
+      await registry.stopPair(pair.id);
+      expect(monitor.running).toBe(false);
+      expect(table.size).toBe(0);
+      expect(balancer.inFlight("runtime-target")).toBe(0);
+      expect(registry.loadBalancer(pair.id)).toBeUndefined();
+      expect(registry.loadMonitor(pair.id)).toBeUndefined();
+    } finally {
+      await registry.stopAll();
+      await close(upstream);
+      await rm(logRoot, { force: true, recursive: true, maxRetries: 5, retryDelay: 100 });
+    }
+  });
 });
 
 function pairFixture(upstreamPort: number, pairId = "runtime-pair"): ProxyPair {
@@ -456,6 +519,52 @@ function pairFixture(upstreamPort: number, pairId = "runtime-pair"): ProxyPair {
       },
     ],
   };
+}
+
+/** Two spellings of one engine behind a load balancing group. */
+function loadBalancedPairFixture(upstreamPort: number, logRoot: string): ProxyPair {
+  const base = pairFixture(upstreamPort, "load-balancing-pair");
+  const second = base.targets[0];
+  if (second === undefined) {
+    throw new Error("Fixture pair must carry a target.");
+  }
+  return {
+    ...base,
+    targets: [
+      { ...second, id: "runtime-target", log_root: logRoot },
+      {
+        ...second,
+        id: "localhost-target",
+        name: "Localhost spelling",
+        target_url: `http://localhost:${upstreamPort}`,
+        log_root: logRoot,
+      },
+    ],
+    load_balancers: [
+      {
+        id: "runtime-lb",
+        name: "Runtime group",
+        enabled: true,
+        model_pattern: "Qwen3.8-Flash-Next",
+        node_target_ids: ["runtime-target", "localhost-target"],
+        strategy: "least_load",
+        metrics_enabled: true,
+        failover_enabled: true,
+      },
+    ],
+  };
+}
+
+function affinityEvidence(sessionId: string) {
+  return taskIdentity({
+    payload: {
+      model: "Qwen3.8-Flash-Next",
+      instructions: "rules",
+      input: [{ role: "user", content: "question one" }],
+    },
+    headers: { "x-claude-code-session-id": [sessionId] },
+    path: "/v1/responses",
+  });
 }
 
 function withLogRoot(pair: ProxyPair, logRoot: string): ProxyPair {
