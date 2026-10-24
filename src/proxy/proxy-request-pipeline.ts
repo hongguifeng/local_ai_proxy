@@ -3,6 +3,7 @@ import { once } from "node:events";
 import { performance } from "node:perf_hooks";
 
 import type { RepositoryRecord } from "../persistence/index.js";
+import type { LoadBalancerGroup } from "../config/index.js";
 import {
   completeRequestPricing,
   freezeRequestPricing,
@@ -33,8 +34,10 @@ import {
   type ResponseLogCaptureOptions,
   type ResponseLogPayload,
 } from "./response-log-capture.js";
-import { endpointKind } from "./records.js";
+import { endpointKind, responseIdsFromBody } from "./records.js";
 import { requestModelFromBody, rewriteRequestModel, selectTargetByModel } from "./routing.js";
+import type { LoadBalancer, LoadBalancerReservation, LoadSample } from "./load-balancer.js";
+import { taskIdentity } from "./task-identity.js";
 import { joinTargetPath } from "./target.js";
 import { openUpstreamResponse } from "./upstream-forwarder.js";
 
@@ -76,6 +79,32 @@ export interface ProxyRequestPipelineOptions {
   readonly pairName?: string;
   readonly responseCapture?: ResponseLogCaptureOptions;
   readonly targets: readonly ProxyPipelineTarget[];
+  /** Per-pair load balancing state; absent means the classic model mapping routing. */
+  readonly loadBalancer?: LoadBalancer | undefined;
+  readonly loadSamples?: (() => ReadonlyMap<string, LoadSample>) | undefined;
+}
+
+interface LoadBalanceSelection {
+  readonly group: LoadBalancerGroup;
+  readonly reservation: LoadBalancerReservation;
+}
+
+interface PipelineTargetSelection {
+  readonly target: ProxyPipelineTarget;
+  readonly requestModel: string | undefined;
+  readonly upstreamModel: string | undefined;
+  readonly loadBalance: LoadBalanceSelection | undefined;
+}
+
+/** A matched group had no usable node. The caller must answer 503, never bypass the group. */
+export class LoadBalancerExhaustedError extends Error {
+  readonly groupId: string;
+
+  constructor(groupId: string) {
+    super(`Load balancing group ${groupId} has no usable node.`);
+    this.name = "LoadBalancerExhaustedError";
+    this.groupId = groupId;
+  }
 }
 
 export class ProxyRequestPipeline {
@@ -145,151 +174,218 @@ export class ProxyRequestPipeline {
       }
       throw error;
     }
-    const selection = this.#selectTarget(requestBody);
-    const selectedTarget = selection.target;
-    const rewrittenBody = rewriteRequestModel(requestBody, selection.upstreamModel);
-    const transformed = transformRequestJsonFields(
-      rewrittenBody,
-      selectedTarget.stripRequestFields ?? new Set(),
-      selectedTarget.injectRequestFields ?? {},
-    );
-    const pricingContext = freezeRequestPricing(
-      requestModelFromBody(transformed.body),
-      selectedTarget.modelPrices ?? [],
-      {
-        frozenAt: context.startedAt,
-        targetId: selectedTarget.id,
-        targetName: selectedTarget.name,
-      },
-    );
-    const baseRecord: RepositoryRecord = {
-      ...withRequestDetails(
-        this.#initialRecord(request, context, selectedTarget),
-        requestBody,
-        transformed.body,
-        selection,
-        transformed.strippedFields,
-        transformed.injectedFields,
-      ),
-      pricing: pendingRequestPricing(pricingContext),
-    };
-    if (this.#options.targets.length > 1) {
-      await selectedTarget.trafficLog.write(eventRecord(baseRecord, "request_received", 0));
-    }
-    await selectedTarget.trafficLog.update(eventRecord(baseRecord, "request_pending_response", 0));
-    let responseCapture = new ResponseLogCapture(false, this.#options.responseCapture);
-    let responseStatus: number;
-    let responseHeaders: Record<string, string[]>;
-    let firstTokenMs: number | undefined;
-    let sseResponse = false;
-    let generatedEvents = 0;
-    let lastGeneratedMs: number | undefined;
+    let selection: PipelineTargetSelection;
     try {
-      const upstream = await openUpstreamResponse({
-        target: selectedTarget,
-        method: request.method ?? "GET",
-        path: joinTargetPath(selectedTarget.targetBasePath, request.url ?? "/"),
-        headers: upstreamRequestHeaders(request, selectedTarget, transformed.body.byteLength),
-        body: transformed.body,
-        signal,
-      });
-      responseStatus = upstream.statusCode ?? 502;
-      responseHeaders = incomingHeaders(upstream);
-      sseResponse = isSseResponse(upstream);
-      responseCapture = new ResponseLogCapture(sseResponse, {
-        ...this.#options.responseCapture,
-        pricingEndpoint: endpointKind(request.url ?? "/"),
-      });
-      // The log records the decoded body: an upstream `content-encoding` is
-      // transparent to the client but unreadable to the SSE observer, the usage
-      // capture and the JSON pane.
-      const observeResponseBody: ResponseBodySink = (chunk) => {
-        responseCapture.addChunk(chunk);
-        const count = responseCapture.generatedEvents;
-        if (sseResponse && count > generatedEvents) {
-          const now = elapsedMilliseconds(context);
-          firstTokenMs ??= now;
-          lastGeneratedMs = now;
-        }
-        generatedEvents = count;
-      };
-      response.writeHead(
-        responseStatus,
-        upstream.statusMessage ?? undefined,
-        forwardedResponseHeaders(upstream),
-      );
-      await forwardResponseBody(
-        upstream,
-        response,
-        request.method === "HEAD",
-        createResponseBodyDecoder(upstream.headers["content-encoding"], observeResponseBody),
-      );
+      selection = this.#selectTarget(request, requestBody);
     } catch (error) {
-      responseStatus = response.headersSent ? response.statusCode : 502;
-      responseHeaders = response.headersSent
-        ? {}
-        : { "content-type": ["text/plain; charset=utf-8"] };
-      if (response.headersSent) {
-        response.destroy();
-      } else {
-        const badGatewayBody = Buffer.from("Bad Gateway", "utf8");
-        responseCapture.addChunk(badGatewayBody);
-        response.writeHead(502, {
-          "content-type": "text/plain; charset=utf-8",
-          connection: "close",
-        });
-        response.end(request.method === "HEAD" ? undefined : badGatewayBody);
+      if (error instanceof LoadBalancerExhaustedError) {
+        respondLoadBalancerUnavailable(response, error.groupId);
+        return;
       }
-      baseRecord["error"] = formatUpstreamError(error);
+      throw error;
     }
-    // Freeze transport timing before parsing, disk spooling and pricing work.
-    const durationMs = elapsedMilliseconds(context);
-    baseRecord["decode_window_ms"] =
-      firstTokenMs !== undefined && lastGeneratedMs !== undefined
-        ? Math.max(0, lastGeneratedMs - firstTokenMs)
-        : 0;
-    const responseBody: ResponseLogPayload = await responseCapture.finalize();
-    baseRecord["pricing"] = completeRequestPricing(
-      pricingContext,
-      endpointKind(request.url ?? "/"),
-      responseJson(responseBody),
-      responseCapture.usageCapture,
-    );
-    await selectedTarget.trafficLog.write(
-      eventRecord(
-        baseRecord,
-        "request_finished",
-        durationMs,
+    const selectedTarget = selection.target;
+    try {
+      const rewrittenBody = rewriteRequestModel(requestBody, selection.upstreamModel);
+      const transformed = transformRequestJsonFields(
+        rewrittenBody,
+        selectedTarget.stripRequestFields ?? new Set(),
+        selectedTarget.injectRequestFields ?? {},
+      );
+      const pricingContext = freezeRequestPricing(
+        requestModelFromBody(transformed.body),
+        selectedTarget.modelPrices ?? [],
         {
-          status: responseStatus,
-          headers: responseHeaders,
-          body: responseBody,
+          frozenAt: context.startedAt,
+          targetId: selectedTarget.id,
+          targetName: selectedTarget.name,
         },
-        firstTokenMs,
-      ),
-    );
+      );
+      const baseRecord: RepositoryRecord = {
+        ...withRequestDetails(
+          this.#initialRecord(request, context, selectedTarget),
+          requestBody,
+          transformed.body,
+          selection,
+          transformed.strippedFields,
+          transformed.injectedFields,
+        ),
+        pricing: pendingRequestPricing(pricingContext),
+      };
+      if (this.#options.targets.length > 1) {
+        await selectedTarget.trafficLog.write(eventRecord(baseRecord, "request_received", 0));
+      }
+      await selectedTarget.trafficLog.update(
+        eventRecord(baseRecord, "request_pending_response", 0),
+      );
+      let responseCapture = new ResponseLogCapture(false, this.#options.responseCapture);
+      let responseStatus: number;
+      let responseHeaders: Record<string, string[]>;
+      let firstTokenMs: number | undefined;
+      let sseResponse = false;
+      let generatedEvents = 0;
+      let lastGeneratedMs: number | undefined;
+      try {
+        selection.loadBalance?.reservation.markDispatched();
+        const upstream = await openUpstreamResponse({
+          target: selectedTarget,
+          method: request.method ?? "GET",
+          path: joinTargetPath(selectedTarget.targetBasePath, request.url ?? "/"),
+          headers: upstreamRequestHeaders(request, selectedTarget, transformed.body.byteLength),
+          body: transformed.body,
+          signal,
+        });
+        responseStatus = upstream.statusCode ?? 502;
+        responseHeaders = incomingHeaders(upstream);
+        sseResponse = isSseResponse(upstream);
+        responseCapture = new ResponseLogCapture(sseResponse, {
+          ...this.#options.responseCapture,
+          pricingEndpoint: endpointKind(request.url ?? "/"),
+        });
+        // The log records the decoded body: an upstream `content-encoding` is
+        // transparent to the client but unreadable to the SSE observer, the usage
+        // capture and the JSON pane.
+        const observeResponseBody: ResponseBodySink = (chunk) => {
+          responseCapture.addChunk(chunk);
+          const count = responseCapture.generatedEvents;
+          if (sseResponse && count > generatedEvents) {
+            const now = elapsedMilliseconds(context);
+            firstTokenMs ??= now;
+            lastGeneratedMs = now;
+          }
+          generatedEvents = count;
+        };
+        response.writeHead(
+          responseStatus,
+          upstream.statusMessage ?? undefined,
+          forwardedResponseHeaders(upstream),
+        );
+        await forwardResponseBody(
+          upstream,
+          response,
+          request.method === "HEAD",
+          createResponseBodyDecoder(upstream.headers["content-encoding"], observeResponseBody),
+        );
+      } catch (error) {
+        responseStatus = response.headersSent ? response.statusCode : 502;
+        responseHeaders = response.headersSent
+          ? {}
+          : { "content-type": ["text/plain; charset=utf-8"] };
+        if (response.headersSent) {
+          response.destroy();
+        } else {
+          const badGatewayBody = Buffer.from("Bad Gateway", "utf8");
+          responseCapture.addChunk(badGatewayBody);
+          response.writeHead(502, {
+            "content-type": "text/plain; charset=utf-8",
+            connection: "close",
+          });
+          response.end(request.method === "HEAD" ? undefined : badGatewayBody);
+        }
+        baseRecord["error"] = formatUpstreamError(error);
+      }
+      // Freeze transport timing before parsing, disk spooling and pricing work.
+      const durationMs = elapsedMilliseconds(context);
+      baseRecord["decode_window_ms"] =
+        firstTokenMs !== undefined && lastGeneratedMs !== undefined
+          ? Math.max(0, lastGeneratedMs - firstTokenMs)
+          : 0;
+      const responseBody: ResponseLogPayload = await responseCapture.finalize();
+      const responsePayload = responseJson(responseBody);
+      baseRecord["pricing"] = completeRequestPricing(
+        pricingContext,
+        endpointKind(request.url ?? "/"),
+        responsePayload,
+        responseCapture.usageCapture,
+      );
+      await selectedTarget.trafficLog.write(
+        eventRecord(
+          baseRecord,
+          "request_finished",
+          durationMs,
+          {
+            status: responseStatus,
+            headers: responseHeaders,
+            body: responseBody,
+          },
+          firstTokenMs,
+        ),
+      );
+      this.#noteResponseIds(selection, responsePayload);
+    } finally {
+      // The reservation covers the whole upstream response, including a long SSE decode,
+      // and it fires for client aborts and upstream failures alike.
+      selection.loadBalance?.reservation.release();
+    }
   }
 
-  #selectTarget(requestBody: Uint8Array): {
-    readonly target: ProxyPipelineTarget;
-    readonly requestModel: string | undefined;
-    readonly upstreamModel: string | undefined;
-  } {
+  /** Teach the binding which response ids this response produced. */
+  #noteResponseIds(selection: PipelineTargetSelection, responsePayload: unknown): void {
+    const loadBalance = selection.loadBalance;
+    if (loadBalance === undefined) {
+      return;
+    }
+    const responseIds = responseIdsFromBody(responsePayload);
+    if (responseIds.length === 0) {
+      return;
+    }
+    this.#options.loadBalancer
+      ?.tableFor(loadBalance.group.id)
+      ?.attachResponseIds(loadBalance.reservation.binding, responseIds);
+  }
+
+  #selectTarget(request: IncomingMessage, requestBody: Uint8Array): PipelineTargetSelection {
     const candidates = this.#options.targets.map((target) => ({
       id: target.id,
       enabled: target.enabled,
       model_mappings: target.modelMappings,
       target,
     }));
-    const selection = selectTargetByModel(
+    const mapping = selectTargetByModel(
       candidates,
       this.#options.defaultTargetId ?? "",
       requestBody,
     );
+    const plain: PipelineTargetSelection = {
+      target: mapping.target.target,
+      requestModel: mapping.requestModel,
+      upstreamModel: mapping.upstreamModel,
+      loadBalance: undefined,
+    };
+    const balancer = this.#options.loadBalancer;
+    const requestModel = mapping.requestModel;
+    if (balancer === undefined || requestModel === undefined || requestModel === "") {
+      return plain;
+    }
+    const match = balancer.matchGroup(requestModel);
+    if (match === undefined) {
+      return plain;
+    }
+
+    const reservation = balancer.plan({
+      group: match.group,
+      identity: taskIdentity({
+        payload: parseRequestJson(requestBody),
+        headers: incomingHeaders(request),
+        path: request.url ?? "/",
+      }),
+      samples: this.#options.loadSamples?.(),
+    });
+    if (reservation === undefined) {
+      throw new LoadBalancerExhaustedError(match.group.id);
+    }
+    const chosen = candidates.find(({ id }) => id === reservation.decision.targetId);
+    if (chosen === undefined) {
+      // The balancer named a target this pipeline does not know; keep the old route.
+      return plain;
+    }
     return {
-      target: selection.target.target,
-      requestModel: selection.requestModel,
-      upstreamModel: selection.upstreamModel,
+      target: chosen.target,
+      requestModel,
+      // A load balancing group forwards the requested model unchanged. Member mappings
+      // must not rewrite the same task onto two different model names.
+      upstreamModel: requestModel,
+      loadBalance: { group: match.group, reservation },
     };
   }
 
@@ -403,11 +499,7 @@ function withRequestDetails(
   record: Readonly<RepositoryRecord>,
   requestBody: Uint8Array,
   upstreamBody: Uint8Array,
-  selection: {
-    readonly target: ProxyPipelineTarget;
-    readonly requestModel: string | undefined;
-    readonly upstreamModel: string | undefined;
-  },
+  selection: PipelineTargetSelection,
   strippedFields: readonly string[],
   injectedFields: readonly string[],
 ): RepositoryRecord {
@@ -435,10 +527,50 @@ function withRequestDetails(
                 : { upstream_model: selection.upstreamModel }),
               target_id: selection.target.id,
               target_name: selection.target.name,
+              ...loadBalanceRoute(selection.loadBalance),
             },
           }),
     },
   };
+}
+
+/** Short load balancing fields for `request.model_route`; candidate detail stays in runtime state. */
+function loadBalanceRoute(loadBalance: LoadBalanceSelection | undefined): Record<string, unknown> {
+  if (loadBalance === undefined) {
+    return {};
+  }
+  const decision = loadBalance.reservation.decision;
+  return {
+    route_mode: "load_balance",
+    load_balance: {
+      group_id: decision.groupId,
+      group_name: decision.groupName,
+      decision: decision.decision,
+      strategy: decision.strategy,
+      matched_by: decision.matchedBy,
+      load: decision.load,
+      ...(decision.kvUsage === undefined ? {} : { kv_usage: decision.kvUsage }),
+      ...(decision.metricsSource === undefined ? {} : { metrics_source: decision.metricsSource }),
+      failover_from: null,
+    },
+  };
+}
+
+function parseRequestJson(body: Uint8Array): unknown {
+  try {
+    return JSON.parse(Buffer.from(body).toString("utf8"));
+  } catch {
+    return undefined;
+  }
+}
+
+function respondLoadBalancerUnavailable(response: ServerResponse, groupId: string): void {
+  response.writeHead(503, {
+    "content-type": "text/plain; charset=utf-8",
+    "retry-after": "1",
+    connection: "close",
+  });
+  response.end(`No load balancing node is available for group ${groupId}.`);
 }
 
 function incomingHeaders(request: IncomingMessage): Record<string, string[]> {

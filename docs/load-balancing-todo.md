@@ -1,6 +1,6 @@
 # 多节点负载均衡开发 TODO
 
-创建日期：2026-10-22。当前进度：4 / 13 项完成。
+创建日期：2026-10-22。当前进度：5 / 13 项完成。
 
 设计依据：[多节点负载均衡设计（粘性任务路由 v1）](./load-balancing-design.md)。决策记录：[ADR-013](./adr/013-load-balancing-sticky-routing.md)。本清单供后续开发、测试、验收和逐项提交使用。设计发生变化时，必须同时更新设计文档和本清单，不能只改代码。
 
@@ -59,7 +59,7 @@ npx electron-builder -w portable --publish never
 | [x] | LB-02 | 共享 task identity 与 matcher 边界 | LB-01 | 完成 |
 | [x] | LB-03 | 亲和表与桶容量限制 | LB-02 | 完成 |
 | [x] | LB-04 | canonical node key 与 runtime 生命周期 | LB-01 | 完成 |
-| [ ] | LB-05 | 新 task 选路与 pipeline 预留 | LB-02、LB-03、LB-04 | 未开始 |
+| [x] | LB-05 | 新 task 选路与 pipeline 预留 | LB-02、LB-03、LB-04 | 完成 |
 | [ ] | LB-06 | request_received 时序与 pricing 一致性 | LB-01、LB-05 | 未开始 |
 | [ ] | LB-07 | 连接期失败切换与 503 | LB-05、LB-06 | 未开始 |
 | [ ] | LB-08 | 上游 metrics 采样与负载快照 | LB-04、LB-05 | 未开始 |
@@ -492,6 +492,18 @@ npx electron-builder -w portable --publish never
 - UI 基线：未涉及
 - 设计偏差：见设计文档 §6.2 落地说明——监视器现在只做亲和清理（LB-08 接采样进同一个定时器）；`LoadBalancer` 还不选路（LB-05）；`clear()` 保留 node 视图，runtime entry 在 stop 时把对象摘掉；在飞计数放在以 `targetId` 为键的 pair 账本上，不属于任何 pipeline。
 - 提交标题：`feat(load-balancing): [LB-04] add canonical node identity and runtime lifecycle`
+- 提交 SHA：`5ccd081`
+- 备注：无。
+
+### LB-05
+
+- 状态：完成
+- 实际变更：`src/proxy/load-balancer.ts` 增加 `matchGroup`、`plan`、`markDispatched`、`markFailure`、`noteSuccess`、`markCooldown`、`cooldownRemaining` 和内部排序；新增 `LoadSample`、`LoadBalancerDecision`、`LoadBalancerReservation`、`METRIC_FRESH_WINDOW_MS`、`KV_TIER_THRESHOLD`、`MAX_COOLDOWN_MS`、`EMPTY_LOAD_SAMPLES`。`src/proxy/proxy-request-pipeline.ts` 接入：新增 `loadBalancer`/`loadSamples` 选项、`LoadBalancerExhaustedError`、命中组时用请求模型转发、`model_route` 增加 `route_mode` 与 `load_balance`、响应 id 回写绑定、`finally` 释放预留、无可用节点时回 503。`src/proxy/proxy-runtime-registry.ts` 在 `startPair`/`reloadPair` 把 balancer 传给 pipeline。`src/proxy/index.ts` 导出。
+- 测试命令：`npx vitest run test-node/proxy/load-balancer-selection.test.ts test-node/proxy/load-balancer-pipeline.test.ts test-node/proxy/load-balancer.test.ts test-node/proxy/proxy-listener.test.ts`，随后 `npx vitest run`（全量）、`npx tsc -p tsconfig.json --noEmit`、`npm run lint`、`npx prettier --check .`
+- 测试结果：新增 `load-balancer-selection.test.ts` 8 例（LB05-01～07、LB05-10）、`load-balancer-pipeline.test.ts` 3 例（LB05-01/08/09）；全量 98 文件 / 869 例通过；类型、lint、格式检查通过
+- UI 基线：未涉及
+- 设计偏差：见设计文档 §8.4 落地说明——记录的 `load` 不含本次预留；亲和命中可用冷却/睡眠节点而新 task 不用；`release()` 幂等；`loadSamples` 暂时是空表（LB-08 接真实采样）；503 的 `no_healthy_node` 记录由 LB-07 补上。
+- 提交标题：`feat(load-balancing): [LB-05] select nodes and reserve them in the request pipeline`
 - 提交 SHA：待填写
 - 备注：无。
 

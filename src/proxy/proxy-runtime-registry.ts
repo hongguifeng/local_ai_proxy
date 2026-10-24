@@ -5,7 +5,7 @@ import type { ProxyPair, PublicProxyPair, TargetConfig } from "../config/index.j
 import { TrafficLogService } from "../logging/index.js";
 import { ActiveRequestRegistry } from "./active-requests.js";
 import { parseHeaderOverrides } from "./headers.js";
-import { LoadBalancer } from "./load-balancer.js";
+import { EMPTY_LOAD_SAMPLES, LoadBalancer } from "./load-balancer.js";
 import { LoadMonitor } from "./load-monitor.js";
 import { ProxyListener } from "./proxy-listener.js";
 import { ProxyRequestPipeline, type ProxyPipelineTarget } from "./proxy-request-pipeline.js";
@@ -157,6 +157,8 @@ export class ProxyRuntimeRegistry {
     const pipeline = new ProxyRequestPipeline({
       activeRequests,
       defaultTargetId: pair.default_target_id,
+      loadBalancer,
+      loadSamples: () => EMPTY_LOAD_SAMPLES,
       pairId: pair.id,
       pairName: pair.name,
       targets: compiled.targets,
@@ -213,15 +215,6 @@ export class ProxyRuntimeRegistry {
       throw error;
     }
     const activeRequests = new ActiveRequestRegistry();
-    const pipeline = new ProxyRequestPipeline({
-      activeRequests,
-      defaultTargetId: pair.default_target_id,
-      pairId: pair.id,
-      pairName: pair.name,
-      targets: compiled.targets,
-    });
-    entry.logServices = compiled.retained;
-    resources.current = { activeRequests, pipeline };
     // The balancer and monitor are reused as they are: bindings, reservations and the
     // sampling timer must survive a configuration save.
     const balancer = entry.loadBalancer ?? new LoadBalancer(pair.id);
@@ -231,6 +224,17 @@ export class ProxyRuntimeRegistry {
     monitor.reconfigure(balancer);
     monitor.start();
     entry.loadMonitor = monitor;
+    const pipeline = new ProxyRequestPipeline({
+      activeRequests,
+      defaultTargetId: pair.default_target_id,
+      loadBalancer: balancer,
+      loadSamples: () => EMPTY_LOAD_SAMPLES,
+      pairId: pair.id,
+      pairName: pair.name,
+      targets: compiled.targets,
+    });
+    entry.logServices = compiled.retained;
+    resources.current = { activeRequests, pipeline };
     this.#drain(entry.pairId, superseded.activeRequests, compiled.superseded);
     return entry.state.snapshot;
   }

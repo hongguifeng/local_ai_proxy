@@ -435,6 +435,18 @@ freshSample.kvUsage（缺失视为 1）
 
 v1 不根据 prompt 长度估算 token，也不对异构 GPU 做权重。长 prompt 和异构节点的精细负载模型属于后续版本。
 
+落地说明（LB-05）：
+
+- `LoadBalancer.matchGroup` 按配置顺序返回第一个启用且模式匹配的组。模式匹配复用 `modelPatternMatches`，所以组模式和普通 `model_mappings` 的行为一致。
+- `plan()` 同步完成查找、建绑和预留。记录的 `load` 是选中节点在选择前的负载，不含本次刚刚增加的预留。
+- 亲和命中可以使用处于冷却或睡眠的节点；新 task 不会去那种节点。把会话搬走的代价高于多等一会儿。
+- `release()` 只减一次。客户端中止和 `finally` 同时到达也不会把计数减成负数。
+- `markDispatched()` 在向下游发前先调，所以连续同步到达的新 task 能正确交替。
+- pipeline 命中组后 `upstreamModel` 等于请求模型，成员 mapping 不生效。`model_route` 增加 `route_mode: "load_balance"` 和短的 `load_balance` 对象；逐候选明细只留在运行时状态里。
+- 响应写完后把 response id 补到绑定上；预留的释放在 `finally` 里，覆盖成功、上游异常和客户端中止。
+- 没有可用节点时抛 `LoadBalancerExhaustedError`，pipeline 回 503 带 `retry-after`。 `no_healthy_node` 的记录由 LB-07 补上。
+- 当前偏差：runtime registry 传的 `loadSamples` 还是 `EMPTY_LOAD_SAMPLES`，LB-08 接上真实采样后才有 `running`/`waiting`/`kvUsage`。
+
 ## 9. 上游指标采样
 
 ### 9.1 采样规则

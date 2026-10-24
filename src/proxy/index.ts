@@ -89,17 +89,26 @@ export {
   type CanonicalNodeKeyOptions,
 } from "./node-identity.js";
 export {
-  LoadBalancer,
-  type LoadBalancerNode,
-  type LoadBalancerOptions,
-  type LoadBalancerSnapshot,
-} from "./load-balancer.js";
-export {
   AFFINITY_SWEEP_INTERVAL_MS,
   LoadMonitor,
   type LoadMonitorOptions,
   type LoadMonitorSweepResult,
 } from "./load-monitor.js";
+export {
+  EMPTY_LOAD_SAMPLES,
+  KV_TIER_THRESHOLD,
+  MAX_COOLDOWN_MS,
+  METRIC_FRESH_WINDOW_MS,
+  LoadBalancer,
+  type LoadBalancerDecision,
+  type LoadBalancerGroupMatch,
+  type LoadBalancerNode,
+  type LoadBalancerOptions,
+  type LoadBalancerPlanInput,
+  type LoadBalancerReservation,
+  type LoadBalancerSnapshot,
+  type LoadSample,
+} from "./load-balancer.js";
 export {
   parseInjectRequestFields,
   parseStripRequestFields,
@@ -169,6 +178,7 @@ export {
   type UpdatedProxyPair,
 } from "./proxy-manager.js";
 export {
+  LoadBalancerExhaustedError,
   ProxyRequestPipeline,
   readRequestBody,
   type ProxyPipelineTarget,
