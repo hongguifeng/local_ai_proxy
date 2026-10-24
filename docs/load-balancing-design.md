@@ -316,6 +316,15 @@ interface TaskEvidence {
 
 实现时抽出 `requestContextKeys(payload, headers)` 供路由和 `TaskMatcher` 共用。`TaskMatcher` 可以保留上述顶层字段作为旧数据或导入数据的兼容 fallback，但路由不依赖它们；集成测试必须分别验证运行时可达字段和兼容 fallback。所谓“路由判定是 matcher 的超集”只对共享的运行时可达证据成立。
 
+落地说明（LB-02）：
+
+- 唯一入口是 `src/proxy/task-identity.ts`；`TaskMatcher` 现在从这个模块拿键提取、边界比较、用户消息前缀比较和 continuation 判定，不再自己写一份。`src/proxy/records.ts` 里的指纹函数仍是唯一的原始投影。
+- 上限是 `MAX_TASK_USER_HASHES = 64` 和 `MAX_TASK_USER_MESSAGES = 4096`。超 64 条时 `bounded` 为真，超 4096 条时 `oversize` 为真；两者只截断哈希列表，不改变 matcher 的判定。
+- 键值只接受字符串。数字型 `prompt_cache_key` 不会变成键，否则路由会比 matcher 多出键。
+- matcher 的历史列键（`prompt_cache_key`、`client_metadata`）由 `mergeLegacyContextKeys` 插在 `claude_session` 之前，顺序与原来一致。
+- `TASK_MATCH_STRATEGY_VERSION` 仍为 6。matcher 行为不变，15 个现有用例全绿。
+- `test-node/logging/task-identity-boundary.test.ts` 把超集方向写成断言：matcher 合并时证据差集只能出现在 `content` 和 `userHashes`；matcher 因模型、指令或首轮用户拆分时，证据差集必须包含对应维度。
+
 ### 7.3 绑定结构和生命周期
 
 ```ts

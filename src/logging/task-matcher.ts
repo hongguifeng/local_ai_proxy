@@ -1,13 +1,21 @@
 import type { RepositoryRecord } from "../persistence/index.js";
 import type { TrafficRepository } from "../persistence/index.js";
 import {
+  addContextKey,
   bodyJsonValue,
+  boundaryWithoutUser,
   endpointKind,
+  hasContinuationEvidence,
+  mergeLegacyContextKeys,
+  nestedValue,
   requestBoundaryFingerprints,
+  requestContextKeys,
   requestFingerprints,
   requestUserMessages,
   responseIdsFromBody,
+  userMessagesPrefixMatches,
   type EndpointKind,
+  type RequestHeaderMap,
 } from "../proxy/index.js";
 import {
   createRequestId,
@@ -189,15 +197,15 @@ export class TaskMatcher {
     if ((task["model"] ?? null) !== requestedModel) {
       return false;
     }
-    const taskFingerprints = isRecord(task["boundary_fingerprints"])
-      ? { ...task["boundary_fingerprints"] }
-      : {};
-    const requestFingerprints = requestBoundaryFingerprints(kind, payload);
-    if (!includeUserBoundary) {
-      delete taskFingerprints["first_user"];
-      delete requestFingerprints["first_user"];
-    }
-    return stableJsonStringify(taskFingerprints) === stableJsonStringify(requestFingerprints);
+    const storedBoundary = storedBoundaryFingerprints(task);
+    const requestBoundary = requestBoundaryFingerprints(kind, payload);
+    const boundariesEqual = (
+      left: Readonly<Record<string, string>>,
+      right: Readonly<Record<string, string>>,
+    ): boolean => stableJsonStringify(left) === stableJsonStringify(right);
+    return includeUserBoundary
+      ? boundariesEqual(storedBoundary, requestBoundary)
+      : boundariesEqual(boundaryWithoutUser(storedBoundary), boundaryWithoutUser(requestBoundary));
   }
 
   #bestHeuristicTask(
@@ -245,38 +253,10 @@ export class TaskMatcher {
     payload: Readonly<Record<string, unknown>>,
     record: Readonly<RepositoryRecord>,
   ): string[] {
-    const keys: string[] = [];
-    const seen = new Set<string>();
-    const addKey = (prefix: string, value: unknown): void => {
-      if (typeof value !== "string" || value.trim() === "") {
-        return;
-      }
-      const key = `${prefix}:${value.trim()}`;
-      if (!seen.has(key)) {
-        seen.add(key);
-        keys.push(key);
-      }
-    };
-    const conversation = payload["conversation"];
-    const conversationId = firstString(
-      conversation,
-      nestedValue(conversation, "id"),
-      payload["conversation_id"],
-      payload["thread_id"],
-      nestedValue(payload, "metadata", "conversation_id"),
-      nestedValue(payload, "metadata", "thread_id"),
-      nestedValue(payload, "metadata", "session_id"),
+    return mergeLegacyContextKeys(
+      requestContextKeys(payload, requestHeaders(record)),
+      legacyRecordContextKeys(record),
     );
-    addKey("conversation", conversationId);
-    addKey("prompt_cache", payload["prompt_cache_key"]);
-    addKey("prompt_cache", record["prompt_cache_key"]);
-    addKey("client_thread", nestedValue(record, "client_metadata", "thread_id"));
-    addKey("client_session", nestedValue(record, "client_metadata", "session_id"));
-    addKey(
-      "claude_session",
-      headerValue(nestedValue(record, "request", "headers"), "x-claude-code-session-id"),
-    );
-    return keys;
   }
 
   #sequenceForRecord(requestId: string, taskId: string): number {
@@ -411,6 +391,35 @@ function recordRequestPath(record: Readonly<RepositoryRecord>): string {
   return isRecord(request) ? requestPath(request) : "";
 }
 
+function requestHeaders(record: Readonly<RepositoryRecord>): RequestHeaderMap | undefined {
+  const headers = nestedValue(record, "request", "headers");
+  return isRecord(headers) ? headers : undefined;
+}
+
+/** Boundary fingerprints as stored on a task row, with non-string values dropped. */
+function storedBoundaryFingerprints(task: Readonly<RepositoryRecord>): Record<string, string> {
+  const stored = task["boundary_fingerprints"];
+  return Object.fromEntries(
+    Object.entries(isRecord(stored) ? stored : {}).filter(
+      (entry): entry is [string, string] => typeof entry[1] === "string",
+    ),
+  );
+}
+
+/**
+ * Keys that exist only in stored records. The live request path never produces
+ * them, so the router must not treat them as available evidence; they remain here
+ * as a history and import fallback.
+ */
+function legacyRecordContextKeys(record: Readonly<RepositoryRecord>): string[] {
+  const keys: string[] = [];
+  const seen = new Set<string>();
+  addContextKey(keys, seen, "prompt_cache", record["prompt_cache_key"]);
+  addContextKey(keys, seen, "client_thread", nestedValue(record, "client_metadata", "thread_id"));
+  addContextKey(keys, seen, "client_session", nestedValue(record, "client_metadata", "session_id"));
+  return keys;
+}
+
 function requestPath(request: Readonly<Record<string, unknown>>): string {
   return typeof request["path"] === "string" ? request["path"] : "";
 }
@@ -421,37 +430,6 @@ function taskAnchor(record: Readonly<RepositoryRecord>): string {
 
 function stringValue(value: unknown): string {
   return typeof value === "string" || typeof value === "number" ? String(value) : "";
-}
-
-function nestedValue(value: unknown, ...path: readonly string[]): unknown {
-  let current = value;
-  for (const key of path) {
-    if (!isRecord(current)) {
-      return undefined;
-    }
-    current = current[key];
-  }
-  return current;
-}
-
-function firstString(...values: readonly unknown[]): string | undefined {
-  for (const value of values) {
-    if (typeof value === "string" && value.trim() !== "") {
-      return value.trim();
-    }
-  }
-  return undefined;
-}
-
-function headerValue(headers: unknown, requestedName: string): unknown {
-  if (!isRecord(headers)) {
-    return undefined;
-  }
-  const entry = Object.entries(headers).find(
-    ([name]) => name.toLowerCase() === requestedName.toLowerCase(),
-  );
-  const value = entry?.[1];
-  return Array.isArray(value) ? value[0] : value;
 }
 
 function timestampMilliseconds(value: unknown): number | undefined {
@@ -489,17 +467,9 @@ function taskUserMessagesMatch(
   currentUserMessages: readonly unknown[],
 ): boolean {
   const previousUserMessages = task["last_user_messages"];
-  if (
-    !Array.isArray(previousUserMessages) ||
-    previousUserMessages.length === 0 ||
-    currentUserMessages.length === 0 ||
-    previousUserMessages.length > currentUserMessages.length
-  ) {
-    return false;
-  }
   return (
-    stableJsonStringify(currentUserMessages.slice(0, previousUserMessages.length)) ===
-    stableJsonStringify(previousUserMessages)
+    Array.isArray(previousUserMessages) &&
+    userMessagesPrefixMatches(previousUserMessages, currentUserMessages)
   );
 }
 
@@ -509,22 +479,11 @@ function taskHasContinuationEvidence(
   payload: unknown,
 ): boolean {
   const previousUserMessages = task["last_user_messages"];
-  const currentUserMessages = requestUserMessages(kind, payload);
-  if (
-    Array.isArray(previousUserMessages) &&
-    currentUserMessages.length > previousUserMessages.length
-  ) {
-    return true;
-  }
-  const previousFingerprints = task["fingerprints"];
-  if (!isRecord(previousFingerprints)) {
-    return false;
-  }
-  const currentFingerprints = requestFingerprints(kind, payload);
-  return ["input", "messages"].some(
-    (key) =>
-      typeof previousFingerprints[key] === "string" &&
-      typeof currentFingerprints[key] === "string" &&
-      previousFingerprints[key] !== currentFingerprints[key],
+  const storedFingerprints = task["fingerprints"];
+  return hasContinuationEvidence(
+    kind,
+    payload,
+    Array.isArray(previousUserMessages) ? previousUserMessages : undefined,
+    isRecord(storedFingerprints) ? storedFingerprints : undefined,
   );
 }

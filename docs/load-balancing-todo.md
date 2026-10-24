@@ -1,6 +1,6 @@
 # 多节点负载均衡开发 TODO
 
-创建日期：2026-10-22。当前进度：1 / 13 项完成。
+创建日期：2026-10-22。当前进度：2 / 13 项完成。
 
 设计依据：[多节点负载均衡设计（粘性任务路由 v1）](./load-balancing-design.md)。决策记录：[ADR-013](./adr/013-load-balancing-sticky-routing.md)。本清单供后续开发、测试、验收和逐项提交使用。设计发生变化时，必须同时更新设计文档和本清单，不能只改代码。
 
@@ -56,7 +56,7 @@ npx electron-builder -w portable --publish never
 | 完成 | ID | 任务 | 依赖 | 状态 |
 | --- | --- | --- | --- | --- |
 | [x] | LB-01 | 配置 schema、normalizer 和 pair 校验 | 无 | 完成 |
-| [ ] | LB-02 | 共享 task identity 与 matcher 边界 | LB-01 | 未开始 |
+| [x] | LB-02 | 共享 task identity 与 matcher 边界 | LB-01 | 完成 |
 | [ ] | LB-03 | 亲和表与桶容量限制 | LB-02 | 未开始 |
 | [ ] | LB-04 | canonical node key 与 runtime 生命周期 | LB-01 | 未开始 |
 | [ ] | LB-05 | 新 task 选路与 pipeline 预留 | LB-02、LB-03、LB-04 | 未开始 |
@@ -458,6 +458,18 @@ npx electron-builder -w portable --publish never
 - 提交标题：`feat(load-balancing): [LB-01] add group configuration and pair validation`
 - 提交 SHA：`8b5d317`
 - 备注：运行 Node 测试前先执行了 `npm rebuild better-sqlite3`（此前 native 模块是 Electron ABI 143）。
+
+### LB-02
+
+- 状态：完成
+- 实际变更：新增 `src/proxy/task-identity.ts`（`taskIdentity`、`requestContextKeys`、`taskExactKeys`、`boundaryWithoutUser`、`userMessageHashes`、`contentFingerprint`、`userMessagesPrefixMatches`、`userHashPrefixMatches`、`hasContinuationEvidence`、`mergeLegacyContextKeys`），并在 `src/proxy/index.ts` 导出。`src/logging/task-matcher.ts` 改为复用这些共享投影：删除自带的 `nestedValue`/`firstString`/`headerValue`/键拼接、`delete first_user` 比较和用户消息/continuation 实现，历史列键走 `mergeLegacyContextKeys`。
+- 测试命令：`npx vitest run test-node/proxy/task-identity.test.ts test-node/logging/`，随后 `npx vitest run`（全量）、`npx tsc -p tsconfig.json --noEmit`、`npm run lint`、`npx prettier --check .`
+- 测试结果：新增 `test-node/proxy/task-identity.test.ts` 12 例、`test-node/logging/task-identity-boundary.test.ts` 4 例；原有 `task-matcher.test.ts` 15 例、`traffic-log-service.test.ts` 10 例全绿；全量 93 文件 / 817 例通过；类型、lint、格式检查通过
+- UI 基线：未涉及
+- 设计偏差：`TASK_MATCH_STRATEGY_VERSION` 保持 6（行为未变）。键提取只接受字符串，数字型 `prompt_cache_key` 不生成键（与 matcher 原行为一致）。新增 `bounded`/`oversize` 标记，LB-05 才能据此在大 conversation 上退回精确键。
+- 提交标题：`refactor(load-balancing): [LB-02] share task identity projections with the task matcher`
+- 提交 SHA：待填写
+- 备注：临时目录清理加了 `maxRetries`（Windows 上 `traffic.db` 刚关闭时会短暂 EBUSY）。
 
 每完成一个任务，在这里追加一条记录：
 
