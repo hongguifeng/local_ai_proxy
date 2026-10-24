@@ -456,7 +456,7 @@ npx electron-builder -w portable --publish never
 - UI 基线：未涉及
 - 设计偏差：见设计文档 §5.2 新增的实现说明（价格按数值比较、`log_root` 词法归一化且大小写敏感、三种警告由 `collectLoadBalancerWarnings` 计算并等待 LB-09/LB-10 运输）。另：`ProxyPair` 因此多了一个必填字段，6 处测试夹具补齐 `load_balancers: []`。
 - 提交标题：`feat(load-balancing): [LB-01] add group configuration and pair validation`
-- 提交 SHA：待填写
+- 提交 SHA：`8b5d317`
 - 备注：运行 Node 测试前先执行了 `npm rebuild better-sqlite3`（此前 native 模块是 Electron ABI 143）。
 
 每完成一个任务，在这里追加一条记录：
