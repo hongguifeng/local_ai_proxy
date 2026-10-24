@@ -5,7 +5,7 @@ import type { ProxyPair, PublicProxyPair, TargetConfig } from "../config/index.j
 import { TrafficLogService } from "../logging/index.js";
 import { ActiveRequestRegistry } from "./active-requests.js";
 import { parseHeaderOverrides } from "./headers.js";
-import { EMPTY_LOAD_SAMPLES, LoadBalancer } from "./load-balancer.js";
+import { LoadBalancer } from "./load-balancer.js";
 import { LoadMonitor } from "./load-monitor.js";
 import { ProxyListener } from "./proxy-listener.js";
 import { ProxyRequestPipeline, type ProxyPipelineTarget } from "./proxy-request-pipeline.js";
@@ -158,7 +158,7 @@ export class ProxyRuntimeRegistry {
       activeRequests,
       defaultTargetId: pair.default_target_id,
       loadBalancer,
-      loadSamples: () => EMPTY_LOAD_SAMPLES,
+      loadSamples: () => loadBalancer.samples(),
       pairId: pair.id,
       pairName: pair.name,
       targets: compiled.targets,
@@ -228,7 +228,7 @@ export class ProxyRuntimeRegistry {
       activeRequests,
       defaultTargetId: pair.default_target_id,
       loadBalancer: balancer,
-      loadSamples: () => EMPTY_LOAD_SAMPLES,
+      loadSamples: () => balancer.samples(),
       pairId: pair.id,
       pairName: pair.name,
       targets: compiled.targets,

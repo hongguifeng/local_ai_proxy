@@ -42,9 +42,14 @@ export interface LoadBalancerNode {
   readonly targetId: string;
   canonicalKey: string;
   enabled: boolean;
+  /** Raw configuration values, needed to reach the engine's /metrics endpoint. */
+  targetUrl: string;
+  apiKey: string;
   lastDispatchedAt: number | undefined;
   cooldownUntil: number | undefined;
   failures: number;
+  /** The latest parsed upstream sample, or nothing when metrics never worked. */
+  sample: LoadSample | undefined;
 }
 
 export interface LoadBalancerGroupMatch {
@@ -112,6 +117,7 @@ export class LoadBalancer {
   readonly #tables = new Map<string, LoadAffinityTable>();
   readonly #reservations = new Map<string, number>();
   #groups: LoadBalancerGroup[] = [];
+  #groupById = new Map<string, LoadBalancerGroup>();
 
   constructor(pairId: string, options: LoadBalancerOptions = {}) {
     this.#pairId = pairId;
@@ -133,12 +139,17 @@ export class LoadBalancer {
         targetId: target.id,
         canonicalKey: canonicalKeyFor(target),
         enabled: target.enabled,
+        targetUrl: target.target_url,
+        apiKey: target.target_api_key,
         lastDispatchedAt: undefined,
         cooldownUntil: undefined,
         failures: 0,
+        sample: undefined,
       };
       node.canonicalKey = canonicalKeyFor(target);
       node.enabled = target.enabled;
+      node.targetUrl = target.target_url;
+      node.apiKey = target.target_api_key;
       next.set(target.id, node);
     }
     this.#nodes = next;
@@ -147,6 +158,7 @@ export class LoadBalancer {
     for (const group of pair.load_balancers) {
       groups.set(group.id, group);
     }
+    this.#groupById = groups;
     for (const groupId of [...this.#tables.keys()]) {
       if (!groups.has(groupId)) {
         this.#tables.delete(groupId);
@@ -179,6 +191,11 @@ export class LoadBalancer {
     return this.#nodes.get(targetId);
   }
 
+  /** Every node this pair knows about, in configuration order. */
+  nodeIds(): readonly string[] {
+    return [...this.#nodes.keys()];
+  }
+
   /** Every pair target that sits behind the same physical engine. */
   targetsForCanonicalKey(canonicalKey: string): readonly string[] {
     const ids: string[] = [];
@@ -196,6 +213,34 @@ export class LoadBalancer {
 
   groupIds(): readonly string[] {
     return [...this.#tables.keys()];
+  }
+
+  /** The configuration object of a group, as it stood at the last reconfigure. */
+  groupFor(groupId: string): LoadBalancerGroup | undefined {
+    return this.#groupById.get(groupId);
+  }
+
+  /** Node-held metrics, used when the caller does not pass a snapshot of its own. */
+  samples(): Map<string, LoadSample> {
+    const samples = new Map<string, LoadSample>();
+    for (const [targetId, node] of this.#nodes) {
+      if (node.sample !== undefined) {
+        samples.set(targetId, node.sample);
+      }
+    }
+    return samples;
+  }
+
+  sampleFor(targetId: string): LoadSample | undefined {
+    return this.#nodes.get(targetId)?.sample;
+  }
+
+  /** Store the latest parsed sample for one node; nothing raw from the engine is kept. */
+  setSample(targetId: string, sample: LoadSample | undefined): void {
+    const node = this.#nodes.get(targetId);
+    if (node !== undefined) {
+      node.sample = sample;
+    }
   }
 
   /** The first enabled group, in configuration order, whose pattern matches the model. */
@@ -229,7 +274,7 @@ export class LoadBalancer {
     if (table === undefined) {
       return undefined;
     }
-    const samples = input.samples;
+    const samples = input.samples ?? this.samples();
     const selectable = this.#selectableNodes(input.group, samples, now).filter(
       (node) => !input.exclude?.has(node.targetId),
     );
@@ -257,8 +302,8 @@ export class LoadBalancer {
         decision: "affinity",
         matchedBy: hit.matchedBy,
         load: loadBefore,
-        kvUsage: freshKvUsage(samples?.get(targetId), now),
-        metricsSource: freshSample(samples?.get(targetId), now)?.source,
+        kvUsage: freshKvUsage(samples.get(targetId), now),
+        metricsSource: freshSample(samples.get(targetId), now)?.source,
       });
     }
 
@@ -271,8 +316,8 @@ export class LoadBalancer {
     }
 
     const binding = table.bind(input.identity, chosen.targetId, { allowRebind: true });
-    const loadBefore = this.#loadOf(chosen, samples?.get(chosen.targetId), now);
-    const sample = samples?.get(chosen.targetId);
+    const loadBefore = this.#loadOf(chosen, samples.get(chosen.targetId), now);
+    const sample = samples.get(chosen.targetId);
     this.reserve(chosen.targetId);
     return this.#reservation(binding, {
       groupId: input.group.id,

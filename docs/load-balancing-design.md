@@ -402,10 +402,23 @@ interface LoadSample {
   waiting: number;
   kvUsage: number | undefined;
   source: string;
+  awake?: boolean; // 只有 vLLM 报这个
 }
 ```
 
 `inFlight` 在选择成功后立即增加，在响应结束、客户端中止或上游异常时通过 `finally` 释放。它覆盖整个上游响应生命周期，包括长时间 SSE decode。
+
+落地说明（LB-08）：
+
+- `LoadMonitor` 是唯一碰定时器的人。一个 `setInterval` 每 5 秒采一次样，亲和清理只在过了 5 分钟时才跑。
+- 定时器 `unref()`。负载均衡永远不能把进程吊住。`stop()` 清掉定时器，也清掉采样中和失败中的状态。
+- 直接复用 `fetchTargetMetrics`，认证、base path 和根路径回退跟管理页的 metrics 视图完全一样。超时 4 秒。
+- 节点上只存数字。metrics 原文、API key 和请求 body 都不进监视器状态。
+- 一个 canonical key 只发一次 HTTP 请求。同一块 GPU 的两种拼法采一次，两边共用数字。
+- 失败日志只在某个 key 开始失败时记一条，恢复时记一条，不是每个 tick 都刷。
+- running、waiting、KV 三个都没解析出来时清空节点样本。没测过的节点只看 `inFlight`，绝不拿臆造的 0 当负载。
+- vLLM 睡眠：`vllm:engine_sleep_state` 里 `sleep_state="awake"` 为 1 是醒着，别的状态出现 1 就是睡了。睡眠判断只在样本没过期为时有效。
+- 真机验证：`http://127.0.0.1:9393/v1` 和 `9394/v1` 走根路径 `/metrics` 回退，12–28 毫秒返回，解析出 vLLM 的 running、waiting、KV。
 
 ### 8.2 `least_load`
 

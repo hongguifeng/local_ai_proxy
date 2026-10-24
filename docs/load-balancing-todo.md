@@ -1,6 +1,6 @@
 # 多节点负载均衡开发 TODO
 
-创建日期：2026-10-22。当前进度：7 / 13 项完成。
+创建日期：2026-10-22。当前进度：8 / 13 项完成。
 
 设计依据：[多节点负载均衡设计（粘性任务路由 v1）](./load-balancing-design.md)。决策记录：[ADR-013](./adr/013-load-balancing-sticky-routing.md)。本清单供后续开发、测试、验收和逐项提交使用。设计发生变化时，必须同时更新设计文档和本清单，不能只改代码。
 
@@ -62,7 +62,7 @@ npx electron-builder -w portable --publish never
 | [x] | LB-05 | 新 task 选路与 pipeline 预留 | LB-02、LB-03、LB-04 | 完成 |
 | [x] | LB-06 | request_received 时序与 pricing 一致性 | LB-01、LB-05 | 完成 |
 | [x] | LB-07 | 连接期失败切换与 503 | LB-05、LB-06 | 完成 |
-| [ ] | LB-08 | 上游 metrics 采样与负载快照 | LB-04、LB-05 | 未开始 |
+| [x] | LB-08 | 上游 metrics 采样与负载快照 | LB-04、LB-05 | 完成 |
 | [ ] | LB-09 | 路由记录与状态/模型校验 API | LB-05～LB-08 | 未开始 |
 | [ ] | LB-10 | 管理 UI、i18n 和视觉基线 | LB-01、LB-08、LB-09 | 未开始 |
 | [ ] | LB-11 | 端到端、reload、pending 和价格回归 | LB-02～LB-10 | 未开始 |
@@ -529,6 +529,18 @@ npx electron-builder -w portable --publish never
 - 设计偏差：见设计文档 §10.1 落地说明——客户端中止不记失败；pricing 快照保留原 target 名字；无可用节点的记录写进组内第一个配置节点的日志库，组内没有配置节点时只剩 503。
 - 提交标题：`feat(load-balancing): [LB-07] add one safe failover and 503 refusals`
 - 提交 SHA：`ba53010`
+- 备注：无。
+
+### LB-08
+
+- 状态：完成
+- 实际变更：新增 `src/proxy/load-metrics.ts`（vLLM / SGLang / llama.cpp 别名、多 label 求和、NaN/Inf/负数丢弃、vLLM 睡眠状态）；重写 `src/proxy/load-monitor.ts`（5 秒采样 + 4 秒超时 + 同一 canonical key 单飞 + 失败/恢复各一条日志 + `nodeStatuses()`）；`src/proxy/load-balancer.ts` 节点上存 `sample`、`target_url`、`target_api_key`，新增 `groupFor` / `samples` / `sampleFor` / `setSample` / `nodeIds`，`plan` 不传 samples 时用节点上的快照；`src/proxy/proxy-runtime-registry.ts` 把 `loadSamples` 从空表改成 `() => balancer.samples()`；`src/proxy/index.ts` 补导出。
+- 测试命令：`npx vitest run test-node/proxy/load-metrics.test.ts test-node/proxy/load-monitor.test.ts test-node/proxy/target-metrics.test.ts`，随后 `npx vitest run`（全量）、`npx tsc -p tsconfig.json --noEmit`、`npm run lint`、`npx prettier --check .`；真机验证用临时 `.mjs` 脚本走 `fetchTargetMetrics` + `parseLoadMetrics` + `LoadMonitor`，跑完删除
+- 测试结果：新增 8 例；复用部分由原有 `target-metrics.test.ts` 继续覆盖且保持绿色；全量 101 文件 / 889 例通过；真机 9393/9394 根路径回退采样成功（12–28 毫秒，解出 vLLM 数字）
+- UI 基线：未涉及
+- 设计偏差：见设计文档 §8.1 落地说明——一个定时器同时驱动采样和亲和清理；什么都没解析出来时清空样本而不是存一个 0 样本；监视器默认自己的 logger 写 stderr（registry 暂无 logger 注入点）。
+- 提交标题：`feat(load-balancing): [LB-08] sample upstream engines and keep load snapshots`
+- 提交 SHA：待填写
 - 备注：无。
 
 每完成一个任务，在这里追加一条记录：

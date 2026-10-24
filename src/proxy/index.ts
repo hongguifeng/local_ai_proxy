@@ -90,10 +90,20 @@ export {
 } from "./node-identity.js";
 export {
   AFFINITY_SWEEP_INTERVAL_MS,
+  METRIC_SAMPLE_INTERVAL_MS,
+  METRIC_SAMPLE_TIMEOUT_MS,
   LoadMonitor,
   type LoadMonitorOptions,
+  type LoadMonitorSampleResult,
   type LoadMonitorSweepResult,
+  type LoadNodeStatus,
 } from "./load-monitor.js";
+export {
+  EMPTY_LOAD_METRICS,
+  VLLM_SLEEP_AWAKE_LABEL,
+  parseLoadMetrics,
+  type LoadMetricsSnapshot,
+} from "./load-metrics.js";
 export {
   EMPTY_LOAD_SAMPLES,
   KV_TIER_THRESHOLD,
