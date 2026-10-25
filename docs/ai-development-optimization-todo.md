@@ -812,6 +812,14 @@ UI 截图、性能或迁移结果（适用时）：
 - V-P/V-U 按它的记录：打包产物里服务出的 `/static/app.js` 与本分支产出的 payload 字节相同、`/static/app.css` 与 `app.asar` 里的拷贝字节相同、页面仍是同一个单 script 标签，93 条 UI 测试加 11 条像素基线测试都没重生成基线就过；`AGENTS.md` `+1` 行、`static-checks-and-split` 技能改了 13 行（新加载顺序与那个 `no-implicit-globals` 探针坑）。它在 lane 里跑了一次顺序全量套件（`124 文件 + 1 skip，1091 + 2 skip`）——任务包里让不要跑全量，它还是跑了，但那是它自己 lane 里的独占副本，编排方当时正在跑集成检查，没有撞。
 - 下一步的隐患已经在账上：AI-14 的基础是 `acf35b0`，而这次合并动了 `test-node/admin/static-source.test.ts`、`test-node/ui/admin-ui-server.ts`、`tsconfig.ui.json`、`package.json` 和 `eslint.config.js`——AI-14 交回时必须先 rebase 到合并后的 main 我再审，这正是开两个之前预告过的碰撞。
 
+#### AI-14 中途裁定（第五条 pageerror 收集落在哪）
+
+- 它问了两个办法：(a) 只新增一个 `page-error-collector.ts` 模块和自己的场景文件去用它，现有六个浏览器测试还是不收集，"统一"只算半条；(b) 在 `admin-ui-server.ts` 的 `resetStubAdminServer`（每个浏览器测试建页面的唯一地方，第 513 行，第 515 行 `newPage()`）里做一处约 10 行的纯加法，接上收集器并暴露 `collectedPageErrors()`。它推荐 (b)。编排方批 **(b)**：别的办法满足不了"统一"这个词。
+- 关键变化：它写这条请求的时候 AI-17 已经完成并合并为 `4743e34`、lane 也已删——那个文件**根本没有第二个在写的作者了**，只剩一次 rebase 要对齐。
+- 落点编排方自己量的：AI-17 合并进去的改动是 `startStubAdminServer`（第 50 行）4 行——引 `buildAdminModuleBridge`、三行注释、一句 `await buildAdminModuleBridge();`；AI-14 的编辑在 `resetStubAdminServer`（513/515 行）——同一个文件的不同 hunk，rebase 应当干净。要求它交回前先 rebase 到 main 并报告解掉的冲突；真有冲突就两边都留（打包块与收集器互不相干）。
+- 附的条件：纯加法、不动任何现有断言；收集到的 pageerror 必须让测试带着错误文本真失败，不是吞进 console、不是 try/catch 兜底、不是只写日志，并且要用一个故意弄坏的页面真演示一次失败而不是声称它会失败；预期会有今天过的测试因为没人盯过的页面错误开始失败——那是发现不是麻烦，要逐个报实际错误与成因，不许靠过滤错误类型、忽略“良性”错误、削弱断言或加重试把它们压下去；若是真产品缺陷，在归属的 src 文件里做最小修复并逐文件申报；机制该归 `.agents/skills/ui-test-quirks/SKILL.md` 就写进去（那个技能当下没人占），不许碰 `static-checks-and-split`（AI-17 刚重写）。
+- 禁令重申并提醒：它那边仍然禁 `package.json`、`package-lock.json`、`eslint.config.js`、`tsconfig*.json`、`electron-builder.yml`、`src/admin/static/**`、`static-assets.ts`、`concat_ui_parts.ts`、`copy_static_assets.ts`、十个基线与哈希文档——其中好几个已经被 AI-17 的合并改过了，要以现在的样子读，不要按它基线时的样子读。
+
 ### AI-13 完成记录
 
 - 状态：**已完成**，handoff 完整交回，由编排方验收。lane 提交 `b4d7a04`（把 v5 的 token 转换冻在迁移里）、`778df9f`（把整张迁移依赖清单钉成断言）、`588a79d`（两条 AGENTS 规则），squash 合并进 main 为 `f3803e9`，**零冲突**，5 个文件 `+1036/-2`。
