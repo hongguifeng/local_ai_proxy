@@ -115,7 +115,7 @@ P0 是已复现的功能缺陷；P1 是契约、文档和后端基础；P2 是�
 | [x]  | AI-05 | P1     | 错误分类与内部诊断          | 无                                                                                                                                                              | 已完成 |
 | [x]  | AI-06 | P1     | 日志事件和写入模型类型化    | 无                                                                                                                                                              | 已完成 |
 | [x]  | AI-07 | P1     | 查询结果和服务契约类型化    | AI-06                                                                                                                                                           | 已完成 |
-| [ ]  | AI-08 | P1     | API schema 与客户端契约统一 | AI-07、AI-04、AI-15、AI-18、AI-19、AI-20、AI-21                                                                                                                 | 在办   |
+| [x]  | AI-08 | P1     | API schema 与客户端契约统一 | AI-07、AI-04、AI-15、AI-18、AI-19、AI-20、AI-21                                                                                                                 | 已完成 |
 | [ ]  | AI-09 | P1     | 完整应用的服务装配约束      | AI-01、AI-02、AI-07、AI-08                                                                                                                                      | 未开始 |
 | [x]  | AI-10 | P1     | 消除运行时依赖环            | AI-06                                                                                                                                                           | 已完成 |
 | [ ]  | AI-11 | P1     | 分离模型调用与日志查询      | AI-01、AI-05、AI-07、AI-10                                                                                                                                      | 未开始 |
@@ -237,11 +237,11 @@ P0 是已复现的功能缺陷；P1 是契约、文档和后端基础；P2 是�
 
 入口：[响应 schema](../src/admin/admin-schemas.ts)、[路由](../src/admin/routes)、[前端 API 助手](../src/admin/static/01-core.js)、[API 契约测试](../test-node/admin/api-contract.test.ts)。
 
-- [ ] 为项目自有 DTO 选择统一 schema 来源，并推导 TypeScript 类型和可用的 Fastify schema。
-- [ ] 补齐日志、计价、趋势、统计、总结设置及摘要的字段结构。
-- [ ] 任意用户请求/响应 JSON 使用显式开放字段，避免误删原始内容。
-- [ ] 建立客户端的类型化访问边界，覆盖消费者字段的检查。
-- [ ] 使用非空数据测试嵌套字段、数组元素、空值及大金额字符串。
+- [x] 为项目自有 DTO 选择统一 schema 来源，并推导 TypeScript 类型和可用的 Fastify schema。
+- [x] 补齐日志、计价、趋势、统计、总结设置及摘要的字段结构。
+- [x] 任意用户请求/响应 JSON 使用显式开放字段，避免误删原始内容。
+- [x] 建立客户端的类型化访问边界，覆盖消费者字段的检查。
+- [x] 使用非空数据测试嵌套字段、数组元素、空值及大金额字符串。
 
 验收：字段漂移在编译或契约测试阶段失败。HTTP 往返保留客户端实际使用的字段；错误载荷不被误当成功结果。不能仅以存在 response schema 计为完成。
 
@@ -475,13 +475,13 @@ P0 是已复现的功能缺陷；P1 是契约、文档和后端基础；P2 是�
 - [ ] `normalizeProxyPair` 与 `validateProxyConfigFile` 不再静默丢掉本模型未建模的键，而是保留它们并能经 `PUT /api/pairs` 往返读回。
 - [ ] 区分“旧应用写下的键”与“控制台自己的运行时键”（`running`、`actual_listen_port`、`expanded`），后者不得被写进保存文件。
 - [ ] 确实要丢的键给出可理解的诊断，而不是静默删除。
-- [ ] 用一条真实往返测试钉住最终去向：写入 25 个键的旧扁平 pair，其未建模键在 `/api/pairs` 与保存文件里必须被明确断言，而不是靠“没报错”默认。
+- [ ] 用一条真实往返测试钉住最终去向：写入 27 个键的旧扁平 pair，其未建模键在 `/api/pairs` 与保存文件里必须被明确断言，而不是靠“没报错”默认。
 
 验收：未建模键不再静默丢失；UI 运行时键不进入保存文件；旧扁平 pair 的已建模值（如 `log_root`）仍按现行规则落到 `targets[0]` 的绝对路径。
 
 验证：V-B、V-P；运行 config 与 admin 相关测试。
 
-背景：AI-08 实测 `GET /api/pairs` 对一个写入 25 个键的 pair 只答 11 个键（`id,name,enabled,listen_host,listen_port,access_log,targets,default_target_id,load_balancers,running,actual_listen_port`），`log_root` 只在 `targets[0]` 里以绝对路径出现；`validateProxyConfigFile` 静默剔掉未知的 pair/target 键。开放响应本来就能原样答出未声明键（fast-json-stringify 探针实测），所以丢键发生在 `src/config` 而不在传输层——这条需求属于本任务，不属于 AI-08。
+背景：AI-08 实测 `GET /api/pairs` 对一个写入 27 个键的 pair 只答 11 个键（`id,name,enabled,listen_host,listen_port,access_log,targets,default_target_id,load_balancers,running,actual_listen_port`），`log_root` 只在 `targets[0]` 里以绝对路径出现；`validateProxyConfigFile` 静默剔掉未知的 pair/target 键。开放响应本来就能原样答出未声明键（fast-json-stringify 探针实测），所以丢键发生在 `src/config` 而不在传输层——这条需求属于本任务，不属于 AI-08。
 
 ## 6. 第一轮不包含的工作
 
@@ -517,7 +517,7 @@ P0 是已复现的功能缺陷；P1 是契约、文档和后端基础；P2 是�
 - [ ] AI-03：公共 schema 版本、新库和备份恢复版本一致。
 - [ ] AI-04：存在唯一现行架构入口，历史基线有明确身份。
 - [ ] AI-05：业务错误按稳定分类映射，内部失败有足够诊断信息。
-- [ ] AI-06～08：自有日志和 API 数据有具体契约，嵌套字段受验证。
+- [x] AI-06～08：自有日志和 API 数据有具体契约，嵌套字段受验证。
 - [ ] AI-09：完整应用遗漏服务接线时有确定失败反馈。
 - [x] AI-10：运行时依赖环消除，并有有效的自动检查。
 - [ ] AI-11～13：查询、模型生成和存储职责明确，历史迁移结果稳定。
@@ -719,3 +719,14 @@ UI 截图、性能或迁移结果（适用时）：
 - 错误 ABI 的诊断文案实测可行动：`better_sqlite3.node carries the ABI built for NODE_MODULE_VERSION 137 while electron needs 143, so it cannot be loaded here: run npm run rebuild:electron before packaging or running a packaged executable.`（exit 1），反方向 exit 0。
 - 与本清单的偏差、剩余事项：一、子代理自己的 V-P 没跑成——16:09 那次 `electron-builder` 因网络 TLS 抖动失败（`Client network socket disconnected before secure TLS connection was established`，`got` 栈，`BUILDER_EXIT=1`），与它的代码无关；编排方集成 V-P 成功，产物结论成立。二、`abi:check` 在只装了 Node ABI 的工作树里必然失败（`abi:node` 过后 `abi:electron` 报 ABI 不匹配并 exit 1），这是 ABI 状态的耦合不是 bug，用之前先确认装的是哪种。三、UI 基线未动（本次不改渲染）。四、全量 `npm run check` 本轮未跑：另一条 lane 还在跑测试，两条全量并发有 `listen ENOBUFS` 前科，留到 AI-08 落定后一次跑。
 - 顺带更正编排方两处误判：`git diff --stat | tail` 截断让我一度以为 skill 没更新（`.agents/skills/packaging-smoke/SKILL.md` 实际就在合并清单里，已写明 `smokeChildEnvironment` 与它的门禁测试）；健康截止已从 30 秒改为 `DEFAULT_HEALTH_DEADLINE_MS = 60_000`（shutdown 30 s、建库 20 s），skill 里那句“30 s 可能太短”同步修掉。
+
+### AI-08 完成记录
+
+- 状态：**已完成（带偏差）**，由编排方验收。lane 提交 `f46c439`（开放载荷保持开放、封闭漂移、错误只由一个生产者应答）、`1a487e1`（合同文档）、`f4b6302`（按裁决重写那条 pair 检查）、`bea8f99`（`api()` 的失败侧类型化），squash 合并进 main 为 `25ccead`，**零冲突**；上面的“未验收记录”与“在办记录”保留作审计。
+- 编排方在 lane 内独立复现：typecheck exit 0 且 0 `error TS`；lint exit 0；`npx prettier --check .` exit 0；`check:modules` exit 0 报 `115 modules: 249 runtime edges, 74 type-only / runtime cycles: 0; boundary violations: 0`；`npm test -- test-node/admin` 16 文件 `105/105` 全过；`npm test -- test-node/ui` 93 过 2 跳过（那两个跳过是既有的 `CSS_CANDIDATE` / `CSS_CENSUS` opt-in 守卫，不是新增）。断言审计：`git diff 1a487e1..HEAD -- test-node/` 只删了那 4 条错误前提断言（`pair["log_root"]`、`redact_logs`、`model_mapping_mode`、`length > 20`），换上来的是有序的 11 键全集、模型化值、合成 target 的绝对 `log_root`、九个具名缺失键的 `toBeUndefined()`、以及靠 `running`/`actual_listen_port` 证明的开放性；`it.skip|it.only|it.todo|todo.describe` 的新增计数实测为 0。
+- 独立核数：那条 pair 字面量的顶层键是 **27，不是本文早先记录的 25**（当时我直接采信了超时那棒的报告，没自己数）。用大括号深度扫描数过的 27 个键：`id,name,enabled,listen_host,listen_port,upstream_url,model_mapping_mode,default_model,default_upstream_model,preserve_route_model,allow_unnamed_model,unknown_model_policy,unknown_param_mode,unknown_param_paths,stream_keepalive_interval_seconds,target_retry_limit,target_retry_backoff_milliseconds,failover_reuse_connection,target_connect_timeout_milliseconds,target_first_byte_timeout_milliseconds,target_idle_chunk_timeout_milliseconds,target_headers,strip_request_fields,inject_request_fields,log_root,redact_logs,model_mappings`。其中 5 个出现在答里、22 个被丢、6 个是流水线自己合成的——子代理报的 `27/11/5/22/6` 成立，本文两处 25 已同步改成 27。
+- 合并后的集成验收：`npm run check` exit 0，`119 passed | 1 skipped (120)` 文件、`1050 passed | 2 skipped (1052)` 测试，`check:modules` 仍报 0 cycles / 0 violations；日志里 44 处 `failed` 全是应用自己的 warn 行（`Admin request failed`、`Task brief generation failed` 等），来自负路径用例，不是测试失败。三棒合计对账 `+3 文件 / +22 测试`（AI-15 `+1/+3`、AI-16 `+1/+10`、AI-08 `+1/+9`），无用例被删。
+- 合并产物的真实冒烟（17 项全过，exit 0）：`--dir` 与 `-w portable` 都用 `-c.electronDist=node_modules/electron/dist` 构建成功（此刻本机到 GitHub 的 TLS 反复断开、Electron zip 不在缓存里，而 `node_modules/electron/dist/electron.exe` 正好是 40.9.3）；health `0.4.10`、真实代理请求 200、`GET /api/logs` 200 `total=1`、记录顶层键序 `id,pending,request,response,pricing,decode_window_ms,request_meta,response_meta`、`authorization=["[redacted]"]` 且探针密钥在整条记录里查不到、`cost_nano_cny` 是文本、总结 POST 200 并原样读回未声明的 `model_note`、缺失记录 404 只带 `code,message`、未声明查询键 400 `FST_ERR_VALIDATION`（这正是 `removeAdditional:false` 收紧后的可见行为）、被拒配置带 `issues`、pair 答 11 键且 `targets[0].log_root` 是绝对路径、统计概览键与 CSV 表头未变、退出码 0、端口释放、`traffic.db` 180,224 字节。
+- 探针一开始的三次失败全是编排方自己写错的夹具，不是产品回归：target 读的是 `target_url`，我写了 `upstream_url`，于是静默回落到 `DEFAULT_TARGET_URL = http://127.0.0.1:1235` 并在记录的 `response_meta.error` 里留下 `connect ECONNREFUSED`（应用报 502 `Bad Gateway` 是对的）；总结夹具没给 `segments` 数组，应用按合同报 `summary_failed`；头部脱敏由 target 的 `redact_logs` 控制、默认 false，我没开。这三条已写进 `real-upstream-acceptance`。
+- 与本清单的偏差、剩余事项：一、`api()` 里 `typeof data.error === "string"` 那条死分支被保留（作者把五个错误生产者都核过，没有一个能答裸字符串；删它等于在未可达的路径上改行为，越出任务范围），这条是披露而不是静默。二、`ApiError.code` 今天没有消费者，是为了让失败侧跟上真实线形而带的。三、`request_meta`/`response_meta` 为了还原键序被声明成 optional，代价是服务若不写某一块会静默少一块而不是大声失败。四、`removeAdditional:false` 把“未声明键静默删掉”改成 400，全量套件证明现有用例都不受影响，但这是对外可见的收紧。五、UI 基线未重跑：改动只有注释与一处属性赋值，11 条视觉回归测试（阈值 0.12）在改动后两次全过——这就是像素层面的证据。
+- 遗留风险：`docs/refactoring/admin-api-contract.md` 里的 27/11 钉在这份夹具上，改 `opennessPair` 会让注释和文档同时过时；那条有序键序断言会大声失败而不是静默漂移，这正是设计意图。
