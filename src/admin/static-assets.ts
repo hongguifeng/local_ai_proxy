@@ -1,7 +1,7 @@
 import { readFile } from "node:fs/promises";
 
 import { SUGGESTED_STRIP_REQUEST_FIELDS } from "../config/index.js";
-import type { AdminStaticAssets } from "./admin-server.js";
+import type { AdminStaticAssets } from "./admin-contracts.js";
 
 const STRIP_FIELDS_PLACEHOLDER = "__SUGGESTED_STRIP_REQUEST_FIELDS__";
 

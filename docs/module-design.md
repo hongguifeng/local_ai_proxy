@@ -843,6 +843,38 @@ pipeline 只做三件事：问组要一个节点、预留它、请求结束时�
 - 不包含业务逻辑。
 - Exit 必须 await 核心关闭完成后退出进程。
 
+### 7.5 Admin 路由按功能拆分（已实现）
+
+`createAdminServer` 原来是 752 行的单函数，里面直接写 33 条路由注册和 11 个条件块。现在拆成共享模块加八个功能文件：
+
+| 文件 | 行数 | 内容 |
+| --- | --- | --- |
+| `src/admin/admin-server.ts` | 147 | 建 server、请求日志钩子、错误处理、`/api/health`，然后调用各 registrar |
+| `src/admin/admin-contracts.ts` | 212 | 服务接口、DTO、`adminError`、`applicationHealth`、`csvCell`、`errorProperty` |
+| `src/admin/admin-schemas.ts` | 336 | 22 个 JSON schema 常量 |
+| `src/admin/routes/logs.ts` | 319 | 14 条日志路由 |
+| `src/admin/routes/statistics.ts` | 164 | 4 条统计路由 |
+| `src/admin/routes/targets.ts` | 117 | target-check、metrics、models |
+| `src/admin/routes/static-files.ts` | 30 | 页面和两个静态资源 |
+| `src/admin/routes/pairs.ts` | 49 | 配置读写和启用 |
+| `src/admin/routes/model-catalog.ts` | 47 | 价格导入 |
+| `src/admin/routes/settings.ts` | 18 | summary-model |
+| `src/admin/routes/load-balancer.ts` | 18 | 状态查询 |
+
+条件仍然留在调用处：`if (options.logService !== undefined) registerLogRoutes(server, options.logService)`，所以“服务没接上就 404”这个行为没变。`targets.ts` 保留三个独立判断，因为三个服务各自可选。
+
+中立性证明，全部可复跑：
+
+- 用 TypeScript AST 比较拆分前后的路由注册：前后各 33 条，只有 1 条文本不同，差在 prettier 去掉的多余括号。
+- `test-node/admin/api-contract.test.ts` 全绿：路由表、顶层响应键、错误码、静态资源的 content type 和 cache header 都没变。
+- 全量测试 `957 passed | 2 skipped`，UI 像素基线不动。
+- 编辑锚点重复率：拆分前单文件 `169 / 598 = 28.3%`；拆分后合计 `156 / 636 = 24.5%`，其中五个功能文件落在 0% 到 12%。
+
+两个坑：
+
+- 行扫描会漏掉写成多行的泛型，`server.post<{ Body: ... }>(` 跨了三行，所以计数和拆分都得用 AST。
+- 静态源码守卫 `test-node/admin/usage-statistics-schema.test.ts` 读的是 `src/admin/admin-server.ts`。枚举搬进 `routes/statistics.ts` 以后守卫必须跟着换路径，否则它检查的文件里已经没有那段 schema 了。
+
 ## 8. Python 到 Node.js 模块映射
 
 | Python 模块 | Node.js 目标模块 | 迁移方式 |

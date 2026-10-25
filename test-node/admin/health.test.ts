@@ -6,7 +6,7 @@ import {
   applicationHealth,
   createAdminServer,
   type HealthSnapshot,
-} from "../../src/admin/admin-server.js";
+} from "../../src/admin/index.js";
 
 const servers: ReturnType<typeof createAdminServer>[] = [];
 

@@ -52,3 +52,10 @@ filter that matches nothing exits 1 instead of looking like a pass.
 response keys by booting the real application. Only 17 of the 33 registrations carry a
 response schema, so a rename on one of the other 16 is invisible to both typechecks and
 would only show up as `undefined` in the UI; this test is where it fails instead.
+
+Route registration itself is split by feature under `src/admin/routes/`; `createAdminServer`
+only builds the server, the request hooks and `/api/health`, then calls the registrars behind
+the same `options.X !== undefined` checks. Service interfaces live in `admin-contracts.ts` and
+the JSON schemas in `admin-schemas.ts`. A guard that greps route source has to follow the file
+the schema moved to, and a line-based scan misses generics written across several lines
+(`server.post<{ Body: ... }>(` spans three), so count and split with the TypeScript AST.
