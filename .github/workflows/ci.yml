@@ -23,6 +23,9 @@ jobs:
           npm ci
           npm run build
 
+      - name: Verify the Node SQLite ABI with a real query
+        run: npm run abi:node
+
       - name: Reduce install to packaged production dependencies
         run: npm prune --omit=dev
 

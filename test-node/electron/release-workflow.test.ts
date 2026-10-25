@@ -20,6 +20,24 @@ describe("release workflow", () => {
     expect(workflow).toContain("actions/upload-artifact@v4");
   });
 
+  it("[AI-16] proves the Electron ABI, then smoke tests the payload before the wrapper", async () => {
+    const workflow = await readFile(
+      new URL("../../.github/workflows/release.yml", import.meta.url),
+      "utf8",
+    );
+    expect(workflow).toContain("npm run abi:electron");
+    expect(workflow).toContain("npm run smoke:payload");
+    const packageStep = workflow.indexOf("npm run package:electron");
+    const abiStep = workflow.indexOf("npm run abi:electron");
+    const payloadStep = workflow.indexOf("npm run smoke:payload");
+    const wrapperStep = workflow.indexOf("npm run smoke:artifact");
+    expect(packageStep).toBeLessThan(abiStep);
+    expect(abiStep).toBeLessThan(payloadStep);
+    expect(payloadStep).toBeLessThan(wrapperStep);
+    expect(workflow).toContain("Smoke test the unpacked payload");
+    expect(workflow).toContain("Smoke test the portable wrapper");
+  });
+
   it("publishes v-tag builds to a GitHub Release", async () => {
     const workflow = await readFile(
       new URL("../../.github/workflows/release.yml", import.meta.url),

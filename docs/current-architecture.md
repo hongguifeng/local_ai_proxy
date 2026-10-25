@@ -107,8 +107,14 @@
 | 便携版打包                | `npm run build && npm run rebuild:electron && npx electron-builder -w portable --publish never` |
 | UI 基线重生成             | `npm run regen:ui-baselines`                                                                    |
 | 文档格式检查              | `npx prettier --ignore-path .gitignore --check docs`                                            |
-| Node 测试前的原生模块 ABI | `npm rebuild better-sqlite3`                                                                    |
-| 运行时模块环与越界导入    | `npm run check:modules`                                                                         |
+| Node 测试前的原生模块 ABI | `npm rebuild better-sqlite3`                                                                |
+| Node 侧 SQLite ABI 用真实查询证明 | `npm run build && npm run abi:node`                                      |
+| Electron 侧 SQLite ABI 用真实查询证明 | `npm run abi:electron`（先 `npm run rebuild:electron`，产物与本地 Electron 都要 Electron ABI） |
+| 两种运行时都要证明                    | `npm run abi:check`                                                                     |
+| unpacked 载荷交付冒烟（`release/win-unpacked`） | `npm run smoke:payload`                                         |
+| portable 包装器交付冒烟（真正发布的 exe）       | `npm run smoke:artifact`                                          |
+| 按顺序跑完两个交付冒烟                          | `npm run smoke:delivery`（先载荷，后包装器）                       |
+| 运行时模块环与越界导入    | `npm run check:modules`                                                                     |
 
 `npm rebuild better-sqlite3` 只在最终 Electron 重建之前跑一次；在 Electron 重建之后、打包之前
 再跑一次会让便携版带上 Node ABI 的模块并在启动时失败。Windows 上跑测试和基线命令请从大写
@@ -119,6 +125,20 @@
 工具，再用 `tsconfig.ui.json` 检查九个浏览器脚本，所以测试里的类型错误照样能让 `npm run check`
 失败，但不会改变产品编译。`electron-builder.yml` 的 `files` 按这三棵编译树逐项列出，输出目录里
 残留的其他文件进不了包。
+
+ABI 证明只认真实查询：`require("better-sqlite3")` 不碰原生绑定，两种 ABI 下都会打印成功，所以
+`abi:node`、`abi:electron` 和 `smoke:database` 都打开 `:memory:` 库跑 `select 1`。ABI 不匹配时报出
+两个 `NODE_MODULE_VERSION` 数字和该跑的重建命令，不是堆栈。
+
+交付冒烟有两个入口，顺序固定：先 `npm run smoke:payload` 跑 `release/win-unpacked/LLM Proxy.exe`，
+再 `npm run smoke:artifact` 跑 portable 包装器。包装器会往 Temp 解包并在退出时删掉那个目录，同
+一构建的另一次运行可能占住它，所以包装器失败时先用载荷冒烟判定产物本身是否还好；脚本把这种冲
+突报成“解包目录冲突、不是载荷回归”，并且只杀自己启动的进程。每个运行都用独立的临时配置、独立
+`LLM_PROXY_DATA_DIR`、绝对日志根和退出信号文件，除 `/api/health` 外还要求一次真实代理往返 200、
+`GET /api/logs?limit=5` 返回 200 且 `total >= 1`（500 说明包内 SQLite 绑定加载不了，是 ABI 问题）、
+以及该次运行的日志根里出现 `traffic.db`；关闭后临时目录会被删除。脚本自己会从子进程环境里删掉
+`ELECTRON_RUN_AS_NODE`；要固定端口就设 `LLM_PROXY_SMOKE_ADMIN_PORT`、`LLM_PROXY_SMOKE_PROXY_PORT`、
+`LLM_PROXY_SMOKE_UPSTREAM_PORT`，未设置时脚本自选空闲端口。
 
 ## 8. 材料身份
 

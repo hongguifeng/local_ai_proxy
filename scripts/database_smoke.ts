@@ -4,6 +4,13 @@ import os from "node:os";
 import path from "node:path";
 
 import { TrafficRepository } from "../src/persistence/repository.js";
+import { probeSqliteAbi } from "./native_abi_probe.js";
+
+// Opening the repository would only prove the native binding implicitly: a wrong ABI surfaces
+// here as an unhandled ERR_DLOPEN_FAILED. Report the ABI state first, with the rebuild command
+// that fixes it, so a failure names the ABI it needs.
+const abi = probeSqliteAbi();
+assert.ok(abi.ok, abi.detail);
 
 const root = await mkdtemp(path.join(os.tmpdir(), "llm-proxy-packaged-db-smoke-"));
 try {
@@ -32,7 +39,9 @@ try {
   } finally {
     repository.close();
   }
-  process.stdout.write(`Packaged database smoke test passed on ${process.platform}.\n`);
+  process.stdout.write(
+    `Packaged database smoke test passed on ${process.platform}: ${abi.detail}\n`,
+  );
 } finally {
   await rm(root, { force: true, recursive: true });
 }

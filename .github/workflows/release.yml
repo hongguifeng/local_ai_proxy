@@ -31,7 +31,13 @@ jobs:
       - name: Build installer and portable application
         run: npm run package:electron
 
-      - name: Smoke test portable application
+      - name: Verify the Electron SQLite ABI with a real query
+        run: npm run abi:electron
+
+      - name: Smoke test the unpacked payload
+        run: npm run smoke:payload
+
+      - name: Smoke test the portable wrapper
         run: npm run smoke:artifact
 
       - name: Build lightweight CLI archive
