@@ -1,4 +1,4 @@
-import { mkdtemp, rm } from "node:fs/promises";
+import { mkdtemp, rm, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
@@ -157,6 +157,13 @@ function seedTaskRecord(
 async function newRoot(name: string): Promise<string> {
   const root = await mkdtemp(path.join(os.tmpdir(), `llm-proxy-${name}-`));
   temporaryDirectories.push(root);
+  return root;
+}
+
+async function corruptRoot(name: string): Promise<string> {
+  const root = await newRoot(name);
+  await rm(root, { recursive: true, force: true });
+  await writeFile(root, "not a log directory");
   return root;
 }
 
@@ -442,6 +449,38 @@ describe("SummaryGenerationService", () => {
         details: { phase: "task_brief_read", task_id: "shared-task" },
       }),
     );
+  });
+
+  it("classifies invalid database roots for cached reads and generation", async () => {
+    const root = await corruptRoot("corrupt-storage-root");
+    const generator = new FakeGenerator();
+    const service = generationService(() => [root], generator);
+
+    expect(() => service.cachedSummary("private-record")).toThrow(
+      expect.objectContaining({
+        code: "storage_error",
+        statusCode: 500,
+        details: { phase: "history_summary_read", record_id: "private-record" },
+      }),
+    );
+    expect(() => service.cachedBrief("private-task")).toThrow(
+      expect.objectContaining({
+        code: "storage_error",
+        statusCode: 500,
+        details: { phase: "task_brief_read", task_id: "private-task" },
+      }),
+    );
+    await expect(service.summarizeRecord("private-record", summaryConfig)).rejects.toMatchObject({
+      code: "storage_error",
+      statusCode: 500,
+      details: { phase: "record_read", record_id: "private-record" },
+    });
+    await expect(service.generateTaskBrief("private-task", summaryConfig)).rejects.toMatchObject({
+      code: "storage_error",
+      statusCode: 500,
+      details: { phase: "task_brief_source_read", task_id: "private-task" },
+    });
+    expect(generator.calls).toHaveLength(0);
   });
 
   it("raises a storage error when a cached task brief cannot be read", async () => {

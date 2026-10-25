@@ -86,8 +86,9 @@ export class SummaryGenerationService {
    */
   cachedSummary(recordId: string): HistorySummary | undefined {
     for (const root of this.#logRoots()) {
-      const repository = new TrafficRepository(root);
+      let repository: TrafficRepository | undefined;
       try {
+        repository = new TrafficRepository(root);
         const summaryJson = repository.historySummaryJson(recordId);
         if (summaryJson !== undefined) {
           const parsed: unknown = JSON.parse(summaryJson);
@@ -107,7 +108,7 @@ export class SummaryGenerationService {
           details: { phase: "history_summary_read", record_id: recordId },
         });
       } finally {
-        repository.close();
+        repository?.close();
       }
     }
     return undefined;
@@ -136,8 +137,9 @@ export class SummaryGenerationService {
    */
   cachedBrief(taskId: string): TaskBrief | undefined {
     for (const root of this.#logRoots()) {
-      const repository = new TrafficRepository(root);
+      let repository: TrafficRepository | undefined;
       try {
+        repository = new TrafficRepository(root);
         const row = repository.getTaskBrief(taskId);
         if (row === undefined) continue;
         // An empty brief_text is the "never generated" answer, so the next root is asked.
@@ -156,7 +158,7 @@ export class SummaryGenerationService {
           details: { phase: "task_brief_read", task_id: taskId },
         });
       } finally {
-        repository.close();
+        repository?.close();
       }
     }
     return undefined;
@@ -198,8 +200,9 @@ export class SummaryGenerationService {
   /** The newest complete request of a task, or undefined when the task is unknown. */
   #latestRecordOfTask(groupId: string): string | undefined {
     for (const root of this.#logRoots()) {
-      const repository = new TrafficRepository(root);
+      let repository: TrafficRepository | undefined;
       try {
+        repository = new TrafficRepository(root);
         if (!repository.hasTask(groupId)) continue;
         const recordId = repository.latestTaskRecordId(groupId);
         if (recordId !== undefined) return recordId;
@@ -216,7 +219,7 @@ export class SummaryGenerationService {
           details: { phase: "task_brief_source_read", task_id: groupId },
         });
       } finally {
-        repository.close();
+        repository?.close();
       }
     }
     return undefined;
@@ -229,8 +232,9 @@ export class SummaryGenerationService {
    */
   #findRecord(recordId: string): Readonly<RecordRow> | undefined {
     for (const root of this.#logRoots()) {
-      const repository = new TrafficRepository(root);
+      let repository: TrafficRepository | undefined;
       try {
+        repository = new TrafficRepository(root);
         const record = repository.getRecord(recordId);
         if (record !== undefined) return record;
       } catch (error) {
@@ -246,7 +250,7 @@ export class SummaryGenerationService {
           details: { phase: "record_read", record_id: recordId },
         });
       } finally {
-        repository.close();
+        repository?.close();
       }
     }
     return undefined;
@@ -261,8 +265,9 @@ export class SummaryGenerationService {
   #storeSummary(recordId: string, summary: HistorySummary, model: string): void {
     let lastError: unknown;
     for (const root of this.#logRoots()) {
-      const repository = new TrafficRepository(root);
+      let repository: TrafficRepository | undefined;
       try {
+        repository = new TrafficRepository(root);
         if (!repository.hasRecord(recordId)) {
           continue;
         }
@@ -285,7 +290,7 @@ export class SummaryGenerationService {
           cause_type: errorName(causeOf(error)),
         });
       } finally {
-        repository.close();
+        repository?.close();
       }
     }
     throw storageError("The summary could not be saved.", {
@@ -304,8 +309,9 @@ export class SummaryGenerationService {
     const contextJson = Object.keys(facts).length === 0 ? null : JSON.stringify(facts);
     let lastError: unknown;
     for (const root of this.#logRoots()) {
-      const repository = new TrafficRepository(root);
+      let repository: TrafficRepository | undefined;
       try {
+        repository = new TrafficRepository(root);
         // Only the root that owns the task can hold the brief: the row
         // references tasks(id), so writing it elsewhere is a foreign key
         // violation that would leave the brief in the wrong directory.
@@ -331,7 +337,7 @@ export class SummaryGenerationService {
           cause_type: errorName(causeOf(error)),
         });
       } finally {
-        repository.close();
+        repository?.close();
       }
     }
     throw storageError("The task brief could not be saved.", {
