@@ -27,7 +27,7 @@
 sha256sum doc/ui_proxy_cn.png doc/ui_proxy_en.png doc/ui_lb_cn.png doc/ui_lb_en.png doc/ui_logs_cn.png doc/ui_logs_en.png doc/ui_stats_cn.png doc/ui_stats_en.png doc/ui_task_detail_cn.png doc/ui_task_detail_en.png
 ```
 
-比较规则（`screenshotDifference`，test-node/ui/admin-ui.test.ts）：宽度必须一致；高度相差 ≤ 4 px（多余行必须为近白背景，容忍不同环境下分数像素舍入造成的文档高度漂移）；重叠区域像素差异比例小于 0.25（Proxy 与 Load balancing 两组基线用更严的 0.12）。
+比较规则（`screenshotDifference`，test-node/ui/admin-ui-page.ts）：宽度必须一致；高度相差 ≤ 4 px（多余行必须为近白背景，容忍不同环境下分数像素舍入造成的文档高度漂移）；重叠区域像素差异比例小于 0.25（Proxy 与 Load balancing 两组基线用更严的 0.12）。
 
 ## Proxy 页面状态
 

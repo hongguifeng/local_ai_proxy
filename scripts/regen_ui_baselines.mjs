@@ -21,7 +21,7 @@ const images = [
 console.log("[regen] capturing UI baselines through the visual regression tests...");
 const capture = spawn(
   process.execPath,
-  [vitestBin, "run", "test-node/ui/admin-ui.test.ts", "-t", "matches"],
+  [vitestBin, "run", "test-node/ui/admin-ui-visual.test.ts", "-t", "matches"],
   { stdio: "inherit", env: { ...process.env, REGEN_BASELINES: "1" } },
 );
 const exitCode = await new Promise((resolve) => capture.on("close", (code) => resolve(code)));

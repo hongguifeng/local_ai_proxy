@@ -75,5 +75,5 @@ ALTER TABLE task_briefs ADD COLUMN context_json TEXT;
 - `test-node/maintenance/log-query-service.test.ts`：最新已完成请求作为输入（pending 请求不会被选中）、能识别的请求头会随输入送达而无关请求头不送、环境信息解析（键名规范化、非字符串值丢弃、超长值截断）、```json 围栏回答、不守 JSON 约定的散文回答、缓存读回、跨日志目录时简介写入拥有该任务的目录、未知任务报 `Log group not found.`。
 - `test-node/persistence/repository.test.ts`：`context_json` 写入与读回，重新生成时以 `null` 清空旧环境信息。
 - `test-node/app/runtime.test.ts`：装配后的应用存在这两个路由（GET 返回 `null`，未配置总结模型时 POST 返回 502 `task_brief_failed`）。
-- `test-node/ui/admin-ui.test.ts`：打开面板不调用模型、点按钮后正文与环境信息胶囊出现、“重新生成”按钮与模型署名出现、卡片位于事实网格之上、关闭后重开读回缓存且不重复 POST。
+- `test-node/ui/admin-ui-history.test.ts`：打开面板不调用模型、点按钮后正文与环境信息胶囊出现、“重新生成”按钮与模型署名出现、卡片位于事实网格之上、关闭后重开读回缓存且不重复 POST。
 - 任务明细两张基线截图（`doc/ui_task_detail_*.png`）重新捕获：加入简介卡片时高度 1597 → 1705 px，加入环境信息一行后 1705 → 1779 px。

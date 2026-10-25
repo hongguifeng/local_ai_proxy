@@ -30,7 +30,7 @@ runtime, remove `node_modules` and run `npm ci` with Node 24.
 
 The UI E2E suite requires Google Chrome at `/usr/bin/google-chrome` in the current Linux setup. A
 missing browser affects E2E/visual tests but not the Node CLI runtime. Use `npm test -- --run
-test-node/ui/admin-ui.test.ts` to isolate UI failures.
+test-node/ui` to isolate UI failures.
 
 If local requests unexpectedly use an HTTP proxy, exclude `127.0.0.1` and `localhost` through
 `NO_PROXY`; otherwise health checks can be sent to the external proxy rather than the local UI.

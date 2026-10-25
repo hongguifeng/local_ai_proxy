@@ -20,11 +20,11 @@ nothing.
 
 Layer order outranks specificity, so a contest decided by specificity survives only
 while both declarations stay inside the same layer. The opt-in census in
-`test-node/ui/admin-ui.test.ts` measures those contests on stubbed data and frozen
+`test-node/ui/admin-ui-css-cascade.test.ts` measures those contests on stubbed data and frozen
 page time:
 
 ```bash
-CSS_CENSUS=1 CSS_CENSUS_OUT=census.json npx vitest run test-node/ui/admin-ui.test.ts -t "cascade census records"
+CSS_CENSUS=1 CSS_CENSUS_OUT=census.json npx vitest run test-node/ui/admin-ui-css-cascade.test.ts -t "cascade census records"
 ```
 
 It reports which two declarations compete for one element, what decided it, and

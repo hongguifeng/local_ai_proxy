@@ -462,7 +462,7 @@ Splitter 拖动（左右分栏与上下分栏）采用“预览后提交”：po
 中立性的裁判在 UI 测试里，按需运行：
 
 ```bash
-CSS_CANDIDATE=<candidate.css> npx vitest run test-node/ui/admin-ui.test.ts -t "candidate stylesheet"
+CSS_CANDIDATE=<candidate.css> npx vitest run test-node/ui/admin-ui-css-cascade.test.ts -t "candidate stylesheet"
 ```
 
 它比较 4 个视口宽度、9 个页面状态下签名多重集，以及每个「属性:值」的元素计数，并点出发生变化的元素类别。实时实例不能当这个裁判：统计页每分钟都在进流量，同一份 CSS 跑两遍也会有签名出现和消失，所以实时差异在被同样的漂移复现之前都不算证据。该用例的确定性条件缺一不可——安装 `page.clock`、桩化 statistics API 并固定 overview 载荷、关掉日志自动刷新、等对话框的 settle 标记、每次抓取前移开鼠标并 blur 当前焦点。纯注释改动用浏览器里的 `cssRules` 计数对拍，两份文件必须解析出同样的规则数。
@@ -472,7 +472,7 @@ CSS_CANDIDATE=<candidate.css> npx vitest run test-node/ui/admin-ui.test.ts -t "c
 为了让 `@layer` 的判断基于数据而不是推测，UI 测试里加了一个按需的竞争普查。它按今天的未分层排序——重要性、特异性、书写顺序——记录每个元素上每个被采样属性的两个争夺者、是谁赢了、靠什么赢的，以及去掉 `!important` 之后会不会翻盘。
 
 ```bash
-CSS_CENSUS=1 CSS_CENSUS_OUT=census.json npx vitest run test-node/ui/admin-ui.test.ts -t "cascade census records"
+CSS_CENSUS=1 CSS_CENSUS_OUT=census.json npx vitest run test-node/ui/admin-ui-css-cascade.test.ts -t "cascade census records"
 ```
 
 普查覆盖 4 个视口宽度和 9 个页面状态，报出 767 条样式规则和 790 类争夺对。元素级事件的决胜因素分布如下（在删掉那 4 条 `!important` 之后重测）：
@@ -500,6 +500,16 @@ CSS_CENSUS=1 CSS_CENSUS_OUT=census.json npx vitest run test-node/ui/admin-ui.tes
 这里还有一个重叠判定的教训。后代组合符把类要求挂在祖先上，所以比较两个选择器末段的类名集合会把 `.stats-live input[type=checkbox]` 和 `.stats-date-row input` 判成不相干，而它们完全能同时命中一个复选框。只有当末段复合选择器在同一个元素上提出互斥要求（不同的元素类型，或同一属性要求不同的值）时，才应该判为不可能。
 
 测量过程本身也暴露了两个脚本写法上的坑：把特异性元组交给 `Math.max` 会得到 `NaN`，于是所有候选都不被过滤，虚报出 2,201 条危害；正则捕获组用 `[, , a, b]` 解构会跳过第一个捕获组，于是「零有害跨区争夺」那张表是假的。任何全是零的结论，都应该先用一个必然看得见的改动去证伪。
+
+### 4.7 UI 浏览器测试的按区拆分
+
+原来 5,748 行的单文件浏览器测试拆成六个按区文件（proxy、history、load-balancing、visual、statistics、css-cascade），外加三个共享模块：`admin-ui-fixture.ts` 装桩数据与 `resetFixtureData()`，`admin-ui-server.ts` 装 `browser`、`page`、桩管理服务器和生命周期，`admin-ui-page.ts` 装页面导航与基线比对辅助。依赖只能单向：page → server → fixture。
+
+共享的可变开关留在 fixture 模块里。ESM 的 import 是只读视图，跨模块赋值直接报错，所以测试体里的 30 处赋值改成 `setXxx()` 调用，只读引用一行没动。每个文件自己注册 `beforeAll`/`beforeEach`/`afterEach`/`afterAll`；Vitest 默认按文件隔离模块状态，并行文件之间不会串数据。按区跑用 `npx vitest run test-node/ui/admin-ui-history.test.ts`。
+
+拆分后的实测：UI 仍是 `93 passed | 2 skipped`，计数一字不差；UI 墙钟 50.72 s 降到 24.07 s，全量测试墙钟 111.88 s 降到 29.59 s。像素基线没动，不需要重捕获。
+
+两个坑值得记。按 AST 名字裁剪 import 会被变量遮蔽骗过去：census 里 `const pairs = {}` 遮蔽了从 fixture 导入的 `pairs`，静态看「用到了」其实没用到，这种修剪最后还得让 ESLint 当裁判。把字符偏移量和行号放在一起比较，会得出「测试体里 0 处赋值」的假结论——两者单位不同，永远不能互比。
 
 
 
