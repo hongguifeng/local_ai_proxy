@@ -1087,9 +1087,13 @@ describe("admin UI proxy page", { timeout: UI_TEST_TIMEOUT_MS }, () => {
           element.setSelectionRange(3, 9, "backward");
         }
       });
-      // Saving through the feature operation leaves the form control active while
-      // the response commits; clicking Save would move focus to that button first.
-      await page.evaluate("proxyConfig.save();");
+      await Promise.all([
+        page.waitForResponse(
+          (response) =>
+            response.url().endsWith("/api/pairs") && response.request().method() === "PUT",
+        ),
+        page.locator("#saveProxies").click(),
+      ]);
       await expectPage(control).toBeFocused();
       if (selector !== '[data-lb-field="strategy"]') {
         expect(

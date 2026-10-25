@@ -1,4 +1,5 @@
 import { escapeHtml } from "./text.js";
+import { requestWithCancellation } from "./request.js";
 
 /** Owns LB presentation, member form collection, open cards and polling. Pair
  * configuration belongs to proxy-config: reads are snapshots, edits are operations. */
@@ -12,11 +13,13 @@ export function createLoadBalancing({
   closestFrom,
   closestOn,
   t,
-  api,
+  api: request,
 }) {
   let operations;
   let lifecycle = null;
   let statusRequest = null;
+  const api = (url, options = {}) =>
+    requestWithCancellation(request, url, options, lifecycle?.signal);
   const listen = (target, type, listener, options = {}) =>
     target.addEventListener(type, listener, {
       ...(typeof options === "boolean" ? { capture: options } : options),

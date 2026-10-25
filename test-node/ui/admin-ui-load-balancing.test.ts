@@ -1,4 +1,3 @@
-import { build } from "esbuild";
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it } from "vitest";
 import type { Locator } from "@playwright/test";
 import { expect as expectPage } from "@playwright/test";
@@ -560,65 +559,67 @@ describe("admin UI load balancing groups", { timeout: UI_TEST_TIMEOUT_MS }, () =
     await page.clock.runFor(2_000);
     await expect.poll(() => lbStatusReads.length).toBe(6);
   });
-  it("forwards polling disposal and lifecycle cancellation to the fetch signal", async () => {
+
+  it("forwards caller and lifecycle cancellation through the production adapter", async () => {
     await loadAdminPage();
     await page.evaluate("proxyConfig.dispose();");
-    // Exercise the forwarding contract without changing the production adapter,
-    // which currently passes the shared API directly to load balancing.
-    const bundle = await build({
-      stdin: {
-        contents:
-          'export { requestWithCancellation } from "./src/admin/static/modules/proxy-config.js"; export { createLoadBalancing } from "./src/admin/static/modules/load-balancing.js";',
-        resolveDir: process.cwd(),
-      },
-      bundle: true,
-      format: "iife",
-      globalName: "cancellationProbe",
-      write: false,
-      platform: "browser",
-    });
-    const output = bundle.outputFiles[0];
-    if (output === undefined) throw new Error("cancellation probe bundle is missing");
-    await page.addScriptTag({ content: output.text });
     const observed = await page.evaluate<Record<string, boolean>>(String.raw`
       (async () => {
         const originalFetch = window.fetch;
-        const captured = [];
-        const owner = new AbortController();
-        window.fetch = (_url, options) => new Promise((_resolve, reject) => {
-          captured.push(options.signal);
-          const abort = () => reject(new Error("request aborted"));
-          if (options.signal.aborted) abort();
-          else options.signal.addEventListener("abort", abort, { once: true });
-        });
-        const balancing = cancellationProbe.createLoadBalancing({
-          $, qs, qsa, qsaOn, qsOn, asElement, closestFrom, closestOn, t,
-          api: (url, options) => cancellationProbe.requestWithCancellation(api, url, options, owner.signal),
-        });
-        const operations = { getPairs: () => [], addGroup: () => {}, removeGroup: () => {} };
+        const OriginalController = window.AbortController;
+        const controllers = [];
+        const polls = [];
+        window.AbortController = class extends OriginalController {
+          constructor() { super(); controllers.push(this); }
+        };
+        window.fetch = (url, options) => {
+          if (url !== "/api/load-balancer/status") return originalFetch(url, options);
+          // The real LB factory creates lifecycle, caller and forwarded controllers
+          // before fetch; observing them here leaves production wiring intact.
+          const [forwarded, caller, owner] = controllers.slice(-3).reverse();
+          polls.push({ signal: options.signal, forwarded, caller, owner });
+          return new Promise((_resolve, reject) => {
+            const abort = () => reject(new Error("request aborted"));
+            if (options.signal.aborted) abort();
+            else options.signal.addEventListener("abort", abort, { once: true });
+          });
+        };
         try {
-          balancing.init(operations);
-          const pendingBeforeDispose = captured.length === 1 && !captured[0].aborted;
-          balancing.dispose();
-          const pollingAbort = captured[0].aborted && !owner.signal.aborted;
-          balancing.init(operations);
-          const pendingBeforeLifecycleAbort = captured.length === 2 && !captured[1].aborted;
-          owner.abort();
-          const lifecycleAbort = captured[1].aborted;
+          // Reuse the instances constructed by 02/03 and initialized by 09.
+          initializeProxyConfig();
+          const first = polls[0];
+          const composed = first.signal === first.forwarded.signal &&
+            first.signal !== first.caller.signal && first.signal !== first.owner.signal;
+          document.querySelector('[data-tab="logs"]').click();
+          const callerAbort = first.signal.aborted && first.caller.signal.aborted && !first.owner.signal.aborted;
+          document.querySelector('[data-tab="proxies"]').click();
+          const second = polls[1];
+          const pendingBeforeOwnerAbort = !second.signal.aborted;
+          first.owner.abort();
+          const lifecycleAbort = second.signal.aborted && !second.caller.signal.aborted;
+          // Initialize the production LB owner again through proxy lifecycle init.
+          proxyConfig.dispose();
+          initializeProxyConfig();
+          const third = polls[polls.length - 1];
+          const pendingBeforeDispose = !third.signal.aborted;
+          loadBalancing.dispose();
+          const disposalAbort = third.signal.aborted;
           await new Promise((resolve) => setTimeout(resolve, 0));
-          return { pendingBeforeDispose, pollingAbort, pendingBeforeLifecycleAbort, lifecycleAbort };
+          return { composed, callerAbort, pendingBeforeOwnerAbort, lifecycleAbort, pendingBeforeDispose, disposalAbort };
         } finally {
-          balancing.dispose();
-          owner.abort();
+          proxyConfig.dispose();
           window.fetch = originalFetch;
+          window.AbortController = OriginalController;
         }
       })()
     `);
     expect(observed).toEqual({
-      pendingBeforeDispose: true,
-      pollingAbort: true,
-      pendingBeforeLifecycleAbort: true,
+      composed: true,
+      callerAbort: true,
+      pendingBeforeOwnerAbort: true,
       lifecycleAbort: true,
+      pendingBeforeDispose: true,
+      disposalAbort: true,
     });
   });
 });

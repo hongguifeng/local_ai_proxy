@@ -1,21 +1,6 @@
 import { escapeHtml } from "./text.js";
 
-/** Forward both cancellation owners without relying on AbortSignal.any(). */
-export async function requestWithCancellation(request, url, options, lifecycleSignal) {
-  const signals = [...new Set([lifecycleSignal, options.signal].filter(Boolean))];
-  if (signals.length < 2) return request(url, { ...options, signal: signals[0] });
-  const controller = new AbortController();
-  const abort = () => controller.abort();
-  for (const signal of signals) {
-    if (signal.aborted) abort();
-    else signal.addEventListener("abort", abort, { once: true });
-  }
-  try {
-    return await request(url, { ...options, signal: controller.signal });
-  } finally {
-    for (const signal of signals) signal.removeEventListener("abort", abort);
-  }
-}
+import { requestWithCancellation } from "./request.js";
 
 /** Owns the editable proxy configuration and connection-test dialog. The classic
  * adapter supplies shared UI services; no feature reads the classic script scope. */
@@ -46,6 +31,7 @@ export function createProxyConfig({
   let lifecycle = null;
   let unregisterPanels = [];
   let languageDraft = null;
+  let saveControl = null;
   const api = (url, options = {}) =>
     requestWithCancellation(request, url, options, lifecycle?.signal);
   const listen = (target, type, listener, options = {}) =>
@@ -447,7 +433,7 @@ export function createProxyConfig({
       `.proxy-card[data-index="${pairIndex}"] .target-card[data-target-index="${next}"] [data-drag-target]`,
     )?.focus();
   }
-  async function savePairs() {
+  async function savePairs(previousControl = null) {
     collectPairs();
     const submittedForm = formSignature();
     const data = await api("/api/pairs", {
@@ -457,7 +443,9 @@ export function createProxyConfig({
     collectPairs();
     if (formSignature() === submittedForm) {
       state.pairs = data.pairs;
-      const activeControl = captureActiveControl();
+      const activeControl =
+        captureActiveControl() ||
+        (document.activeElement === $("saveProxies") ? previousControl : null);
       renderPairs();
       restoreActiveControl(activeControl);
     }
@@ -685,9 +673,9 @@ export function createProxyConfig({
     $("targetCheckDialog").showModal();
   }
 
-  function captureActiveControl() {
+  function captureActiveControl(element = document.activeElement) {
     const controls = qsa("#proxyGrid input, #proxyGrid textarea, #proxyGrid select");
-    const index = controls.indexOf(document.activeElement);
+    const index = controls.indexOf(element);
     if (index < 0) return null;
     const input = controls[index];
     return {
@@ -783,7 +771,18 @@ export function createProxyConfig({
       state.pairs.push(newPair());
       renderPairs();
     });
-    listen($("saveProxies"), "click", () => savePairs().catch((e) => toast(configIssueText(e))));
+    listen($("saveProxies"), "pointerdown", () => {
+      saveControl = captureActiveControl();
+    });
+    listen($("proxyGrid"), "focusout", (event) => {
+      if (event.relatedTarget === $("saveProxies"))
+        saveControl = captureActiveControl(event.target);
+    });
+    listen($("saveProxies"), "click", () => {
+      const previousControl = saveControl;
+      saveControl = null;
+      return savePairs(previousControl).catch((e) => toast(configIssueText(e)));
+    });
     listen($("proxyGrid"), "click", (event) => {
       const card = closestFrom(event.target, ".proxy-card");
       if (!card) return;
@@ -1165,6 +1164,7 @@ export function createProxyConfig({
     closeTargetCheckModelPop();
     lifecycle.abort();
     lifecycle = null;
+    saveControl = null;
     for (const unregister of unregisterPanels) unregister();
     unregisterPanels = [];
     loadBalancing.dispose();
