@@ -132,6 +132,7 @@ P0 是已复现的功能缺陷；P1 是契约、文档和后端基础；P2 是�
 | [ ]  | AI-22 | P2     | 建立组件样式归属            | AI-18、AI-19、AI-21                                                                                                                                             | 未开始 |
 | [ ]  | AI-23 | P2     | 整理 skills 并固化操作入口  | AI-04、AI-14、AI-16、AI-20、AI-21、AI-22                                                                                                                        | 未开始 |
 | [ ]  | AI-24 | P2     | 综合验收与文档收口          | AI-01、AI-02、AI-03、AI-04、AI-05、AI-06、AI-07、AI-08、AI-09、AI-10、AI-11、AI-12、AI-13、AI-14、AI-15、AI-16、AI-17、AI-18、AI-19、AI-20、AI-21、AI-22、AI-23 | 未开始 |
+| [ ]  | AI-25 | P2     | 保留旧配置里未建模的键      | AI-18                                                                                                                                                           | 未开始 |
 
 ## 5. 任务明细
 
@@ -467,6 +468,21 @@ P0 是已复现的功能缺陷；P1 是契约、文档和后端基础；P2 是�
 
 验证：V-D、V-F、V-U、V-P，以及 AI-16 固化后的隔离交付冒烟。
 
+### AI-25：保留旧配置里未建模的键
+
+入口：[配置归一化](../src/config/config-normalizer.ts)、[配置校验](../src/config/config-validation.ts)、[代理配置写回](../src/admin/routes/pairs.ts)。
+
+- [ ] `normalizeProxyPair` 与 `validateProxyConfigFile` 不再静默丢掉本模型未建模的键，而是保留它们并能经 `PUT /api/pairs` 往返读回。
+- [ ] 区分“旧应用写下的键”与“控制台自己的运行时键”（`running`、`actual_listen_port`、`expanded`），后者不得被写进保存文件。
+- [ ] 确实要丢的键给出可理解的诊断，而不是静默删除。
+- [ ] 用一条真实往返测试钉住最终去向：写入 25 个键的旧扁平 pair，其未建模键在 `/api/pairs` 与保存文件里必须被明确断言，而不是靠“没报错”默认。
+
+验收：未建模键不再静默丢失；UI 运行时键不进入保存文件；旧扁平 pair 的已建模值（如 `log_root`）仍按现行规则落到 `targets[0]` 的绝对路径。
+
+验证：V-B、V-P；运行 config 与 admin 相关测试。
+
+背景：AI-08 实测 `GET /api/pairs` 对一个写入 25 个键的 pair 只答 11 个键（`id,name,enabled,listen_host,listen_port,access_log,targets,default_target_id,load_balancers,running,actual_listen_port`），`log_root` 只在 `targets[0]` 里以绝对路径出现；`validateProxyConfigFile` 静默剔掉未知的 pair/target 键。开放响应本来就能原样答出未声明键（fast-json-stringify 探针实测），所以丢键发生在 `src/config` 而不在传输层——这条需求属于本任务，不属于 AI-08。
+
 ## 6. 第一轮不包含的工作
 
 - 不新增路由、负载均衡、计价或摘要产品功能。
@@ -512,6 +528,7 @@ P0 是已复现的功能缺陷；P1 是契约、文档和后端基础；P2 是�
 - [ ] AI-22：组件样式归属明确，层叠与像素验证无意外变化。
 - [ ] AI-23：skills 内容简明且有效，固定操作由工具承担。
 - [ ] AI-24：完整检查、截图核验、portable 构建与隔离冒烟有实际记录。
+- [ ] AI-25：旧配置里未建模的键不再被静默丢弃，控制台自己的运行时键不会被写进保存文件。
 
 ## 9. 单项完成记录模板
 
