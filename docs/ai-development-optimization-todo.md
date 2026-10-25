@@ -116,7 +116,7 @@ P0 是已复现的功能缺陷；P1 是契约、文档和后端基础；P2 是�
 | [x]  | AI-06 | P1     | 日志事件和写入模型类型化    | 无                                                                                                                                                              | 已完成 |
 | [x]  | AI-07 | P1     | 查询结果和服务契约类型化    | AI-06                                                                                                                                                           | 已完成 |
 | [x]  | AI-08 | P1     | API schema 与客户端契约统一 | AI-07、AI-04、AI-15、AI-18、AI-19、AI-20、AI-21                                                                                                                 | 已完成 |
-| [ ]  | AI-09 | P1     | 完整应用的服务装配约束      | AI-01、AI-02、AI-07、AI-08                                                                                                                                      | 在办   |
+| [x]  | AI-09 | P1     | 完整应用的服务装配约束      | AI-01、AI-02、AI-07、AI-08                                                                                                                                      | 已完成 |
 | [x]  | AI-10 | P1     | 消除运行时依赖环            | AI-06                                                                                                                                                           | 已完成 |
 | [ ]  | AI-11 | P1     | 分离模型调用与日志查询      | AI-01、AI-05、AI-07、AI-10                                                                                                                                      | 在办   |
 | [ ]  | AI-12 | P1     | 按职责拆分持久化访问        | AI-06、AI-07、AI-10                                                                                                                                             | 未开始 |
@@ -251,10 +251,10 @@ P0 是已复现的功能缺陷；P1 是契约、文档和后端基础；P2 是�
 
 入口：[应用装配](../src/app/runtime.ts)、[AdminServerOptions](../src/admin/admin-contracts.ts)、[管理服务](../src/admin/admin-server.ts)。
 
-- [ ] 为正式应用建立必需的完整服务集合，遗漏方法应在编译或启动时失败。
-- [ ] 将用于测试的部分服务装配做成显式入口或选项。
-- [ ] 让日志查询、总结、统计等服务的生命周期和持有者清晰可见。
-- [ ] 保留真实应用装配测试，覆盖必需 GET 及关键写操作。
+- [x] 为正式应用建立必需的完整服务集合，遗漏方法应在编译或启动时失败。
+- [x] 将用于测试的部分服务装配做成显式入口或选项。
+- [x] 让日志查询、总结、统计等服务的生命周期和持有者清晰可见。
+- [x] 保留真实应用装配测试，覆盖必需 GET 及关键写操作。
 
 验收：新增正式功能后忘记接线，不会悄悄表现为路由 404。业务对象不存在与路由未注册有稳定的不同错误结果。
 
@@ -518,7 +518,7 @@ P0 是已复现的功能缺陷；P1 是契约、文档和后端基础；P2 是�
 - [ ] AI-04：存在唯一现行架构入口，历史基线有明确身份。
 - [ ] AI-05：业务错误按稳定分类映射，内部失败有足够诊断信息。
 - [x] AI-06～08：自有日志和 API 数据有具体契约，嵌套字段受验证。
-- [ ] AI-09：完整应用遗漏服务接线时有确定失败反馈。
+- [x] AI-09：完整应用遗漏服务接线时有确定失败反馈。
 - [x] AI-10：运行时依赖环消除，并有有效的自动检查。
 - [ ] AI-11～13：查询、模型生成和存储职责明确，历史迁移结果稳定。
 - [ ] AI-14：操作序列和流式边界有回归测试，时序问题有定位记录。
@@ -739,3 +739,13 @@ UI 截图、性能或迁移结果（适用时）：
 - 写进 AI-09 包里的实测事实：`src/app/runtime.ts` 共 169 行，`NodeApplicationOptions`（第 27 行）只有六个字段（`applicationConfigFile, configFile, host, logRoot, port, version?`），admin 服务全部在启动路径里 64–112 行就地构造（`LogQueryService`、`pairService` 即当前 manager、`logService` 对象、`usageStatisticsService`、`targetCheck/Metrics/Models`、`loadBalancerService`、`modelCatalogService`、`summaryModelService`）；`AdminServerOptions` 共 34 个 readonly 成员、很多是 `?`（`cleanupKeepLatest?`、`cleanupOlderThan?`、`cleanupSelectedGroups?`、`getGroupLogs?`、`getRecordDetail?`、`getSummary?`、`getGroupPricing?` 等），路由注册靠 `getGroupLogs !== undefined` 这类卫子，所以今天缺一个服务只会表现为 404、编译阶段不报任何错。
 - 写进 AI-12 包里的实测事实：`src/persistence/repository.ts` 1,523 行 / 51 个方法，SQL 处处走 `this.#database.prepare(...)`，唯一事务缝在第 135 行 `this.#database.transaction(work)()`；`body-storage.ts` 119 行、`database.ts` 169 行、`schema-v3.ts` 60 行；引用方（fan-in）是 `task-matcher`、`traffic-log-service`、`log-cleanup`、`log-export`、`log-query-service`、`persistence/index`；`CURRENT_SCHEMA_VERSION` 为 13、迁移 `1..13`、新库报 `schema_version 13` 与 15 张表，`test-node/persistence/database.test.ts` 在两处钉着版本号并列出表名。
 - 两轮共同教训已写进两边任务包：不跑 `npm run check` 与全量套件（两条全量并发有过 `listen ENOBUFS`），ABI 只能用 `:memory:` 实查询证明，只杀自己启动的进程，用户实例只读，不许削弱断言，不许静默改既有测试的期望值，提交要早要勤；本轮新加的三条冒烟陷阱（`target_url` 对 `upstream_url`、总结需要 `segments` 数组、脱敏由 `redact_logs` 控制）已先写进 `real-upstream-acceptance`，任务包里直接指名。
+
+### AI-09 完成记录
+
+- 状态：**已完成（带偏差）**，由编排方验收。lane 提交 `dc999bb`（生产装配要求完整服务集）、`3012023`（两个方向都证明的装配测试）、`27ad1fa`（把装配规则写在读到它的地方），squash 合并进 main 为 `6c49e07`，**零冲突**，15 个文件 `+1002/-155`。
+- 偏差就是它**没交回 handoff**：子运行 `a75b7862-04be-4149-9e3f-00915bb8a23f` 在最后一步以一个奇怪错误终止（`bash failed (exit 1): (no output)`），产物文件里只剩它中途的一句自我叙述（`Now I have the picture. Let me verify a few assignability assumptions before editing.`），没有报告。所以验收完全建在代码与编排方自己复现的门禁上，不建在它的说法上；三个提交加干净工作树（`git status --short` 行数实测 0）说明活干完了。
+- 改动实质：`AdminServerOptions` 的服务成员全变必填（`Required<LogAdminService>`、`Required<PairAdminService>` 等），只有 `logger` 保留可选（它不是任何路由用来应答的服务，`createAdminServer` 在不给时会自己补一个结构化的）；新增 `src/app/admin-services.ts`（`assembleAdminServices`、`AssembledAdminServices = Omit<AdminServerOptions, "staticAssets">`、`assertAdminServicesComplete`）；`src/app/runtime.ts` 第 71–73 行在**建控制平面之前**就调用断言，所以端口未绑就会失败；那个模块头部 23–25 行明写生命周期：每次 start 创建一次、由谁持有、关闭时 manager 停止，三者没有第二个持有者——这就是清单第 3 条要的可见性。
+- 编排方在 lane 内独立复现：typecheck exit 0 且 0 `error TS`；lint exit 0；`npx prettier --check .` exit 0；`check:modules` exit 0 报 `116 modules: 253 runtime edges, 76 type-only / runtime cycles: 0; boundary violations: 0`（模块 115→116 = 新文件，运行时边 249→253，类型边 74→76）；`test-node/app` 4 文件 `19/19`（原 3 文件 12 测）、`test-node/admin` 16 文件 `106/106`（原 105）、`test-node/ui` 93 过 2 既有跳过、`test-node/docs` 27/27。断言审计：`git diff 818e07d..HEAD -- test-node/` 删断言 0 行、新增 `expect(` 33 处，`it.skip|it.only|it.todo|todo.describe` 新增 0；main 上声明测试数 `891 → 899`（+8）、文件 `120 → 121`（+1），无用例被删。
+- 验收关键两条实测都成立：编译期——装配按 `AssembledAdminServices` 类型化，漏一个成员就是 `src/app/runtime.ts` 里的编译错误；运行期——`assertAdminServicesComplete` 在建控制平面之前拒绝靠 cast 或裸对象混进来的洞，所以缺服务永远不可能以 `404 { error: { code: "not_found" } }` 的样子到达浏览器（那正是未注册路由的样子）。`service-assembly.test.ts` 头部明写这点并把“缺一个服务会带走的十条路由”钉住；`runtime.test.ts` 新增 158 行覆盖真实装配下的必需 GET 与关键写操作。
+- 它还改了 `AGENTS.md`（两条新事实：`prettier --write` 会重排 `docs/` 下的表格，因为默认配置忽略那个目录；在测试里构造“完整值减一个成员”时 `delete value[key]` 撞 `no-dynamic-delete`、`Object.fromEntries(...) as T` 撞非空断言规则）与 `admin-api-probing` 的花名册描述（改成 “the required service set”）；花名册门禁 `test-node/docs` 27/27 过。
+- 遗留：V-P 本轮未在 lane 里跑（没报告，编排方也不假设），所以与 AI-12 合并后对**最终状态**一次性跑集成 V-P；在那之前这一条是 outstanding，不是已满足。
