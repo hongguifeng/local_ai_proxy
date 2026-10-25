@@ -47,6 +47,12 @@ export let page: Page;
 export let server: ReturnType<typeof createAdminServer>;
 export let baseUrl: string;
 
+type AdminServer = ReturnType<typeof createAdminServer>;
+
+let activeBrowser: Browser | undefined;
+let activePage: Page | undefined;
+let activeServer: AdminServer | undefined;
+
 /**
  * Every page this suite creates reports its unhandled script errors.
  *
@@ -533,6 +539,7 @@ export async function startStubAdminServer(): Promise<void> {
     },
     staticAssets: await loadAdminStaticAssets(),
   });
+  activeServer = server;
   await server.listen({ host: "127.0.0.1", port: 0 });
   const address = server.server.address() as AddressInfo;
   baseUrl = `http://127.0.0.1:${address.port}`;
@@ -550,11 +557,13 @@ export async function startStubAdminServer(): Promise<void> {
     headless: true,
     args: ["--no-sandbox"],
   });
+  activeBrowser = browser;
 }
 
 export async function resetStubAdminServer(): Promise<void> {
   resetFixtureData();
   page = await browser.newPage();
+  activePage = page;
   recordedPageErrors = [];
   page.on("pageerror", recordPageError);
   await page.addInitScript(() => {
@@ -563,16 +572,29 @@ export async function resetStubAdminServer(): Promise<void> {
 }
 
 export async function closeTestPage(): Promise<void> {
+  const currentPage = activePage;
+  if (currentPage === undefined) {
+    return;
+  }
   // Drain the page's task queue first. A script that throws from a timer or a microtask
   // may have raised its error a moment before this hook runs, and the report travels back
   // over the same ordered connection as the command below, so a round trip the browser
   // answers only after its queued work cannot return before an earlier exception.
-  await page.evaluate(() => new Promise((resolve) => setTimeout(resolve, 0)));
+  await currentPage.evaluate(() => new Promise((resolve) => setTimeout(resolve, 0)));
   assertNoUnhandledPageErrors();
-  await page.close();
+  await currentPage.close();
+  activePage = undefined;
 }
 
 export async function closeStubAdminServer(): Promise<void> {
-  await browser.close();
-  await server.close();
+  const currentBrowser = activeBrowser;
+  if (currentBrowser !== undefined) {
+    await currentBrowser.close();
+    activeBrowser = undefined;
+  }
+  const currentServer = activeServer;
+  if (currentServer !== undefined) {
+    await currentServer.close();
+    activeServer = undefined;
+  }
 }
