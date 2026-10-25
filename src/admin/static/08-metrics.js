@@ -1,6 +1,15 @@
 // LLM Proxy admin UI -- upstream metrics: Prometheus list, auto refresh, vLLM dashboard
 // Parts are concatenated in numeric order into /static/app.js and served as one classic script.
 
+// Redraw on language change. The sequence mirrors the order the switch used to
+// call these in by hand; see registerLanguagePanel in 01-core.js.
+registerLanguagePanel(
+  "metricsDialog",
+  70,
+  () => renderMetricsDialog(),
+  () => Boolean($("metricsDialog")?.open),
+);
+
 function logMetricHtml(className, label, value, title = label) {
   return `<span class="log-metric ${className}" title="${escapeHtml(title)}">
     <span class="log-metric-label">${escapeHtml(label)}</span>

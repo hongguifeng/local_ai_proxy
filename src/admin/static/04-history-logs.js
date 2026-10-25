@@ -1,6 +1,14 @@
 // LLM Proxy admin UI -- history logs: task groups, records, search, detail panes, pending sweep
 // Parts are concatenated in numeric order into /static/app.js and served as one classic script.
 
+// Redraw on language change. The sequence mirrors the order the switch used to
+// call these in by hand; see registerLanguagePanel in 01-core.js.
+registerLanguagePanel("logs", 20, () => renderLogs());
+registerLanguagePanel("metaPanes", 40, () => {
+  renderMetaPane("request");
+  renderMetaPane("response");
+});
+
 function logGroupTimeHtml(group) {
   const start = displayTimestampParts(group.started_at);
   const activity = displayTimestampParts(group.last_activity_at);

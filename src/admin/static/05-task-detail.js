@@ -1,6 +1,11 @@
 // LLM Proxy admin UI -- task detail panel: pricing summary, breakdown table, trend charts, task brief
 // Parts are concatenated in numeric order into /static/app.js and served as one classic script.
 
+// Redraw on language change. The sequence mirrors the order the switch used to
+// call these in by hand; see registerLanguagePanel in 01-core.js.
+registerLanguagePanel("requestPricing", 50, () => renderRequestPricing());
+registerLanguagePanel("taskPricing", 60, () => renderTaskPricingPanel());
+
 function pricingBucketAmount(tokens, price) {
   if (tokens === null || tokens === undefined || price === null || price === undefined) return "—";
   const [whole = "0", fraction = ""] = String(price).split(".");

@@ -1,6 +1,19 @@
 // LLM Proxy admin UI -- proxy config page: listener pairs, targets, model mappings, connection test
 // Parts are concatenated in numeric order into /static/app.js and served as one classic script.
 
+// Redraw on language change. The sequence mirrors the order the switch used to
+// call these in by hand; see registerLanguagePanel in 01-core.js.
+registerLanguagePanel("pairs", 10, () => renderPairs());
+registerLanguagePanel(
+  "targetCheckModels",
+  80,
+  () => {
+    renderTargetCheckModelsNotice();
+    renderTargetCheckModelPop();
+  },
+  () => Boolean($("targetCheckDialog")?.open),
+);
+
 function configIssueText(error) {
   const issues = error && error.issues;
   if (!Array.isArray(issues) || issues.length === 0) {

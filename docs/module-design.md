@@ -422,6 +422,8 @@ repository 封装所有 SQL 和 JSON 字段编码/解码：
 
 前端没有路由器或组件框架，使用模板字符串整块重绘。为了防止重绘丢失输入，语言切换和部分操作前先调用 `collectPairs()` 回收 DOM 值。
 
+语言切换不再按一份手写调用清单重画。面板在自己的文件里调用 `registerLanguagePanel(id, sequence, render, when?)` 把自己登记进 `languagePanels`，`setLanguage()` 只调用 `rerenderLanguagePanels()`，按 `sequence` 排序后依次重画；`when` 用来跳过当前不在屏幕上的面板（两个对话框、按需加载的统计页）。`sequence` 沿用原来那份清单的顺序：10 pairs、20 logs、30 jsonPanes、40 metaPanes、50 requestPricing、60 taskPricing、70 metricsDialog、80 targetCheckModels、90 statistics，所以这次改动重画的函数集合和先后顺序与之前完全一致。忘了登记只会表现为切换语言后那块界面仍是旧语言，因此 `test-node/admin/static-source.test.ts` 钉住这张 (id, sequence) 表，并要求 `setLanguage` 里除了 `rerenderLanguagePanels()` 之外不得再出现任何 `render*(` 调用。
+
 task records API 保留单次最多 200 条的边界，避免一个长期 task 生成无界管理端响应。响应同时返回 `total`、`limit` 和 `has_more`，不再静默隐藏截断状态；当前 UI 继续显示最新 200 条。
 
 Splitter 拖动（左右分栏与上下分栏）采用“预览后提交”：pointerdown 时缓存容器和原始分栏尺寸，pointermove 只通过 `transform` 移动 splitter 预览线，不改变 grid 尺寸，因此大 JSON DOM 不参与拖动过程中的重排；pointerup 时才一次性提交新的 CSS 分栏变量。拖动期间置位 `state.splitterDragging`，跳过周期性自动刷新，避免列表 DOM 重建干扰交互。

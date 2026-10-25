@@ -971,31 +971,39 @@ function applyLanguage() {
   updateResponseTiming();
   updateSelectAllLogsButton();
 }
+/**
+ * A surface that has to be redrawn when the UI language changes. Panels register
+ * themselves in their own file, so adding a panel cannot silently leave it out of
+ * the language switch the way a hand-written call list did.
+ * @typedef {{ id: string, sequence: number, render: () => void, when?: () => boolean }} LanguagePanel
+ */
+/** @type {LanguagePanel[]} */
+const languagePanels = [];
+/**
+ * @param {string} id
+ * @param {number} sequence Lower runs first; these mirror the order the switch
+ *   used to call the panels in by hand, so moving one means changing one number.
+ * @param {() => void} render
+ * @param {() => boolean} [when] Skip the panel when its surface is not on screen.
+ */
+function registerLanguagePanel(id, sequence, render, when) {
+  if (languagePanels.some((panel) => panel.id === id)) return;
+  languagePanels.push({ id, sequence, render, ...(when === undefined ? {} : { when }) });
+}
+function rerenderLanguagePanels() {
+  const ordered = languagePanels.slice().sort((left, right) => left.sequence - right.sequence);
+  for (const panel of ordered) {
+    if (panel.when !== undefined && !panel.when()) continue;
+    panel.render();
+  }
+}
 function setLanguage(language) {
   if (!translations[language]) return;
   if (qs(".proxy-card")) collectPairs();
   state.language = language;
   localStorage.setItem("llmProxyLanguage", language);
   applyLanguage();
-  renderPairs();
-  renderLogs();
-  renderJsonPane("request", { preserveView: true });
-  renderJsonPane("response", { preserveView: true });
-  renderMetaPane("request");
-  renderMetaPane("response");
-  renderRequestPricing();
-  renderTaskPricingPanel();
-  if ($("metricsDialog")?.open) renderMetricsDialog();
-  if ($("targetCheckDialog")?.open) {
-    renderTargetCheckModelsNotice();
-    renderTargetCheckModelPop();
-  }
-  // The statistics page is rendered on demand; re-render it if it was loaded so
-  // its inline (non data-i18n) labels follow the new language without a refresh.
-  if ($("statsOverview")?.innerHTML)
-    loadStatisticsOptions()
-      .then(() => loadStatistics())
-      .catch((e) => toast(e.message));
+  rerenderLanguagePanels();
 }
 function displayTimestampParts(value) {
   const text = String(value || "").trim();

@@ -1,6 +1,19 @@
 // LLM Proxy admin UI -- usage statistics page: overview cards, trend chart, breakdown, export
 // Parts are concatenated in numeric order into /static/app.js and served as one classic script.
 
+// The statistics page is rendered on demand; re-render it if it was loaded so its
+// inline (non data-i18n) labels follow the new language without a refresh.
+registerLanguagePanel(
+  "statistics",
+  90,
+  () => {
+    loadStatisticsOptions()
+      .then(() => loadStatistics())
+      .catch((error) => toast(error.message));
+  },
+  () => Boolean($("statsOverview")?.innerHTML),
+);
+
 function isPendingStatus(status) {
   return status === undefined || status === null || status === "pending";
 }

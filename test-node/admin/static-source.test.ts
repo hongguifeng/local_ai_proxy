@@ -61,6 +61,41 @@ describe("admin UI source migration", () => {
     expect(duplicated).toEqual([]);
   });
 
+  it("keeps the language switch driven by panels that register themselves", async () => {
+    const script = await readAdminScript();
+    // The switch used to carry a hand-written call list, which silently left a new
+    // panel in the old language. The pinned ids and sequences reproduce the order
+    // that list ran in, so reordering is a deliberate edit of this table.
+    const pinned = [
+      ["pairs", 10],
+      ["logs", 20],
+      ["jsonPanes", 30],
+      ["metaPanes", 40],
+      ["requestPricing", 50],
+      ["taskPricing", 60],
+      ["metricsDialog", 70],
+      ["targetCheckModels", 80],
+      ["statistics", 90],
+    ] as const;
+    const registered = [...script.matchAll(/^registerLanguagePanel\(\s*"([a-zA-Z]+)",\s*(\d+),/gm)]
+      .map((match) => [match[1], Number(match[2])])
+      .filter((entry): entry is [string, number] => entry[0] !== undefined)
+      .sort((left, right) => left[1] - right[1]);
+    expect(registered).toEqual([...pinned]);
+
+    const start = script.indexOf("function setLanguage(language) {");
+    expect(start).toBeGreaterThan(-1);
+    const body = script.slice(start, script.indexOf("\n}", start));
+    expect(body).toContain("rerenderLanguagePanels();");
+    // A render call put back in the switch would double up with the panel that
+    // already registers itself, which is how the list used to grow.
+    expect(body.match(/(?<!re)render[A-Za-z]*\(/g)).toBeNull();
+    // The panels are registered by their own files, so no feature file may be
+    // allowed to register twice under one id.
+    const ids = registered.map(([id]) => id);
+    expect(new Set(ids).size).toBe(ids.length);
+  });
+
   it("preserves Chinese, English, and the existing language preference key", async () => {
     const [html, script] = await Promise.all([
       readFile(path.resolve("src/admin/static/index.html"), "utf8"),

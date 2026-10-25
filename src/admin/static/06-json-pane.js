@@ -1,6 +1,13 @@
 // LLM Proxy admin UI -- JSON tree pane: lazy materialization, line-width probes, row windowing
 // Parts are concatenated in numeric order into /static/app.js and served as one classic script.
 
+// Redraw on language change. The sequence mirrors the order the switch used to
+// call these in by hand; see registerLanguagePanel in 01-core.js.
+registerLanguagePanel("jsonPanes", 30, () => {
+  renderJsonPane("request", { preserveView: true });
+  renderJsonPane("response", { preserveView: true });
+});
+
 function jsonType(value) {
   if (value === null) return "null";
   if (Array.isArray(value)) return "array";
