@@ -1,7 +1,14 @@
+import { mkdtemp, readFile, rm } from "node:fs/promises";
+import os from "node:os";
+import path from "node:path";
 import { describe, expect, it } from "vitest";
 
 import { buildAdminModuleBridge } from "../../scripts/build_ui_bundle.js";
-import { GENERATED_ASSET_MARKER, readAdminModuleBridge } from "../../src/admin/static-assets.js";
+import {
+  BRIDGE_FILE,
+  GENERATED_ASSET_MARKER,
+  readAdminModuleBridge,
+} from "../../src/admin/static-assets.js";
 
 const CONCURRENT_BUILDS = 8;
 
@@ -10,6 +17,18 @@ function nextTurn(): Promise<void> {
 }
 
 describe("admin UI module bridge build", () => {
+  it("publishes the first bridge atomically when the destination is absent", async () => {
+    const temporaryDirectory = await mkdtemp(path.join(os.tmpdir(), "llm-proxy-bridge-"));
+    const outputFile = path.join(temporaryDirectory, BRIDGE_FILE);
+
+    try {
+      expect(await buildAdminModuleBridge(outputFile)).toBe(outputFile);
+      expect(await readFile(outputFile, "utf8")).toContain(GENERATED_ASSET_MARKER);
+    } finally {
+      await rm(temporaryDirectory, { recursive: true, force: true });
+    }
+  });
+
   it("keeps concurrent builds readable as complete generated files", async () => {
     const outputFile = await buildAdminModuleBridge();
     const expected = await readAdminModuleBridge();

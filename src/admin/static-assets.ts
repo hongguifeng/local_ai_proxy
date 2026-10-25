@@ -6,6 +6,9 @@ import { SUGGESTED_STRIP_REQUEST_FIELDS } from "../config/index.js";
 import type { AdminStaticAssets } from "./admin-contracts.js";
 
 const STRIP_FIELDS_PLACEHOLDER = "__SUGGESTED_STRIP_REQUEST_FIELDS__";
+const WINDOWS_READ_ATTEMPTS = 8;
+const WINDOWS_READ_DELAY_MS = 25;
+const WINDOWS_READ_RETRYABLE_ERROR_CODES = new Set(["EACCES", "EBUSY", "EPERM"]);
 
 /**
  * The marker every generated browser chunk carries. Reading it back proves the asset
@@ -85,16 +88,21 @@ export function readAdminStaticAsset(name: string): Promise<string> {
 /**
  * Reads the generated classic-script chunk the ES modules are delivered in. A missing
  * or unrecognisable artifact is an error here rather than an empty `<script>` in the
- * page, so a build that skipped `npm run bundle:ui` says so instead of rendering a
- * blank console.
+ * page. The build commands complete `npm run bundle:ui` before starting a reader, so
+ * an absent bridge is a clear startup error instead of a polling window that can race
+ * the first build.
  */
 export async function readAdminModuleBridge(): Promise<string> {
   const root = await findPackageRoot(path.dirname(fileURLToPath(import.meta.url)));
   const file = path.join(root, ...BRIDGE_DIRECTORY, BRIDGE_FILE);
-  const text = await readBridgeFile(file).catch(() => {
-    throw new Error(
-      `Admin UI module bridge not found at ${file}. Build it first with: npm run bundle:ui`,
-    );
+  const text = await readBridgeFile(file).catch((error: unknown) => {
+    const detail = error instanceof Error ? error.message : String(error);
+    const code = errorCode(error);
+    const message =
+      code === "ENOENT"
+        ? `Admin UI module bridge not found at ${file}. Build it first with: npm run bundle:ui`
+        : `Admin UI module bridge could not be read at ${file}: ${detail}`;
+    throw new Error(message, { cause: error });
   });
   if (!text.includes(GENERATED_ASSET_MARKER)) {
     throw new Error(
@@ -111,15 +119,27 @@ async function readBridgeFile(file: string): Promise<string> {
     } catch (error) {
       if (
         process.platform !== "win32" ||
-        attempt >= 20 ||
-        !(error instanceof Error && "code" in error) ||
-        !["ENOENT", "EBUSY", "EPERM"].includes((error as NodeJS.ErrnoException).code ?? "")
+        attempt >= WINDOWS_READ_ATTEMPTS - 1 ||
+        !isRetryableWindowsReadError(error)
       ) {
         throw error;
       }
-      await new Promise<void>((resolve) => setTimeout(resolve, 10));
+      await new Promise<void>((resolve) => setTimeout(resolve, WINDOWS_READ_DELAY_MS));
     }
   }
+}
+
+function isRetryableWindowsReadError(error: unknown): boolean {
+  const code = errorCode(error);
+  return typeof code === "string" && WINDOWS_READ_RETRYABLE_ERROR_CODES.has(code);
+}
+
+function errorCode(error: unknown): string | number | undefined {
+  if (!(error instanceof Error) || !("code" in error)) {
+    return undefined;
+  }
+  const code = (error as NodeJS.ErrnoException).code;
+  return typeof code === "string" || typeof code === "number" ? code : undefined;
 }
 
 /** The directory that holds this project's package.json, found by walking up. */

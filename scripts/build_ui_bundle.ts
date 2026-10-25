@@ -27,6 +27,10 @@ const ROOT_DIR = path.resolve(import.meta.dirname, "..");
 const ENTRY_POINT = path.join(ROOT_DIR, "src", "admin", "static", "entry.js");
 const OUTPUT_DIRECTORY = path.join(ROOT_DIR, ...BRIDGE_DIRECTORY);
 
+const WINDOWS_REPLACEMENT_ATTEMPTS = 8;
+const WINDOWS_REPLACEMENT_DELAY_MS = 25;
+const WINDOWS_RETRYABLE_ERROR_CODES = new Set(["EACCES", "EBUSY", "EEXIST", "EPERM", "ETXTBSY"]);
+
 const BANNER = [
   `// ${GENERATED_ASSET_MARKER}.`,
   "// Bundled from src/admin/static/entry.js by scripts/build_ui_bundle.ts.",
@@ -36,10 +40,12 @@ const BANNER = [
   "",
 ].join("\n");
 
-export async function buildAdminModuleBridge(): Promise<string> {
-  const outputFile = path.join(OUTPUT_DIRECTORY, BRIDGE_FILE);
-  await mkdir(OUTPUT_DIRECTORY, { recursive: true });
-  const temporaryDirectory = await mkdtemp(path.join(OUTPUT_DIRECTORY, ".modules-bridge-"));
+export async function buildAdminModuleBridge(
+  outputFile = path.join(OUTPUT_DIRECTORY, BRIDGE_FILE),
+): Promise<string> {
+  const outputDirectory = path.dirname(outputFile);
+  await mkdir(outputDirectory, { recursive: true });
+  const temporaryDirectory = await mkdtemp(path.join(outputDirectory, ".modules-bridge-"));
   const temporaryFile = path.join(temporaryDirectory, BRIDGE_FILE);
   try {
     await build({
@@ -61,18 +67,71 @@ export async function buildAdminModuleBridge(): Promise<string> {
 }
 
 async function replaceOutputFile(temporaryFile: string, outputFile: string): Promise<void> {
-  try {
+  if (process.platform !== "win32") {
     await rename(temporaryFile, outputFile);
-  } catch (error) {
-    if (process.platform !== "win32" || !(error instanceof Error && "code" in error)) {
-      throw error;
-    }
-    const code = (error as NodeJS.ErrnoException).code;
-    if (code !== "EPERM" && code !== "EEXIST") {
-      throw error;
-    }
-    await replaceOutputFileOnWindows(temporaryFile, outputFile);
+    return;
   }
+
+  let lastError: unknown;
+  for (let attempt = 0; attempt < WINDOWS_REPLACEMENT_ATTEMPTS; attempt += 1) {
+    try {
+      // This is also the clean-start path. rename is atomic and works when the
+      // destination does not exist yet.
+      await rename(temporaryFile, outputFile);
+      return;
+    } catch (error) {
+      if (!isRetryableWindowsError(error)) {
+        throw error;
+      }
+    }
+
+    try {
+      // Node's Windows rename cannot replace an existing file; File.Replace is
+      // atomic and keeps readers away from a partially written destination.
+      await replaceOutputFileOnWindows(temporaryFile, outputFile);
+      return;
+    } catch (error) {
+      if (!isRetryableWindowsReplacementError(error)) {
+        throw error;
+      }
+      lastError = error;
+    }
+
+    if (attempt + 1 < WINDOWS_REPLACEMENT_ATTEMPTS) {
+      await delay(WINDOWS_REPLACEMENT_DELAY_MS * (attempt + 1));
+    }
+  }
+
+  throw new Error(
+    `Could not publish the admin UI module bridge after ${WINDOWS_REPLACEMENT_ATTEMPTS} ` +
+      `Windows replacement attempts: ${outputFile}`,
+    { cause: lastError },
+  );
+}
+
+function isRetryableWindowsError(error: unknown): boolean {
+  const code = errorCode(error);
+  return typeof code === "string" && WINDOWS_RETRYABLE_ERROR_CODES.has(code);
+}
+
+function isRetryableWindowsReplacementError(error: unknown): boolean {
+  const code = errorCode(error);
+  // execFile reports a PowerShell non-zero exit as a numeric code. Its underlying
+  // IOException is a transient sharing/access failure in the replacement path; a
+  // missing executable or other named filesystem error is a real setup failure.
+  return typeof code === "number" || code === undefined || WINDOWS_RETRYABLE_ERROR_CODES.has(code);
+}
+
+function errorCode(error: unknown): string | number | undefined {
+  if (!(error instanceof Error) || !("code" in error)) {
+    return undefined;
+  }
+  const code = (error as NodeJS.ErrnoException).code;
+  return typeof code === "string" || typeof code === "number" ? code : undefined;
+}
+
+function delay(milliseconds: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, milliseconds));
 }
 
 /** Node's Windows rename cannot replace an existing file; File.Replace is atomic. */
