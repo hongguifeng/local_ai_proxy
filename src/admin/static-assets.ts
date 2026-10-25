@@ -91,7 +91,7 @@ export function readAdminStaticAsset(name: string): Promise<string> {
 export async function readAdminModuleBridge(): Promise<string> {
   const root = await findPackageRoot(path.dirname(fileURLToPath(import.meta.url)));
   const file = path.join(root, ...BRIDGE_DIRECTORY, BRIDGE_FILE);
-  const text = await readFile(file, "utf8").catch(() => {
+  const text = await readBridgeFile(file).catch(() => {
     throw new Error(
       `Admin UI module bridge not found at ${file}. Build it first with: npm run bundle:ui`,
     );
@@ -102,6 +102,24 @@ export async function readAdminModuleBridge(): Promise<string> {
     );
   }
   return text;
+}
+
+async function readBridgeFile(file: string): Promise<string> {
+  for (let attempt = 0; ; attempt += 1) {
+    try {
+      return await readFile(file, "utf8");
+    } catch (error) {
+      if (
+        process.platform !== "win32" ||
+        attempt >= 20 ||
+        !(error instanceof Error && "code" in error) ||
+        !["ENOENT", "EBUSY", "EPERM"].includes((error as NodeJS.ErrnoException).code ?? "")
+      ) {
+        throw error;
+      }
+      await new Promise<void>((resolve) => setTimeout(resolve, 10));
+    }
+  }
 }
 
 /** The directory that holds this project's package.json, found by walking up. */
