@@ -566,7 +566,7 @@ UI 截图、性能或迁移结果（适用时）：
 - UI 截图、性能或迁移结果：`npm run regen:ui-baselines` 重生成 10 张基线，逐张 SHA-256 与 `docs/refactoring/ui-visual-baseline.md` 已登记值完全一致，图像未变，因此该文档无需改哈希；逐张看了统计页中英、代理英、负载均衡英、历史英、任务明细英，没有新出现的中文；视口 1278 px（宽于 1101 px）下筛选条仍是「标签在左、日期行在右」的两列布局。规模：声明 2,500 → 2,441、规则 769 → 737、`!important` 82 → 62（下降是删掉不可达规则的副作用，不是本次目标）、行数 4,526 → 4,421。
 - 便携版构建与冒烟结果：`npm run build && npm run rebuild:electron && npx electron-builder -w portable --publish never` 通过；`npm run abi:electron` 真实查询通过（NODE_MODULE_VERSION 143）。`npm run smoke:delivery` 两段全过：unpacked payload health 789 ms、proxy 200、`GET /api/logs?limit=5` total 1、`traffic.db` 4,096 字节；portable wrapper health 2,668 ms、同样 proxy 200、logs total 1、`traffic.db` 生成，两段 exit code 均 0。检查 `release/win-unpacked/resources/app.asar`：含 `COMPONENT: statistics filter bar` 横幅与 `END COMPONENT` 标记，已删除的 pass 注释字串出现 0 次。完成后已 `npm rebuild better-sqlite3` 并用 `npm run abi:node` 真实查询恢复 Node ABI（NODE_MODULE_VERSION 137）。
 - 与本清单的偏差、剩余事项：其余区域仍是累积层，本项只迁了一个组件；`!important` 仍保留 18 条，每一条都在与外部元素规则或同一块内更早的宽区间规则竞争，`admin-ui-css-ownership.test.ts` 把这 18 条钉成清单。section 头里的「n 条规则」计数已按实测重算（原来那组数字早就飘了），这是维护导航而不是交付内容。
-- 提交 SHA：见交付提交。
+- 提交 SHA：`92c9de0`（含样式表、所有权测试与两份文档；本条记录与 `current-architecture.md` 的收口行另起一个文档提交）。
 
 ### AI-01 完成记录
 
