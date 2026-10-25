@@ -416,11 +416,11 @@ P0 是已复现的功能缺陷；P1 是契约、文档和后端基础；P2 是�
 
 入口：[历史签名](../src/admin/static/modules/history.js)、[任务面板签名](../src/admin/static/modules/task-detail.js)、[JSON 渲染](../src/admin/static/modules/json-pane.js)。
 
-- [ ] 为历史区块和任务面板定义明确的渲染输入模型。
-- [ ] 缓存判断和模板渲染使用同一个输入，减少独立手写依赖清单。
-- [ ] 记录 JSON 测量、宽度变化、展开恢复和视口预填充的失效条件。
-- [ ] 增加字段变化、语言变化和过期响应的渲染回归测试。
-- [ ] 同时验证数据未变化时不发生无意义重建。
+- [x] 为历史区块和任务面板定义明确的渲染输入模型。
+- [x] 缓存判断和模板渲染使用同一个输入，减少独立手写依赖清单。
+- [x] 记录 JSON 测量、宽度变化、展开恢复和视口预填充的失效条件。
+- [x] 增加字段变化、语言变化和过期响应的渲染回归测试。
+- [x] 同时验证数据未变化时不发生无意义重建。
 
 验收：状态变化后立即显示；原节点保留、展开、选择和滚动位置符合现有行为。大正文不因取消缓存而重新冻结页面。
 
@@ -874,12 +874,13 @@ UI 截图、性能或迁移结果（适用时）：
 ### AI-21 完成记录
 
 - 状态：已完成
-- 实际变更：历史区块和任务面板均从明确的渲染输入快照生成缓存签名；pending 行只有展示字段实际变化时才触发列表重建。JSON 渲染明确记录正文、模式、宽度、测量、视图恢复和行窗口失效条件，并继续使用缓存宽度避免 materialization 强制布局。
-- 修改文件：`src/admin/static/modules/history.js`、`src/admin/static/modules/task-detail.js`、`src/admin/static/modules/json-pane.js`、`docs/ai-development-optimization-todo.md`。
-- 实际验证命令与结果：`npm test -- --run test-node/ui/admin-ui-history.test.ts`（33 tests passed）、`npm run lint`、`npm run typecheck`、`git diff --check` 均通过。套件覆盖字段变化、语言重绘、过期响应保护、未变化 DOM 保留、展开/选择、滚动锚定、JSON 展开恢复、行窗口预填充和大正文 lazy tree。
-- 测量方法与数据规模：沿用现有夹具；history large fixture 为 100 groups，large group fixture 为 200 records，JSON row-window fixture 为 1,885 rows。验证使用 Playwright DOM、MutationObserver、节点身份、展开状态、scrollTop/rect 和 lazy row 状态断言；未新增时间阈值。
-- 便携版构建与截图：按本任务范围未执行 portable packaging 或 baseline regeneration；未修改 CSS 或 UI 文案。
-- 已知限制：AI-20 仍是单独待办；task pricing 的输入快照已统一缓存判断与动态 series/brief/group 输出，历史模板仍通过现有 helper 读取同一 state snapshot 的等价字段。
+- 实际变更：历史区块从一次投影后的摘要、行内容、翻译标签和交互状态输入生成签名与模板，不再保留原始 group 引用；任务面板由同一次捕获的 data、brief、active group、三组 series 和模型展开状态驱动签名与输出。历史刷新比较补入 decode speed，避免仅此字段变化时丢弃新数据。
+- JSON 失效合同：正文、tree/format 模式、语言和渲染时宽度共同决定输入；未变输入保留节点，lazy 隐藏字段变化也会重建并恢复展开/滚动状态。ResizeObserver 和展开按钮在写 DOM 前维护宽度缓存，splitter 本身不重建树；新宽度供后续渲染和 lazy fill 使用。固定字体的文本固有宽度与 pane 宽度无关，按文本复用并保留容量上限，不因两侧 pane 宽度不同反复清空；所有缺失探针批量测量，已有探针不再重复测量。lazy fill 的行数估算移到 children DOM 写入之前；替换或 materialization 后仅标记行窗口缓存失效。
+- 修改文件：`src/admin/static/modules/history.js`、`src/admin/static/modules/task-detail.js`、`src/admin/static/modules/json-pane.js`、`test-node/ui/admin-ui-history.test.ts`、`.agents/skills/render-internals/SKILL.md`、本文件。
+- 新增回归：5 个 [AI-21] 浏览器用例，明确断言同值刷新保留节点、仅 decode speed 或任务 data 变化重建、语言变化保留选择和模型展开、lazy 隐藏正文更新、JSON 同值展开保留与宽度重建、materialization 不读取 pane 宽度且写 children 后无 offset 测量、延迟详情响应不覆盖新选择、任务消失后晚到响应不复活面板。既有测试继续覆盖 pending、任务简介、JSON 展开/滚动恢复、滚动锚定和行窗口。
+- 实际验证：history suite 38 tests passed；同时运行 admin static-source 与 skills 合同测试。`npm run lint`、`npm run typecheck`、`npx prettier --check .`、`git diff --check`；UI baseline regeneration 为 10 passed / 1 skipped，生成图片及哈希与提交版本相同，完整检查了中英文历史和任务面板图片。
+- 数据规模与方法：新增 lazy 夹具含 1,600 个字符串叶子；现有 large history 为 100 groups，large group 为 200 records，row-window 为 1,885 rows。通过 Playwright 节点身份、内容、展开状态、scrollTop/rect、lazy 状态以及布局 getter 探针验证；未增加时间门槛。
+- 范围与剩余事项：未修改 CSS 或 UI 文案；按本次明确要求不执行 portable packaging。宽度更新不自动重排已经渲染的字符串，下一次 pane 渲染才按新宽度决定折叠显示；这是保留 splitter 无重建行为的既有合同。AI-20 仍独立进行。
 
 ### AI-25 完成记录
 

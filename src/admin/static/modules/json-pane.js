@@ -375,6 +375,13 @@ function materializeJsonNode(el, detail) {
       ),
     )
     .join("");
+  const filledLines = jsonLineCount(
+    value,
+    state.formatStrings[key],
+    lineWidth,
+    openCount,
+    state.wrap[key] === true,
+  );
   const children = qsOn(detail, ":scope > .json-children");
   if (children) children.innerHTML = html;
   else detail.insertAdjacentHTML("beforeend", `<div class="json-children">${html}</div>`);
@@ -384,13 +391,6 @@ function materializeJsonNode(el, detail) {
   // size hint so the scrollbar accounts for the children that were just added.
   const parentRow = closestOn(children?.parentElement, ".json-row");
   if (parentRow && !parentRow.classList.contains("json-pane-root")) {
-    const filledLines = jsonLineCount(
-      value,
-      state.formatStrings[key],
-      lineWidth,
-      openCount,
-      state.wrap[key] === true,
-    );
     parentRow.style.containIntrinsicSize = `auto ${filledLines * 18}px`;
   }
 }
@@ -657,26 +657,23 @@ function collectJsonMeasureProbes(value, key, depth, lineWidth, probes, maxDepth
     probes.push(probe);
   }
 }
-let jsonMeasureWidth = -1;
 function prepareJsonMeasurements(value, lineWidth, maxDepth = Infinity, key = "", depth = 0) {
-  // Widths are only valid for the pane width they were taken at, so a resize
-  // invalidates the whole measurement cache; the size cap keeps a long session
-  // over many huge bodies from growing the probe keys without bound.
-  if (jsonMeasureWidth !== lineWidth || jsonMeasureResults.size > 20_000) {
-    jsonMeasureWidth = lineWidth;
+  // Intrinsic text widths use a fixed font and do not depend on pane width.
+  // Pane width only decides which strings need probes; retain those measurements
+  // across panes and resizes, with a cap for long sessions.
+  if (jsonMeasureResults.size > 20_000) {
     jsonMeasureResults = new Map();
   }
   if (lineWidth <= 0) return;
   const probes = [];
   collectJsonMeasureProbes(value, key, depth, lineWidth, probes, maxDepth);
   if (!probes.length) return;
+  const missing = [...new Set(probes)].filter((probe) => !jsonMeasureResults.has(probe));
+  if (missing.length === 0) return;
   const box = ensureJsonMeasureBox();
   box.textContent = "";
   const measured = [];
-  const seen = new Set();
-  for (const probe of probes) {
-    if (seen.has(probe)) continue;
-    seen.add(probe);
+  for (const probe of missing) {
     const el = document.createElement("div");
     el.textContent = probe;
     box.appendChild(el);
@@ -707,6 +704,7 @@ function jsonText(value) {
   return text === undefined ? "undefined" : text;
 }
 const jsonLineWidthCache = {};
+const jsonPaneRenderInputs = new Map();
 export function renderJsonPane(key, options = {}) {
   const el = $(key + "Json");
   // Cache the content width while the DOM is still clean: reading it later,
@@ -717,9 +715,18 @@ export function renderJsonPane(key, options = {}) {
   el.classList.toggle("nowrap", !state.wrap[key]);
   // The cache input is the raw value plus view modes and the current measured
   // content width. Raw/mode changes replace markup; unchanged input preserves
-  // DOM nodes, expansion state, and pane scroll. Width changes reset probe
-  // measurements in prepareJsonMeasurements. A replaced or materialized tree
-  // invalidates the flat row cache so viewport pre-realization sees current rows.
+  // DOM nodes, expansion state, and pane scroll. Intrinsic text measurements
+  // survive width changes; fit decisions use the new width. A replaced or
+  // materialized tree invalidates the flat row cache so viewport pre-realization sees current rows.
+  const input = JSON.stringify([
+    state.raw[key],
+    state.tree[key],
+    state.formatStrings[key],
+    state.language,
+    jsonLineWidthCache[key],
+  ]);
+  const inputChanged = jsonPaneRenderInputs.get(key) !== input;
+  jsonPaneRenderInputs.set(key, input);
   const rendered = state.jsonPaneHtml[key];
   // Parsing the tree is what costs: a several-hundred-kilobyte request body is
   // tens of thousands of nodes. Building the markup is cheap, so a refresh that
@@ -740,7 +747,7 @@ export function renderJsonPane(key, options = {}) {
       defaultJsonExpandedDepth,
       true,
     );
-    if (html !== rendered) {
+    if (inputChanged || html !== rendered) {
       state.jsonPaneHtml[key] = html;
       el.innerHTML = html;
       jsonRowWindowInvalidate(key);
@@ -748,7 +755,7 @@ export function renderJsonPane(key, options = {}) {
     }
   } else {
     const text = jsonText(state.raw[key]);
-    if (text !== rendered) {
+    if (inputChanged || text !== rendered) {
       state.jsonPaneHtml[key] = text;
       el.textContent = text;
       jsonRowWindowInvalidate(key);

@@ -126,7 +126,7 @@ export function logStatusClass(status) {
 function logGroupTimeHtml(group) {
   const start = displayTimestampParts(group.started_at);
   const activity = displayTimestampParts(group.last_activity_at);
-  const fallback = group.started_at || group.last_activity_at || group.id || t("task");
+  const fallback = group.started_at || group.last_activity_at || group.id || group.taskLabel;
   if (!start.date && !activity.date) {
     return `<span class="log-group-time-fallback">${escapeHtml(fallback)}</span>`;
   }
@@ -147,15 +147,15 @@ function logGroupTimeHtml(group) {
 }
 
 function logGroupFactsHtml(group) {
-  const decodeSpeed = formatDecodeSpeed(group.decode_speed_tps);
-  const decodeSpeedTip = `${t("avgDecodeSpeed")}: ${t("avgDecodeSpeedTip")}`;
-  const cost = formatGroupCost(group.cost);
+  const decodeSpeed = group.decodeSpeed;
+  const decodeSpeedTip = group.decodeSpeedTip;
+  const cost = group.costText;
   const costHtml =
     cost === "—"
       ? `<span class="log-group-cost log-fact-empty">—</span>`
       : `<span class="log-group-cost">${escapeHtml(cost)}</span>`;
   return `<span class="log-group-facts">
-    <span class="log-group-fact-line">${group.model ? `<span class="log-model" title="${escapeHtml(group.model)}">${escapeHtml(group.model)}</span>` : ""}<span class="log-request-count"><strong>${escapeHtml(group.request_count ?? 0)}</strong> ${escapeHtml(t("requests"))}</span>${decodeSpeed ? `<span class="log-group-decode-speed" title="${escapeHtml(decodeSpeedTip)}">${escapeHtml(decodeSpeed)}t/s</span>` : ""}${costHtml}</span>
+    <span class="log-group-fact-line">${group.model ? `<span class="log-model" title="${escapeHtml(group.model)}">${escapeHtml(group.model)}</span>` : ""}<span class="log-request-count"><strong>${escapeHtml(group.request_count ?? 0)}</strong> ${escapeHtml(group.requestsLabel)}</span>${decodeSpeed ? `<span class="log-group-decode-speed" title="${escapeHtml(decodeSpeedTip)}">${escapeHtml(decodeSpeed)}t/s</span>` : ""}${costHtml}</span>
     <span class="log-group-fact-line log-target" title="${escapeHtml(group.target || "")}">${escapeHtml(group.target || "—")}</span>
   </span>`;
 }
@@ -279,6 +279,7 @@ function logGroupSummarySignature(group) {
     group.last_activity_at,
     group.model,
     group.request_count,
+    group.decode_speed_tps,
     group.target,
     group.cost?.known_amount,
     group.cost?.priced_request_count,
@@ -562,21 +563,21 @@ async function loadMoreLogGroup(groupId) {
   }
 }
 function logGroupBodyHtml(group) {
-  const logs = group.logs || [];
-  return state.loadingLogGroups[group.id] || (!group.logsLoaded && !logs.length)
-    ? `<div class="log-item log-loading">${escapeHtml(t("loading"))}</div>`
+  const logs = group.items;
+  return group.loading || (!group.loaded && !logs.length)
+    ? `<div class="log-item log-loading">${escapeHtml(group.labels.loading)}</div>`
     : logs.length
       ? logs
           .map(
             (item) => `
-        <button class="log-item ${state.selected === item.id ? "active" : ""}" data-log-id="${escapeHtml(item.id)}">
+        <button class="log-item ${item.selected ? "active" : ""}" data-log-id="${escapeHtml(item.id)}">
           <span class="log-sequence">${escapeHtml(item.sequence ? `#${item.sequence}` : "-")}</span>
           <span class="log-item-content">
-            <span class="log-item-metrics">${logItemMetricsHtml(item)}</span>
+            <span class="log-item-metrics">${item.metricsHtml}</span>
             <span class="log-item-subline">
-              <span class="log-timestamp">${escapeHtml(item.timestamp || "")}</span>${item.has_summary ? `<span class="log-summary-star" title="${escapeHtml(t("summaryStar"))}" aria-label="${escapeHtml(t("summaryStar"))}">★</span>` : ""}${(() => {
-                const statusClass = logStatusClass(item.status);
-                const statusLabel = formatStatus(item.status);
+              <span class="log-timestamp">${escapeHtml(item.timestamp || "")}</span>${item.has_summary ? `<span class="log-summary-star" title="${escapeHtml(group.labels.summaryStar)}" aria-label="${escapeHtml(group.labels.summaryStar)}">★</span>` : ""}${(() => {
+                const statusClass = item.statusClass;
+                const statusLabel = item.statusLabel;
                 if (statusClass === "success") return "";
                 return `<span class="log-status ${statusClass}" title="${escapeHtml(statusLabel)}" aria-label="${escapeHtml(statusLabel)}"><span class="log-status-dot" aria-hidden="true"></span>${escapeHtml(statusLabel)}</span>`;
               })()}
@@ -585,26 +586,26 @@ function logGroupBodyHtml(group) {
         </button>`,
           )
           .join("") +
-        (group.logsHasMore
-          ? `<button class="load-more log-group-load-more" data-load-more-records="${escapeHtml(group.id || "")}" ${state.loadingMoreLogGroups[group.id] ? "disabled" : ""}>${escapeHtml(state.loadingMoreLogGroups[group.id] ? t("loading") : t("loadMore"))} (${logs.length}/${group.logsTotal})</button>`
+        (group.hasMore
+          ? `<button class="load-more log-group-load-more" data-load-more-records="${escapeHtml(group.id || "")}" ${group.loadingMore ? "disabled" : ""}>${escapeHtml(group.loadingMore ? group.labels.loading : group.labels.loadMore)} (${logs.length}/${group.total})</button>`
           : "")
-      : `<div class="log-item log-group-empty">${escapeHtml(t("noMatchedLogs"))}</div>`;
+      : `<div class="log-item log-group-empty">${escapeHtml(group.labels.noMatchedLogs)}</div>`;
 }
 function logGroupSectionHtml(group) {
   return `
     <section class="log-group">
-      <div class="log-group-head" data-group-id="${escapeHtml(group.id || "")}" role="button" tabindex="0" aria-label="${escapeHtml(t("viewTaskPricing"))}">
+      <div class="log-group-head" data-group-id="${escapeHtml(group.id || "")}" role="button" tabindex="0" aria-label="${escapeHtml(group.labels.viewTaskPricing)}">
         <div class="log-group-controls">
-          <input class="log-group-select" type="checkbox" data-select-group="${escapeHtml(group.id || "")}" title="${escapeHtml(t("selectLogGroup"))}" ${state.selectedLogGroups[group.id] ? "checked" : ""}>
-          <button type="button" class="log-group-caret" data-group-toggle="${escapeHtml(group.id || "")}" title="${escapeHtml(t("toggleTaskRecords"))}" aria-label="${escapeHtml(t("toggleTaskRecords"))}" aria-expanded="${state.collapsedGroups[group.id] ? "true" : "false"}">${!state.collapsedGroups[group.id] ? "▸" : "▾"}</button>
+          <input class="log-group-select" type="checkbox" data-select-group="${escapeHtml(group.id || "")}" title="${escapeHtml(group.labels.selectLogGroup)}" ${group.selected ? "checked" : ""}>
+          <button type="button" class="log-group-caret" data-group-toggle="${escapeHtml(group.id || "")}" title="${escapeHtml(group.labels.toggleTaskRecords)}" aria-label="${escapeHtml(group.labels.toggleTaskRecords)}" aria-expanded="${group.expanded ? "true" : "false"}">${!group.expanded ? "▸" : "▾"}</button>
         </div>
         <div class="log-group-summary">
-          ${logGroupTimeHtml(group)}
-          ${logGroupFactsHtml(group)}
+          ${logGroupTimeHtml(group.summary)}
+          ${logGroupFactsHtml(group.summary)}
         </div>
       </div>
       ${
-        !state.collapsedGroups[group.id]
+        !group.expanded
           ? ""
           : `<div class="log-group-body">
             ${logGroupBodyHtml(group)}
@@ -620,42 +621,40 @@ function logItemRenderInput(item) {
     id: item.id,
     sequence: item.sequence,
     timestamp: item.timestamp,
-    status: item.status,
-    message_count: item.message_count,
-    request_token_count: item.request_token_count,
-    response_token_count: item.response_token_count,
-    decode_speed_tps: item.decode_speed_tps,
-    end_to_end_speed_tps: item.end_to_end_speed_tps,
-    cost: item.cost
-      ? { known_amount: item.cost.known_amount, status: item.cost.status, reason: item.cost.reason }
-      : null,
+    statusClass: logStatusClass(item.status),
+    statusLabel: formatStatus(item.status),
+    metricsHtml: logItemMetricsHtml(item),
     has_summary: Boolean(item.has_summary),
     selected: state.selected === item.id,
   };
 }
-function logItemRenderSignature(item) {
-  const input = logItemRenderInput(item);
-  return [
-    input.id,
-    input.sequence,
-    input.timestamp,
-    input.status,
-    input.message_count,
-    input.request_token_count,
-    input.response_token_count,
-    input.decode_speed_tps,
-    input.end_to_end_speed_tps,
-    input.cost?.known_amount,
-    input.cost?.status,
-    input.cost?.reason,
-    input.has_summary ? "star" : "",
-    input.selected ? "selected" : "",
-  ].join("|");
-}
 function logGroupRenderInput(group) {
   return {
-    group,
-    language: state.language,
+    id: group.id,
+    summary: {
+      id: group.id,
+      started_at: group.started_at,
+      last_activity_at: group.last_activity_at,
+      model: group.model,
+      request_count: group.request_count,
+      target: group.target,
+      decodeSpeed: formatDecodeSpeed(group.decode_speed_tps),
+      decodeSpeedTip: `${t("avgDecodeSpeed")}: ${t("avgDecodeSpeedTip")}`,
+      costText: formatGroupCost(group.cost),
+      taskLabel: t("task"),
+      requestsLabel: t("requests"),
+    },
+    labels: Object.fromEntries(
+      [
+        "loading",
+        "summaryStar",
+        "loadMore",
+        "noMatchedLogs",
+        "viewTaskPricing",
+        "selectLogGroup",
+        "toggleTaskRecords",
+      ].map((key) => [key, t(key)]),
+    ),
     selected: Boolean(state.selectedLogGroups[group.id]),
     expanded: Boolean(state.collapsedGroups[group.id]),
     loading: Boolean(state.loadingLogGroups[group.id]),
@@ -666,22 +665,8 @@ function logGroupRenderInput(group) {
     items: (group.logs || []).map(logItemRenderInput),
   };
 }
-function logGroupRenderSignature(group) {
-  const input = logGroupRenderInput(group);
-  return [
-    // Labels come from the active language, so a language switch must rebuild.
-    input.language,
-    logGroupSummarySignature(input.group),
-    input.group.decode_speed_tps,
-    input.selected ? "checked" : "",
-    input.expanded ? "expanded" : "collapsed",
-    input.loading ? "loading" : "",
-    input.loadingMore ? "loading-more" : "",
-    input.loaded ? "loaded" : "unloaded",
-    input.hasMore ? "more" : "",
-    input.total,
-    input.items.map((item) => logItemRenderSignature(item)).join(","),
-  ].join("#");
+function logGroupRenderSignature(input) {
+  return JSON.stringify(input);
 }
 function logListTailHtml() {
   return state.logsHasMore
@@ -707,7 +692,7 @@ function logSectionNodes(list) {
 function renderLogs() {
   updateSelectAllLogsButton();
   const list = $("logItems");
-  const groups = state.logGroups;
+  const groups = state.logGroups.map(logGroupRenderInput);
   const tailHtml = logListTailHtml();
   // A task without an id cannot be keyed, so the whole list is rebuilt for it.
   const keyed = groups.every((group) => typeof group.id === "string" && group.id !== "");
