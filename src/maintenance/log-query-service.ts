@@ -117,12 +117,15 @@ export class LogQueryService {
     this.#logRoots = typeof logRoots === "function" ? logRoots : () => logRoots;
   }
 
-  usageStatisticsService(): UsageStatisticsService | undefined {
-    const roots = [...new Set(this.#logRoots().filter((item) => item !== ""))];
-    if (roots.length === 0) return undefined;
+  /**
+   * Usage statistics resolve their log roots when a query runs instead of freezing them when the
+   * service is created, so a committed configuration change takes effect without rebuilding the
+   * service. With no roots the queries answer empty results of the same shape.
+   */
+  usageStatisticsService(): UsageStatisticsService {
     return new UsageStatisticsService({
       usageStatisticsRows: (from, to) =>
-        roots.flatMap((root) => {
+        this.#configuredRoots().flatMap((root) => {
           const repository = new TrafficRepository(root);
           try {
             return repository.usageStatisticsRows(from, to);
@@ -133,10 +136,15 @@ export class LogQueryService {
     });
   }
 
+  /** The roots to query: blank paths dropped and duplicates removed. */
+  #configuredRoots(): readonly string[] {
+    return [...new Set(this.#logRoots().filter((root) => root !== ""))];
+  }
+
   listGroups(query = "", limit = 100, offset = 0): LogGroupPage {
     const boundedLimit = Math.max(1, Math.min(integer(limit, 100), 500));
     const boundedOffset = Math.max(0, integer(offset, 0));
-    const roots = [...new Set(this.#logRoots().filter((root) => root !== ""))];
+    const roots = this.#configuredRoots();
     if (roots.length === 0) {
       return emptyPage(boundedLimit, boundedOffset);
     }
@@ -175,7 +183,7 @@ export class LogQueryService {
   ): LogGroupLogs | undefined {
     const boundedLimit = Math.max(1, Math.min(integer(limit, TASK_RECORD_LIMIT), 500));
     const boundedOffset = Math.max(0, integer(offset, 0));
-    for (const root of [...new Set(this.#logRoots().filter((value) => value !== ""))]) {
+    for (const root of this.#configuredRoots()) {
       const repository = new TrafficRepository(root);
       try {
         if (!repository.hasTask(groupId)) {
@@ -216,7 +224,7 @@ export class LogQueryService {
     if (boundedIds.length === 0) return { records: [] };
     const records: LogPendingRecord[] = [];
     const seen = new Set<string>();
-    for (const root of [...new Set(this.#logRoots().filter((value) => value !== ""))]) {
+    for (const root of this.#configuredRoots()) {
       const repository = new TrafficRepository(root);
       try {
         for (const row of repository.listRecordsByIds(boundedIds)) {
@@ -236,7 +244,7 @@ export class LogQueryService {
   }
 
   getRecordDetail(recordId: string): LogRecordDetail | undefined {
-    for (const root of [...new Set(this.#logRoots().filter((value) => value !== ""))]) {
+    for (const root of this.#configuredRoots()) {
       const repository = new TrafficRepository(root);
       try {
         const record = repository.getRecord(recordId);
@@ -283,7 +291,7 @@ export class LogQueryService {
   }
 
   getSummary(recordId: string): unknown {
-    for (const root of this.#logRoots()) {
+    for (const root of this.#configuredRoots()) {
       const db = new TrafficRepository(root);
       try {
         const row = db.database
@@ -302,7 +310,7 @@ export class LogQueryService {
   }
 
   private saveSummary(recordId: string, result: unknown, model: string): void {
-    for (const root of this.#logRoots()) {
+    for (const root of this.#configuredRoots()) {
       const db = new TrafficRepository(root);
       try {
         db.database
@@ -332,7 +340,7 @@ export class LogQueryService {
    * working on, or undefined when it was never generated.
    */
   getTaskBrief(groupId: string): TaskBrief | undefined {
-    for (const root of this.#logRoots()) {
+    for (const root of this.#configuredRoots()) {
       const repository = new TrafficRepository(root);
       try {
         const row = repository.getTaskBrief(groupId);
@@ -387,7 +395,7 @@ export class LogQueryService {
 
   /** The newest complete request of a task, or undefined when the task is unknown. */
   #latestGroupRecordId(groupId: string): string | undefined {
-    for (const root of [...new Set(this.#logRoots().filter((value) => value !== ""))]) {
+    for (const root of this.#configuredRoots()) {
       const repository = new TrafficRepository(root);
       try {
         if (!repository.hasTask(groupId)) continue;
@@ -408,7 +416,7 @@ export class LogQueryService {
     sourceRecordId: string,
   ): TaskBrief {
     const contextJson = Object.keys(facts).length === 0 ? null : JSON.stringify(facts);
-    for (const root of this.#logRoots()) {
+    for (const root of this.#configuredRoots()) {
       const repository = new TrafficRepository(root);
       try {
         // Only the root that owns the task can hold the brief: the row
@@ -530,7 +538,7 @@ export class LogQueryService {
   }
 
   getGroupPricing(groupId: string): TaskPricingAggregate | undefined {
-    for (const root of [...new Set(this.#logRoots().filter((value) => value !== ""))]) {
+    for (const root of this.#configuredRoots()) {
       const repository = new TrafficRepository(root);
       try {
         const pricing = repository.taskPricing(groupId);
@@ -543,7 +551,7 @@ export class LogQueryService {
   }
 
   getGroupTokenSeries(groupId: string): readonly TaskTokenSeriesPoint[] | undefined {
-    for (const root of [...new Set(this.#logRoots().filter((value) => value !== ""))]) {
+    for (const root of this.#configuredRoots()) {
       const repository = new TrafficRepository(root);
       try {
         const series = repository.taskTokenSeries(groupId);
@@ -556,7 +564,7 @@ export class LogQueryService {
   }
 
   getGroupCostSeries(groupId: string): readonly TaskCostSeriesPoint[] | undefined {
-    for (const root of [...new Set(this.#logRoots().filter((value) => value !== ""))]) {
+    for (const root of this.#configuredRoots()) {
       const repository = new TrafficRepository(root);
       try {
         const series = repository.taskCostSeries(groupId);
@@ -569,7 +577,7 @@ export class LogQueryService {
   }
 
   getGroupOutputTokenSeries(groupId: string): readonly TaskOutputTokenSeriesPoint[] | undefined {
-    for (const root of [...new Set(this.#logRoots().filter((value) => value !== ""))]) {
+    for (const root of this.#configuredRoots()) {
       const repository = new TrafficRepository(root);
       try {
         const series = repository.taskOutputTokenSeries(groupId);
@@ -582,19 +590,19 @@ export class LogQueryService {
   }
 
   exportLogs(): Readable {
-    return createLogExportStream(this.#logRoots());
+    return createLogExportStream(this.#configuredRoots());
   }
 
   cleanupSelectedGroups(groupIds: readonly string[]): LogCleanupResult {
-    return cleanupSelectedLogGroups(this.#logRoots(), groupIds);
+    return cleanupSelectedLogGroups(this.#configuredRoots(), groupIds);
   }
 
   cleanupOlderThan(olderThanDays: number): LogCleanupResult {
-    return cleanupLogsOlderThan(this.#logRoots(), olderThanDays);
+    return cleanupLogsOlderThan(this.#configuredRoots(), olderThanDays);
   }
 
   cleanupKeepLatest(keepLatest: number): LogCleanupResult {
-    return cleanupLogsKeepLatest(this.#logRoots(), keepLatest);
+    return cleanupLogsKeepLatest(this.#configuredRoots(), keepLatest);
   }
 
   #listMergedGroups(

@@ -1,4 +1,4 @@
-import { mkdtemp, rm } from "node:fs/promises";
+import { access, mkdtemp, rm } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 
@@ -1013,10 +1013,102 @@ it("aggregates usage statistics across distinct log roots", async () => {
   }
   const service = new LogQueryService([firstRoot, secondRoot]).usageStatisticsService();
   expect(service).toBeDefined();
-  if (service === undefined) throw new Error("Usage statistics service is unavailable");
   expect(service.overview("2020-01-01T00:00:00Z", "2030-01-01T00:00:00Z").totals).toMatchObject({
     requests: 2,
     tasks: 0,
     cost: "0.000003000",
   });
 });
+
+
+const STATISTICS_WINDOW = { from: "2020-01-01T00:00:00Z", to: "2030-01-01T00:00:00Z" };
+
+it("[AI-02] resolves the configured log roots for every statistics query", async () => {
+  const firstRoot = await mkdtemp(path.join(os.tmpdir(), "llm-proxy-stats-a-"));
+  const secondRoot = await mkdtemp(path.join(os.tmpdir(), "llm-proxy-stats-b-"));
+  temporaryDirectories.push(firstRoot, secondRoot);
+  seedPricedRecord(firstRoot, "dynamic-a", "target-a", "1000");
+  seedPricedRecord(secondRoot, "dynamic-b", "target-b", "2000");
+
+  const roots: string[] = [firstRoot];
+  const service = new LogQueryService(() => roots).usageStatisticsService();
+  expect(service.overview(STATISTICS_WINDOW.from, STATISTICS_WINDOW.to).totals).toMatchObject({
+    requests: 1,
+    cost: "0.000001000",
+  });
+
+  roots.push(secondRoot);
+  expect(service.overview(STATISTICS_WINDOW.from, STATISTICS_WINDOW.to).totals).toMatchObject({
+    requests: 2,
+    cost: "0.000003000",
+  });
+
+  // A root listed twice is still read once.
+  roots.push(secondRoot);
+  expect(service.overview(STATISTICS_WINDOW.from, STATISTICS_WINDOW.to).totals).toMatchObject({
+    requests: 2,
+    cost: "0.000003000",
+  });
+
+  // Dropping a root must stop reading it, not keep an old snapshot of it.
+  roots.splice(0, 1);
+  await rm(path.join(firstRoot, "traffic.db"), { force: true });
+  expect(service.overview(STATISTICS_WINDOW.from, STATISTICS_WINDOW.to).totals).toMatchObject({
+    requests: 1,
+    cost: "0.000002000",
+  });
+  expect(service.repositoryRows(STATISTICS_WINDOW.from, STATISTICS_WINDOW.to)).toHaveLength(1);
+  await expect(access(path.join(firstRoot, "traffic.db"))).rejects.toThrow();
+});
+
+it("[AI-02] answers empty statistics when no log root is configured", () => {
+  const service = new LogQueryService([]).usageStatisticsService();
+
+  expect(service.overview(STATISTICS_WINDOW.from, STATISTICS_WINDOW.to)).toMatchObject({
+    dataVersion: 1,
+    totals: {
+      requests: 0,
+      tasks: 0,
+      input: "0",
+      output: "0",
+      cache_read: "0",
+      cache_write: "0",
+      cost: "0.000000000",
+    },
+    byTarget: [],
+    byModel: [],
+    unpriced: {},
+  });
+  expect(service.trend(STATISTICS_WINDOW.from, STATISTICS_WINDOW.to)).toEqual({
+    dataVersion: 1,
+    granularity: "day",
+    points: [],
+  });
+  expect(service.repositoryRows(STATISTICS_WINDOW.from, STATISTICS_WINDOW.to)).toEqual([]);
+});
+
+function seedPricedRecord(root: string, taskId: string, target: string, costNanoCny: string): void {
+  const repository = new TrafficRepository(root);
+  repository.upsertTask(task(taskId, "model", "2026-07-18T10:00:00.000+08:00"));
+  repository.upsertRecord({
+    id: `record-${taskId}`,
+    task_id: taskId,
+    sequence: 1,
+    method: "POST",
+    path: "/v1/responses",
+    target_url: target,
+    pricing: {
+      pricing_status: "priced",
+      billing_model: "model",
+      usage: {
+        inputUncachedTokens: 10,
+        outputTokens: 5,
+        cacheReadTokens: 2,
+        cacheWriteTokens: 1,
+      },
+      cost_nano_cny: costNanoCny,
+    },
+  });
+  repository.close();
+}
+

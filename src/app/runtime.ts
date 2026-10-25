@@ -58,7 +58,11 @@ export function createNodeApplication(options: NodeApplicationOptions): NodeAppl
         );
       }
       try {
-        admin = new AdminControlPlane({
+        // One query service owns every log-backed admin view, including usage statistics. It
+      // reads the log roots when a query runs, so a committed configuration change is visible
+      // without rebuilding any admin service.
+      const logs = new LogQueryService(() => currentManager.logRoots());
+      admin = new AdminControlPlane({
           host: options.host,
           port: options.port,
           getHealth: () =>

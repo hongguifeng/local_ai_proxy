@@ -50,8 +50,9 @@ const ROUTE_TABLE = [
   "PUT /api/settings/summary-model",
 ] as const;
 
-// A disabled pair with a target still carries a log root, which is what makes the
-// statistics service exist; without any log root those routes are not registered.
+// A disabled pair with a target still carries a log root. AI-02 made the statistics service
+// resolve its roots when a query runs, so these routes are registered whether or not a root
+// exists; the empty-root case is pinned by the last describe block below.
 const contractConfig = {
   pairs: [
     {
@@ -375,5 +376,70 @@ describe("assembled admin surface", () => {
     expect(statistics.status).toBe(200);
     expect(statistics.headers.get("content-type")).toContain("text/csv");
     expect(await statistics.text()).toContain("bucket,requests,tasks");
+  });
+});
+
+describe("assembled statistics without any log root", () => {
+  let root: string | undefined;
+  let runtime: NodeApplication | undefined;
+  let adminPort = 0;
+
+  beforeAll(async () => {
+    root = await mkdtemp(path.join(tmpdir(), "llm-proxy-contract-empty-"));
+    await writeFile(path.join(root, "proxies.json"), JSON.stringify({ pairs: [] }));
+    runtime = createNodeApplication({
+      applicationConfigFile: path.join(root, "llm-proxy.json"),
+      configFile: path.join(root, "proxies.json"),
+      logRoot: path.join(root, "logs"),
+      host: "127.0.0.1",
+      port: 0,
+    });
+    await runtime.application.start();
+    const port = runtime.address()?.port;
+    if (port === undefined) {
+      await runtime.application.stop();
+      throw new Error("the empty-configuration application did not report an admin port");
+    }
+    adminPort = port;
+  });
+
+  afterAll(async () => {
+    await runtime?.application.stop();
+    if (root !== undefined) {
+      await rm(root, { recursive: true, force: true, maxRetries: 6, retryDelay: 300 });
+    }
+  });
+
+  // [AI-02] A configuration with no pair must still answer the statistics routes the
+  // browser calls, with the same top-level keys an empty database produces.
+  it("[AI-02] registers the statistics routes and answers empty payloads", async () => {
+    const query = `from=${windowStart}&to=${windowEnd}`;
+    const request = async (route: string, extra = "") =>
+      await fetch(`http://127.0.0.1:${adminPort}${route}?${query}${extra}`);
+
+    const overview = await request("/api/usage-statistics/overview");
+    expect(overview.status).toBe(200);
+    const overviewBody = (await overview.json()) as Record<string, unknown>;
+    expect(Object.keys(overviewBody)).toEqual([
+      "dataVersion",
+      "totals",
+      "byTarget",
+      "byModel",
+      "unpriced",
+    ]);
+
+    const trend = await request("/api/usage-statistics/trend", "&granularity=day");
+    expect(trend.status).toBe(200);
+    const trendBody = (await trend.json()) as Record<string, unknown>;
+    expect(Object.keys(trendBody)).toEqual(["dataVersion", "granularity", "points"]);
+
+    const options = await request("/api/usage-statistics/options");
+    expect(options.status).toBe(200);
+    expect(await options.json()).toEqual({ targets: [], models: [] });
+
+    const exported = await request("/api/usage-statistics/export");
+    expect(exported.status).toBe(200);
+    expect(exported.headers.get("content-type")).toContain("text/csv");
+    expect(await exported.text()).toContain("bucket,requests,tasks");
   });
 });

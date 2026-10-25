@@ -1,10 +1,11 @@
-import { access, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { access, mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { createServer } from "node:net";
 import { afterEach, describe, expect, it } from "vitest";
 
 import { createNodeApplication } from "../../src/app/index.js";
+import { TrafficRepository } from "../../src/persistence/index.js";
 
 const temporaryRoots: string[] = [];
 
@@ -378,7 +379,105 @@ describe("createNodeApplication", () => {
     }
   });
 
+  it("[AI-02] follows log root changes and answers empty statistics when nothing is configured", async () => {
+    const root = await mkdtemp(path.join(tmpdir(), "llm-proxy-app-"));
+    temporaryRoots.push(root);
+    const configFile = path.join(root, "proxies.json");
+    await writeFile(configFile, JSON.stringify({ pairs: [] }));
+    const runtime = createNodeApplication({
+      applicationConfigFile: path.join(root, "llm-proxy.json"),
+      configFile,
+      logRoot: path.join(root, "logs"),
+      host: "127.0.0.1",
+      port: 0,
+    });
+    await runtime.application.start();
+    try {
+      const adminPort = runtime.address()?.port;
+      expect(adminPort).toBeTypeOf("number");
+      const base = `http://127.0.0.1:${adminPort}`;
+      const statisticsWindow = "from=2020-01-01T00:00:00Z&to=2030-01-01T00:00:00Z";
 
+      // With no log root the statistics routes are still registered and answer the
+      // same empty shape as an empty database.
+      const emptyOverview = await fetch(
+        `${base}/api/usage-statistics/overview?${statisticsWindow}`,
+      );
+      expect(emptyOverview.status).toBe(200);
+      expect(await emptyOverview.json()).toMatchObject({
+        totals: { requests: 0 },
+        byTarget: [],
+        byModel: [],
+      });
+      const emptyOptions = await fetch(`${base}/api/usage-statistics/options?${statisticsWindow}`);
+      expect(emptyOptions.status).toBe(200);
+      expect(await emptyOptions.json()).toEqual({ targets: [], models: [] });
+      const emptyExport = await fetch(`${base}/api/usage-statistics/export?${statisticsWindow}`);
+      expect(emptyExport.status).toBe(200);
+      expect(await emptyExport.text()).toContain("bucket,requests,tasks");
+      const emptyLogs = await fetch(`${base}/api/logs?limit=5`);
+      expect(((await emptyLogs.json()) as { groups: unknown[] }).groups).toEqual([]);
+
+      const firstRoot = path.join(root, "stats-a");
+      const secondRoot = path.join(root, "stats-b");
+      await mkdir(firstRoot, { recursive: true });
+      await mkdir(secondRoot, { recursive: true });
+      seedPricedRecord(firstRoot, "app-stats-a", "target-a", "1000");
+      seedPricedRecord(secondRoot, "app-stats-b", "target-b", "2000");
+
+      // One committed pair change moves the history list and the statistics together.
+      const moved = await fetch(`${base}/api/pairs`, {
+        method: "PUT",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ pairs: [disabledPairFixture("first root", firstRoot)] }),
+      });
+      expect(moved.status).toBe(200);
+      const movedOverview = await fetch(
+        `${base}/api/usage-statistics/overview?${statisticsWindow}`,
+      );
+      expect(movedOverview.status).toBe(200);
+      expect(await movedOverview.json()).toMatchObject({
+        totals: { requests: 1, cost: "0.000001000" },
+      });
+      const movedGroups = (await (await fetch(`${base}/api/logs?limit=5`)).json()) as {
+        groups: { id: string }[];
+      };
+      expect(movedGroups.groups.map((group) => group.id)).toEqual(["app-stats-a"]);
+
+      const secondMove = await fetch(`${base}/api/pairs`, {
+        method: "PUT",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ pairs: [disabledPairFixture("second root", secondRoot)] }),
+      });
+      expect(secondMove.status).toBe(200);
+      const secondOverview = await fetch(
+        `${base}/api/usage-statistics/overview?${statisticsWindow}`,
+      );
+      expect(await secondOverview.json()).toMatchObject({
+        totals: { requests: 1, cost: "0.000002000" },
+      });
+      const secondGroups = (await (await fetch(`${base}/api/logs?limit=5`)).json()) as {
+        groups: { id: string }[];
+      };
+      expect(secondGroups.groups.map((group) => group.id)).toEqual(["app-stats-b"]);
+
+      // The root that was dropped is neither read nor recreated afterwards.
+      await rm(path.join(firstRoot, "traffic.db"), { force: true });
+      const cleared = await fetch(`${base}/api/pairs`, {
+        method: "PUT",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ pairs: [] }),
+      });
+      expect(cleared.status).toBe(200);
+      const clearedOverview = await fetch(
+        `${base}/api/usage-statistics/overview?${statisticsWindow}`,
+      );
+      expect(await clearedOverview.json()).toMatchObject({ totals: { requests: 0 } });
+      await expect(access(path.join(firstRoot, "traffic.db"))).rejects.toThrow();
+    } finally {
+      await runtime.application.stop();
+    }
+  });
 
   it("persists summary model settings when applying the configuration", async () => {
     const root = await mkdtemp(path.join(tmpdir(), "llm-proxy-app-"));
@@ -415,20 +514,6 @@ describe("createNodeApplication", () => {
     await runtime.application.stop();
   });
 });
-
-async function availablePort(): Promise<number> {
-  const server = createServer();
-  await new Promise<void>((resolve, reject) => {
-    server.once("error", reject);
-    server.listen(0, "127.0.0.1", resolve);
-  });
-  const address = server.address();
-  if (address === null || typeof address === "string") throw new Error("Expected TCP address.");
-  await new Promise<void>((resolve, reject) =>
-    server.close((error) => (error ? reject(error) : resolve())),
-  );
-  return address.port;
-}
 
 function disabledPairFixture(name: string, logRoot = "logs"): Record<string, unknown> {
   return {
@@ -468,4 +553,54 @@ function summaryModelFixture(): Record<string, unknown> {
     target_headers: [],
     timeout_ms: 180000,
   };
+}
+
+function seedPricedRecord(root: string, taskId: string, target: string, costNanoCny: string): void {
+  const repository = new TrafficRepository(root);
+  const timestamp = "2026-07-18T10:00:00.000+08:00";
+  repository.upsertTask({
+    id: taskId,
+    kind: "responses",
+    model: "model",
+    target: "fixture-target",
+    started_at: timestamp,
+    last_seen_at: timestamp,
+    last_response_at: timestamp,
+    request_count: 2,
+    pending_request_only: false,
+  });
+  repository.upsertRecord({
+    id: `record-${taskId}`,
+    task_id: taskId,
+    sequence: 1,
+    method: "POST",
+    path: "/v1/responses",
+    target_url: target,
+    pricing: {
+      pricing_status: "priced",
+      billing_model: "model",
+      usage: {
+        inputUncachedTokens: 10,
+        outputTokens: 5,
+        cacheReadTokens: 2,
+        cacheWriteTokens: 1,
+      },
+      cost_nano_cny: costNanoCny,
+    },
+  });
+  repository.close();
+}
+
+async function availablePort(): Promise<number> {
+  const server = createServer();
+  await new Promise<void>((resolve, reject) => {
+    server.once("error", reject);
+    server.listen(0, "127.0.0.1", resolve);
+  });
+  const address = server.address();
+  if (address === null || typeof address === "string") throw new Error("Expected TCP address.");
+  await new Promise<void>((resolve, reject) =>
+    server.close((error) => (error ? reject(error) : resolve())),
+  );
+  return address.port;
 }
