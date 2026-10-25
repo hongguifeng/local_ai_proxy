@@ -2,7 +2,7 @@ import { readdir, readFile } from "node:fs/promises";
 import path from "node:path";
 import { format } from "prettier";
 import { describe, expect, it } from "vitest";
-import { ADMIN_SCRIPT_PARTS } from "../../src/admin/static-assets.js";
+import { ADMIN_SCRIPT_PARTS, buildAdminAppJsTemplate } from "../../src/admin/static-assets.js";
 
 const SCRIPT_DIR = path.resolve("src/admin/static");
 
@@ -16,8 +16,16 @@ async function readScriptParts(): Promise<string[]> {
   return Promise.all(names.map((name) => readFile(path.join(SCRIPT_DIR, name), "utf8")));
 }
 
+/**
+ * What the browser actually runs: the assembled script the server hands to
+ * `/static/app.js`, placeholder still to be substituted. The guard checks this
+ * text rather than a hand-made concatenation of the parts, so it cannot drift
+ * away from the payload: it is produced by `buildAdminAppJsTemplate()`, the same
+ * function `loadAdminStaticAssets()` uses, and `npm run lint` writes the same
+ * bytes to `.ui-check/app.js` for ESLint.
+ */
 async function readAdminScript(): Promise<string> {
-  return (await readScriptParts()).join("\n");
+  return await buildAdminAppJsTemplate();
 }
 
 describe("admin UI source migration", () => {
@@ -39,12 +47,30 @@ describe("admin UI source migration", () => {
     }
   });
 
+  it("keeps the module entry and every module canonically formatted", async () => {
+    const moduleNames = (await readdir(path.join(SCRIPT_DIR, "modules"))).filter((name) =>
+      name.endsWith(".js"),
+    );
+    expect(moduleNames.length).toBeGreaterThan(1);
+    for (const name of ["entry.js", ...moduleNames.map((entry) => path.join("modules", entry))]) {
+      const source = await readFile(path.join(SCRIPT_DIR, name), "utf8");
+      expect(source).toBe(await format(source, { parser: "babel", printWidth: 100 }));
+    }
+  });
+
   it("concatenates into a single script that still declares every part once", async () => {
     const names = (await readdir(SCRIPT_DIR)).filter((name) => /^\d.*\.js$/.test(name)).sort();
     // The server concatenates by this explicit list, so the authored order and the
     // load order must agree; a renamed or renumbered part would otherwise pass here.
     expect(names).toEqual([...ADMIN_SCRIPT_PARTS]);
     const script = await readAdminScript();
+    // The bundled modules run before every part, so the bridge they publish exists
+    // before the first top-level statement in 09-wiring.js. The generated chunk is the
+    // first thing in the payload and the first numbered part follows it.
+    expect(script.startsWith("// GENERATED FILE - DO NOT EDIT.")).toBe(true);
+    expect(script.indexOf("// LLM Proxy admin UI -- shared bootstrap")).toBeGreaterThan(
+      script.indexOf("// Bundled from src/admin/static/entry.js"),
+    );
     // static-assets.ts replaces this placeholder once at serve time; a second use
     // anywhere would silently ship an unresolved identifier to the browser.
     expect(script.match(/__SUGGESTED_STRIP_REQUEST_FIELDS__/g)).toHaveLength(1);

@@ -975,6 +975,10 @@ const api = async (url, options = {}) => {
   return data;
 };
 function applyLanguage() {
+  // The display locale the migrated number helpers format with is pushed here. This is
+  // the only writer: it runs once during startup from 09-wiring.js and again on every
+  // language change, so no number is ever formatted before the locale is known.
+  configureDisplayLanguage(state.language);
   document.documentElement.lang = state.language === "zh" ? "zh-CN" : "en";
   $("languageSelect").value = state.language;
   qsa("[data-i18n]").forEach((el) => {
@@ -1027,16 +1031,10 @@ function setLanguage(language) {
   applyLanguage();
   rerenderLanguagePanels();
 }
-function displayTimestampParts(value) {
-  const text = String(value || "").trim();
-  const match = /^(\d{4})-(\d{2})-(\d{2})[ T](.+)$/.exec(text);
-  if (!match) return { date: "", shortDate: "", time: text };
-  return {
-    date: `${match[1]}-${match[2]}-${match[3]}`,
-    shortDate: `${match[2]}-${match[3]}`,
-    time: match[4],
-  };
-}
+// The pure display helpers (escaping, strings, durations, timestamps, number and
+// token formatting, chart geometry) live in src/admin/static/modules/ and reach this
+// script scope through the bridge in entry.js. What stays here is what still needs the
+// i18n dictionary through t(), which is not migrated until AI-19.
 function formatCurrencyAmount(amount) {
   if (amount === null || amount === undefined || amount === "") return "—";
   const text = String(amount);
@@ -1055,11 +1053,6 @@ function formatRequestCost(cost) {
   if (!cost || cost.status === "unpriced") return "—";
   if (cost.status === "pending") return t("calculating");
   return formatCurrencyAmount(cost.amount);
-}
-function optionalFiniteNumber(value) {
-  if (value === null || value === undefined || value === "") return null;
-  const converted = Number(value);
-  return Number.isFinite(converted) ? converted : null;
 }
 // Replaced by static-assets.ts before the browser ever sees this identifier.
 // @ts-expect-error -- the name only exists in the authored source.
@@ -1121,57 +1114,8 @@ function wildcardPriceMatch(pattern, model) {
     .join(".*");
   return new RegExp(`^${escaped}$`).test(model);
 }
-function escapeHtml(text) {
-  return String(text).replace(
-    /[&<>"']/g,
-    (ch) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[ch],
-  );
-}
-function pricingDecimalFromNano(value) {
-  if (value === null || value === undefined || value === "") return null;
-  const nano = BigInt(String(value));
-  const integer = nano / 1_000_000_000n;
-  const fraction = (nano % 1_000_000_000n).toString().padStart(9, "0").replace(/0+$/, "");
-  return fraction ? `${integer}.${fraction}` : integer.toString();
-}
 function pricingAmount(value) {
   return formatCurrencyAmount(pricingDecimalFromNano(value));
-}
-function formatIntegerValue(value) {
-  if (value === null || value === undefined || value === "—") return "—";
-  const n = Number(value);
-  return Number.isFinite(n)
-    ? n.toLocaleString(state.language === "en" ? "en-US" : "zh-CN")
-    : String(value);
-}
-function compactNumber(value) {
-  const n = Number(value);
-  if (!Number.isFinite(n)) return String(value);
-  if (state.language === "en")
-    return n.toLocaleString("en-US", { notation: "compact", maximumFractionDigits: 1 });
-  if (Math.abs(n) >= 100000000) return `${(n / 100000000).toFixed(1).replace(/\.0$/, "")} 亿`;
-  if (Math.abs(n) >= 10000) return `${(n / 10000).toFixed(1).replace(/\.0$/, "")} 万`;
-  return n.toLocaleString("zh-CN");
-}
-function fullNumber(value) {
-  const n = Number(value);
-  return Number.isFinite(n)
-    ? n.toLocaleString(state.language === "en" ? "en-US" : "zh-CN")
-    : String(value);
-}
-// Human-readable total for the summary card: >= 1亿 / >= 1万 in Chinese,
-// >= 1B / >= 1M in English, otherwise a plain comma-grouped number.
-function formatTokenCount(n) {
-  const value = Number(n);
-  if (!Number.isFinite(value) || value <= 0) return "0";
-  if (state.language === "en") {
-    if (value >= 1e9) return `${(value / 1e9).toFixed(1).replace(/\.0$/, "")}B`;
-    if (value >= 1e6) return `${(value / 1e6).toFixed(1).replace(/\.0$/, "")}M`;
-  } else {
-    if (value >= 1e8) return `${(value / 1e8).toFixed(1).replace(/\.0$/, "")} 亿`;
-    if (value >= 1e4) return `${(value / 1e4).toFixed(1).replace(/\.0$/, "")} 万`;
-  }
-  return value.toLocaleString(state.language === "en" ? "en-US" : "zh-CN");
 }
 function schedulePaneButtonsUpdate(key) {
   jsonPaneButtonsUpdateKeys.add(key);
@@ -1185,43 +1129,4 @@ function schedulePaneButtonsUpdate(key) {
     }
     jsonPaneButtonsUpdateKeys.clear();
   });
-}
-function formatString(value) {
-  if (typeof value !== "string") return value;
-  return value
-    .replace(/\\n/g, String.fromCharCode(10))
-    .replace(/\\r/g, String.fromCharCode(13))
-    .replace(/\\t/g, "    ")
-    .replace(/\\b/g, "\b")
-    .replace(/\\f/g, "\f")
-    .replace(/\\"/g, '"')
-    .replace(/\\u([0-9a-fA-F]{4})/g, (_, hex) => String.fromCharCode(parseInt(hex, 16)));
-}
-function formatDuration(milliseconds) {
-  if (milliseconds === null || milliseconds === undefined || milliseconds === "") return "";
-  const value = Number(milliseconds);
-  if (!Number.isFinite(value) || value < 0) return "";
-  // Do not round sub-second timings to seconds: a real 95 ms TTFT used to
-  // be rendered as 00:00, which looked like a missing/zero measurement.
-  if (value < 1_000) return `${Math.round(value)} ms`;
-  const totalSeconds = Math.round(value / 1_000);
-  if (totalSeconds >= 3_600) {
-    const hours = Math.floor(totalSeconds / 3_600);
-    const minutes = Math.floor((totalSeconds % 3_600) / 60);
-    const seconds = totalSeconds % 60;
-    return `${hours}:${String(minutes).padStart(2, "0")}:${String(seconds).padStart(2, "0")}`;
-  }
-  const minutes = Math.floor(totalSeconds / 60);
-  const seconds = String(totalSeconds % 60).padStart(2, "0");
-  return `${String(minutes).padStart(2, "0")}:${seconds}`;
-}
-function positiveNumber(value) {
-  const number = Number(value);
-  return Number.isFinite(number) && number > 0 ? number : undefined;
-}
-function formatTokensPerSecond(value) {
-  if (value === undefined || !Number.isFinite(value) || value <= 0) return "";
-  if (value >= 1000) return `${(value / 1000).toFixed(1)}k`;
-  if (value >= 100) return String(Math.round(value));
-  return value.toFixed(1);
 }

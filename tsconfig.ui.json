@@ -13,6 +13,6 @@
     "skipLibCheck": true,
     "forceConsistentCasingInFileNames": true
   },
-  "include": ["src/admin/static/*.js"],
+  "include": ["src/admin/static/*.js", "src/admin/static/modules/*.js"],
   "exclude": ["node_modules", "dist-node", "dist-electron", "coverage"]
 }
