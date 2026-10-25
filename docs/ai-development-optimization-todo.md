@@ -881,7 +881,8 @@ UI 截图、性能或迁移结果（适用时）：
 - 新增回归：5 个 [AI-21] 浏览器用例，明确断言同值刷新保留节点、仅 decode speed 或任务 data 变化重建、语言变化保留选择和模型展开、lazy 隐藏正文更新、JSON 同值展开保留与宽度重建、materialization 不读取 pane 宽度且写 children 后无 offset 测量、延迟详情响应不覆盖新选择、任务消失后晚到响应不复活面板。既有测试继续覆盖 pending、任务简介、JSON 展开/滚动恢复、滚动锚定和行窗口。
 - 实际验证：history suite 38 tests passed；同时运行 admin static-source 与 skills 合同测试。`npm run lint`、`npm run typecheck`、`npx prettier --check .`、`git diff --check`；UI baseline regeneration 为 10 passed / 1 skipped，生成图片及哈希与提交版本相同，完整检查了中英文历史和任务面板图片。
 - 数据规模与方法：新增 lazy 夹具含 1,600 个字符串叶子；现有 large history 为 100 groups，large group 为 200 records，row-window 为 1,885 rows。通过 Playwright 节点身份、内容、展开状态、scrollTop/rect、lazy 状态以及布局 getter 探针验证；未增加时间门槛。
-- 范围与剩余事项：未修改 CSS 或 UI 文案；按本次明确要求不执行 portable packaging。宽度更新不自动重排已经渲染的字符串，下一次 pane 渲染才按新宽度决定折叠显示；这是保留 splitter 无重建行为的既有合同。AI-20 仍独立进行。
+- 范围与剩余事项：未修改 CSS 或 UI 文案；按本次明确要求不执行 portable packaging。宽度更新不自动重排已经渲染的字符串，下一次 pane 渲染才按新宽度决定折叠显示；这是保留 splitter 无重建行为的既有合同。AI-20 已与本项一并合并验收，不再单独推进。
+- 合并复核：父任务合并评审修复了两处交互缺陷——pending-refresh 字段表按 strictNullChecks 收紧类型，记录里为 null 的字段不再让 `item[key]` 成为非法索引；已删除任务先显示错误态、再判断加载态，`error: "deleted"` 与 `data: null` 的组合不会再停留在加载文案（`9fd90c3`、`622c65a`）。合并后的 strict typecheck 与 UI 套件均通过。
 
 ### AI-25 完成记录
 
