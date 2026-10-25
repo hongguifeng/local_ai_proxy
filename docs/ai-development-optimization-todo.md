@@ -118,8 +118,8 @@ P0 是已复现的功能缺陷；P1 是契约、文档和后端基础；P2 是�
 | [x]  | AI-08 | P1     | API schema 与客户端契约统一 | AI-07、AI-04、AI-15、AI-18、AI-19、AI-20、AI-21                                                                                                                 | 已完成 |
 | [x]  | AI-09 | P1     | 完整应用的服务装配约束      | AI-01、AI-02、AI-07、AI-08                                                                                                                                      | 已完成 |
 | [x]  | AI-10 | P1     | 消除运行时依赖环            | AI-06                                                                                                                                                           | 已完成 |
-| [ ]  | AI-11 | P1     | 分离模型调用与日志查询      | AI-01、AI-05、AI-07、AI-10                                                                                                                                      | 在办   |
-| [ ]  | AI-12 | P1     | 按职责拆分持久化访问        | AI-06、AI-07、AI-10                                                                                                                                             | 未开始 |
+| [ ]  | AI-11 | P1     | 分离模型调用与日志查询      | AI-01、AI-05、AI-07、AI-10                                                                                                                                      | 未开始 |
+| [x]  | AI-12 | P1     | 按职责拆分持久化访问        | AI-06、AI-07、AI-10                                                                                                                                             | 已完成 |
 | [ ]  | AI-13 | P1     | 稳定历史迁移依赖            | AI-03、AI-10、AI-12                                                                                                                                             | 未开始 |
 | [ ]  | AI-14 | P1     | 补齐场景测试并稳定时序验证  | AI-01、AI-02、AI-05、AI-08、AI-09                                                                                                                               | 未开始 |
 | [x]  | AI-15 | P2     | 分离产品、测试与工具编译    | 无                                                                                                                                                              | 已完成 |
@@ -292,11 +292,11 @@ P0 是已复现的功能缺陷；P1 是契约、文档和后端基础；P2 是�
 
 入口：[TrafficRepository](../src/persistence/repository.ts)、[正文存储](../src/persistence/body-storage.ts)、[计价计算](../src/pricing/money.ts)。
 
-- [ ] 按任务、记录、搜索和计价聚合等变化原因拆分内部职责。
-- [ ] 保持同一个业务写入事务覆盖 task、record、links 和搜索同步。
-- [ ] 所有写操作使用明确输入类型，查询返回明确投影。
-- [ ] 收敛裸 database 暴露，清理业务层直接 SQL 的不必要入口。
-- [ ] 保留分页、批量查询、正文延迟读取和金额精度。
+- [x] 按任务、记录、搜索和计价聚合等变化原因拆分内部职责。
+- [x] 保持同一个业务写入事务覆盖 task、record、links 和搜索同步。
+- [x] 所有写操作使用明确输入类型，查询返回明确投影。
+- [x] 收敛裸 database 暴露，清理业务层直接 SQL 的不必要入口。
+- [x] 保留分页、批量查询、正文延迟读取和金额精度。
 
 验收：模块边界能说明一项修改影响哪些数据；事务失败无部分写入。大库搜索和列表查询不因拆分退化为逐条读正文。
 
@@ -749,3 +749,19 @@ UI 截图、性能或迁移结果（适用时）：
 - 验收关键两条实测都成立：编译期——装配按 `AssembledAdminServices` 类型化，漏一个成员就是 `src/app/runtime.ts` 里的编译错误；运行期——`assertAdminServicesComplete` 在建控制平面之前拒绝靠 cast 或裸对象混进来的洞，所以缺服务永远不可能以 `404 { error: { code: "not_found" } }` 的样子到达浏览器（那正是未注册路由的样子）。`service-assembly.test.ts` 头部明写这点并把“缺一个服务会带走的十条路由”钉住；`runtime.test.ts` 新增 158 行覆盖真实装配下的必需 GET 与关键写操作。
 - 它还改了 `AGENTS.md`（两条新事实：`prettier --write` 会重排 `docs/` 下的表格，因为默认配置忽略那个目录；在测试里构造“完整值减一个成员”时 `delete value[key]` 撞 `no-dynamic-delete`、`Object.fromEntries(...) as T` 撞非空断言规则）与 `admin-api-probing` 的花名册描述（改成 “the required service set”）；花名册门禁 `test-node/docs` 27/27 过。
 - 遗留：V-P 本轮未在 lane 里跑（没报告，编排方也不假设），所以与 AI-12 合并后对**最终状态**一次性跑集成 V-P；在那之前这一条是 outstanding，不是已满足。
+
+### AI-12 完成记录
+
+- 状态：**已完成（带偏差）**，由编排方验收。lane 提交 `45fb515`（拆分本体，21 文件 `+2815/-1679`）、`a86c5e0`（`AGENTS.md` 一条 WAL 规则），squash 合并进 main 为 `889b414`，`AGENTS.md` 自动合并、**零冲突**。
+- 编排方自己数的数：`repository.ts` 1,523 → **332 行**；`prepare(` 在 `src/persistence/**` 内共 **59** 处（record-store 15、task-store 14、search-store 8、pricing-store 5、generated-text-store 4，加原有 body-storage 8、database 3、schema-v5 2），**持久层之外 0 处**（合并前是 3 处，全在 `log-query-service.ts`）；`RepositoryRecord` 引用 `85 → 40`，**不是它报的 35**——它把 access-contracts 2、index 1、log-export 12、usage-statistics 5 漏在了汇总之外。逐文件实测：`task-store` 7、`record-store` 6、`search-store` 4、`task-matcher` 2、`log-export` 12、`usage-statistics-service` 5、`access-contracts` 2、`repository.ts` 1、`index.ts` 1，合计 40。
+- 门禁复现：typecheck exit 0（两份 tsconfig）、lint exit 0、prettier exit 0、`check:modules` exit 0（lane 报 `122 模块 / 274 运行时 / 86 类型 / 0 环 0 越界`；合并后 main 报 `123 / 278 / 88 / 0 / 0`，AI-09 的 +1 加 AI-12 的 +7 正好对得上）；persistence 57、logging 43、maintenance 43、statistics 8 全过。admin/proxy/ui/docs 我没在 lane 里单独跑，由合并后的全量套件覆盖（更强的证据）。
+- 断言审计：我第一版正则把 `?.["x"]` 归一成了 `?..x`（多一个点），导致 10 行假阴性、结论错了一次；修好后结论翻转为——删除 14 行断言，**14 行全有逐字等价的替身**（只是方括号读数改成点读数，`typeof` 保留），0 行无对应；新增 29 处断言里 15 处是真新断言；`it.skip|only|todo` 新增 0，等待/重试新增 0。
+- 事务回滚是真证据：`leaves no partial write when the business write fails halfway` 用真实外键失败（link 指向本笔写入从不插入的 task）在 task、record、搜索行都已写入、`traffic-keep` 已被删之后触发；断言 task/record/两条 link 全不在、`record_search_map` 的 `COUNT(*)` 为 0、以及 **`traffic-keep` 回来了**——最后那条才把它和“什么都没发生”区分开。
+- WAL 顺序规则对着代码核过：`writeTraffic` 事务的第一条语句是 `this.#tasks.write(...)`，`rawRow` 读在其后；独立的 `RecordStore.write`（`record-store.ts:252-253`）先读再开事务，带注释说明 `SQLITE_BUSY_SNAPSHOT` 不会被 `busy_timeout` 重试。`AGENTS.md` 只 `+1` 行、`-0` 行。
+- 集成验收（合并后 `npm run check` 跑了三次）：第一次 exit 1，唯一失败是 `proxy-listener > decodes a compressed SSE response…`，断言 `decode_window_ms >= 20` 实得 `1.208 ms`；第二、三次 exit 0，`120 passed | 1 skipped (121)` 文件、`1060 passed | 2 skipped (1062)` 测试。为了把“我改坏的”和“本来就有的”分开，我在 lane 里检出合并前的 `6a178a9` 跑同样的全量：exit 0、1060 测试、**0 失败**。该测试的 `trafficLog` 是个返回 `Promise.resolve()` 的桩、完全不碰 SQLite，所以 AI-12 碰不到它的时间路径；单独连跑三次 `32/32` 全过。判读：套件级事件循环饥饿下，夹具那个 40 ms 定时器与 gzip flush 回调的先后顺序漂移，首块与尾块挤进同一个 tick，窗口才掉到 1.2 ms——是既有计时夹具在重载下偶发，不是 AI-12 的回归。测试数对账 `1060 → 1062`（+2 = 它新增的两条 `writeTraffic`），文件数不变。
+- 基准我自己跑了一次（main，Node ABI 实查询 `{"a":42}`，`cast(41125000 as text)` 返回 `'41125000'`）：`medianListMs 80.15`、`medianSearchMs 112.45`、`medianDetailMs 16.39`，三项都低于报告里 2026-09-11 的参考值（90.19 / 123.34 / 23.61），也低于它报的 lane 值。跳会话数字不可比（机器状态不同），但至少没有回归迹象，也没越过报告里“超过 20% 要查”的线。
+- 集成 V-P（顺带补上 AI-09 那条 outstanding）：`npm run build` exit 0 → `rebuild:electron` exit 0（`✔ Rebuild Complete`）→ 用 `-c.electronDist=node_modules/electron/dist` 出包 exit 0，`release/LLM-Proxy-0.4.10-x64-portable.exe` **111,807,864** 字节；`npm run abi:electron` exit 0（Electron 内实查询 `NODE_MODULE_VERSION 143, {"a":1}`）；39521/39522/39523 上 `npm run smoke:delivery` exit 0——解开包 health **815 ms**、代理 200、`GET /api/logs?limit=5` 200 `total 1`、`traffic.db` 4096 字节；便携壳 health **2886 ms**、同样 200 / `total 1` / `traffic.db`；跑完三端口全空闲，之后 `npm run rebuild:node` exit 0 并用实查询证明 `{"a":42}`。
+- 编排方的一处表格错误更正：我在“第三轮在办记录”那次 `sed` 打在 119 与 121 行，而 121 行其实是 AI-11，于是 AI-11 被错标成“在办”、AI-12 留在“未开始”。现在 AI-11 回到“未开始”、AI-12 标“已完成”。教训：表格行号会随前置任务增删而移动，改状态单元格要用 `| AI-NN |` 定位，不要用固定行号。
+- 偏差：一、它动了 `scripts/database_smoke.ts`、`test-node/proxy/proxy-runtime-registry.test.ts`、三处我划在所有权外的 `test-node` 文件与 `docs/current-architecture.md` 一行——都是类型投影让方括号读数和 `String()` 变成 lint 错误，不改它自己的门禁就过不去；`src/app/**` 与 `src/admin/**` 确实一行未动。二、`TrafficTaskWrite.kind` 从 `EndpointKind | undefined` 放宽成 `string | undefined`（`scripts/database_concurrent_writer.ts` 会写 `"concurrent-write"`，那是 TEXT 列），代价是写边界不再由类型保证。三、`repository.transaction()` 与 `database` getter 保留（基准脚本与测试用），生产侧已无一处调用与句柄。四、`log-export.ts` 与 `usage-statistics-service.ts` 仍把行类型标成 `Readonly<RepositoryRecord>`（投影可赋值、二者不写 SQL），是一个明写的后续。五、`src/pricing/money.ts` 一行未改（拆分搬的是聚合，不是算术）。六、`AGENTS.md` 在它所有权外，但该文件自己的规则要求记可复用的调试教训。七、一个提交装拆分（测试改动与类型改动不可分，拆开就是个坏提交）。
+- 遗留风险（它写的，我核过的）：`_search_text` 是连接级能力，自己开连接的存储必须再注册；`TaskStore.rawRow` 是访问层最后一处未建模行，AI-19 若删 `RepositoryRecord` 就得连它改；standalone `upsertRecord` 的 `task_text` 可能滞后一次编辑（业务路径在自己写之后读，是准的）；admin 的 `LogPricingStatus` 与 codec 的 `PricingState` 今天双向可赋值。
+- §8 那第三处没打：`- [ ] AI-11～13` 要等 AI-11 与 AI-13 都完成才打（同 `AI-15～16` 的先例），所以 AI-12 的“三处”只打了两处。这个例外是明写的，不是漏打。
