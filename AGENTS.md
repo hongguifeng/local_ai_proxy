@@ -12,7 +12,7 @@
 - Bumping the traffic schema version breaks `test-node/persistence/database.test.ts`, which pins `readSchemaVersion` in two places (current schema + backup) and lists expected table names — update both numbers and add the new table to the list. TypeScript also rejects a bare `}` inside a regex literal (TS1508 "Unexpected '}'"); escape it as `\}`.
 - UI modifications require screenshot verification. Clean temporary files and processes when done.
 - After every task, build the portable executable: `npm run build && npm run rebuild:electron && npx electron-builder -w portable --publish never`.
-- Native module ABI: run `npm rebuild better-sqlite3` only before the final `npm run rebuild:electron`; never run the Node rebuild after Electron rebuild or before packaging, or the portable app will contain a Node ABI binary and fail at startup.
+- Native module ABI: run `npm rebuild better-sqlite3` only before the final `npm run rebuild:electron`; never run the Node rebuild after Electron rebuild or before packaging, or the portable app will contain a Node ABI binary and fail at startup. Prove which ABI is installed by running a query: `require("better-sqlite3")` never touches the native binding, so it prints success in either state.
 - Execution history logs: `D:\Portable Program\llm_proxy\logs`.
 - The user runs a portable instance of this app while you work. Treat it as read-only: never stop it to simulate a failure, never write into its config or traffic database, and only kill processes you started. See `real-upstream-acceptance`.
 - Release: `npm version <patch|minor|major> --message "chore(release): %s"`, then push branch and tag (`git push origin main vX.Y.Z`). Publishing occurs only from `v*` tags; tag pushes rerun CI.
