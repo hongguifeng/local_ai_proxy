@@ -2,7 +2,6 @@ import {
   TrafficRepository,
   type RecordRow,
   type RecordSummaryRow,
-  type TaskBriefRow,
   type TaskDecodeSpeedStats,
   type TaskPricingAggregate,
   type TaskTokenSeriesPoint,
@@ -10,14 +9,7 @@ import {
   type TaskOutputTokenSeriesPoint,
   type TaskSummaryRow,
 } from "../persistence/index.js";
-import {
-  ApplicationError,
-  conflict,
-  formatLocalTimestamp,
-  notFound,
-  storageError,
-  StructuredLogger,
-} from "../shared/index.js";
+import { formatLocalTimestamp, StructuredLogger } from "../shared/index.js";
 import { createLogExportStream } from "./log-export.js";
 import {
   cleanupLogsOlderThan,
@@ -27,7 +19,8 @@ import {
 } from "./log-cleanup.js";
 import type { Readable } from "node:stream";
 import type { SummaryModelConfig } from "../config/index.js";
-import { joinTargetPath } from "../proxy/target.js";
+import { SummaryGenerationService } from "./summary-generation-service.js";
+import { SummaryModelClient, type SummaryModelConnectionReport } from "./summary-model-client.js";
 import { UsageStatisticsService } from "./usage-statistics-service.js";
 
 export interface LogGroupSummary {
@@ -151,11 +144,17 @@ export interface HistorySummaryFields {
  */
 export type HistorySummary = HistorySummaryFields & Record<string, unknown>;
 
+/**
+ * The log-backed views the console reads, plus the summary and brief operations it
+ * offers. Every log root is resolved when a query runs rather than once at creation, so
+ * a committed configuration change is visible without rebuilding anything. Model calls
+ * are not this service's work: it hands summary and brief requests to
+ * `SummaryGenerationService` and never assembles an upstream HTTP request.
+ */
 export class LogQueryService {
   readonly #logRoots: () => readonly string[];
-  readonly #logger: Pick<StructuredLogger, "warn">;
-  readonly #summarizing = new Set<string>();
-  readonly #briefing = new Set<string>();
+  readonly #summaryModelClient: SummaryModelClient;
+  readonly #summaries: SummaryGenerationService;
 
   constructor(
     logRoots: readonly string[] | (() => readonly string[]),
@@ -164,7 +163,15 @@ export class LogQueryService {
     }),
   ) {
     this.#logRoots = typeof logRoots === "function" ? logRoots : () => logRoots;
-    this.#logger = logger;
+    // Model calls are a separate service that works in the same log roots this service
+    // resolves when a query runs, so a committed configuration change reaches both at once.
+    // It also owns the diagnostics of those calls, which is where every warn goes.
+    this.#summaryModelClient = new SummaryModelClient();
+    this.#summaries = new SummaryGenerationService({
+      logRoots: () => this.#configuredRoots(),
+      logger,
+      generator: this.#summaryModelClient,
+    });
   }
 
   /**
@@ -306,102 +313,21 @@ export class LogQueryService {
     return undefined;
   }
 
+  /**
+   * Generate a record's summary, store it, and hand back the model's own payload. The
+   * generation service owns the cache, the concurrency guard, the storage write and the
+   * model call; this service answers from the log roots and builds no request itself.
+   */
   async summarizeRecord(
     recordId: string,
     config: SummaryModelConfig,
   ): Promise<HistorySummary | undefined> {
-    if (this.#summarizing.has(recordId))
-      throw conflict("A summary is already being generated for this record.");
-    this.#summarizing.add(recordId);
-    try {
-      const detail = this.getRecordDetail(recordId);
-      // No detail means no such record anywhere: the caller answers 404 rather than
-      // pretending a summary was made.
-      if (detail === undefined) return undefined;
-      const input = JSON.stringify(prepareSummaryRequest(detail.request));
-      const instruction =
-        "请将输入按连续编号区间归纳为阶段摘要，不要逐条复述。严格输出 JSON：{title,overview,segments:[{range,summary,key_points,evidence}],decisions,issues}。每个 segment 的 range 使用如 1-6、7-12 的连续区间，evidence 填引用的消息编号。";
-      const content = await this.#requestSummaryModel(config, instruction, input);
-      const summary = parseSummaryPayload(content);
-      this.saveSummary(recordId, summary, config.model);
-      return summary;
-    } finally {
-      this.#summarizing.delete(recordId);
-    }
+    return this.#summaries.summarizeRecord(recordId, config);
   }
 
-  /**
-   * The stored summary for a record, or undefined when none was ever generated. A root
-   * that does not hold the record answers "no row" and is skipped without a log line.
-   */
+  /** The stored summary for a record, or undefined when none was ever generated. */
   getSummary(recordId: string): HistorySummary | undefined {
-    for (const root of this.#configuredRoots()) {
-      const repository = new TrafficRepository(root);
-      try {
-        const summaryJson = repository.historySummaryJson(recordId);
-        if (summaryJson !== undefined) {
-          const parsed: unknown = JSON.parse(summaryJson);
-          // Anything that is not an object cannot be a summary; the console shows it as absent.
-          return isRecord(parsed) ? parsed : undefined;
-        }
-      } catch (error) {
-        // A missing row is the expected answer for a root that does not hold this
-        // record; reaching here means the query itself failed and is worth naming.
-        this.#logger.warn("Summary read failed", {
-          phase: "history_summary_read",
-          record_id: recordId,
-          log_root: root,
-          error_type: errorName(error),
-          cause_type: errorName(causeOf(error)),
-        });
-      } finally {
-        repository.close();
-      }
-    }
-    return undefined;
-  }
-
-  /**
-   * Store the summary in the root that owns the record. Other roots cannot hold the row:
-   * `history_summaries.record_id` references `records(id)`, so writing there is a foreign
-   * key violation. A failure in the owning root is reported instead of dropped, because
-   * the caller would otherwise show a summary that was never stored.
-   */
-  private saveSummary(recordId: string, result: HistorySummary, model: string): void {
-    let lastError: unknown;
-    for (const root of this.#configuredRoots()) {
-      const repository = new TrafficRepository(root);
-      try {
-        const ownsRecord = repository.hasRecord(recordId);
-        if (!ownsRecord) {
-          continue;
-        }
-        repository.saveHistorySummary({
-          recordId,
-          summaryJson: JSON.stringify(result),
-          model,
-          promptVersion: "v1",
-          createdAt: new Date().toISOString(),
-          updatedAt: new Date().toISOString(),
-        });
-        return;
-      } catch (error) {
-        lastError = error;
-        this.#logger.warn("Summary save failed", {
-          phase: "history_summary_save",
-          record_id: recordId,
-          log_root: root,
-          error_type: errorName(error),
-          cause_type: errorName(causeOf(error)),
-        });
-      } finally {
-        repository.close();
-      }
-    }
-    throw storageError("The summary could not be saved.", {
-      ...(lastError === undefined ? {} : { cause: lastError }),
-      details: { phase: "history_summary_save", record_id: recordId },
-    });
+    return this.#summaries.cachedSummary(recordId);
   }
 
   /**
@@ -409,29 +335,7 @@ export class LogQueryService {
    * working on, or undefined when it was never generated.
    */
   getTaskBrief(groupId: string): TaskBrief | undefined {
-    for (const root of this.#configuredRoots()) {
-      const repository = new TrafficRepository(root);
-      try {
-        const row = repository.getTaskBrief(groupId);
-        if (row === undefined) continue;
-        // An empty brief_text is the "never generated" answer, so the next root is asked.
-        if (row.brief_text === null || row.brief_text === "") continue;
-        return taskBriefFromRow(row, groupId);
-      } catch (error) {
-        // A root without this task answers "no row", which the code above already skips.
-        // Reaching here means the read itself failed.
-        this.#logger.warn("Task brief read failed", {
-          phase: "task_brief_read",
-          task_id: groupId,
-          log_root: root,
-          error_type: errorName(error),
-          cause_type: errorName(causeOf(error)),
-        });
-      } finally {
-        repository.close();
-      }
-    }
-    return undefined;
+    return this.#summaries.cachedBrief(groupId);
   }
 
   /**
@@ -440,196 +344,17 @@ export class LogQueryService {
    * the user clicks the button, so no hidden model cost is incurred.
    */
   async generateTaskBrief(groupId: string, config: SummaryModelConfig): Promise<TaskBrief> {
-    if (this.#briefing.has(groupId))
-      throw conflict("A task brief is already being generated for this task.");
-    this.#briefing.add(groupId);
-    try {
-      const recordId = this.#latestGroupRecordId(groupId);
-      if (recordId === undefined) throw notFound("Log group not found.");
-      const detail = this.getRecordDetail(recordId);
-      // The request part is the compressed newest request; the client part is
-      // only the few request headers that identify which agent is talking, so
-      // the model can name the client instead of guessing from the system prompt.
-      const input = JSON.stringify({
-        client: briefClientHints(detail),
-        request: prepareSummaryRequest(detail?.request ?? null),
-      });
-      const content = await this.#requestSummaryModel(config, TASK_BRIEF_INSTRUCTION, input);
-      const { text, facts } = parseTaskBriefContent(content);
-      if (text === "") throw summaryModelFailure("The summary model returned an empty task brief.");
-      return this.#saveTaskBrief(groupId, text, facts, config.model, recordId);
-    } finally {
-      this.#briefing.delete(groupId);
-    }
-  }
-
-  /** The newest complete request of a task, or undefined when the task is unknown. */
-  #latestGroupRecordId(groupId: string): string | undefined {
-    for (const root of this.#configuredRoots()) {
-      const repository = new TrafficRepository(root);
-      try {
-        if (!repository.hasTask(groupId)) continue;
-        const recordId = repository.latestTaskRecordId(groupId);
-        if (recordId !== undefined) return recordId;
-      } finally {
-        repository.close();
-      }
-    }
-    return undefined;
-  }
-
-  #saveTaskBrief(
-    groupId: string,
-    text: string,
-    facts: Readonly<Record<string, string>>,
-    model: string,
-    sourceRecordId: string,
-  ): TaskBrief {
-    const contextJson = Object.keys(facts).length === 0 ? null : JSON.stringify(facts);
-    let lastError: unknown;
-    for (const root of this.#configuredRoots()) {
-      const repository = new TrafficRepository(root);
-      try {
-        // Only the root that owns the task can hold the brief: the row
-        // references tasks(id), so writing it elsewhere is a foreign key
-        // violation that would leave the brief in the wrong directory.
-        if (!repository.hasTask(groupId)) continue;
-        return taskBriefFromRow(
-          repository.saveTaskBrief({
-            taskId: groupId,
-            briefText: text,
-            model,
-            sourceRecordId,
-            promptVersion: TASK_BRIEF_PROMPT_VERSION,
-            contextJson,
-          }),
-          groupId,
-        );
-      } catch (error) {
-        lastError = error;
-        this.#logger.warn("Task brief save failed", {
-          phase: "task_brief_save",
-          task_id: groupId,
-          log_root: root,
-          error_type: errorName(error),
-          cause_type: errorName(causeOf(error)),
-        });
-      } finally {
-        repository.close();
-      }
-    }
-    throw storageError("The task brief could not be saved.", {
-      ...(lastError === undefined ? {} : { cause: lastError }),
-      details: { phase: "task_brief_save", task_id: groupId },
-    });
+    return this.#summaries.generateTaskBrief(groupId, config);
   }
 
   /**
-   * Call the configured summary model with one instruction plus the prepared
-   * input and return its text, for any of the three supported API types.
+   * Ask the configured summary model a one-word question and report what came back.
+   * The client owns the URL, the headers, the timeout and the reading; this only hands
+   * over the configuration the caller was given.
    */
-  async #requestSummaryModel(
-    config: SummaryModelConfig,
-    instruction: string,
-    input: string,
-  ): Promise<string> {
-    const endpoint =
-      config.api_type === "openai_responses"
-        ? "/responses"
-        : config.api_type === "anthropic_messages"
-          ? "/messages"
-          : "/chat/completions";
-    const headers: Record<string, string> = {
-      "content-type": "application/json",
-      ...(config.api_type === "anthropic_messages"
-        ? { "x-api-key": config.api_key, "anthropic-version": "2023-06-01" }
-        : { authorization: `Bearer ${config.api_key}` }),
-    };
-    const body =
-      config.api_type === "openai_responses"
-        ? {
-            model: config.model,
-            input: `${instruction}\n\n${input}`,
-            stream: false,
-            ...(config.disable_reasoning ? { reasoning_effort: "none" } : {}),
-          }
-        : config.api_type === "anthropic_messages"
-          ? {
-              model: config.model,
-              max_tokens: 2000,
-              system: instruction,
-              messages: [{ role: "user", content: input }],
-              stream: false,
-              ...(config.disable_reasoning ? { reasoning_effort: "none" } : {}),
-            }
-          : {
-              model: config.model,
-              temperature: 0,
-              messages: [
-                {
-                  role: "system",
-                  content: instruction,
-                },
-                { role: "user", content: input },
-              ],
-              stream: false,
-              ...(config.disable_reasoning ? { reasoning_effort: "none" } : {}),
-            };
-    const target = new URL(config.target_url);
-    const basePath = target.pathname.replace(/\/$/u, "");
-    target.pathname = basePath.endsWith(endpoint) ? basePath : joinTargetPath(basePath, endpoint);
-    let response: Response;
-    try {
-      response = await fetch(target, {
-        method: "POST",
-        headers: {
-          ...headers,
-          ...Object.fromEntries(
-            config.target_headers.map((h) => {
-              const i = h.indexOf(":");
-              return [h.slice(0, i).trim(), h.slice(i + 1).trim()];
-            }),
-          ),
-        },
-        body: JSON.stringify(body),
-        signal: AbortSignal.timeout(config.timeout_ms),
-      });
-    } catch (error) {
-      // The cause can name a host or a DNS failure, so it stays in the internal log.
-      throw summaryModelFailure("The summary model could not be reached.", error, {
-        phase: "summary_model_request",
-        target_host: target.host,
-        target_path: target.pathname,
-      });
-    }
-    if (!response.ok) {
-      throw summaryModelFailure(`The summary model returned HTTP ${response.status}.`, undefined, {
-        phase: "summary_model_request",
-        upstream_status: response.status,
-      });
-    }
-    const rawResponse = await response.text();
-    if (rawResponse.length > 2_000_000) {
-      throw summaryModelFailure("The summary model response is too large.");
-    }
-    const payload: Record<string, unknown> = JSON.parse(rawResponse) as Record<string, unknown>;
-    const choices = Array.isArray(payload["choices"]) ? payload["choices"] : [];
-    const firstChoice = isRecord(choices[0]) ? choices[0] : undefined;
-    const message =
-      firstChoice && isRecord(firstChoice["message"]) ? firstChoice["message"] : undefined;
-    const content =
-      (message && typeof message["content"] === "string" ? message["content"] : undefined) ??
-      (typeof payload["output_text"] === "string" ? payload["output_text"] : undefined) ??
-      extractResponsesOutput(payload["output"]) ??
-      (Array.isArray(payload["content"]) &&
-      isRecord(payload["content"][0]) &&
-      typeof payload["content"][0]["text"] === "string"
-        ? payload["content"][0]["text"]
-        : undefined);
-    if (!content) throw summaryModelFailure("The summary model returned an empty response.");
-    return content;
+  testSummaryModel(config: SummaryModelConfig): Promise<SummaryModelConnectionReport> {
+    return this.#summaryModelClient.testConnection(config);
   }
-
   getGroupPricing(groupId: string): TaskPricingAggregate | undefined {
     for (const root of this.#configuredRoots()) {
       const repository = new TrafficRepository(root);
@@ -764,216 +489,6 @@ export class LogQueryService {
 
 export const TASK_RECORD_LIMIT = 200;
 export const PENDING_RECORD_LIMIT = 200;
-
-/** Prompt version recorded with every generated task brief; bump when the instruction changes. */
-export const TASK_BRIEF_PROMPT_VERSION = "v2";
-
-/**
- * Task-brief prompt: the model sees the newest complete request of the task
- * (a multi-turn conversation with tool calls) plus the client identifying
- * headers, and must answer with a short paragraph describing what the task is
- * working on together with the base environment facts it can actually read
- * (which agent, working directory, branch, ...) - not a per-message replay.
- */
-export const TASK_BRIEF_INSTRUCTION =
-  "下面是一次任务中最新一次请求的完整输入（可能是多轮对话、工具调用与历史），其中 client 是客户端请求头里的标识信息。" +
-  "先用一到两段简短的中文话概括这个任务主要在做什么：想完成什么目标、大致是怎样推进的；不要逐条复述消息，也不要罗列工具调用细节，总共不超过 150 字。" +
-  "再从输入里读出这次任务的基础环境信息，能读到多少写多少：agent（发起任务的客户端或助手名称，含版本）、cwd（当前工作目录）、git_branch（当前 git 分支）、os（操作系统与 shell），以及其他确实重要的环境（如远程主机、容器、终端）。" +
-  '严格输出 JSON：{"brief":"概述文字","facts":{"agent":"…","cwd":"…","git_branch":"…","os":"…"}}。' +
-  "facts 里只写你在输入里确实读到的信息，读不到就省略该字段，不要编造，每个值保持简短。";
-
-/**
- * Normalize the model's answer into a single paragraph: drop code fences, the
- * JSON wrapper a strict-JSON model may still emit, and fold line breaks into
- * spaces so the brief renders as one block of text.
- */
-/**
- * A summary model call that produced no usable output. The message is a sentence written
- * here, never copied from the upstream body, so it is safe to show the user; the original
- * failure stays available as `cause` for the internal log.
- */
-function summaryModelFailure(
-  message: string,
-  cause?: unknown,
-  details?: Readonly<Record<string, unknown>>,
-): ApplicationError {
-  return new ApplicationError(message, {
-    ...(cause === undefined ? {} : { cause }),
-    ...(details === undefined ? {} : { details }),
-    code: "upstream_error",
-    expose: true,
-    statusCode: 502,
-  });
-}
-
-/** The name of an error, or `UnknownError` when it is not an `Error`. */
-function errorName(error: unknown): string {
-  return error instanceof Error ? error.name : "UnknownError";
-}
-
-/** The `cause` of an error when it carries one. */
-function causeOf(error: unknown): unknown {
-  return error instanceof Error ? error.cause : undefined;
-}
-
-/**
- * The boundary between the summary model's raw text and the stored summary model. The
- * payload is kept exactly as the model wrote it - nothing is renamed, normalized or dropped -
- * so only the shape the prompt requires is checked here. A fenced block is accepted because
- * models that were told to emit strict JSON still wrap it.
- */
-function parseSummaryPayload(content: string): HistorySummary {
-  let parsed: unknown;
-  try {
-    parsed = JSON.parse(content);
-  } catch {
-    const match = /```json\s*([\s\S]*?)```/u.exec(content);
-    const jsonText = match?.[1];
-    if (jsonText === undefined)
-      throw summaryModelFailure("The summary model returned text that is not JSON.");
-    parsed = JSON.parse(jsonText);
-  }
-  if (!isRecord(parsed) || !Array.isArray(parsed["segments"]))
-    throw summaryModelFailure("The summary model did not return the expected JSON shape.");
-  return parsed;
-}
-
-function briefParagraph(content: string): string {
-  let text = content.trim();
-  const fenced = /```(?:json|text)?\s*([\s\S]*?)```/u.exec(text);
-  if (fenced?.[1] !== undefined) text = fenced[1].trim();
-  // A model that still wraps its answer in a JSON object or quotes: unwrap it
-  // so the card shows plain prose.
-  text = text
-    .replace(/^\{ *"?brief"? *:/u, "")
-    .replace(/"? *\}\s*$/u, "")
-    .replace(/^"+|"+$/gu, "")
-    .trim();
-  text = text
-    .replace(/[\r\n\t]+/gu, " ")
-    .replace(/\s{2,}/gu, " ")
-    .trim();
-  return text.length > 4000 ? `${text.slice(0, 4000)}…` : text;
-}
-
-/** Request headers that tell which agent or client is driving the task. */
-const BRIEF_CLIENT_HEADERS: readonly string[] = [
-  "user-agent",
-  "x-app",
-  "x-app-version",
-  "x-agent-task-id",
-  "x-session-id",
-  "x-claude-code-session-id",
-  "x-codex-turn-id",
-  "anthropic-version",
-];
-
-const TASK_BRIEF_FACT_LIMIT = 6;
-const TASK_BRIEF_FACT_VALUE_LIMIT = 200;
-
-/**
- * The small "client" block handed to the brief model: only the identifying
- * request headers, so the agent name comes from evidence instead of a guess.
- */
-function briefClientHints(detail: LogRecordDetail | undefined): Record<string, string> {
-  const headers = detail?.request_meta["headers"];
-  if (!isRecord(headers)) return {};
-  const hints: Record<string, string> = {};
-  for (const [name, value] of Object.entries(headers)) {
-    const key = name.toLowerCase();
-    if (!BRIEF_CLIENT_HEADERS.includes(key)) continue;
-    const text = headerHintText(value);
-    if (text !== undefined) hints[key] = truncateText(text, TASK_BRIEF_FACT_VALUE_LIMIT);
-  }
-  return hints;
-}
-
-function headerHintText(value: unknown): string | undefined {
-  if (typeof value === "string") return value.trim() === "" ? undefined : value.trim();
-  if (Array.isArray(value)) {
-    for (const item of value) {
-      if (typeof item === "string" && item.trim() !== "") return item.trim();
-    }
-  }
-  return undefined;
-}
-
-/**
- * Read the brief model's answer: the summary paragraph plus the environment
- * facts it extracted. A model that ignores the JSON contract and answers with
- * prose still yields a brief, just without any facts.
- */
-function parseTaskBriefContent(content: string): {
-  text: string;
-  facts: Record<string, string>;
-} {
-  let payload: unknown;
-  try {
-    payload = JSON.parse(content);
-  } catch {
-    const fenced = /```(?:json)?\s*([\s\S]*?)```/u.exec(content);
-    if (fenced?.[1] === undefined) return { text: briefParagraph(content), facts: {} };
-    try {
-      payload = JSON.parse(fenced[1]);
-    } catch {
-      return { text: briefParagraph(content), facts: {} };
-    }
-  }
-  if (!isRecord(payload)) return { text: briefParagraph(content), facts: {} };
-  const brief = payload["brief"] ?? payload["text"];
-  return {
-    text: typeof brief === "string" ? briefParagraph(brief) : briefParagraph(content),
-    facts: sanitizeBriefFacts(payload["facts"] ?? payload["context"]),
-  };
-}
-
-/** Keep only short string facts, with normalized keys and a bounded count. */
-function sanitizeBriefFacts(value: unknown): Record<string, string> {
-  if (!isRecord(value)) return {};
-  const facts: Record<string, string> = {};
-  for (const [key, item] of Object.entries(value)) {
-    if (typeof item !== "string") continue;
-    const name = key
-      .trim()
-      .toLowerCase()
-      .replace(/[\s-]+/gu, "_");
-    const text = item.trim();
-    if (name === "" || text === "") continue;
-    facts[name] = truncateText(text, TASK_BRIEF_FACT_VALUE_LIMIT);
-    if (Object.keys(facts).length >= TASK_BRIEF_FACT_LIMIT) break;
-  }
-  return facts;
-}
-
-/** Read the stored facts back, ignoring a malformed or empty context column. */
-function parseBriefContext(value: unknown): Record<string, string> | undefined {
-  if (typeof value !== "string" || value === "") return undefined;
-  let parsed: unknown;
-  try {
-    parsed = JSON.parse(value);
-  } catch {
-    return undefined;
-  }
-  const facts = sanitizeBriefFacts(parsed);
-  return Object.keys(facts).length === 0 ? undefined : facts;
-}
-
-/**
- * The one place a `task_briefs` row becomes the brief the console shows. Callers first
- * drop a row whose `brief_text` is empty, which is how a generation that never finished
- * reads back; everything else here is present by construction.
- */
-function taskBriefFromRow(row: Readonly<TaskBriefRow>, groupId: string): TaskBrief {
-  const context = parseBriefContext(row.context_json);
-  return {
-    task_id: groupId,
-    text: row.brief_text ?? "",
-    ...(context === undefined ? {} : { context }),
-    model: optionalString(row.model),
-    generated_at: row.updated_at,
-    source_record_id: row.source_record_id,
-  };
-}
 
 function groupsWithPreviews(
   repository: TrafficRepository,
@@ -1240,101 +755,4 @@ function emptyPage(limit: number, offset: number): LogGroupPage {
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
-}
-
-function extractResponsesOutput(value: unknown): string | undefined {
-  if (!Array.isArray(value)) return undefined;
-  const parts: string[] = [];
-  for (const item of value) {
-    if (!isRecord(item) || !Array.isArray(item["content"])) continue;
-    for (const content of item["content"]) {
-      if (!isRecord(content)) continue;
-      const text = content["text"];
-      if (typeof text === "string") parts.push(text);
-    }
-  }
-  return parts.length ? parts.join("") : undefined;
-}
-
-function prepareSummaryRequest(request: unknown): unknown {
-  if (!isRecord(request)) return request;
-  const result: Record<string, unknown> = {};
-  for (const key of ["model", "messages", "input", "instructions"]) {
-    if (request[key] !== undefined)
-      result[key] =
-        key === "input"
-          ? summarizeField("messages", request[key])
-          : summarizeField(key, request[key]);
-  }
-  if (result["messages"] === undefined && result["input"] === undefined) {
-    return summarizeValue(request, 0, 4000);
-  }
-  return result;
-}
-
-function summarizeField(key: string, value: unknown): unknown {
-  if (key !== "messages" || !Array.isArray(value)) return summarizeValue(value, 0, 6000);
-  return value.map((message) => {
-    if (!isRecord(message)) return summarizeValue(message, 0, 500);
-    const role = typeof message["role"] === "string" ? message["role"] : "unknown";
-    const item: Record<string, unknown> = { role };
-    // Responses API represents tool interactions as input items rather than
-    // chat messages. Keep their identity and linkage intact; only truncate
-    // potentially huge arguments/results.
-    if (typeof message["type"] === "string") item["type"] = message["type"];
-    for (const key of ["id", "call_id", "tool_call_id", "name"] as const) {
-      if (message[key] !== undefined) item[key] = message[key];
-    }
-    for (const key of ["arguments", "output"] as const) {
-      if (message[key] !== undefined) item[key] = truncateToolPayload(message[key]);
-    }
-    if (typeof message["name"] === "string") item["name"] = message["name"];
-    if (role === "tool") {
-      item["content"] = truncateToolPayload(message["content"]);
-    } else if (message["content"] !== undefined) {
-      item["content"] = summarizeValue(message["content"], 0, 4000);
-    }
-    if (Array.isArray(message["tool_calls"])) {
-      item["tool_calls"] = message["tool_calls"].map((call) => {
-        if (!isRecord(call)) return { type: "tool_call" };
-        const fn = isRecord(call["function"]) ? call["function"] : {};
-        return {
-          id: call["id"],
-          type: call["type"] ?? "function",
-          function: {
-            name: fn["name"] ?? "工具",
-            arguments: truncateToolPayload(fn["arguments"]),
-          },
-        };
-      });
-    }
-    return item;
-  });
-}
-
-function truncateToolPayload(value: unknown): unknown {
-  if (typeof value === "string") return truncateText(value, 2000);
-  return summarizeValue(value, 0, 2000);
-}
-
-function summarizeValue(value: unknown, depth: number, limit: number): unknown {
-  if (typeof value === "string") return truncateText(value, limit);
-  if (typeof value !== "object" || value === null) return value;
-  if (depth >= 3) return "[内容已省略]";
-  if (Array.isArray(value))
-    return value.slice(0, 30).map((item) => summarizeValue(item, depth + 1, limit));
-  const result: Record<string, unknown> = {};
-  for (const [key, item] of Object.entries(value)) {
-    if (["image", "image_url", "audio", "file", "data", "bytes"].includes(key)) continue;
-    result[key] = summarizeValue(item, depth + 1, limit);
-  }
-  return result;
-}
-
-function truncateText(value: unknown, limit: number): string {
-  if (value === null || value === undefined) return "";
-  if (typeof value === "string") return value.length <= limit ? value : `${value.slice(0, limit)}…`;
-  const serialized = JSON.stringify(value);
-  const text = typeof serialized === "string" ? serialized : "";
-  return text.length <= limit ? text : `${text.slice(0, limit)}…`;
 }

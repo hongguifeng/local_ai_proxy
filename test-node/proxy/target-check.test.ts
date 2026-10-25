@@ -206,6 +206,50 @@ describe("checkTarget", () => {
     expect(result.error).toContain("timeout");
   });
 
+  it("asks a target whose address already names the endpoint", async () => {
+    // [AI-11] The shared URL rule: an address that ends with the protocol's own
+    // endpoint is used as it stands, so a check does not append the endpoint twice.
+    const server = await createRecordingServer((request, response) => {
+      request.resume();
+      request.on("end", () => {
+        expect(request.url).toBe("/v1/chat/completions");
+        response.writeHead(200, { "content-type": "application/json" });
+        response.end(JSON.stringify({ ok: true }));
+      });
+    });
+
+    const result = await checkTarget({
+      targetUrl: urlFor(server, "/v1/chat/completions"),
+      model: "gpt-5.5",
+      timeoutMs: 5_000,
+    });
+    expect(result.ok).toBe(true);
+    expect(result.status).toBe(200);
+  });
+
+  it("sends no authorization header when the check holds a blank key", async () => {
+    // [AI-11] A check's own credential rule: a blank form field means no key at all.
+    // A real model call keeps a configured blank key as a credential; both rules are
+    // stated by their caller and share the same header construction.
+    const server = await createRecordingServer((request, response) => {
+      request.resume();
+      request.on("end", () => {
+        expect(request.headers.authorization).toBeUndefined();
+        response.writeHead(200, { "content-type": "application/json" });
+        response.end(JSON.stringify({ ok: true }));
+      });
+    });
+
+    const result = await checkTarget({
+      targetUrl: urlFor(server, "/v1"),
+      model: "gpt-5.5",
+      apiKey: "",
+      timeoutMs: 5_000,
+    });
+    expect(result.ok).toBe(true);
+    expect(result.status).toBe(200);
+  });
+
   it("throws TypeError for an invalid target url", async () => {
     await expect(checkTarget({ targetUrl: "not a url", model: "gpt-5.5" })).rejects.toThrow(
       TypeError,

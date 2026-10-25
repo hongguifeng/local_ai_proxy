@@ -1,9 +1,9 @@
-import { parseTargetUrl } from "./target.js";
+import { resolveUpstreamUrl, upstreamAuthHeaders, type UpstreamApiKind } from "./api-request.js";
 
 /**
  * Minimal request used to verify that a target is reachable and serving.
  */
-export type TargetCheckApiType = "chat" | "responses" | "anthropic";
+export type TargetCheckApiType = UpstreamApiKind;
 
 export interface TargetCheckRequest {
   readonly targetUrl: string;
@@ -49,45 +49,31 @@ async function readLimitedBody(response: Response, maxBytes: number): Promise<st
   return text === "" ? undefined : text;
 }
 
-interface TargetCheckShape {
-  readonly path: string;
-  readonly headers: Record<string, string>;
-  readonly body: Record<string, unknown>;
+/**
+ * The check's own business parameters: a one-word prompt and the smallest answer
+ * each protocol can produce. Protocol construction - endpoint path, auth headers and
+ * URL - is not repeated here; `src/proxy/api-request.ts` owns it for every caller.
+ * In particular a check asks for no temperature and no `stream` flag on the chat
+ * protocol, and only the Anthropic protocol needs a token cap.
+ */
+function buildCheckBody(kind: UpstreamApiKind, model: string): Record<string, unknown> {
+  const ping = { role: "user", content: "ping" };
+  if (kind === "responses") {
+    return { model, input: "ping" };
+  }
+  if (kind === "anthropic") {
+    return { model, messages: [ping], max_tokens: 1, stream: false };
+  }
+  return { model, messages: [ping] };
 }
 
-function buildCheckRequest(request: TargetCheckRequest): TargetCheckShape {
-  const apiKey = request.apiKey;
-  switch (request.apiType ?? "chat") {
-    case "responses":
-      return {
-        path: "/responses",
-        headers: apiKey ? { authorization: `Bearer ${apiKey}` } : {},
-        body: { model: request.model, input: "ping" },
-      };
-    case "anthropic":
-      return {
-        path: "/messages",
-        headers: {
-          "anthropic-version": "2023-06-01",
-          ...(apiKey ? { "x-api-key": apiKey } : {}),
-        },
-        body: {
-          model: request.model,
-          messages: [{ role: "user", content: "ping" }],
-          max_tokens: 1,
-          stream: false,
-        },
-      };
-    default:
-      return {
-        path: "/chat/completions",
-        headers: apiKey ? { authorization: `Bearer ${apiKey}` } : {},
-        body: {
-          model: request.model,
-          messages: [{ role: "user", content: "ping" }],
-        },
-      };
-  }
+/**
+ * A check carries no credentials when the form left the key out or blank; a real
+ * model call keeps a configured empty key as a credential. The two callers state
+ * their own rule and share the same header construction for whatever they do send.
+ */
+function checkCredentials(apiKey: string | undefined): string | undefined {
+  return apiKey === undefined || apiKey === "" ? undefined : apiKey;
 }
 
 /**
@@ -97,17 +83,14 @@ function buildCheckRequest(request: TargetCheckRequest): TargetCheckShape {
  * for authentication or model errors.
  */
 export async function checkTarget(request: TargetCheckRequest): Promise<TargetCheckResponse> {
-  const parsed = parseTargetUrl(request.targetUrl);
-  const shape = buildCheckRequest(request);
-  const url = new URL(
-    `${parsed.scheme}://${parsed.host}:${parsed.port}${parsed.basePath}${shape.path}`,
-  );
+  const kind = request.apiType ?? "chat";
+  const url = resolveUpstreamUrl(request.targetUrl, kind);
   const timeoutMs = request.timeoutMs ?? DEFAULT_TARGET_CHECK_TIMEOUT_MS;
   const headers: Record<string, string> = {
     "content-type": "application/json",
-    ...shape.headers,
+    ...upstreamAuthHeaders(kind, checkCredentials(request.apiKey)),
   };
-  const body = JSON.stringify(shape.body);
+  const body = JSON.stringify(buildCheckBody(kind, request.model));
   const controller = new AbortController();
   const timer = setTimeout(() => {
     controller.abort();

@@ -12,7 +12,6 @@ import {
   fetchTargetModels,
   type ProxyManager,
 } from "../proxy/index.js";
-import { joinTargetPath } from "../proxy/target.js";
 import { importModelPrices } from "../pricing/index.js";
 import { ApplicationError } from "../shared/index.js";
 
@@ -91,71 +90,7 @@ export function assembleAdminServices(assembly: AdminServiceAssembly): Assembled
         await manager.updateSummaryModel(parsed);
         return parsed;
       },
-      testConfig: async (value: SummaryModelConfig) => {
-        const endpoint =
-          value.api_type === "openai_responses"
-            ? "/responses"
-            : value.api_type === "anthropic_messages"
-              ? "/messages"
-              : "/chat/completions";
-        const headers: Record<string, string> = {
-          "content-type": "application/json",
-          ...(value.api_type === "anthropic_messages"
-            ? { "x-api-key": value.api_key, "anthropic-version": "2023-06-01" }
-            : { authorization: `Bearer ${value.api_key}` }),
-          ...Object.fromEntries(
-            value.target_headers.map((item) => {
-              const index = item.indexOf(":");
-              return [item.slice(0, index).trim(), item.slice(index + 1).trim()];
-            }),
-          ),
-        };
-        const body =
-          value.api_type === "openai_responses"
-            ? {
-                model: value.model,
-                input: "ping",
-                stream: false,
-                ...(value.disable_reasoning ? { reasoning_effort: "none" } : {}),
-              }
-            : value.api_type === "anthropic_messages"
-              ? {
-                  model: value.model,
-                  max_tokens: 1,
-                  messages: [{ role: "user", content: "ping" }],
-                  stream: false,
-                  ...(value.disable_reasoning ? { reasoning_effort: "none" } : {}),
-                }
-              : {
-                  model: value.model,
-                  messages: [{ role: "user", content: "ping" }],
-                  stream: false,
-                  ...(value.disable_reasoning ? { reasoning_effort: "none" } : {}),
-                };
-        try {
-          const target = new URL(value.target_url);
-          const basePath = target.pathname.replace(/\/$/u, "");
-          target.pathname = basePath.endsWith(endpoint)
-            ? basePath
-            : joinTargetPath(basePath, endpoint);
-          const response = await fetch(target, {
-            method: "POST",
-            headers,
-            body: JSON.stringify(body),
-            signal: AbortSignal.timeout(value.timeout_ms),
-          });
-          const responseText = (await response.text()).trim().slice(0, 500);
-          return {
-            ok: response.status >= 200 && response.status < 300,
-            detail:
-              responseText === ""
-                ? `HTTP ${response.status}`
-                : `HTTP ${response.status}: ${responseText}`,
-          };
-        } catch (error) {
-          return { ok: false, detail: error instanceof Error ? error.message : "request failed" };
-        }
-      },
+      testConfig: (value: SummaryModelConfig) => logQuery.testSummaryModel(value),
     },
   };
 }

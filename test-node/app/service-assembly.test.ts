@@ -1,4 +1,8 @@
-import { describe, expect, it } from "vitest";
+import { mkdtemp, rm } from "node:fs/promises";
+import os from "node:os";
+import path from "node:path";
+import { afterEach, describe, expect, it, vi } from "vitest";
+import Database from "better-sqlite3";
 
 import {
   applicationHealth,
@@ -11,11 +15,22 @@ import {
   type TargetCheckAdminService,
 } from "../../src/admin/index.js";
 import { assembleAdminServices, assertAdminServicesComplete } from "../../src/app/index.js";
+import type { SummaryModelConfig } from "../../src/config/index.js";
 import { LogQueryService } from "../../src/maintenance/index.js";
 import { UsageStatisticsService } from "../../src/maintenance/usage-statistics-service.js";
+import { TrafficRepository } from "../../src/persistence/index.js";
 import { ProxyManager, type ProxyConfigSaver } from "../../src/proxy/index.js";
 import { completeAdminServices } from "../admin/admin-service-fixtures.js";
 import { emptyGroupPage } from "../admin/log-service-fixtures.js";
+
+/** The log directories an [AI-11] test created, removed after each test. */
+const temporaryRoots: string[] = [];
+
+afterEach(async () => {
+  await Promise.all(
+    temporaryRoots.splice(0).map((root) => rm(root, { recursive: true, force: true })),
+  );
+});
 
 /**
  * [AI-09] The service assembly of the production application.
@@ -332,4 +347,134 @@ describe("[AI-09] admin service assembly", () => {
     };
     expect(needsSummaryTest).toBeDefined();
   });
+
+  it("[AI-11] hands generation the summary model the manager holds when the call is made", async () => {
+    const root = await mkdtemp(path.join(os.tmpdir(), "llm-proxy-assembly-summary-"));
+    temporaryRoots.push(root);
+    const stamp = "2026-07-18T10:00:00.000+08:00";
+    const repository = new TrafficRepository(root);
+    repository.upsertTask({
+      id: "task-1",
+      kind: "responses",
+      model: "gpt-5",
+      target: "fixture-target",
+      started_at: stamp,
+      last_seen_at: stamp,
+      last_response_at: stamp,
+      request_count: 1,
+      pending_request_only: false,
+    });
+    repository.upsertRecord({
+      id: "record-1",
+      task_id: "task-1",
+      sequence: 1,
+      event: "request_finished",
+      method: "POST",
+      path: "/v1/responses",
+      request_body: { messages: [{ role: "user", content: "hello" }] },
+    });
+    repository.close();
+
+    const noWrite: ProxyConfigSaver = { save: () => Promise.resolve() };
+    const manager = new ProxyManager({ pairs: [] }, noWrite);
+    const services = assembleAdminServices({
+      manager,
+      logQuery: new LogQueryService([root]),
+      getHealth: () => applicationHealth("running"),
+    });
+
+    const calls: string[] = [];
+    vi.stubGlobal("fetch", (_input: URL | RequestInfo, init?: RequestInit) => {
+      calls.push(typeof init?.body === "string" ? init.body : "");
+      return Promise.resolve(
+        new Response(
+          JSON.stringify({
+            choices: [{ message: { content: '{"brief":"一段简介。","facts":{}}' } }],
+          }),
+          { status: 200, headers: { "content-type": "application/json" } },
+        ),
+      );
+    });
+    try {
+      // Nothing is configured yet, so generation says so instead of calling anything.
+      await expect(services.logService.generateTaskBrief("task-1")).rejects.toThrow(
+        "Summary model is not configured.",
+      );
+      expect(calls).toEqual([]);
+
+      await services.summaryModelService.setConfig(summaryModel("first-model"));
+      await services.logService.generateTaskBrief("task-1");
+      expect(modelStored(root)).toBe("first-model");
+      expect(calls[0]).toContain('"model":"first-model"');
+
+      // The model that is current when the call is made is the one that is asked and
+      // the one that is stored: the assembly reads the manager, not a snapshot.
+      await services.summaryModelService.setConfig(summaryModel("second-model"));
+      await services.logService.generateTaskBrief("task-1");
+      expect(modelStored(root)).toBe("second-model");
+      expect(calls[1]).toContain('"model":"second-model"');
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+
+  it("[AI-11] answers a summary-model connection test through the client that generates", async () => {
+    const noWrite: ProxyConfigSaver = { save: () => Promise.resolve() };
+    const services = assembleAdminServices({
+      manager: new ProxyManager({ pairs: [] }, noWrite),
+      logQuery: new LogQueryService([]),
+      getHealth: () => applicationHealth("running"),
+    });
+
+    const calls: { url: string; body: string; headers: Record<string, string> }[] = [];
+    vi.stubGlobal("fetch", (input: URL | RequestInfo, init?: RequestInit) => {
+      const headers: Record<string, string> = {};
+      for (const [name, value] of new Headers(init?.headers ?? {})) headers[name] = value;
+      calls.push({
+        url:
+          typeof input === "string" ? input : input instanceof URL ? input.toString() : input.url,
+        body: typeof init?.body === "string" ? init.body : "",
+        headers,
+      });
+      return Promise.resolve(new Response("pong", { status: 200 }));
+    });
+    try {
+      const report = await services.summaryModelService.testConfig(summaryModel("checker"));
+      expect(report).toEqual({ ok: true, detail: "HTTP 200: pong" });
+      expect(calls).toHaveLength(1);
+      // The same URL, headers and one-word ping a real call would use, built once.
+      expect(calls[0]?.url).toBe("https://summary.example.com/v1/chat/completions");
+      expect(calls[0]?.headers["authorization"]).toBe("Bearer summary-secret");
+      expect(calls[0]?.body).toBe(
+        '{"model":"checker","messages":[{"role":"user","content":"ping"}],"stream":false,"reasoning_effort":"none"}',
+      );
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
 });
+
+/** A summary model with one name changed, for the read-at-call-time test. */
+function summaryModel(model: string): SummaryModelConfig {
+  return {
+    disable_reasoning: true,
+    api_type: "openai_chat",
+    target_url: "https://summary.example.com/v1",
+    api_key: "summary-secret",
+    model,
+    target_headers: [],
+    timeout_ms: 30_000,
+  };
+}
+
+/** The model name stored beside the generated brief. */
+function modelStored(root: string): string | null {
+  const db = new Database(path.join(root, "traffic.db"));
+  try {
+    const row = db.prepare("SELECT model FROM task_briefs WHERE task_id = 'task-1'").get() as
+      { model: string | null } | undefined;
+    return row?.model ?? null;
+  } finally {
+    db.close();
+  }
+}
