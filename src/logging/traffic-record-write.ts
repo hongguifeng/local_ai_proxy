@@ -1,5 +1,4 @@
 import type { RequestPricingResult } from "../pricing/index.js";
-import type { EndpointKind } from "../proxy/protocol/analysis.js";
 import type { TrafficEventName, TrafficHeaderMap } from "../proxy/traffic-event.js";
 
 export interface TrafficRecordWriteFields {
@@ -50,14 +49,19 @@ export type TrafficRecordWrite = TrafficRecordWriteFields & Record<string, unkno
 
 export interface TrafficTaskWriteFields {
   readonly id: string;
-  readonly kind?: EndpointKind | undefined;
-  readonly endpoint?: string | undefined;
-  readonly anchor?: string | undefined;
-  readonly model?: string | undefined;
-  readonly target?: string | undefined;
+  /**
+   * The endpoint kind the matcher classified this task under. A write that starts
+   * from a stored row carries the text that row already has, which an older
+   * version or a tool may have written as something other than a kind.
+   */
+  readonly kind?: string | undefined;
+  readonly endpoint?: string | null | undefined;
+  readonly anchor?: string | null | undefined;
+  readonly model?: string | null | undefined;
+  readonly target?: string | null | undefined;
   readonly started_at?: string | undefined;
   readonly last_seen_at?: string | undefined;
-  readonly last_response_at?: string | undefined;
+  readonly last_response_at?: string | null | undefined;
   readonly request_count?: number | undefined;
   readonly pending_request_only?: boolean | undefined;
   readonly match_confidence?: number | undefined;

@@ -30,8 +30,8 @@ try {
       path: "/v1/responses",
       request_body: { input: "native sqlite fts smoke token" },
     });
-    assert.equal(repository.getTask("packaged-smoke-task")?.["model"], "packaged-smoke-model");
-    assert.equal(repository.getRecord("packaged-smoke-record")?.["task_id"], "packaged-smoke-task");
+    assert.equal(repository.getTask("packaged-smoke-task")?.model, "packaged-smoke-model");
+    assert.equal(repository.getRecord("packaged-smoke-record")?.task_id, "packaged-smoke-task");
     assert.deepEqual(
       repository.listTasks("fts smoke token").items.map(({ id }) => id),
       ["packaged-smoke-task"],

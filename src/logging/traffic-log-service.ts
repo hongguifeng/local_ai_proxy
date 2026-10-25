@@ -108,56 +108,52 @@ export class TrafficLogService {
       stableJsonStringify(originalRequestBody) !== stableJsonStringify(requestBody)
         ? originalRequestBody
         : undefined;
-    repository.transaction(() => {
-      repository.upsertTask({
+    const recordWrite: TrafficRecordWrite = {
+      id: recordToWrite.id,
+      task_id: taskId,
+      sequence: assignment.sequence,
+      event: recordToWrite.event,
+      timestamp: recordToWrite.timestamp,
+      started_at: recordToWrite.started_timestamp || recordToWrite.timestamp,
+      duration_ms: recordToWrite.duration_ms,
+      first_token_ms: recordToWrite.first_token_ms,
+      decode_window_ms: recordToWrite.decode_window_ms,
+      proxy_id: recordToWrite.proxy?.id,
+      proxy_name: recordToWrite.proxy?.name,
+      client_host: recordToWrite.client.host,
+      client_port: recordToWrite.client.port,
+      target_id: target.id,
+      target_name: target.name,
+      target_url: resolvedTargetUrl,
+      method: request.method,
+      path: request.path,
+      endpoint,
+      status: recordToWrite.response?.status,
+      error: recordToWrite.error,
+      message_count: requestMessageCount(kind, requestBody),
+      token_count: responseTokenCount(assignment.responsePayload),
+      request_token_count: tokenCounts.request,
+      response_token_count: tokenCounts.response,
+      pricing: recordToWrite.pricing,
+      request_headers: request.headers,
+      response_headers: recordToWrite.response?.headers ?? {},
+      request_body: requestBody,
+      original_request_body: distinctOriginalBody,
+      response_body: assignment.responsePayload,
+      model_route: request.model_route,
+      stripped_fields: request.stripped_fields ?? [],
+      injected_fields: request.injected_fields ?? [],
+      added_upstream_headers: request.added_upstream_headers ?? [],
+    };
+    repository.writeTraffic({
+      task: {
         ...assignment.task,
         ...(resolvedTargetUrl === "" ? {} : { target: resolvedTargetUrl }),
-      });
-      const recordWrite: TrafficRecordWrite = {
-        id: recordToWrite.id,
-        task_id: taskId,
-        sequence: assignment.sequence,
-        event: recordToWrite.event,
-        timestamp: recordToWrite.timestamp,
-        started_at: recordToWrite.started_timestamp || recordToWrite.timestamp,
-        duration_ms: recordToWrite.duration_ms,
-        first_token_ms: recordToWrite.first_token_ms,
-        decode_window_ms: recordToWrite.decode_window_ms,
-        proxy_id: recordToWrite.proxy?.id,
-        proxy_name: recordToWrite.proxy?.name,
-        client_host: recordToWrite.client.host,
-        client_port: recordToWrite.client.port,
-        target_id: target.id,
-        target_name: target.name,
-        target_url: resolvedTargetUrl,
-        method: request.method,
-        path: request.path,
-        endpoint,
-        status: recordToWrite.response?.status,
-        error: recordToWrite.error,
-        message_count: requestMessageCount(kind, requestBody),
-        token_count: responseTokenCount(assignment.responsePayload),
-        request_token_count: tokenCounts.request,
-        response_token_count: tokenCounts.response,
-        pricing: recordToWrite.pricing,
-        request_headers: request.headers,
-        response_headers: recordToWrite.response?.headers ?? {},
-        request_body: requestBody,
-        original_request_body: distinctOriginalBody,
-        response_body: assignment.responsePayload,
-        model_route: request.model_route,
-        stripped_fields: request.stripped_fields ?? [],
-        injected_fields: request.injected_fields ?? [],
-        added_upstream_headers: request.added_upstream_headers ?? [],
-      };
-      repository.upsertRecord(recordWrite);
-      for (const responseId of assignment.responseIds) {
-        repository.upsertResponseLink(responseId, taskId);
-      }
-      for (const contextKey of assignment.contextKeys) {
-        repository.upsertContextLink(contextKey, taskId);
-      }
-      repository.deleteTasks(assignment.supersededTaskIds);
+      },
+      record: recordWrite,
+      responseLinks: assignment.responseIds.map((responseId) => ({ responseId, taskId })),
+      contextLinks: assignment.contextKeys.map((contextKey) => ({ contextKey, taskId })),
+      supersededTaskIds: assignment.supersededTaskIds,
     });
   }
 }

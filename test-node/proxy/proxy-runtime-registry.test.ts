@@ -143,10 +143,7 @@ describe("ProxyRuntimeRegistry", () => {
       try {
         const events = new Set(
           [...repository.recentTasks(10)].flatMap((task) => {
-            const taskId = task["id"];
-            return typeof taskId === "string"
-              ? repository.listTaskRecords(taskId).items.map((record) => String(record["event"]))
-              : [];
+            return repository.listTaskRecords(task.id).items.map((record) => record.event);
           }),
         );
         expect(events).toContain("request_finished");
@@ -851,16 +848,15 @@ function postJson(
 
 /** Pricing status of the newest record of the most recently seen task. */
 function pricingStatus(repository: TrafficRepository): string {
-  const taskId = repository.recentTasks(1)[0]?.["id"];
-  if (typeof taskId !== "string") {
+  const taskId = repository.recentTasks(1)[0]?.id;
+  if (taskId === undefined) {
     return "no-task";
   }
-  const pricing = repository.listTaskRecords(taskId).items[0]?.["pricing"];
+  const pricing = repository.listTaskRecords(taskId).items[0]?.pricing;
   if (!isRecord(pricing)) {
     return "no-pricing";
   }
-  const status = pricing["pricing_status"];
-  return typeof status === "string" ? status : "no-status";
+  return pricing.pricing_status ?? "no-status";
 }
 
 function requestText(port: number, requestPath: string): Promise<string> {

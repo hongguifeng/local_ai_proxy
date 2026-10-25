@@ -1,11 +1,14 @@
 import {
   TrafficRepository,
-  type RepositoryRecord,
+  type RecordRow,
+  type RecordSummaryRow,
+  type TaskBriefRow,
   type TaskDecodeSpeedStats,
   type TaskPricingAggregate,
   type TaskTokenSeriesPoint,
   type TaskCostSeriesPoint,
   type TaskOutputTokenSeriesPoint,
+  type TaskSummaryRow,
 } from "../persistence/index.js";
 import {
   ApplicationError,
@@ -205,10 +208,8 @@ export class LogQueryService {
     const repository = new TrafficRepository(root);
     try {
       const page = repository.listTaskSummaries(query, boundedLimit, boundedOffset);
-      const pricing = repository.taskPricingForTasks(page.items.map((item) => string(item["id"])));
-      const decodeStats = repository.taskDecodeSpeedStats(
-        page.items.map((item) => string(item["id"])),
-      );
+      const pricing = repository.taskPricingForTasks(page.items.map((item) => item.id));
+      const decodeStats = repository.taskDecodeSpeedStats(page.items.map((item) => item.id));
       return {
         groups: groupsWithPreviews(repository, page.items, query, pricing, decodeStats),
         total: page.total,
@@ -275,12 +276,12 @@ export class LogQueryService {
       const repository = new TrafficRepository(root);
       try {
         for (const row of repository.listRecordsByIds(boundedIds)) {
-          const id = string(row["id"]);
+          const id = row.id;
           if (seen.has(id)) continue;
           seen.add(id);
           records.push({
             ...logListItem(row),
-            pending: string(row["event"]) === "request_pending_response",
+            pending: row.event === "request_pending_response",
           });
         }
       } finally {
@@ -335,15 +336,10 @@ export class LogQueryService {
    */
   getSummary(recordId: string): HistorySummary | undefined {
     for (const root of this.#configuredRoots()) {
-      const db = new TrafficRepository(root);
+      const repository = new TrafficRepository(root);
       try {
-        const row = db.database
-          .prepare(
-            "SELECT summary_json FROM history_summaries WHERE record_id = ? AND status = 'ready'",
-          )
-          .get(recordId) as { summary_json?: string } | undefined;
-        const summaryJson = row?.summary_json;
-        if (summaryJson) {
+        const summaryJson = repository.historySummaryJson(recordId);
+        if (summaryJson !== undefined) {
           const parsed: unknown = JSON.parse(summaryJson);
           // Anything that is not an object cannot be a summary; the console shows it as absent.
           return isRecord(parsed) ? parsed : undefined;
@@ -359,7 +355,7 @@ export class LogQueryService {
           cause_type: errorName(causeOf(error)),
         });
       } finally {
-        db.close();
+        repository.close();
       }
     }
     return undefined;
@@ -374,26 +370,20 @@ export class LogQueryService {
   private saveSummary(recordId: string, result: HistorySummary, model: string): void {
     let lastError: unknown;
     for (const root of this.#configuredRoots()) {
-      const db = new TrafficRepository(root);
+      const repository = new TrafficRepository(root);
       try {
-        const ownsRecord =
-          db.database.prepare("SELECT 1 FROM records WHERE id = ?").get(recordId) !== undefined;
+        const ownsRecord = repository.hasRecord(recordId);
         if (!ownsRecord) {
           continue;
         }
-        db.database
-          .prepare(
-            "INSERT INTO history_summaries(record_id,status,summary_json,model,prompt_version,created_at,updated_at) VALUES(?,?,?,?,?,?,?) ON CONFLICT(record_id) DO UPDATE SET status='ready',summary_json=excluded.summary_json,model=excluded.model,updated_at=excluded.updated_at",
-          )
-          .run(
-            recordId,
-            "ready",
-            JSON.stringify(result),
-            model,
-            "v1",
-            new Date().toISOString(),
-            new Date().toISOString(),
-          );
+        repository.saveHistorySummary({
+          recordId,
+          summaryJson: JSON.stringify(result),
+          model,
+          promptVersion: "v1",
+          createdAt: new Date().toISOString(),
+          updatedAt: new Date().toISOString(),
+        });
         return;
       } catch (error) {
         lastError = error;
@@ -405,7 +395,7 @@ export class LogQueryService {
           cause_type: errorName(causeOf(error)),
         });
       } finally {
-        db.close();
+        repository.close();
       }
     }
     throw storageError("The summary could not be saved.", {
@@ -425,7 +415,7 @@ export class LogQueryService {
         const row = repository.getTaskBrief(groupId);
         if (row === undefined) continue;
         // An empty brief_text is the "never generated" answer, so the next root is asked.
-        if (string(row["brief_text"]) === "") continue;
+        if (row.brief_text === null || row.brief_text === "") continue;
         return taskBriefFromRow(row, groupId);
       } catch (error) {
         // A root without this task answers "no row", which the code above already skips.
@@ -505,14 +495,14 @@ export class LogQueryService {
         // violation that would leave the brief in the wrong directory.
         if (!repository.hasTask(groupId)) continue;
         return taskBriefFromRow(
-          repository.saveTaskBrief(
-            groupId,
-            text,
+          repository.saveTaskBrief({
+            taskId: groupId,
+            briefText: text,
             model,
             sourceRecordId,
-            TASK_BRIEF_PROMPT_VERSION,
+            promptVersion: TASK_BRIEF_PROMPT_VERSION,
             contextJson,
-          ),
+          }),
           groupId,
         );
       } catch (error) {
@@ -714,7 +704,7 @@ export class LogQueryService {
     limit: number,
     offset: number,
   ): LogGroupPage {
-    const tasks: RepositoryRecord[] = [];
+    const tasks: TaskSummaryRow[] = [];
     const taskRoots = new Map<string, string>();
     let total = 0;
     const fetchLimit = offset + limit;
@@ -724,7 +714,7 @@ export class LogQueryService {
         const page = repository.listTaskSummaries(query, fetchLimit, 0);
         total += page.total;
         tasks.push(...page.items);
-        for (const task of page.items) taskRoots.set(string(task["id"]), root);
+        for (const task of page.items) taskRoots.set(task.id, root);
       } finally {
         repository.close();
       }
@@ -733,17 +723,15 @@ export class LogQueryService {
     const visibleTasks = tasks.slice(offset, offset + limit);
     const summaries = new Map<string, LogGroupSummary>();
     for (const root of roots) {
-      const rootTasks = visibleTasks.filter((task) => taskRoots.get(string(task["id"])) === root);
+      const rootTasks = visibleTasks.filter((task) => taskRoots.get(task.id) === root);
       if (!rootTasks.length) continue;
       const repository = new TrafficRepository(root);
       try {
-        const pricing = repository.taskPricingForTasks(rootTasks.map((task) => string(task["id"])));
-        const decodeStats = repository.taskDecodeSpeedStats(
-          rootTasks.map((task) => string(task["id"])),
-        );
+        const pricing = repository.taskPricingForTasks(rootTasks.map((task) => task.id));
+        const decodeStats = repository.taskDecodeSpeedStats(rootTasks.map((task) => task.id));
         if (!query.trim()) {
           for (const task of rootTasks) {
-            const group = taskGroupSummary(task, pricing.get(string(task["id"])), decodeStats);
+            const group = taskGroupSummary(task, pricing.get(task.id), decodeStats);
             summaries.set(group.id, group);
           }
           continue;
@@ -761,9 +749,7 @@ export class LogQueryService {
         repository.close();
       }
     }
-    const groups = visibleTasks.map(
-      (task) => summaries.get(string(task["id"])) ?? taskGroupSummary(task),
-    );
+    const groups = visibleTasks.map((task) => summaries.get(task.id) ?? taskGroupSummary(task));
     const nextOffset = offset + groups.length;
     return {
       groups,
@@ -977,31 +963,31 @@ function parseBriefContext(value: unknown): Record<string, string> | undefined {
  * drop a row whose `brief_text` is empty, which is how a generation that never finished
  * reads back; everything else here is present by construction.
  */
-function taskBriefFromRow(row: Readonly<RepositoryRecord>, groupId: string): TaskBrief {
-  const context = parseBriefContext(row["context_json"]);
+function taskBriefFromRow(row: Readonly<TaskBriefRow>, groupId: string): TaskBrief {
+  const context = parseBriefContext(row.context_json);
   return {
     task_id: groupId,
-    text: string(row["brief_text"]),
+    text: row.brief_text ?? "",
     ...(context === undefined ? {} : { context }),
-    model: optionalString(row["model"]),
-    generated_at: string(row["updated_at"]),
-    source_record_id: optionalString(row["source_record_id"]),
+    model: optionalString(row.model),
+    generated_at: row.updated_at,
+    source_record_id: row.source_record_id,
   };
 }
 
 function groupsWithPreviews(
   repository: TrafficRepository,
-  tasks: readonly RepositoryRecord[],
+  tasks: readonly TaskSummaryRow[],
   query: string,
   pricing = new Map<string, TaskPricingAggregate>(),
   decodeStats = new Map<string, TaskDecodeSpeedStats>(),
 ): LogGroupSummary[] {
   const previews = repository.listTaskSearchPreviews(
-    tasks.map((task) => string(task["id"])),
+    tasks.map((task) => task.id),
     query,
   );
   return tasks.map((task) => {
-    const group = taskGroupSummary(task, pricing.get(string(task["id"])), decodeStats);
+    const group = taskGroupSummary(task, pricing.get(task.id), decodeStats);
     const page = previews.get(group.id);
     return page === undefined
       ? group
@@ -1020,49 +1006,49 @@ function groupsWithPreviews(
   });
 }
 
-function recordDetail(record: Readonly<RepositoryRecord>): LogRecordDetail {
-  const proxyName = string(record["proxy_name"]);
-  const pending = string(record["event"]) !== "request_finished";
+function recordDetail(record: Readonly<RecordRow>): LogRecordDetail {
+  const proxyName = record.proxy_name ?? "";
+  const pending = record.event !== "request_finished";
   return {
-    id: string(record["id"]),
+    id: record.id,
     pending,
-    request: record["request_body"] ?? null,
-    response: record["response_body"] ?? null,
-    pricing: isRecord(record["pricing"]) ? record["pricing"] : null,
+    request: record.request_body ?? null,
+    response: record.response_body ?? null,
+    pricing: isRecord(record.pricing) ? record.pricing : null,
     ...(pending
       ? {}
       : {
           decode_window_ms: recordDecodeMs(record) ?? 0,
         }),
     request_meta: compactMeta({
-      id: record["id"],
-      task_id: record["task_id"],
-      sequence: record["sequence"],
-      timestamp: displayTimestamp(record["timestamp"]) || record["timestamp"],
-      duration_ms: record["duration_ms"],
-      method: record["method"],
-      path: record["path"],
-      endpoint: record["endpoint"],
-      target: record["target_url"],
-      proxy: proxyName === "" ? record["proxy_id"] : proxyName,
+      id: record.id,
+      task_id: record.task_id,
+      sequence: record.sequence,
+      timestamp: displayTimestamp(record.timestamp) || record.timestamp,
+      duration_ms: record.duration_ms,
+      method: record.method,
+      path: record.path,
+      endpoint: record.endpoint,
+      target: record.target_url,
+      proxy: proxyName === "" ? record.proxy_id : proxyName,
       client: clientAddress(record),
-      message_count: record["message_count"],
-      model_route: record["model_route"],
-      stripped_fields: record["stripped_fields"],
-      injected_fields: record["injected_fields"],
-      added_upstream_headers: record["added_upstream_headers"],
-      headers: record["request_headers"],
+      message_count: record.message_count,
+      model_route: record.model_route,
+      stripped_fields: record.stripped_fields,
+      injected_fields: record.injected_fields,
+      added_upstream_headers: record.added_upstream_headers,
+      headers: record.request_headers,
     }),
     response_meta: compactMeta({
-      decode_window_ms: pending ? undefined : record["decode_window_ms"],
-      status: record["status"],
-      first_token_ms: pending ? undefined : record["first_token_ms"],
-      duration_ms: pending ? undefined : record["duration_ms"],
-      request_token_count: record["request_token_count"],
-      response_token_count: record["response_token_count"],
+      decode_window_ms: pending ? undefined : record.decode_window_ms,
+      status: record.status,
+      first_token_ms: pending ? undefined : record.first_token_ms,
+      duration_ms: pending ? undefined : record.duration_ms,
+      request_token_count: record.request_token_count,
+      response_token_count: record.response_token_count,
       cached_token_count: cachedTokenCount(record),
-      error: record["error"],
-      headers: record["response_headers"],
+      error: record.error,
+      headers: record.response_headers,
     }),
   };
 }
@@ -1072,17 +1058,16 @@ function recordDetail(record: Readonly<RepositoryRecord>): LogRecordDetail {
  * undefined when the record has no persisted usage. Unpriced records keep their
  * measured usage, so a missing price rule no longer hides the cache hit.
  */
-function cachedTokenCount(record: Readonly<RepositoryRecord>): number | undefined {
-  const pricing = isRecord(record["pricing"]) ? record["pricing"] : undefined;
-  const usage = pricing !== undefined && isRecord(pricing["usage"]) ? pricing["usage"] : undefined;
-  const value = usage !== undefined ? usage["cacheReadTokens"] : undefined;
+function cachedTokenCount(record: Readonly<RecordRow>): number | undefined {
+  const usage = record.pricing.usage;
+  const value = isRecord(usage) ? usage["cacheReadTokens"] : undefined;
   return typeof value === "number" && Number.isSafeInteger(value) && value > 0 ? value : undefined;
 }
 
-function clientAddress(record: Readonly<RepositoryRecord>): string {
-  const host = string(record["client_host"]);
-  const port = record["client_port"];
-  return host === "" ? "" : port === null || port === undefined ? host : `${host}:${string(port)}`;
+function clientAddress(record: Readonly<RecordRow>): string {
+  const host = record.client_host ?? "";
+  const port = record.client_port;
+  return host === "" ? "" : port === null ? host : `${host}:${port}`;
 }
 
 function compactMeta(values: Readonly<Record<string, unknown>>): Readonly<Record<string, unknown>> {
@@ -1099,47 +1084,50 @@ function emptyMetaValue(value: unknown): boolean {
   );
 }
 
-function logListItem(record: Readonly<RepositoryRecord>): LogListItem {
+function logListItem(record: Readonly<RecordSummaryRow>): LogListItem {
   const decodeSpeed = recordDecodeSpeedTps(record);
-  const totalMs = optionalNumber(record["duration_ms"]) ?? 0;
-  const output = optionalInteger(record["response_token_count"]) ?? 0;
+  const totalMs = optionalNumber(record.duration_ms) ?? 0;
+  const output = optionalInteger(record.response_token_count) ?? 0;
   const fallback =
-    decodeSpeed === undefined &&
-    string(record["event"]) === "request_finished" &&
-    totalMs > 0 &&
-    output > 0;
+    decodeSpeed === undefined && record.event === "request_finished" && totalMs > 0 && output > 0;
   return {
     cost: requestCost(record),
     ...(fallback ? { end_to_end_speed_tps: (output * 1000) / totalMs } : {}),
     ...(decodeSpeed !== undefined ? { decode_speed_tps: decodeSpeed } : {}),
-    has_summary: Number(record["has_summary"]) === 1,
-    id: string(record["id"]),
-    timestamp: displayTimestamp(record["timestamp"]) || string(record["timestamp"]),
-    sequence: string(record["sequence"]),
-    method: string(record["method"]),
-    path: string(record["path"]),
-    endpoint: string(record["endpoint"]),
-    message_count: optionalInteger(record["message_count"]),
-    status: optionalInteger(record["status"]),
-    request_token_count: optionalInteger(record["request_token_count"]),
-    response_token_count: optionalInteger(record["response_token_count"]),
-    target: string(record["target_url"]),
+    has_summary: record.has_summary === 1,
+    id: record.id,
+    timestamp: displayTimestamp(record.timestamp) || record.timestamp,
+    sequence: String(record.sequence),
+    method: record.method,
+    path: record.path,
+    endpoint: record.endpoint,
+    message_count: optionalInteger(record.message_count),
+    status: optionalInteger(record.status),
+    request_token_count: optionalInteger(record.request_token_count),
+    response_token_count: optionalInteger(record.response_token_count),
+    target: record.target_url ?? "",
   };
 }
 
+/**
+ * The columns the console reads off a record: timing and money are present on both the
+ * list projection and the detail projection.
+ */
+type RecordTimingRow = Readonly<RecordRow> | Readonly<RecordSummaryRow>;
+
 /** Observed generation window; only old records fall back to historical timing. */
-function recordDecodeMs(record: Readonly<RepositoryRecord>): number | undefined {
-  if (string(record["event"]) !== "request_finished") return undefined;
-  const durationMs = optionalNumber(record["duration_ms"]);
+function recordDecodeMs(record: Readonly<RecordTimingRow>): number | undefined {
+  if (record.event !== "request_finished") return undefined;
+  const durationMs = optionalNumber(record.duration_ms);
   if (durationMs === null || durationMs < 1) return undefined;
   return (
-    optionalNumber(record["decode_window_ms"]) ??
-    durationMs - (optionalNumber(record["first_token_ms"]) ?? 0)
+    optionalNumber(record.decode_window_ms) ??
+    durationMs - (optionalNumber(record.first_token_ms) ?? 0)
   );
 }
 
-function recordDecodeSpeedTps(record: Readonly<RepositoryRecord>): number | undefined {
-  const outputTokens = optionalInteger(record["response_token_count"]) ?? 0;
+function recordDecodeSpeedTps(record: Readonly<RecordTimingRow>): number | undefined {
+  const outputTokens = optionalInteger(record.response_token_count) ?? 0;
   const decodeMs = recordDecodeMs(record);
   if (outputTokens <= 0 || decodeMs === undefined || decodeMs < 1) return undefined;
   return outputTokens / (decodeMs / 1000);
@@ -1151,35 +1139,32 @@ function optionalNumber(value: unknown): number | null {
   return Number.isFinite(converted) ? converted : null;
 }
 
-function requestCost(record: Readonly<RepositoryRecord>): LogRequestCost {
-  const status = record["pricing_status"];
-  const pricingStatus =
-    status === "pending" || status === "priced" || status === "unpriced" ? status : "unpriced";
-  const nano = record["cost_nano_cny"];
+function requestCost(record: Readonly<RecordSummaryRow>): LogRequestCost {
+  const pricingStatus = record.pricing_status;
+  const nano = record.cost_nano_cny;
   return {
     currency: "CNY",
     status: pricingStatus,
-    reason: typeof record["pricing_reason"] === "string" ? record["pricing_reason"] : null,
-    amount: pricingStatus === "priced" && typeof nano === "string" ? nanoToCny(nano) : null,
+    reason: record.pricing_reason,
+    amount: pricingStatus === "priced" && nano !== null ? nanoToCny(nano) : null,
   };
 }
 
-function taskSortTime(task: Readonly<RepositoryRecord>): number {
-  const value = task["last_seen_at"] ?? task["last_response_at"] ?? task["started_at"];
-  const timestamp = typeof value === "string" ? Date.parse(value) : Number.NaN;
+function taskSortTime(task: Readonly<TaskSummaryRow>): number {
+  const timestamp = Date.parse(task.last_seen_at);
   return Number.isNaN(timestamp) ? 0 : timestamp;
 }
 
 function taskGroupSummary(
-  task: Readonly<RepositoryRecord>,
+  task: Readonly<TaskSummaryRow>,
   pricing?: TaskPricingAggregate,
   decodeStats = new Map<string, TaskDecodeSpeedStats>(),
 ): LogGroupSummary {
-  const requestCount = integer(task["request_count"], 0);
-  const rawModel = optionalString(task["model"]);
+  const requestCount = integer(task.request_count, 0);
+  const rawModel = optionalString(task.model);
   const model = rawModel === null ? null : basename(rawModel);
-  const target = optionalString(task["target"]);
-  const decode = decodeStats.get(string(task["id"]));
+  const target = optionalString(task.target);
+  const decode = decodeStats.get(task.id);
   const decodeSpeed =
     decode !== undefined && decode.decode_ms > 0 && decode.output_tokens > 0
       ? decode.output_tokens / (decode.decode_ms / 1000)
@@ -1187,11 +1172,11 @@ function taskGroupSummary(
   return {
     cost: taskCost(pricing),
     ...(decodeSpeed !== undefined ? { decode_speed_tps: decodeSpeed } : {}),
-    id: string(task["id"]),
-    last_activity_at: displayTimestamp(task["last_seen_at"] ?? task["last_response_at"]),
+    id: task.id,
+    last_activity_at: displayTimestamp(task.last_seen_at),
     model,
     request_count: requestCount,
-    started_at: displayTimestamp(task["started_at"]),
+    started_at: displayTimestamp(task.started_at),
     target,
   };
 }

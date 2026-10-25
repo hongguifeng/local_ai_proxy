@@ -24,23 +24,41 @@ export {
   replaceRecordBody,
   type RecordBodyKind,
 } from "./body-storage.js";
+export { recordText, type RepositoryPage, type RepositoryRecord } from "./access-contracts.js";
 export {
   TrafficRepository,
-  decodeRecordRow,
-  decodeTaskRow,
-  recordSearchDocument,
-  searchText,
-  type RecordSearchDocument,
-  type RepositoryRecord,
-  type RepositoryPage,
+  type ContextLinkWrite,
+  type ResponseLinkWrite,
   type TrafficRepositoryOptions,
+  type TrafficWrite,
+} from "./repository.js";
+export {
+  decodeRecordRow,
+  type HeaderMap,
+  type RecordPricing,
+  type RecordRow,
+  type RecordSummaryRow,
+  type RecordWrite,
+  type RecordWritePricing,
+  type UsageStatisticsRow,
+} from "./record-store.js";
+export { decodeTaskRow, type TaskRow, type TaskSummaryRow, type TaskWrite } from "./task-store.js";
+export { recordSearchDocument, searchText, type RecordSearchDocument } from "./search-store.js";
+export {
   type PricingBucket,
   type PricingPrice,
+  type TaskCostSeriesPoint,
   type TaskDecodeSpeedStats,
+  type TaskOutputTokenSeriesPoint,
   type TaskPricingAggregate,
   type TaskPricingBreakdown,
   type TaskPricingGroup,
   type TaskTokenSeriesPoint,
-  type TaskCostSeriesPoint,
-  type TaskOutputTokenSeriesPoint,
-} from "./repository.js";
+} from "./pricing-store.js";
+export {
+  type GeneratedTextStatus,
+  type HistorySummaryWrite,
+  type TaskBriefRow,
+  type TaskBriefWrite,
+} from "./generated-text-store.js";
+export { type PricingState } from "./column-codec.js";

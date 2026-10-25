@@ -75,10 +75,10 @@ describe("keep-latest log cleanup", () => {
       deleted_count: 3,
     });
     const first = new TrafficRepository(firstRoot);
-    expect(first.listTasks().items.map((task) => task["id"])).toEqual(["first-new"]);
+    expect(first.listTasks().items.map((task) => task.id)).toEqual(["first-new"]);
     first.close();
     const second = new TrafficRepository(secondRoot);
-    expect(second.listTasks().items.map((task) => task["id"])).toEqual(["second-new"]);
+    expect(second.listTasks().items.map((task) => task.id)).toEqual(["second-new"]);
     second.close();
   });
 });

@@ -553,6 +553,93 @@ describe("TrafficRepository.transaction", () => {
   });
 });
 
+describe("TrafficRepository.writeTraffic", () => {
+  it("commits task, record, links, superseded cleanup and search text in one call", async () => {
+    const root = await mkdtemp(path.join(os.tmpdir(), "llm-proxy-write-traffic-commit-"));
+    temporaryDirectories.push(root);
+    const repository = new TrafficRepository(root);
+    repository.upsertTask({ id: "traffic-superseded", match_strategy_version: 4 });
+    repository.upsertRecord({
+      id: "traffic-superseded-record",
+      task_id: "traffic-superseded",
+      sequence: 1,
+      method: "POST",
+      path: "/v1/responses",
+      request_body: { input: "superseded traffic token" },
+    });
+
+    repository.writeTraffic({
+      task: { id: "traffic-task", match_strategy_version: 4, model: "traffic-model" },
+      record: {
+        id: "traffic-record",
+        task_id: "traffic-task",
+        sequence: 1,
+        method: "POST",
+        path: "/v1/responses",
+        request_body: { input: "committed traffic token" },
+      },
+      responseLinks: [{ responseId: "traffic-response", taskId: "traffic-task" }],
+      contextLinks: [{ contextKey: "conversation:traffic", taskId: "traffic-task" }],
+      supersededTaskIds: ["traffic-superseded"],
+    });
+
+    expect(repository.getTask("traffic-task")).toMatchObject({ id: "traffic-task" });
+    expect(repository.getRecord("traffic-record")).toMatchObject({
+      id: "traffic-record",
+      task_id: "traffic-task",
+    });
+    expect(repository.taskIdForResponse("traffic-response")).toBe("traffic-task");
+    expect(repository.taskIdForContext("conversation:traffic")).toBe("traffic-task");
+    // The search row is part of the same write: the request text is findable right away.
+    expect(repository.listTaskRecords("traffic-task", "committed traffic token").total).toBe(1);
+    expect(repository.listTaskRecords("traffic-task", "nothing matches this").total).toBe(0);
+    // Cleanup of the superseded task is part of the same write, cascade included.
+    expect(repository.getTask("traffic-superseded")).toBeUndefined();
+    expect(repository.getRecord("traffic-superseded-record")).toBeUndefined();
+    repository.close();
+  });
+
+  it("leaves no partial write when the business write fails halfway", async () => {
+    const root = await mkdtemp(path.join(os.tmpdir(), "llm-proxy-write-traffic-rollback-"));
+    temporaryDirectories.push(root);
+    const repository = new TrafficRepository(root);
+    repository.upsertTask({ id: "traffic-keep", match_strategy_version: 4 });
+
+    expect(() =>
+      repository.writeTraffic({
+        task: { id: "traffic-task", match_strategy_version: 4 },
+        record: {
+          id: "traffic-record",
+          task_id: "traffic-task",
+          sequence: 1,
+          method: "POST",
+          path: "/v1/responses",
+          request_body: { input: "rolled back traffic token" },
+        },
+        // The link names a task this write never inserts, so the foreign key on
+        // response_links.task_id fails after the task, record and search row are written.
+        responseLinks: [{ responseId: "traffic-response", taskId: "traffic-dangling" }],
+        contextLinks: [{ contextKey: "conversation:traffic", taskId: "traffic-task" }],
+        supersededTaskIds: ["traffic-keep"],
+      }),
+    ).toThrow(/FOREIGN KEY constraint failed/u);
+
+    expect(repository.getTask("traffic-task")).toBeUndefined();
+    expect(repository.getRecord("traffic-record")).toBeUndefined();
+    expect(repository.taskIdForResponse("traffic-response")).toBeUndefined();
+    expect(repository.taskIdForContext("conversation:traffic")).toBeUndefined();
+    expect(
+      repository.database
+        .prepare("SELECT COUNT(*) FROM record_search_map WHERE record_id = ?")
+        .pluck()
+        .get("traffic-record"),
+    ).toBe(0);
+    // The superseded task was deleted before the failure, so its survival is the rollback.
+    expect(repository.getTask("traffic-keep")).toMatchObject({ id: "traffic-keep" });
+    repository.close();
+  });
+});
+
 describe("decodeTaskRow", () => {
   it("decodes boolean and JSON task columns", () => {
     expect(
@@ -623,7 +710,7 @@ describe("TrafficRepository.listTasks", () => {
       ["task-old", "fixture-gpt", "2026-07-18T01:00:00.000+00:00"],
       ["task-middle", "claude", "2026-07-18T02:00:00.000+00:00"],
       ["task-new", "fixture-gpt", "2026-07-18T03:00:00.000+00:00"],
-    ]) {
+    ] as const) {
       repository.upsertTask({
         id,
         model,
@@ -699,8 +786,8 @@ describe("TrafficRepository history summaries", () => {
       last_response_at: null,
       target: null,
     });
-    expect(typeof taskSummary?.["started_at"]).toBe("string");
-    expect(typeof taskSummary?.["last_seen_at"]).toBe("string");
+    expect(typeof taskSummary?.started_at).toBe("string");
+    expect(typeof taskSummary?.last_seen_at).toBe("string");
     expect(repository.listTaskRecordSummaries("summary-task").items[0]).toEqual({
       id: "summary-record",
       sequence: 1,
@@ -767,15 +854,15 @@ describe("TrafficRepository history summaries", () => {
     expect(repository.latestTaskRecordId("brief-task")).toBe("brief-b");
     expect(repository.getTaskBrief("brief-task")).toBeUndefined();
 
-    const saved = repository.saveTaskBrief(
-      "brief-task",
-      "一段简介。",
-      "summary-model",
-      "brief-b",
-      "v2",
-      JSON.stringify({ agent: "pi 0.39", cwd: "d:/code/local_ai_proxy" }),
-    );
-    expect(saved["brief_text"]).toBe("一段简介。");
+    const saved = repository.saveTaskBrief({
+      taskId: "brief-task",
+      briefText: "一段简介。",
+      model: "summary-model",
+      sourceRecordId: "brief-b",
+      promptVersion: "v2",
+      contextJson: JSON.stringify({ agent: "pi 0.39", cwd: "d:/code/local_ai_proxy" }),
+    });
+    expect(saved.brief_text).toBe("一段简介。");
     expect(repository.getTaskBrief("brief-task")).toMatchObject({
       brief_text: "一段简介。",
       model: "summary-model",
@@ -783,19 +870,26 @@ describe("TrafficRepository history summaries", () => {
       prompt_version: "v2",
       status: "ready",
     });
-    expect(JSON.parse(String(repository.getTaskBrief("brief-task")?.["context_json"]))).toEqual({
+    expect(JSON.parse(String(repository.getTaskBrief("brief-task")?.context_json))).toEqual({
       agent: "pi 0.39",
       cwd: "d:/code/local_ai_proxy",
     });
 
     // Regenerating overwrites the one row instead of adding another, and a
     // brief without facts clears the previous environment instead of keeping it.
-    repository.saveTaskBrief("brief-task", "新的简介。", "other-model", "brief-b", "v2", null);
+    repository.saveTaskBrief({
+      taskId: "brief-task",
+      briefText: "新的简介。",
+      model: "other-model",
+      sourceRecordId: "brief-b",
+      promptVersion: "v2",
+      contextJson: null,
+    });
     expect(repository.database.prepare("SELECT COUNT(*) AS n FROM task_briefs").pluck().get()).toBe(
       1,
     );
-    expect(repository.getTaskBrief("brief-task")?.["brief_text"]).toBe("新的简介。");
-    expect(repository.getTaskBrief("brief-task")?.["context_json"]).toBeNull();
+    expect(repository.getTaskBrief("brief-task")?.brief_text).toBe("新的简介。");
+    expect(repository.getTaskBrief("brief-task")?.context_json).toBeNull();
 
     // A task whose every request is still in flight still has a newest record.
     repository.upsertTask({ id: "brief-pending-task", model: "gpt-5", request_count: 2 });
@@ -910,7 +1004,7 @@ describe("TrafficRepository history summaries", () => {
     expect(Date.now() - recordStart).toBeLessThan(2000);
     const previewStart = Date.now();
     const previews = repository.listTaskSearchPreviews(
-      groupPage.items.map(({ id }) => String(id)),
+      groupPage.items.map(({ id }) => id),
       "needle",
       5,
     );
@@ -1263,8 +1357,8 @@ describe("chunked record body storage", () => {
     inspection.close();
 
     const reopened = new TrafficRepository(root);
-    expect(reopened.getRecord("record-chunk-1")?.["request_body"]).toEqual(requestBody);
-    expect(reopened.getRecord("record-chunk-2")?.["request_body"]).toEqual(requestBody);
+    expect(reopened.getRecord("record-chunk-1")?.request_body).toEqual(requestBody);
+    expect(reopened.getRecord("record-chunk-2")?.request_body).toEqual(requestBody);
     expect(reopened.deleteTasks(["task-chunks"])).toBe(1);
     reopened.close();
 
@@ -1453,7 +1547,7 @@ describe("record task sequence uniqueness", () => {
       }),
     ).toThrow(/UNIQUE constraint failed: records\.task_id, records\.sequence/u);
     expect(repository.recordCount("task-1")).toBe(1);
-    expect(repository.getRecord("record-original")?.["path"]).toBe("/original");
+    expect(repository.getRecord("record-original")?.path).toBe("/original");
     expect(repository.getRecord("record-conflict")).toBeUndefined();
     repository.close();
   });
