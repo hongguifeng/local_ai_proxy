@@ -196,6 +196,29 @@ describe("legacy configuration field preservation", () => {
     expect(pairValues["actual_listen_port"]).toBeUndefined();
     expect(targetValues["expanded"]).toBeUndefined();
   });
+
+  it("[AI-25] preserves a JSON unknown __proto__ field as an own field", () => {
+    const sourcePair = {
+      id: "proto-pair",
+      name: "Proto pair",
+      enabled: false,
+      listen_host: "127.0.0.1",
+      listen_port: 1234,
+      targets: [createDefaultTarget("logs")],
+      default_target_id: "target-1",
+    };
+    Object.defineProperty(sourcePair, "__proto__", {
+      enumerable: true,
+      value: { retained: true },
+    });
+
+    const materializedPair = materializeProxyConfigFile(
+      normalizeProxyConfigFile({ pairs: [sourcePair] }),
+    ).pairs[0] as Record<string, unknown>;
+
+    expect(Object.prototype.hasOwnProperty.call(materializedPair, "__proto__")).toBe(true);
+    expect(materializedPair["__proto__"]).toEqual({ retained: true });
+  });
 });
 describe("normalizeDefaultTargetId", () => {
   const first = createDefaultTarget();

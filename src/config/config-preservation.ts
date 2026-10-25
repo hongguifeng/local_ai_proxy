@@ -56,10 +56,8 @@ export function preserveUnknownConfigFields<T extends object>(
   source: unknown,
   modeledKeys: readonly string[],
 ): T {
-  const fields: Record<string, JsonConfigValue> = {
-    ...preservedConfigFields(normalized),
-    ...preservedConfigFields(source),
-  };
+  const fields = Object.create(null) as Record<string, JsonConfigValue>;
+  Object.assign(fields, preservedConfigFields(normalized), preservedConfigFields(source));
   const modeled = new Set(modeledKeys);
   if (isRecord(source)) {
     for (const [key, value] of Object.entries(source)) {

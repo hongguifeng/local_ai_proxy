@@ -190,6 +190,7 @@ describe("GET /api/pairs", () => {
       path.join(directory, "logs"),
     );
 
+    const nestedTargetUnknown = { legacy_target_option: { mode: "compat", version: 1 } };
     const submitted = {
       ...loadedPair,
       running: true,
@@ -197,6 +198,7 @@ describe("GET /api/pairs", () => {
       expanded: true,
       targets: (loadedPair["targets"] as Record<string, unknown>[]).map((target) => ({
         ...target,
+        ...nestedTargetUnknown,
         expanded: true,
       })),
     };
@@ -220,7 +222,18 @@ describe("GET /api/pairs", () => {
       expect(savedPair[key]).toEqual(Reflect.get(legacyPair, key));
     }
     expect(savedPair["expanded"]).toBeUndefined();
+    expect((savedPair["targets"] as Record<string, unknown>[])[0]).toMatchObject(
+      nestedTargetUnknown,
+    );
     expect((savedPair["targets"] as Record<string, unknown>[])[0]?.["expanded"]).toBeUndefined();
+
+    const afterSave = await server.inject({ method: "GET", url: "/api/pairs" });
+    expect(afterSave.statusCode).toBe(200);
+    const afterSavePair = (JSON.parse(afterSave.body) as { pairs: Record<string, unknown>[] })
+      .pairs[0];
+    expect(afterSavePair?.["targets"]).toEqual(
+      expect.arrayContaining([expect.objectContaining(nestedTargetUnknown)]),
+    );
 
     const persisted = JSON.parse(await readFile(configPath, "utf8")) as {
       pairs: Record<string, unknown>[];
@@ -239,6 +252,9 @@ describe("GET /api/pairs", () => {
     expect(persisted.pairs[0]?.["running"]).toBeUndefined();
     expect(persisted.pairs[0]?.["actual_listen_port"]).toBeUndefined();
     expect(persisted.pairs[0]?.["expanded"]).toBeUndefined();
+    expect((persisted.pairs[0]?.["targets"] as Record<string, unknown>[])[0]).toMatchObject(
+      nestedTargetUnknown,
+    );
     expect(
       (persisted.pairs[0]?.["targets"] as Record<string, unknown>[])[0]?.["expanded"],
     ).toBeUndefined();
@@ -247,7 +263,12 @@ describe("GET /api/pairs", () => {
     expect(reloaded.pairs[0]).toMatchObject({
       upstream_url: legacyPair.upstream_url,
       log_root: legacyPair.log_root,
-      targets: [{ log_root: path.join(directory, "logs") }],
+      targets: [
+        {
+          log_root: path.join(directory, "logs"),
+          legacy_target_option: nestedTargetUnknown.legacy_target_option,
+        },
+      ],
     });
   });
   it("rejects invalid model prices before replacing the running configuration", async () => {
