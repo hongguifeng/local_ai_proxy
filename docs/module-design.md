@@ -424,6 +424,7 @@ repository 封装所有 SQL 和 JSON 字段编码/解码：
 - Detail 使用三行 grid：request、splitter、response。
 - JSON tree 使用 `details/summary`；`.json-pane` 使用 `contain: layout`，限制普通布局变化的重排影响范围。
 - 760 px media query 切换窄屏布局。
+- 统计页筛选条已经收成一个 `COMPONENT:` 块，其它区域仍是累积层；约定与测量见 §4.9。
 
 ### 4.3 JavaScript 状态
 
@@ -557,6 +558,24 @@ CSS_CENSUS=1 CSS_CENSUS_OUT=census.json npx vitest run test-node/ui/admin-ui-css
 `src/admin/ui-contracts.d.ts` 定义共享状态、可空异步面板、任务序列和 API 路径到服务端 DTO 的映射。api() 的成功结果只在 JSON 传输边界转换到对应 DTO；错误正文从 unknown 逐字段检查，保留合法的错误码和字段问题。这里没有声称对每个成功响应做运行时 schema 校验，也没有启用 noImplicitAny 等其余 strict 子选项。
 
 `test-node/admin/ui-types.test.ts` 用真实 TypeScript 编译器验证完整图覆盖，并证明空值解引用、错误控件成员、无效 API 字段/路径和异步状态会被拒绝。`test-node/ui/admin-ui-dom-contracts.test.ts` 在 Chromium 中验证具体类型、可选节点、损坏页面初始化和统计错误恢复。维护入口见 `static-checks-and-split` 技能。
+
+### 4.9 组件样式归属（统计筛选条）
+
+累积层真正难的地方不是「哪条规则没用」，而是「同一个组件被几个 pass 分散写在哪些位置」。统计页筛选条是全表最集中的例子：原始表里有 59 条规则提到它那 10 个类，分散在 17 段连续区间里，横跨 `price catalog`（19 条）与 `statistics`（40 条）两个区块。
+
+选定的边界是 `.stats-filters` 及其后代 10 个类（`stats-filters`、`stats-filter-group`、`stats-filter-time`、`stats-filter-label`、`stats-filter-summary`、`stats-date-row`、`stats-date-separator`、`stats-presets`、`stats-presets-group`、`stats-live`）。它们在 `index.html` 中只出现在这一个组件里，重复出现的两处（`stats-filter-label`、`stats-presets`）也在组件内部。
+
+归属约定由两行横幅与一份静态扫描固化：`/* COMPONENT: statistics filter bar */` 与 `/* END COMPONENT: statistics filter bar */` 之间是唯一可以写这些类的地方；块内同一「上下文 + 选择器 + 属性」只写一次；块内不允许嵌套 at-rule。`test-node/ui/admin-ui-css-ownership.test.ts` 解析整张表断言这三条，并把筛选条在 4 个断点上的生效布局钉成表（`display`、`grid-template-columns` 列数、`gap`、155 px 日期格、16 px 复选框、分隔符可见性）。
+
+删掉的都是可证的：19 条规则的选择器只含已不存在的类（`.stats-select-grid`、`.stats-filter-data`、`.stats-filter-actions`）；3 条规则把死类与活类混在同一条选择器里（如 `.stats-filter-data .stats-filter-label`），整条不可达；9 条规则的每个声明都被同选择器、同上下文、更靠后的声明压住；2 条声明与更宽上下文里的同值声明重复；另有 8 处选择器列表中的死部分与 17 条被压住的声明按需裁剪，删除后空出的 `@media` 块也一并清掉（最终表里没有空的 at-rule 块）。`.stats-overview` 的两条响应式规则只删掉其中的死选择器部分，属于另一个组件的声明原样保留。
+
+搬进块里的是 45 条规则、118 条声明，保持原书写顺序。这里有两个必须同时做对的动作：`@media` 条件要跟着规则一起搬，否则规则会从响应式上下文里掉出来；裁剪过（而非整条搬走）的规则也必须搬走，否则它留在原位置、其余规则搬到文件更靠后处，同特异性下的顺序就反了。两者都在本次测出真实偏差后才修正（顺序反转立刻把 900 px 下的 `.stats-filter-time` 从单列变回两列）。
+
+搬到后面之所以不改像素：能命中这 26 个元素的外部规则只有 6 条（`*`、`button, input, textarea, select`、`button`、`label`、`label span`、`input, textarea`），特异性 ≤ (0,0,2)，而块内每条选择器 ≥ (0,1,0)。特异性先于书写顺序判定，所以块内相对顺序不变、与外部规则的关系也不变。
+
+证据分三层：自建 sweep 抓 `.stats-filters` 及 25 个后代/文本节点的全部计算长属性加 `rect`/`textContent`，20 个宽度（1400…400）× 中英文共 1040 条快照，改动前后 0 差异；仓库裁判 `CSS_CANDIDATE=<基线表>` 报 0 差异（4 视口 × 9 状态）；普查从 767 条规则、790 类争夺对变为 735 与 777，按顺序决胜 4,986 → 4,608（−378）、按 `!important` 决胜 2,275 → 2,194、两条都带 `!important` 比顺序 309 → 201，而按特异性决胜的 55,995 次一条没变——被删的声明本来都由顺序或重要性决定。规模上声明 2,500 → 2,441、规则 769 → 737、`!important` 82 → 62、行数 4,526 → 4,421；10 张视觉基线重生成后逐张哈希不变。
+
+其余区域仍是累积层。后续组件按同一约定迁移：先选定边界、记下生效规则与跨区竞争，再逐条裁剪可证不可达的部分，每步用 sweep 与普查对拍，最后才加 `COMPONENT:` 横幅与静态扫描；不要一次性重排整张表。
 
 ## 5. 当前数据模型
 
