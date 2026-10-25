@@ -1,6 +1,6 @@
 # LLM Proxy 现行架构
 
-适用版本：0.4.10。基线提交 `14ae4de`，核对于 2026-10-31。
+适用版本：0.4.10。基线提交 `14ae4de`，核对于 2026-10-31；综合验证据提交 `1bf8588`（见第 9 节）。
 
 本文只描述现行实现：Node.js 24 + TypeScript + Electron。Python 时代的设计保留在
 [模块设计文档](./module-design.md) 的历史小节里，迁移过程保留在
@@ -155,7 +155,13 @@ ABI 证明只认真实查询：`require("better-sqlite3")` 不碰原生绑定，
 | [ADR-001～ADR-013](./adr/)                                                                             | 决策依据，仍然有效                                                                                                                 |
 | `.agents/skills/`                                                                                      | 现行操作手册，按需读取                                                                                                             |
 
-## 9. 仍未收口的事项
+## 9. 收口状态与遗留事项
 
-配置与统计（AI-01、AI-02）、数据库版本来源（AI-03）、类型与 API 合同（AI-05～AI-09）、运行时边界、日志查询与持久化职责（AI-10～AI-13）、SSE 与场景测试（AI-14）、编译与交付入口、代理配置与负载均衡、历史与指标模块化（AI-15～AI-19）、UI 类型与 DOM 合同（AI-20）、渲染输入与缓存失效（AI-21）、组件样式归属（AI-22）、skills 收口（AI-23）已经收口。其余见
-[待办清单](./ai-development-optimization-todo.md)：综合验收（AI-24）。旧配置键保留（AI-25）已经完成，综合验收仍需复核其最终交付证据。
+[待办清单](./ai-development-optimization-todo.md) 的 25 项全部完成：配置与统计（AI-01、AI-02）、数据库版本来源（AI-03）、现行文档入口（AI-04）、类型与 API 合同（AI-05～AI-09）、运行时边界与日志/持久化职责（AI-10～AI-13）、SSE 与场景测试（AI-14）、编译与交付入口（AI-15、AI-16）、前端模块化与 UI 合同（AI-17～AI-22）、skills（AI-23）、旧配置键保留（AI-25）与综合验收（AI-24）。综合验收的判据、打包实例证据和未覆盖项见清单里的 AI-24 完成记录。
+
+仍然存在、但不属于本轮范围的事项：
+
+- 并发跑全量 Vitest 时偶发 10 秒超时（`test-node/admin/ui-types.test.ts` 的编译探针，或 `test-node/ui/page-error-collection.test.ts` 的 `afterAll(closeStubAdminServer)`）。串行全量通过，属于测试资源问题，不改断言也不加重试。
+- 旧扁平 pair 的 pair 级 `log_root` 作为未建模键原样保留，不参与 `targets[0].log_root` 的取值（后者取应用默认日志根）。要让旧值决定读取目录是新的产品决定。
+- `LogRecordPricing`、外部请求与响应正文及两个 meta 仍是开放字典，`TrafficRecordWrite` 仍带 `Record<string, unknown>` 的一半；这是 AI-06、AI-07 有意保留的边界。
+- 历史文档（[模块设计文档](./module-design.md)、[软件功能说明书](./software-functional-specification.md)）保持原有表格风格，没有做整文件 Prettier 重排。

@@ -1,6 +1,6 @@
 # 面向 AI 持续开发的优化 TODO
 
-基线：`14ae4de`，应用版本 0.4.10。原始清单为 24 项；AI-25 后扩展为 25 项。当前状态：24 / 25 项完成（AI-01～AI-23、AI-25）。
+基线：`14ae4de`，应用版本 0.4.10。原始清单为 24 项；AI-25 后扩展为 25 项。当前状态：25 / 25 项完成。
 
 本文是本轮优化的执行清单和验收依据。它把代码审查中的发现拆成独立任务，供本地 AI 按依赖顺序实施。历史设计和旧 TODO 只作为背景材料；执行时应复核当前源码。
 
@@ -134,7 +134,7 @@ P0 是已复现的功能缺陷；P1 是契约、文档和后端基础；P2 是�
 | [x]  | AI-22 | P2     | 建立组件样式归属            | AI-18、AI-19、AI-21                                                                                                                                                    | 已完成 |
 | [x]  | AI-23 | P2     | 整理 skills 并固化操作入口  | AI-04、AI-14、AI-16、AI-20、AI-21、AI-22                                                                                                                               | 已完成 |
 | [x]  | AI-25 | P2     | 保留旧配置里未建模的键      | AI-08                                                                                                                                                                  | 已完成 |
-| [ ]  | AI-24 | P2     | 综合验收与文档收口          | AI-01、AI-02、AI-03、AI-04、AI-05、AI-06、AI-07、AI-08、AI-09、AI-10、AI-11、AI-12、AI-13、AI-14、AI-15、AI-16、AI-17、AI-18、AI-19、AI-20、AI-21、AI-22、AI-23、AI-25 | 未开始 |
+| [x]  | AI-24 | P2     | 综合验收与文档收口          | AI-01、AI-02、AI-03、AI-04、AI-05、AI-06、AI-07、AI-08、AI-09、AI-10、AI-11、AI-12、AI-13、AI-14、AI-15、AI-16、AI-17、AI-18、AI-19、AI-20、AI-21、AI-22、AI-23、AI-25 | 已完成 |
 
 ## 5. 任务明细
 
@@ -361,7 +361,7 @@ P0 是已复现的功能缺陷；P1 是契约、文档和后端基础；P2 是�
 
 ### AI-17：建立前端模块构建入口
 
-入口：[静态资源加载](../src/admin/static-assets.ts)、[拼接工具](../scripts/concat_ui_parts.ts)、[静态复制](../scripts/copy_static_assets.ts)、[UI 检查](../tsconfig.ui.json)。
+入口：[静态资源加载](../src/admin/static-assets.ts)、[UI 打包入口](../scripts/build_ui_bundle.ts)（本项当时的拼接工具 `scripts/concat_ui_parts.ts` 已由 AI-19 删除）、[静态复制](../scripts/copy_static_assets.ts)、[UI 检查](../tsconfig.ui.json)。
 
 - [x] 建立明确的 ES module 源码入口，选择原生模块或构建打包方案并记录理由。
 - [x] 迁移一组纯工具或统计计算模块，先证明 import/export、测试和构建链路可用。
@@ -461,11 +461,11 @@ P0 是已复现的功能缺陷；P1 是契约、文档和后端基础；P2 是�
 
 入口：本文、现行架构入口、[README](../README.md)、[英文 README](../README.en.md)、相关 ADR 与 skills。
 
-- [ ] 逐项核对完成记录和实际代码，不能仅凭勾选认定完成。
-- [ ] 执行完整质量检查、所有相关 UI 验证和干净产物构建。
-- [ ] 用隔离实例复验配置更新、统计切换、数据库读写和正常退出。
-- [ ] 复核依赖环、类型检查范围、API 字段和打包内容。
-- [ ] 更新现行文档，列出遗留问题、设计偏差和后续独立工作。
+- [x] 逐项核对完成记录和实际代码，不能仅凭勾选认定完成。
+- [x] 执行完整质量检查、所有相关 UI 验证和干净产物构建。
+- [x] 用隔离实例复验配置更新、统计切换、数据库读写和正常退出。
+- [x] 复核依赖环、类型检查范围、API 字段和打包内容。
+- [x] 更新现行文档，列出遗留问题、设计偏差和后续独立工作。
 
 验收：第 8 节全部满足，或明确记录未满足项并保持本任务未完成。交付报告区分自动测试、人工截图检查和尚未验证的内容。
 
@@ -482,11 +482,11 @@ P0 是已复现的功能缺陷；P1 是契约、文档和后端基础；P2 是�
 - [x] 确实要丢的键给出可理解的诊断，而不是静默删除。
 - [x] 用一条真实往返测试钉住最终去向：写入 27 个键的旧扁平 pair，其未建模键在 `/api/pairs` 与保存文件里必须被明确断言，而不是靠“没报错”默认。
 
-验收：未建模键不再静默丢失；UI 运行时键不进入保存文件；旧扁平 pair 的已建模值（如 `log_root`）仍按现行规则落到 `targets[0]` 的绝对路径。
+验收：未建模键不再静默丢失；UI 运行时键不进入保存文件；旧扁平 pair 的已建模值仍按现行规则归一化。注意 pair 级 `log_root` 不在 pair 模型里：它作为未建模键原样保留，`targets[0].log_root` 取应用默认日志根的绝对路径，不是这个旧值的迁移结果（AI-24 在打包实例上实测，`test-node/admin/pairs.test.ts` 的 `[AI-25]` 用例同样钉住这个去向）。
 
 验证：V-B、V-P；运行 config 与 admin 相关测试。
 
-背景：AI-08 实测 `GET /api/pairs` 对一个写入 27 个键的 pair 只答 11 个键（`id,name,enabled,listen_host,listen_port,access_log,targets,default_target_id,load_balancers,running,actual_listen_port`），`log_root` 只在 `targets[0]` 里以绝对路径出现；`validateProxyConfigFile` 静默剔掉未知的 pair/target 键。开放响应本来就能原样答出未声明键（fast-json-stringify 探针实测），所以丢键发生在 `src/config` 而不在传输层——这条需求属于本任务，不属于 AI-08。
+背景：AI-08 实测 `GET /api/pairs` 对一个写入 27 个键的 pair 只答 11 个键（`id,name,enabled,listen_host,listen_port,access_log,targets,default_target_id,load_balancers,running,actual_listen_port`），`log_root` 只以绝对路径出现在 `targets[0]` 里（那是应用默认日志根，因为 pair 级 `log_root` 被校验静默剔除了）；`validateProxyConfigFile` 静默剔掉未知的 pair/target 键。开放响应本来就能原样答出未声明键（fast-json-stringify 探针实测），所以丢键发生在 `src/config` 而不在传输层——这条需求属于本任务，不属于 AI-08。
 
 ## 6. 第一轮不包含的工作
 
@@ -515,13 +515,13 @@ P0 是已复现的功能缺陷；P1 是契约、文档和后端基础；P2 是�
 
 ## 8. 最终验收清单
 
-- 本轮勾选口径：勾 §8 只勾“本轮亲自复现过判据”的那一条；AI-01～AI-05 的验收由更早的会话做出，本轮没有逐条独立复现它们的判据，所以先留空，到 AI-24 综合验收时再统一核对（进度表行与任务小节的复选框已按当时验收勾过）。
+- 勾选口径：§8 只勾“本轮亲自复现过判据”的那一条。AI-01～AI-05 原先只由更早的会话验收，AI-24 综合验收逐条重跑并在打包实例上复现（见该完成记录），因此不再留空。
 
-- [ ] AI-01：代理和总结设置交错更新互不覆盖，失败不暴露未提交状态。
-- [ ] AI-02：统计随日志目录变更生效，空配置下接口返回合法空结果。
-- [ ] AI-03：公共 schema 版本、新库和备份恢复版本一致。
-- [ ] AI-04：存在唯一现行架构入口，历史基线有明确身份。
-- [ ] AI-05：业务错误按稳定分类映射，内部失败有足够诊断信息。
+- [x] AI-01：代理和总结设置交错更新互不覆盖，失败不暴露未提交状态。
+- [x] AI-02：统计随日志目录变更生效，空配置下接口返回合法空结果。
+- [x] AI-03：公共 schema 版本、新库和备份恢复版本一致。
+- [x] AI-04：存在唯一现行架构入口，历史基线有明确身份。
+- [x] AI-05：业务错误按稳定分类映射，内部失败有足够诊断信息。
 - [x] AI-06～08：自有日志和 API 数据有具体契约，嵌套字段受验证。
 - [x] AI-09：完整应用遗漏服务接线时有确定失败反馈。
 - [x] AI-10：运行时依赖环消除，并有有效的自动检查。
@@ -535,7 +535,7 @@ P0 是已复现的功能缺陷；P1 是契约、文档和后端基础；P2 是�
 - [x] AI-22：组件样式归属明确，层叠与像素验证无意外变化。
 - [x] AI-23：skills 内容简明且有效，固定操作由工具承担。
 - [x] AI-25：旧配置里未建模的键不再被静默丢弃，控制台自己的运行时键不会被写进保存文件。
-- [ ] AI-24：完整检查、截图核验、portable 构建与隔离冒烟有实际记录。
+- [x] AI-24：完整检查、截图核验、portable 构建与隔离冒烟有实际记录。
 
 ## 9. 单项完成记录模板
 
@@ -555,6 +555,21 @@ UI 截图、性能或迁移结果（适用时）：
 与本清单的偏差、剩余事项：
 提交 SHA：未提交 / 实际 SHA
 ```
+
+### AI-24 完成记录
+
+- 状态：已完成
+- 实际变更：只改文档，产品源码、测试与打包脚本一字未动（本轮 `git status` 里只有本文件与 `docs/current-architecture.md`）。工作分三段：一、把 24 条完成记录按 §8 的判据分组核对，重跑各自的验证入口，并复核 `current-architecture.md` §1～§7 的每条断言；二、在打包载荷上做一次隔离综合验收，覆盖配置交错写、统计目录切换、错误分类、旧键保留、脱敏、空配置与正常退出；三、按交付门禁重新打包、跑两段冒烟并恢复 Node ABI。核对中改正本文两处与实测不符的表述（AI-25 的验收句与背景、§8 的勾选口径），并把 `current-architecture.md` §9 的收口状态更新到全部完成。
+- 修改文件与新增入口：`docs/ai-development-optimization-todo.md`、`docs/current-architecture.md`。没有新增仓库入口；一次性验收探针与全部日志放在已被 `.gitignore` 排除的 `test-results/ai24/`，不随本轮入库。
+- 前置任务与现状复核：HEAD `1bf8588`，版本 0.4.10，工作树干净。核对后发现三处需要处理：一、§8 里 AI-01～AI-05 仍按“只有更早的会话验收过”留空，需要在打包实例上复现；二、AI-25 的验收句与背景把 pair 级 `log_root` 说成会落到 `targets[0]` 的绝对路径，而 `normalizeProxyPair` 不读这个键、`test-node/admin/pairs.test.ts` 的 `[AI-25]` 用例钉的是“pair 级原样保留 + `targets[0].log_root` 取仓库默认根”；三、`current-architecture.md` §9 仍把 AI-05～AI-09 列为未收口（AI-10 记录已点名过时的条目留给了本项）。同时复核并确认仍成立的断言：`SerialWriteQueue` 类名与文件、默认 `127.0.0.1:18080`/`llm-proxy.json`/`logs/proxies.json`/`logs`、关闭顺序（admin → `manager.stopAll()` 排空队列 → `registry.stopAll()`）、§5 模块地图里点名的每个文件（85 处引用）、`routes/` 恰 8 个功能文件、`tsconfig.json` 含 `src`/`electron`/`test-node`/`scripts` 而 `tsconfig.build.json` 少了 `test-node`、`tsconfig.ui.json` 含完整 UI 图。
+- 关键设计选择及理由：一、验收用打包载荷而不是源码起服务：配置写回、SQLite 绑定与退出路径只有真实产物能证明；探针放在 `test-results/` 而不是 `scripts/`，因为它的判据已由带任务 ID 的用例覆盖，没有必要再养一个常驻入口。二、门禁结果与并发超时分两件事记录：门禁的失败只在 10 秒超时上，串行全量全绿，所以判定为测试资源问题而不是回归，不放宽断言、不加超时或重试来掩盖。三、AI-25 的表述按实测改写而不改产品：pair 级 `log_root` 原样保留是 AI-25 的有意行为，把旧值迁移进 `targets[0]` 会改变日志目录读取位置，属于新的产品决定。四、历史文档不做整文件 Prettier 重排：`.prettierignore` 排除 `docs/` 是既有约定，`module-design.md` 与 `software-functional-specification.md` 整文件重排会产生数百行纯空白差异并掩盖真实改动；`current-architecture.md` 与本文件继续按显式 ignore-path 检查格式。
+- 实际验证命令、结果与日志：`npm run check` → format、lint、typecheck、check:modules 全过；test 段 1 个用例以 10 秒超时失败（`test-node/admin/ui-types.test.ts` 的编译探针），build 段因此未执行，另跑 `npm run build` 通过（日志 `test-results/ai24/check-gate.log`、`build-final.log`）。串行全量 `npx vitest run --no-file-parallelism` → 139 文件（138 通过、1 跳过）、1237 用例（1235 通过、2 跳过），150.35 s（`test-full-serial.log`）；并发全量另有三次运行，每次恰好 1 个 10 秒超时（两次是 `afterAll(closeStubAdminServer)`、一次是上面那个编译探针），把两个文件单独重跑 4 用例全过（`test-full-1.log`、`test-full-2.log`、`flaky-alone.log`），与 AI-19、AI-22、AI-23 记录里的同一条并发资源问题一致。`npm run check:modules` → 133 modules、300 runtime edges、102 type-only edges、`runtime cycles: 0; boundary violations: 0`。§8 逐条复现：AI-01 在打包实例上先改 pair 名再保存总结模型，两者都在 API 与文件里，另有 `[AI-01] keeps the committed summary model when the save fails` 守着失败回滚；AI-02 切目录后未计价 1→1、历史 total 1、旧目录不再写入，清空 pair 后统计答 `dataVersion/totals/byTarget/byModel/unpriced` 且 requests 0；AI-03 `[AI-03]` 用例断言 `CURRENT_SCHEMA_VERSION`、新库与备份恢复同为 13，本次运行的两份库实测 schema_version 13、15 张表；AI-04 由 `test-node/docs/architecture-entry.test.ts` 与 §8 材料身份表钉住；AI-05 实测 404 `record_not_found`、404 `log_group_not_found`、502 `summary_failed`，错误体都是 `{error:{code,message}}` 且不含密钥，存储失败阶段诊断仍由注入用例覆盖。
+- 隔离验收探针：打包 `release/win-unpacked/LLM Proxy.exe`、临时配置目录、全新 `LLM_PROXY_DATA_DIR`、空闲端口，并从子进程环境清掉 `ELECTRON_RUN_AS_NODE`，32/32 项通过（`isolated-probe-final.log`）。要点：health 0.8 s 且 `version` 为 0.4.10；真实代理请求 200；记录详情顶层 8 键，`pricing` 带 `pricing_status`/`pricing_reason`/`billing_model`/`cost_nano_cny`/`usage` 且未计价为 `unpriced`/`no_matching_price`/`null`；header 全为数组；默认目标 `redact_logs=false` 时保存副本保留密钥，改为 `true` 后 `authorization` 为 `["[redacted]"]` 且整条记录不含密钥；不存在记录的 POST 答 404、不存在分组的 GET 答 200 + `null` 而 POST 答 404、连不上总结模型答 502 且不含密钥；先改 pair 名再存总结模型，二者都留在应答与文件里；旧扁平 pair 的 6 个代表键在载入、`/api/pairs` 应答与保存后都在，`running` 只出现在应答里、不落盘，`targets[0].log_root` 为默认根而 pair 级 `log_root` 原样保留；切换 `log_root` 后统计未计价数 1→1（不是 2）、历史 total 1、新目录生成 `traffic.db`、旧目录不再增长；清空 pair 后统计与历史仍答合法空结果；写退出文件后退出码 0、管理端口拒绝连接。两份 `traffic.db` 用 Python 标准库 sqlite3 只读打开：schema_version 13、15 张表、各 1 条记录、`cost_nano_cny` 为 INTEGER、事件为 `request_finished` 且 `task_id` 非空。
+- 新增/更新的测试及任务 ID：无。验收探针是一次性脚本，不入库；它覆盖的判据已由带 `[AI-01]`、`[AI-02]`、`[AI-03]`、`[AI-05]`、`[AI-07]`、`[AI-25]` 标签的用例承担，本项没有为了“有测试”而复制一份。
+- UI 截图、性能或迁移结果：未改 UI 源码，因此没有重生成基线。`test-node/ui/admin-ui-visual.test.ts` 11 项全过（10 张基线 + 760 px 断点），`admin-ui-dom-contracts.test.ts` 5 项、`admin-ui-css-ownership.test.ts` 8 项、`npx vitest run test-node/ui` 128 用例（126 通过、2 跳过）、`test-node/docs` 11 文件 29 用例全过。十张 PNG 的 sha256 与 `docs/refactoring/ui-visual-baseline.md` 登记值逐张一致，`README.md`/`README.en.md` 引用的图片无需改动。人工逐张查看了 5 张英文基线（Proxy、Load balancing、History、Usage statistics、Task detail），界面文案无中文残留；`ui_proxy_en.png` 里的“新代理”是 fixture 的 pair 名称（登记表按 fixture 记录），不是界面文案。5 张中文基线未逐张人工查看，由像素对拍覆盖。无迁移：schema 仍为 13。
+- 便携版构建与冒烟结果：`npm run package:electron:portable` 退出码 0，产物 `release/LLM-Proxy-0.4.10-x64-portable.exe` 111,810,862 字节；`npm run smoke:delivery` 两段全过——unpacked payload health 798 ms、portable wrapper 2,912 ms，两者 proxy 200、`GET /api/logs?limit=5` 200 且 total 1、`traffic.db` 4,096 字节、exit 0（`package-final.log`、`smoke-delivery-final.log`）；探针在这份最终产物上又跑一次 32/32。`app.asar` 3,158 条（`node_modules` 2,663、`dist-node` 494、`package.json` 1），不含 `test-node`、`docs`、旧 `app.js` 或 `modules-bridge.js` 生成物，静态资源只有 `admin-app.js`、`app.css`、`index.html` 与各模块文件。之后 `npm rebuild better-sqlite3`、`npm run abi:node` 与 `npm run smoke:database` 用真实查询确认 Node ABI 已恢复（NODE_MODULE_VERSION 137）。
+- 与本清单的偏差、剩余事项：一、并发全量运行仍会出现 10 秒超时（编译探针或 `afterAll(closeStubAdminServer)`），串行全量全绿，已连续三轮复现，属测试资源问题，本轮未改断言、超时或加过滤。二、AI-25 的表述已按实测改写；让旧扁平 pair 的 `log_root` 参与日志目录解析是新的产品决定，未在本轮实施。三、`LogRecordPricing` 仍是开放字典（AI-07 有意）、`src/logging → src/proxy` 的叶模块边仍在（AI-10 有意）、`TrafficRecordWrite` 仍带 `Record<string, unknown>` 的一半（AI-06 有意），这些都不属于本轮收口范围。四、历史文档风格决定不统一重排，理由见“关键设计选择”。五、若要把“打包实例综合验收”变成常驻门禁，需要另立任务：探针依赖固定版本号、空闲端口与一次完整打包。
+- 提交 SHA：未提交（本轮只改文档）
 
 ### AI-23 完成记录
 
