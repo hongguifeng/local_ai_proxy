@@ -62,7 +62,7 @@ describe("TrafficLogService failure isolation", () => {
     await expect(service.write(trafficRecord("closed-database-request"))).resolves.toBeUndefined();
   });
 
-  it("emits a sanitized internal warning for persistence failures", async () => {
+  it("[AI-05] names the failing phase, record, and root without carrying the request", async () => {
     const root = await mkdtemp(path.join(os.tmpdir(), "llm-proxy-log-warning-"));
     temporaryDirectories.push(root);
     const warnings: { message: string; context: Readonly<Record<string, unknown>> }[] = [];
@@ -77,11 +77,21 @@ describe("TrafficLogService failure isolation", () => {
     breaker.exec("PRAGMA foreign_keys = OFF; DROP TABLE tasks");
     breaker.close();
 
-    await expect(service.write(trafficRecord("secret-api-key"))).resolves.toBeUndefined();
+    // The fixture keeps a credential in the request header and body. The identifier and
+    // the failing root are safe to log; neither the body nor the key may reach the log.
+    await expect(service.write(trafficRecord("warning-request"))).resolves.toBeUndefined();
     expect(warnings).toEqual([
       {
         message: "Traffic log write failed",
-        context: { error_type: "SqliteError" },
+        context: {
+          phase: "traffic_log_write",
+          event: "request_finished",
+          record_id: "warning-request",
+          task_id: undefined,
+          log_root: root,
+          error_type: "SqliteError",
+          cause_type: "UnknownError",
+        },
       },
     ]);
     expect(JSON.stringify(warnings)).not.toContain("secret-api-key");

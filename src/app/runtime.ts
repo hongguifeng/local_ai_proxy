@@ -21,6 +21,7 @@ import {
 } from "../proxy/index.js";
 import { importModelPrices } from "../pricing/index.js";
 import { joinTargetPath } from "../proxy/target.js";
+import { ApplicationError } from "../shared/index.js";
 import { Application } from "./application.js";
 
 export interface NodeApplicationOptions {
@@ -57,12 +58,12 @@ export function createNodeApplication(options: NodeApplicationOptions): NodeAppl
           `Failed to start ${startResult.failed.size} enabled proxy pair(s).`,
         );
       }
-      try {
-        // One query service owns every log-backed admin view, including usage statistics. It
+      // One query service owns every log-backed admin view, including usage statistics. It
       // reads the log roots when a query runs, so a committed configuration change is visible
       // without rebuilding any admin service.
       const logs = new LogQueryService(() => currentManager.logRoots());
-      admin = new AdminControlPlane({
+      try {
+        admin = new AdminControlPlane({
           host: options.host,
           port: options.port,
           getHealth: () =>
@@ -72,41 +73,33 @@ export function createNodeApplication(options: NodeApplicationOptions): NodeAppl
               currentManager.state === "degraded",
             ),
           pairService: currentManager,
-          logService: (() => {
-            const logs = new LogQueryService(() => currentManager.logRoots());
-            return {
-              listGroups: logs.listGroups.bind(logs),
-              getGroupLogs: logs.getGroupLogs.bind(logs),
-              listRecordsByIds: logs.listRecordsByIds.bind(logs),
-              getRecordDetail: logs.getRecordDetail.bind(logs),
-              getGroupPricing: logs.getGroupPricing.bind(logs),
-              getGroupTokenSeries: logs.getGroupTokenSeries.bind(logs),
-              getGroupCostSeries: logs.getGroupCostSeries.bind(logs),
-              getGroupOutputTokenSeries: logs.getGroupOutputTokenSeries.bind(logs),
-              getSummary: logs.getSummary.bind(logs),
-              getTaskBrief: logs.getTaskBrief.bind(logs),
-              exportLogs: logs.exportLogs.bind(logs),
-              cleanupSelectedGroups: logs.cleanupSelectedGroups.bind(logs),
-              cleanupOlderThan: logs.cleanupOlderThan.bind(logs),
-              cleanupKeepLatest: logs.cleanupKeepLatest.bind(logs),
-              summarizeRecord: (id: string) => {
-                const model = currentManager.config.summary_model;
-                if (!model) return Promise.reject(new Error("Summary model is not configured."));
-                return logs.summarizeRecord(id, model);
-              },
-              generateTaskBrief: (groupId: string) => {
-                const model = currentManager.config.summary_model;
-                if (!model) return Promise.reject(new Error("Summary model is not configured."));
-                return logs.generateTaskBrief(groupId, model);
-              },
-            };
-          })(),
-          ...(() => {
-            const usageStatisticsService = new LogQueryService(() =>
-              currentManager.logRoots(),
-            ).usageStatisticsService();
-            return usageStatisticsService === undefined ? {} : { usageStatisticsService };
-          })(),
+          logService: {
+            listGroups: logs.listGroups.bind(logs),
+            getGroupLogs: logs.getGroupLogs.bind(logs),
+            listRecordsByIds: logs.listRecordsByIds.bind(logs),
+            getRecordDetail: logs.getRecordDetail.bind(logs),
+            getGroupPricing: logs.getGroupPricing.bind(logs),
+            getGroupTokenSeries: logs.getGroupTokenSeries.bind(logs),
+            getGroupCostSeries: logs.getGroupCostSeries.bind(logs),
+            getGroupOutputTokenSeries: logs.getGroupOutputTokenSeries.bind(logs),
+            getSummary: logs.getSummary.bind(logs),
+            getTaskBrief: logs.getTaskBrief.bind(logs),
+            exportLogs: logs.exportLogs.bind(logs),
+            cleanupSelectedGroups: logs.cleanupSelectedGroups.bind(logs),
+            cleanupOlderThan: logs.cleanupOlderThan.bind(logs),
+            cleanupKeepLatest: logs.cleanupKeepLatest.bind(logs),
+            summarizeRecord: (id: string) => {
+              const model = currentManager.config.summary_model;
+              if (!model) return Promise.reject(missingSummaryModel());
+              return logs.summarizeRecord(id, model);
+            },
+            generateTaskBrief: (groupId: string) => {
+              const model = currentManager.config.summary_model;
+              if (!model) return Promise.reject(missingSummaryModel());
+              return logs.generateTaskBrief(groupId, model);
+            },
+          },
+          usageStatisticsService: logs.usageStatisticsService(),
           targetCheckService: { checkTarget },
           targetMetricsService: { fetchTargetMetrics },
           targetModelsService: { fetchTargetModels },
@@ -219,4 +212,16 @@ export function createNodeApplication(options: NodeApplicationOptions): NodeAppl
 
 function asError(value: unknown): Error {
   return value instanceof Error ? value : new Error(String(value));
+}
+
+/**
+ * Generation cannot run without a summary model. The sentence is written here and holds no
+ * configuration value, so the console can show it as it stands.
+ */
+function missingSummaryModel(): ApplicationError {
+  return new ApplicationError("Summary model is not configured.", {
+    code: "upstream_error",
+    expose: true,
+    statusCode: 502,
+  });
 }

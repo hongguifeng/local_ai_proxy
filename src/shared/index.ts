@@ -3,6 +3,7 @@ export {
   badRequest,
   conflict,
   notFound,
+  storageError,
   toHttpError,
   upstreamError,
   type ApplicationErrorCode,

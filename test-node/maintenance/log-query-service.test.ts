@@ -3,6 +3,7 @@ import os from "node:os";
 import path from "node:path";
 
 import { afterEach, describe, expect, it, vi } from "vitest";
+import Database from "better-sqlite3";
 
 import { LogQueryService } from "../../src/maintenance/index.js";
 import { TrafficRepository } from "../../src/persistence/index.js";
@@ -1020,7 +1021,6 @@ it("aggregates usage statistics across distinct log roots", async () => {
   });
 });
 
-
 const STATISTICS_WINDOW = { from: "2020-01-01T00:00:00Z", to: "2030-01-01T00:00:00Z" };
 
 it("[AI-02] resolves the configured log roots for every statistics query", async () => {
@@ -1087,6 +1087,296 @@ it("[AI-02] answers empty statistics when no log root is configured", () => {
   expect(service.repositoryRows(STATISTICS_WINDOW.from, STATISTICS_WINDOW.to)).toEqual([]);
 });
 
+describe("LogQueryService error classification and diagnostics", () => {
+  // [AI-05] A caller has to tell "not in this root", "already running", "the model failed"
+  // and "storage failed" apart without reading message text, and a storage failure has to
+  // name the phase and the root it happened in.
+  const summaryConfig: SummaryModelConfig = {
+    api_key: "summary-secret",
+    api_type: "openai_chat",
+    disable_reasoning: true,
+    model: "summary-model",
+    target_headers: [],
+    target_url: "https://summary.example.com/v1",
+    timeout_ms: 30_000,
+  };
+
+  const readySummary = JSON.stringify({
+    choices: [
+      {
+        message: {
+          content: JSON.stringify({
+            title: "summary",
+            overview: "overview",
+            segments: [{ range: "1-2", summary: "done", key_points: [], evidence: [1, 2] }],
+            decisions: [],
+            issues: [],
+          }),
+        },
+      },
+    ],
+  });
+
+  const readyBrief = JSON.stringify({
+    choices: [{ message: { content: '{"brief":"已完成。","facts":{}}' } }],
+  });
+
+  function chatResponse(body: string, status = 200): Response {
+    return new Response(body, { status, headers: { "content-type": "application/json" } });
+  }
+
+  function seedTaskRecord(root: string, taskId: string, recordId: string): void {
+    const repository = new TrafficRepository(root);
+    repository.upsertTask(task(taskId, "gpt-5", "2026-07-18T10:00:00.000+08:00"));
+    repository.upsertRecord({
+      id: recordId,
+      task_id: taskId,
+      sequence: 1,
+      method: "POST",
+      path: "/v1/responses",
+    });
+    repository.close();
+  }
+
+  function collectWarnings(): {
+    warnings: { message: string; context: Readonly<Record<string, unknown>> }[];
+    logger: { warn(message: string, context?: Readonly<Record<string, unknown>>): void };
+  } {
+    const warnings: { message: string; context: Readonly<Record<string, unknown>> }[] = [];
+    return {
+      warnings,
+      logger: {
+        warn(message, context = {}) {
+          warnings.push({ message, context });
+        },
+      },
+    };
+  }
+
+  it("[AI-05] classifies an unknown task as not_found before calling the model", async () => {
+    const root = await mkdtemp(path.join(os.tmpdir(), "llm-proxy-brief-absent-"));
+    temporaryDirectories.push(root);
+    const service = new LogQueryService([root]);
+
+    await expect(service.generateTaskBrief("absent-task", summaryConfig)).rejects.toMatchObject({
+      name: "ApplicationError",
+      code: "not_found",
+      statusCode: 404,
+      expose: true,
+      message: "Log group not found.",
+    });
+  });
+
+  it("[AI-05] turns a rejected upstream answer into a readable status", async () => {
+    const root = await mkdtemp(path.join(os.tmpdir(), "llm-proxy-brief-upstream-"));
+    temporaryDirectories.push(root);
+    seedTaskRecord(root, "brief-task", "brief-record");
+    const service = new LogQueryService([root]);
+
+    vi.stubGlobal("fetch", () =>
+      Promise.resolve(
+        chatResponse('{"error":{"message":"key summary-secret is not allowed"}}', 401),
+      ),
+    );
+    try {
+      const error = await service
+        .generateTaskBrief("brief-task", summaryConfig)
+        .catch((reason: unknown) => reason);
+      expect(error).toMatchObject({
+        name: "ApplicationError",
+        code: "upstream_error",
+        statusCode: 502,
+        expose: true,
+        message: "The summary model returned HTTP 401.",
+        details: { phase: "summary_model_request", upstream_status: 401 },
+      });
+      // The upstream body must never be copied into the message the console shows.
+      expect(error instanceof Error ? error.message : "").not.toContain("summary-secret");
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+
+  it("[AI-05] keeps the original network failure behind a safe message", async () => {
+    const root = await mkdtemp(path.join(os.tmpdir(), "llm-proxy-brief-network-"));
+    temporaryDirectories.push(root);
+    seedTaskRecord(root, "brief-task", "brief-record");
+    const service = new LogQueryService([root]);
+
+    vi.stubGlobal("fetch", () =>
+      Promise.reject(new TypeError("getaddrinfo summary-secret.example.com failed")),
+    );
+    try {
+      const error = await service
+        .generateTaskBrief("brief-task", summaryConfig)
+        .catch((reason: unknown) => reason);
+
+      expect(error).toMatchObject({
+        name: "ApplicationError",
+        code: "upstream_error",
+        statusCode: 502,
+        expose: true,
+        message: "The summary model could not be reached.",
+        details: {
+          phase: "summary_model_request",
+          target_host: "summary.example.com",
+          target_path: "/v1/chat/completions",
+        },
+      });
+      // The original failure stays available for the internal log only.
+      expect(error instanceof Error ? error.cause : undefined).toBeInstanceOf(TypeError);
+      expect(error instanceof Error ? error.message : "").not.toContain("summary-secret");
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+
+  it("[AI-05] answers a second generation for the same task with conflict", async () => {
+    const root = await mkdtemp(path.join(os.tmpdir(), "llm-proxy-brief-conflict-"));
+    temporaryDirectories.push(root);
+    seedTaskRecord(root, "brief-task", "brief-record");
+    const service = new LogQueryService([root]);
+
+    let settle: (response: Response) => void = () => undefined;
+    const gate = new Promise<Response>((resolve) => {
+      settle = resolve;
+    });
+    vi.stubGlobal("fetch", () => gate);
+    try {
+      const started = service.generateTaskBrief("brief-task", summaryConfig);
+
+      await expect(service.generateTaskBrief("brief-task", summaryConfig)).rejects.toMatchObject({
+        name: "ApplicationError",
+        code: "conflict",
+        statusCode: 409,
+      });
+
+      settle(chatResponse(readyBrief));
+      await expect(started).resolves.toMatchObject({ task_id: "brief-task" });
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+
+  it("[AI-05] names the phase and root when the brief cannot be stored", async () => {
+    const root = await mkdtemp(path.join(os.tmpdir(), "llm-proxy-brief-save-"));
+    temporaryDirectories.push(root);
+    seedTaskRecord(root, "brief-task", "brief-record");
+    const { warnings, logger } = collectWarnings();
+    const service = new LogQueryService([root], logger);
+    const breaker = new Database(path.join(root, "traffic.db"));
+    breaker.exec("DROP TABLE task_briefs");
+    breaker.close();
+
+    vi.stubGlobal("fetch", () => Promise.resolve(chatResponse(readyBrief)));
+    try {
+      await expect(service.generateTaskBrief("brief-task", summaryConfig)).rejects.toMatchObject({
+        name: "ApplicationError",
+        code: "storage_error",
+        statusCode: 500,
+        expose: false,
+        message: "The task brief could not be saved.",
+      });
+      expect(warnings).toEqual([
+        {
+          message: "Task brief save failed",
+          context: {
+            phase: "task_brief_save",
+            task_id: "brief-task",
+            log_root: root,
+            error_type: "SqliteError",
+            cause_type: "UnknownError",
+          },
+        },
+      ]);
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+
+  it("[AI-05] reports a summary that could not be stored instead of pretending it was saved", async () => {
+    const root = await mkdtemp(path.join(os.tmpdir(), "llm-proxy-summary-save-"));
+    temporaryDirectories.push(root);
+    seedTaskRecord(root, "summary-task", "summary-record");
+    const { warnings, logger } = collectWarnings();
+    const service = new LogQueryService([root], logger);
+    const breaker = new Database(path.join(root, "traffic.db"));
+    breaker.exec("DROP TABLE history_summaries");
+    breaker.close();
+
+    vi.stubGlobal("fetch", () => Promise.resolve(chatResponse(readySummary)));
+    try {
+      await expect(service.summarizeRecord("summary-record", summaryConfig)).rejects.toMatchObject({
+        name: "ApplicationError",
+        code: "storage_error",
+        statusCode: 500,
+        message: "The summary could not be saved.",
+      });
+      expect(warnings).toEqual([
+        {
+          message: "Summary save failed",
+          context: {
+            phase: "history_summary_save",
+            record_id: "summary-record",
+            log_root: root,
+            error_type: "SqliteError",
+            cause_type: "UnknownError",
+          },
+        },
+      ]);
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+
+  it("[AI-05] stays quiet for a root that does not hold the record or the task", async () => {
+    const root = await mkdtemp(path.join(os.tmpdir(), "llm-proxy-query-absent-"));
+    temporaryDirectories.push(root);
+    const { warnings, logger } = collectWarnings();
+    const service = new LogQueryService([root], logger);
+
+    expect(service.getSummary("absent-record")).toBeUndefined();
+    expect(service.getTaskBrief("absent-task")).toBeUndefined();
+    expect(warnings).toEqual([]);
+  });
+
+  it("[AI-05] names the root when a history read fails", async () => {
+    const root = await mkdtemp(path.join(os.tmpdir(), "llm-proxy-query-read-"));
+    temporaryDirectories.push(root);
+    seedTaskRecord(root, "summary-task", "summary-record");
+    const { warnings, logger } = collectWarnings();
+    const service = new LogQueryService([root], logger);
+    const breaker = new Database(path.join(root, "traffic.db"));
+    breaker.exec("DROP TABLE history_summaries; DROP TABLE task_briefs");
+    breaker.close();
+
+    expect(service.getSummary("summary-record")).toBeUndefined();
+    expect(service.getTaskBrief("summary-task")).toBeUndefined();
+    expect(warnings).toEqual([
+      {
+        message: "Summary read failed",
+        context: {
+          phase: "history_summary_read",
+          record_id: "summary-record",
+          log_root: root,
+          error_type: "SqliteError",
+          cause_type: "UnknownError",
+        },
+      },
+      {
+        message: "Task brief read failed",
+        context: {
+          phase: "task_brief_read",
+          task_id: "summary-task",
+          log_root: root,
+          error_type: "SqliteError",
+          cause_type: "UnknownError",
+        },
+      },
+    ]);
+  });
+});
+
 function seedPricedRecord(root: string, taskId: string, target: string, costNanoCny: string): void {
   const repository = new TrafficRepository(root);
   repository.upsertTask(task(taskId, "model", "2026-07-18T10:00:00.000+08:00"));
@@ -1111,4 +1401,3 @@ function seedPricedRecord(root: string, taskId: string, target: string, costNano
   });
   repository.close();
 }
-

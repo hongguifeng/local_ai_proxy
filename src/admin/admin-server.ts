@@ -134,7 +134,7 @@ export function createAdminServer(options: AdminServerOptions): FastifyInstance 
     registerModelCatalogRoutes(server, options.modelCatalogService);
   }
   if (options.logService !== undefined) {
-    registerLogRoutes(server, options.logService);
+    registerLogRoutes(server, options.logService, requestLogger);
   }
   if (options.pairService !== undefined) {
     registerPairRoutes(server, options.pairService);

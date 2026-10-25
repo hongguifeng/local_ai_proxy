@@ -21,6 +21,7 @@ export class TrafficLogService {
   readonly #repository: TrafficRepository | undefined;
   readonly #taskMatcher: TaskMatcher | undefined;
   readonly #redactLogs: boolean;
+  readonly #logRoot: string | undefined;
   readonly #writeQueue: SerialWriteQueue | undefined;
   readonly #logger: Pick<StructuredLogger, "warn">;
   #closed = false;
@@ -28,6 +29,7 @@ export class TrafficLogService {
 
   constructor(logRoot: string | null | undefined, options: TrafficLogServiceOptions = {}) {
     this.#redactLogs = options.redactLogs ?? false;
+    this.#logRoot = logRoot ?? undefined;
     this.#logger = options.logger ?? new StructuredLogger({ service: "llm-proxy-traffic-log" });
     this.#repository =
       logRoot === null || logRoot === undefined ? undefined : new TrafficRepository(logRoot);
@@ -68,7 +70,15 @@ export class TrafficLogService {
       await this.#writeQueue.enqueue(() => this.#save(record));
     } catch (error) {
       this.#logger.warn("Traffic log write failed", {
-        error_type: error instanceof Error ? error.name : "UnknownError",
+        // The record and the root say which write failed and where; the error names stay
+        // next to the cause so the failing layer is identifiable without the body itself.
+        phase: "traffic_log_write",
+        event: record["event"],
+        record_id: record["id"],
+        task_id: record["task_id"],
+        log_root: this.#logRoot,
+        error_type: errorName(error),
+        cause_type: errorName(error instanceof Error ? error.cause : undefined),
       });
     }
   }
@@ -181,6 +191,11 @@ function targetUrl(target: Readonly<Record<string, unknown>>): string {
     return "";
   }
   return `${scheme}://${host}:${port}${stringValue(target["path"])}`;
+}
+
+/** The name of an error, or `UnknownError` when it is not an `Error`. */
+function errorName(error: unknown): string {
+  return error instanceof Error ? error.name : "UnknownError";
 }
 
 function bodyValue(value: unknown): unknown {

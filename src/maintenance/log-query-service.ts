@@ -7,7 +7,14 @@ import {
   type TaskCostSeriesPoint,
   type TaskOutputTokenSeriesPoint,
 } from "../persistence/index.js";
-import { formatLocalTimestamp } from "../shared/index.js";
+import {
+  ApplicationError,
+  conflict,
+  formatLocalTimestamp,
+  notFound,
+  storageError,
+  StructuredLogger,
+} from "../shared/index.js";
 import { createLogExportStream } from "./log-export.js";
 import {
   cleanupLogsOlderThan,
@@ -110,11 +117,18 @@ export interface LogRecordDetail {
 
 export class LogQueryService {
   readonly #logRoots: () => readonly string[];
+  readonly #logger: Pick<StructuredLogger, "warn">;
   readonly #summarizing = new Set<string>();
   readonly #briefing = new Set<string>();
 
-  constructor(logRoots: readonly string[] | (() => readonly string[])) {
+  constructor(
+    logRoots: readonly string[] | (() => readonly string[]),
+    logger: Pick<StructuredLogger, "warn"> = new StructuredLogger({
+      service: "llm-proxy-maintenance",
+    }),
+  ) {
     this.#logRoots = typeof logRoots === "function" ? logRoots : () => logRoots;
+    this.#logger = logger;
   }
 
   /**
@@ -259,7 +273,8 @@ export class LogQueryService {
   }
 
   async summarizeRecord(recordId: string, config: SummaryModelConfig): Promise<unknown> {
-    if (this.#summarizing.has(recordId)) throw new Error("summary already in progress");
+    if (this.#summarizing.has(recordId))
+      throw conflict("A summary is already being generated for this record.");
     this.#summarizing.add(recordId);
     try {
       const detail = this.getRecordDetail(recordId);
@@ -274,7 +289,8 @@ export class LogQueryService {
       } catch {
         const match = /```json\s*([\s\S]*?)```/u.exec(content);
         const jsonText = match?.[1];
-        if (jsonText === undefined) throw new Error("summary model returned invalid JSON");
+        if (jsonText === undefined)
+          throw summaryModelFailure("The summary model returned text that is not JSON.");
         result = JSON.parse(jsonText);
       }
       if (
@@ -282,7 +298,7 @@ export class LogQueryService {
         typeof result !== "object" ||
         !Array.isArray((result as { segments?: unknown }).segments)
       )
-        throw new Error("summary model returned invalid JSON shape");
+        throw summaryModelFailure("The summary model did not return the expected JSON shape.");
       this.saveSummary(recordId, result, config.model);
       return result;
     } finally {
@@ -300,8 +316,16 @@ export class LogQueryService {
           )
           .get(recordId) as { summary_json?: string } | undefined;
         if (row?.summary_json) return JSON.parse(row.summary_json);
-      } catch {
-        /* unavailable */
+      } catch (error) {
+        // A missing row is the expected answer for a root that does not hold this
+        // record; reaching here means the query itself failed and is worth naming.
+        this.#logger.warn("Summary read failed", {
+          phase: "history_summary_read",
+          record_id: recordId,
+          log_root: root,
+          error_type: errorName(error),
+          cause_type: errorName(causeOf(error)),
+        });
       } finally {
         db.close();
       }
@@ -309,10 +333,22 @@ export class LogQueryService {
     return undefined;
   }
 
+  /**
+   * Store the summary in the root that owns the record. Other roots cannot hold the row:
+   * `history_summaries.record_id` references `records(id)`, so writing there is a foreign
+   * key violation. A failure in the owning root is reported instead of dropped, because
+   * the caller would otherwise show a summary that was never stored.
+   */
   private saveSummary(recordId: string, result: unknown, model: string): void {
+    let lastError: unknown;
     for (const root of this.#configuredRoots()) {
       const db = new TrafficRepository(root);
       try {
+        const ownsRecord =
+          db.database.prepare("SELECT 1 FROM records WHERE id = ?").get(recordId) !== undefined;
+        if (!ownsRecord) {
+          continue;
+        }
         db.database
           .prepare(
             "INSERT INTO history_summaries(record_id,status,summary_json,model,prompt_version,created_at,updated_at) VALUES(?,?,?,?,?,?,?) ON CONFLICT(record_id) DO UPDATE SET status='ready',summary_json=excluded.summary_json,model=excluded.model,updated_at=excluded.updated_at",
@@ -327,12 +363,23 @@ export class LogQueryService {
             new Date().toISOString(),
           );
         return;
-      } catch {
-        /* try next root */
+      } catch (error) {
+        lastError = error;
+        this.#logger.warn("Summary save failed", {
+          phase: "history_summary_save",
+          record_id: recordId,
+          log_root: root,
+          error_type: errorName(error),
+          cause_type: errorName(causeOf(error)),
+        });
       } finally {
         db.close();
       }
     }
+    throw storageError("The summary could not be saved.", {
+      ...(lastError === undefined ? {} : { cause: lastError }),
+      details: { phase: "history_summary_save", record_id: recordId },
+    });
   }
 
   /**
@@ -356,8 +403,16 @@ export class LogQueryService {
           generated_at: string(row["updated_at"]),
           source_record_id: optionalString(row["source_record_id"]),
         };
-      } catch {
-        /* unavailable */
+      } catch (error) {
+        // A root without this task answers "no row", which the code above already skips.
+        // Reaching here means the read itself failed.
+        this.#logger.warn("Task brief read failed", {
+          phase: "task_brief_read",
+          task_id: groupId,
+          log_root: root,
+          error_type: errorName(error),
+          cause_type: errorName(causeOf(error)),
+        });
       } finally {
         repository.close();
       }
@@ -371,11 +426,12 @@ export class LogQueryService {
    * the user clicks the button, so no hidden model cost is incurred.
    */
   async generateTaskBrief(groupId: string, config: SummaryModelConfig): Promise<TaskBrief> {
-    if (this.#briefing.has(groupId)) throw new Error("task brief already in progress");
+    if (this.#briefing.has(groupId))
+      throw conflict("A task brief is already being generated for this task.");
     this.#briefing.add(groupId);
     try {
       const recordId = this.#latestGroupRecordId(groupId);
-      if (recordId === undefined) throw new Error("Log group not found.");
+      if (recordId === undefined) throw notFound("Log group not found.");
       const detail = this.getRecordDetail(recordId);
       // The request part is the compressed newest request; the client part is
       // only the few request headers that identify which agent is talking, so
@@ -386,7 +442,7 @@ export class LogQueryService {
       });
       const content = await this.#requestSummaryModel(config, TASK_BRIEF_INSTRUCTION, input);
       const { text, facts } = parseTaskBriefContent(content);
-      if (text === "") throw new Error("summary model returned an empty task brief");
+      if (text === "") throw summaryModelFailure("The summary model returned an empty task brief.");
       return this.#saveTaskBrief(groupId, text, facts, config.model, recordId);
     } finally {
       this.#briefing.delete(groupId);
@@ -416,6 +472,7 @@ export class LogQueryService {
     sourceRecordId: string,
   ): TaskBrief {
     const contextJson = Object.keys(facts).length === 0 ? null : JSON.stringify(facts);
+    let lastError: unknown;
     for (const root of this.#configuredRoots()) {
       const repository = new TrafficRepository(root);
       try {
@@ -439,13 +496,23 @@ export class LogQueryService {
           generated_at: string(row["updated_at"]),
           source_record_id: sourceRecordId,
         };
-      } catch {
-        /* try next root */
+      } catch (error) {
+        lastError = error;
+        this.#logger.warn("Task brief save failed", {
+          phase: "task_brief_save",
+          task_id: groupId,
+          log_root: root,
+          error_type: errorName(error),
+          cause_type: errorName(causeOf(error)),
+        });
       } finally {
         repository.close();
       }
     }
-    throw new Error("Task brief could not be saved.");
+    throw storageError("The task brief could not be saved.", {
+      ...(lastError === undefined ? {} : { cause: lastError }),
+      details: { phase: "task_brief_save", task_id: groupId },
+    });
   }
 
   /**
@@ -502,23 +569,40 @@ export class LogQueryService {
     const target = new URL(config.target_url);
     const basePath = target.pathname.replace(/\/$/u, "");
     target.pathname = basePath.endsWith(endpoint) ? basePath : joinTargetPath(basePath, endpoint);
-    const response = await fetch(target, {
-      method: "POST",
-      headers: {
-        ...headers,
-        ...Object.fromEntries(
-          config.target_headers.map((h) => {
-            const i = h.indexOf(":");
-            return [h.slice(0, i).trim(), h.slice(i + 1).trim()];
-          }),
-        ),
-      },
-      body: JSON.stringify(body),
-      signal: AbortSignal.timeout(config.timeout_ms),
-    });
-    if (!response.ok) throw new Error(`summary model returned HTTP ${response.status}`);
+    let response: Response;
+    try {
+      response = await fetch(target, {
+        method: "POST",
+        headers: {
+          ...headers,
+          ...Object.fromEntries(
+            config.target_headers.map((h) => {
+              const i = h.indexOf(":");
+              return [h.slice(0, i).trim(), h.slice(i + 1).trim()];
+            }),
+          ),
+        },
+        body: JSON.stringify(body),
+        signal: AbortSignal.timeout(config.timeout_ms),
+      });
+    } catch (error) {
+      // The cause can name a host or a DNS failure, so it stays in the internal log.
+      throw summaryModelFailure("The summary model could not be reached.", error, {
+        phase: "summary_model_request",
+        target_host: target.host,
+        target_path: target.pathname,
+      });
+    }
+    if (!response.ok) {
+      throw summaryModelFailure(`The summary model returned HTTP ${response.status}.`, undefined, {
+        phase: "summary_model_request",
+        upstream_status: response.status,
+      });
+    }
     const rawResponse = await response.text();
-    if (rawResponse.length > 2_000_000) throw new Error("summary model response is too large");
+    if (rawResponse.length > 2_000_000) {
+      throw summaryModelFailure("The summary model response is too large.");
+    }
     const payload: Record<string, unknown> = JSON.parse(rawResponse) as Record<string, unknown>;
     const choices = Array.isArray(payload["choices"]) ? payload["choices"] : [];
     const firstChoice = isRecord(choices[0]) ? choices[0] : undefined;
@@ -533,7 +617,7 @@ export class LogQueryService {
       typeof payload["content"][0]["text"] === "string"
         ? payload["content"][0]["text"]
         : undefined);
-    if (!content) throw new Error("summary model returned an empty response");
+    if (!content) throw summaryModelFailure("The summary model returned an empty response.");
     return content;
   }
 
@@ -698,6 +782,35 @@ export const TASK_BRIEF_INSTRUCTION =
  * JSON wrapper a strict-JSON model may still emit, and fold line breaks into
  * spaces so the brief renders as one block of text.
  */
+/**
+ * A summary model call that produced no usable output. The message is a sentence written
+ * here, never copied from the upstream body, so it is safe to show the user; the original
+ * failure stays available as `cause` for the internal log.
+ */
+function summaryModelFailure(
+  message: string,
+  cause?: unknown,
+  details?: Readonly<Record<string, unknown>>,
+): ApplicationError {
+  return new ApplicationError(message, {
+    ...(cause === undefined ? {} : { cause }),
+    ...(details === undefined ? {} : { details }),
+    code: "upstream_error",
+    expose: true,
+    statusCode: 502,
+  });
+}
+
+/** The name of an error, or `UnknownError` when it is not an `Error`. */
+function errorName(error: unknown): string {
+  return error instanceof Error ? error.name : "UnknownError";
+}
+
+/** The `cause` of an error when it carries one. */
+function causeOf(error: unknown): unknown {
+  return error instanceof Error ? error.cause : undefined;
+}
+
 function briefParagraph(content: string): string {
   let text = content.trim();
   const fenced = /```(?:json|text)?\s*([\s\S]*?)```/u.exec(text);

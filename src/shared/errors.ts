@@ -1,5 +1,5 @@
 export type ApplicationErrorCode =
-  "bad_request" | "conflict" | "internal_error" | "not_found" | "upstream_error";
+  "bad_request" | "conflict" | "internal_error" | "not_found" | "storage_error" | "upstream_error";
 
 export interface ApplicationErrorOptions extends ErrorOptions {
   readonly code: ApplicationErrorCode;
@@ -54,12 +54,34 @@ export function conflict(message: string): ApplicationError {
   return new ApplicationError(message, { code: "conflict", statusCode: 409 });
 }
 
-export function upstreamError(message: string, options: ErrorOptions = {}): ApplicationError {
+export function upstreamError(
+  message: string,
+  options: ErrorOptions & { readonly details?: Readonly<Record<string, unknown>> } = {},
+): ApplicationError {
   return new ApplicationError(message, {
     cause: options.cause,
+    ...(options.details === undefined ? {} : { details: options.details }),
     code: "upstream_error",
     expose: false,
     statusCode: 502,
+  });
+}
+
+/**
+ * Persistence failed in a way the caller cannot work around. The original error stays
+ * available as `cause` so the internal log can name it; the client only ever sees that
+ * saving failed.
+ */
+export function storageError(
+  message: string,
+  options: ErrorOptions & { readonly details?: Readonly<Record<string, unknown>> } = {},
+): ApplicationError {
+  return new ApplicationError(message, {
+    cause: options.cause,
+    ...(options.details === undefined ? {} : { details: options.details }),
+    code: "storage_error",
+    expose: false,
+    statusCode: 500,
   });
 }
 

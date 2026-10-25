@@ -1,4 +1,5 @@
 import type { FastifyInstance } from "fastify";
+import { ApplicationError, StructuredLogger } from "../../shared/index.js";
 import {
   LOG_GROUP_COST_SERIES_SCHEMA,
   LOG_GROUP_LOGS_SCHEMA,
@@ -9,9 +10,13 @@ import {
   LOG_RECORD_DETAIL_SCHEMA,
 } from "../admin-schemas.js";
 import { adminError } from "../admin-contracts.js";
-import type { LogAdminService } from "../admin-contracts.js";
+import type { AdminErrorDto, AdminRequestLogger, LogAdminService } from "../admin-contracts.js";
 
-export function registerLogRoutes(server: FastifyInstance, logService: LogAdminService): void {
+export function registerLogRoutes(
+  server: FastifyInstance,
+  logService: LogAdminService,
+  logger: AdminRequestLogger = new StructuredLogger({ service: "llm-proxy-admin" }),
+): void {
   const cleanupSelectedGroups = logService.cleanupSelectedGroups?.bind(logService);
   const cleanupOlderThan = logService.cleanupOlderThan?.bind(logService);
   const cleanupKeepLatest = logService.cleanupKeepLatest?.bind(logService);
@@ -180,20 +185,22 @@ export function registerLogRoutes(server: FastifyInstance, logService: LogAdminS
       try {
         return await generateTaskBrief(request.params.id);
       } catch (error) {
-        const message = error instanceof Error ? error.message : "Task brief failed.";
-        if (message.includes("Log group not found.")) {
-          return reply.code(404).send(adminError("log_group_not_found", "Log group not found."));
+        if (!(error instanceof ApplicationError)) {
+          // A classified error already carries what an operator needs; this is the case
+          // where nothing was expected and the reason has to stay in the log.
+          logger.warn("Task brief generation failed", {
+            phase: "task_brief_generate",
+            task_id: request.params.id,
+            error_type: errorName(error),
+            cause_type: errorName(causeOf(error)),
+          });
         }
-        return reply
-          .code(message.includes("already in progress") ? 409 : 502)
-          .send(
-            adminError(
-              message.includes("already in progress")
-                ? "task_brief_in_progress"
-                : "task_brief_failed",
-              message,
-            ),
-          );
+        const failure = operationFailure(error, {
+          notFound: "log_group_not_found",
+          inProgress: "task_brief_in_progress",
+          failed: "task_brief_failed",
+        });
+        return reply.code(failure.status).send(failure.body);
       }
     });
   }
@@ -293,6 +300,7 @@ export function registerLogRoutes(server: FastifyInstance, logService: LogAdminS
         reply.code(404).send(adminError("log_record_not_found", "Log record not found.")),
     );
   }
+
   if (summarizeRecord !== undefined) {
     if (getSummary !== undefined)
       server.get<{ Params: { id: string } }>(
@@ -304,16 +312,84 @@ export function registerLogRoutes(server: FastifyInstance, logService: LogAdminS
         const result = await summarizeRecord(request.params.id);
         return result ?? reply.code(404).send(adminError("record_not_found", "Record not found."));
       } catch (error) {
-        const message = error instanceof Error ? error.message : "Summary failed.";
-        return reply
-          .code(message.includes("already in progress") ? 409 : 502)
-          .send(
-            adminError(
-              message.includes("already in progress") ? "summary_in_progress" : "summary_failed",
-              message,
-            ),
-          );
+        if (!(error instanceof ApplicationError)) {
+          logger.warn("Record summary generation failed", {
+            phase: "record_summary_generate",
+            record_id: request.params.id,
+            error_type: errorName(error),
+            cause_type: errorName(causeOf(error)),
+          });
+        }
+        const failure = operationFailure(error, {
+          notFound: "record_not_found",
+          inProgress: "summary_in_progress",
+          failed: "summary_failed",
+        });
+        return reply.code(failure.status).send(failure.body);
       }
     });
   }
+}
+
+/**
+ * Map a classified operation error onto the status and admin code the console already
+ * uses. The classification reads the error's `code`, never its message text, so rewording
+ * an error cannot change an HTTP status.
+ */
+function operationFailure(
+  error: unknown,
+  codes: {
+    readonly notFound: string;
+    readonly inProgress: string;
+    readonly failed: string;
+  },
+): { readonly status: number; readonly body: AdminErrorDto } {
+  if (error instanceof ApplicationError) {
+    switch (error.code) {
+      case "not_found":
+        return {
+          status: 404,
+          body: adminError(codes.notFound, publicMessage(error, "Not found.")),
+        };
+      case "conflict":
+        return {
+          status: 409,
+          body: adminError(
+            codes.inProgress,
+            publicMessage(error, "Another generation is already running."),
+          ),
+        };
+      case "upstream_error":
+        return {
+          status: error.statusCode,
+          body: adminError(codes.failed, publicMessage(error, "The summary model request failed.")),
+        };
+      case "storage_error":
+        return {
+          status: error.statusCode,
+          body: adminError("storage_failed", "The result could not be saved."),
+        };
+      default:
+        break;
+    }
+  }
+  return { status: 502, body: adminError(codes.failed, "The request failed.") };
+}
+
+/**
+ * A message this project wrote can be shown as it stands; an unexpected error keeps its
+ * details inside the process.
+ */
+function publicMessage(error: ApplicationError, fallback: string): string {
+  return error.expose ? error.message : fallback;
+}
+
+/** The name of an error, or `UnknownError` when it is not an `Error`. */
+function errorName(error: unknown): string {
+  return error instanceof Error ? error.name : "UnknownError";
+}
+
+/** The `cause` of an error when it carries one. */
+function causeOf(error: unknown): unknown {
+  return error instanceof Error ? error.cause : undefined;
 }

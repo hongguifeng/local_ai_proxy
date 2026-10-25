@@ -2,6 +2,7 @@ import { afterEach, describe, expect, it } from "vitest";
 import { Readable } from "node:stream";
 
 import { applicationHealth, createAdminServer } from "../../src/admin/index.js";
+import { ApplicationError, conflict, notFound, storageError } from "../../src/shared/index.js";
 import type { LogPendingRecord } from "../../src/maintenance/index.js";
 
 const servers: ReturnType<typeof createAdminServer>[] = [];
@@ -331,5 +332,197 @@ describe("GET /api/logs", () => {
 
     const response = await server.inject({ method: "GET", url: "/api/logs/records?ids=any" });
     expect(response.statusCode).toBe(404);
+  });
+});
+
+describe("generation error classification", () => {
+  // [AI-05] The status and the admin code come from the error's classification, never from
+  // its message text, so rewording an error cannot move a request to a different status.
+  function generationServer(
+    failure: () => Promise<never>,
+    warnings?: { message: string; context: Readonly<Record<string, unknown>> }[],
+  ): ReturnType<typeof createAdminServer> {
+    const server = createAdminServer({
+      getHealth: () => applicationHealth("running"),
+      ...(warnings === undefined
+        ? {}
+        : {
+            logger: {
+              info: () => undefined,
+              warn(message, context = {}) {
+                warnings.push({ message, context });
+              },
+            },
+          }),
+      logService: {
+        listGroups: () => ({
+          groups: [],
+          total: 0,
+          limit: 100,
+          offset: 0,
+          next_offset: 0,
+          has_more: false,
+        }),
+        generateTaskBrief: () => failure(),
+        summarizeRecord: () => failure(),
+      },
+    });
+    servers.push(server);
+    return server;
+  }
+
+  it("[AI-05] answers an in-progress brief with 409 regardless of the wording", async () => {
+    const first = await generationServer(() =>
+      Promise.reject(conflict("A task brief is already being generated for this task.")),
+    ).inject({ method: "POST", url: "/api/log-groups/task-1/brief" });
+    const second = await generationServer(() =>
+      Promise.reject(conflict("Reworded in-progress state.")),
+    ).inject({ method: "POST", url: "/api/log-groups/task-1/brief" });
+
+    expect(first.statusCode).toBe(409);
+    expect(first.json()).toEqual({
+      error: {
+        code: "task_brief_in_progress",
+        message: "A task brief is already being generated for this task.",
+      },
+    });
+    expect(second.statusCode).toBe(409);
+    expect(second.json()).toEqual({
+      error: { code: "task_brief_in_progress", message: "Reworded in-progress state." },
+    });
+  });
+
+  it("[AI-05] answers an unknown group with 404", async () => {
+    const response = await generationServer(() =>
+      Promise.reject(notFound("Log group not found.")),
+    ).inject({ method: "POST", url: "/api/log-groups/task-1/brief" });
+
+    expect(response.statusCode).toBe(404);
+    expect(response.json()).toEqual({
+      error: { code: "log_group_not_found", message: "Log group not found." },
+    });
+  });
+
+  it("[AI-05] shows the model status but never the credential behind it", async () => {
+    const response = await generationServer(() =>
+      Promise.reject(
+        new ApplicationError("The summary model returned HTTP 401.", {
+          cause: new Error("upstream rejected key sk-live-secret"),
+          code: "upstream_error",
+          expose: true,
+          statusCode: 502,
+        }),
+      ),
+    ).inject({ method: "POST", url: "/api/log-groups/task-1/brief" });
+
+    expect(response.statusCode).toBe(502);
+    expect(response.json()).toEqual({
+      error: { code: "task_brief_failed", message: "The summary model returned HTTP 401." },
+    });
+    expect(response.body).not.toContain("sk-live-secret");
+  });
+
+  it("[AI-05] answers a storage failure with 500 and a generic message", async () => {
+    const response = await generationServer(() =>
+      Promise.reject(
+        storageError("The task brief could not be saved.", {
+          cause: new Error("SQLITE_BUSY while writing C:\\private\\traffic.db"),
+          details: { phase: "task_brief_save", task_id: "task-1" },
+        }),
+      ),
+    ).inject({ method: "POST", url: "/api/log-groups/task-1/brief" });
+
+    expect(response.statusCode).toBe(500);
+    expect(response.json()).toEqual({
+      error: { code: "storage_failed", message: "The result could not be saved." },
+    });
+    expect(response.body).not.toContain("traffic.db");
+    expect(response.body).not.toContain("task-1");
+  });
+
+  it("[AI-05] keeps an unexpected internal error generic", async () => {
+    const brief = await generationServer(() =>
+      Promise.reject(new Error("decoding C:\\private\\traffic.db failed")),
+    ).inject({ method: "POST", url: "/api/log-groups/task-1/brief" });
+    const summary = await generationServer(() =>
+      Promise.reject(new Error("decoding C:\\private\\traffic.db failed")),
+    ).inject({ method: "POST", url: "/api/logs/record-1/summary" });
+
+    expect(brief.statusCode).toBe(502);
+    expect(brief.json()).toEqual({
+      error: { code: "task_brief_failed", message: "The request failed." },
+    });
+    expect(summary.statusCode).toBe(502);
+    expect(summary.json()).toEqual({
+      error: { code: "summary_failed", message: "The request failed." },
+    });
+    expect(brief.body).not.toContain("traffic.db");
+    expect(summary.body).not.toContain("traffic.db");
+  });
+
+  it("[AI-05] logs the reason when nothing was expected", async () => {
+    const warnings: { message: string; context: Readonly<Record<string, unknown>> }[] = [];
+    const server = generationServer(
+      () =>
+        Promise.reject(
+          new TypeError("cannot read C:\\private\\traffic.db", { cause: new Error("EBUSY") }),
+        ),
+      warnings,
+    );
+
+    const brief = await server.inject({ method: "POST", url: "/api/log-groups/task-1/brief" });
+    const summary = await server.inject({ method: "POST", url: "/api/logs/record-1/summary" });
+
+    expect(brief.statusCode).toBe(502);
+    expect(summary.statusCode).toBe(502);
+    expect(warnings).toEqual([
+      {
+        message: "Task brief generation failed",
+        context: {
+          phase: "task_brief_generate",
+          task_id: "task-1",
+          error_type: "TypeError",
+          cause_type: "Error",
+        },
+      },
+      {
+        message: "Record summary generation failed",
+        context: {
+          phase: "record_summary_generate",
+          record_id: "record-1",
+          error_type: "TypeError",
+          cause_type: "Error",
+        },
+      },
+    ]);
+    // The error text can name a private path; only its type belongs in the log.
+    expect(JSON.stringify(warnings)).not.toContain("private");
+    expect(JSON.stringify(warnings)).not.toContain("EBUSY");
+  });
+
+  it("[AI-05] does not log again for an error that is already classified", async () => {
+    const warnings: { message: string; context: Readonly<Record<string, unknown>> }[] = [];
+
+    const response = await generationServer(
+      () => Promise.reject(conflict("A task brief is already being generated for this task.")),
+      warnings,
+    ).inject({ method: "POST", url: "/api/log-groups/task-1/brief" });
+
+    expect(response.statusCode).toBe(409);
+    expect(warnings).toEqual([]);
+  });
+
+  it("[AI-05] answers an in-progress summary with 409", async () => {
+    const response = await generationServer(() =>
+      Promise.reject(conflict("A summary is already being generated for this record.")),
+    ).inject({ method: "POST", url: "/api/logs/record-1/summary" });
+
+    expect(response.statusCode).toBe(409);
+    expect(response.json()).toEqual({
+      error: {
+        code: "summary_in_progress",
+        message: "A summary is already being generated for this record.",
+      },
+    });
   });
 });
