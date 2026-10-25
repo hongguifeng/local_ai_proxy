@@ -54,21 +54,21 @@
 
 ## 5. 模块地图
 
-| 目录               | 职责                                   | 主要文件                                                                                                                                                                                                                                                                          |
-| ------------------ | -------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `src/app`          | 装配、生命周期、关闭协调               | `runtime.ts`、`application.ts`、`shutdown.ts`                                                                                                                                                                                                                                     |
-| `src/cli`          | 命令行解析与源码启动                   | `index.ts`、`runner.ts`、`signals.ts`、`browser.ts`                                                                                                                                                                                                                               |
-| `src/config`       | zod 校验、配置文件读写、默认值         | `config-schema.ts`、`config-validation.ts`、`config-normalizer.ts`、`config-repository.ts`、`application-config.ts`、`defaults.ts`                                                                                                                                                |
-| `src/proxy`        | 监听器、转发、请求流水线、负载均衡     | `proxy-listener.ts`、`proxy-manager.ts`、`proxy-runtime-registry.ts`、`proxy-request-pipeline.ts`、`upstream-forwarder.ts`、`routing.ts`、`target.ts`、`api-request.ts`、`streams.ts`、`payload.ts`、`headers.ts`、`response-decoder.ts`、`load-balancer.ts`、`load-monitor.ts`、`task-identity.ts` |
-| `src/logging`      | 请求事件落库、任务归并、正文存储       | `traffic-log-service.ts`、`task-matcher.ts`、`write-queue.ts`                                                                                                                                                                                                                     |
-| `src/persistence`  | SQLite schema、迁移、按变更原因拆分的存储模块与唯一入口 | `database.ts`、`repository.ts`（唯一入口与业务写事务）、`task-store.ts`、`record-store.ts`、`search-store.ts`、`pricing-store.ts`、`generated-text-store.ts`、`column-codec.ts`、`access-contracts.ts`、`schema-v1.ts` 到 `schema-v13.ts`、`body-storage.ts` |
-| `src/maintenance`  | 历史查询、统计、压缩、清理、导出、备份、摘要与任务简介生成 | `log-query-service.ts`、`usage-statistics-service.ts`、`log-cleanup.ts`、`log-export.ts`、`summary-model-client.ts`、`summary-generation-service.ts`、`summary-input.ts`、`summary-answer.ts`、`summary-prompts.ts`                                                                                                     |
-| `src/pricing`      | 计价解析与用量换算                     | `model-catalog.ts`、`model-price-matcher.ts`、`request-pricing.ts`、`usage-accumulator.ts`、`usage-normalizer.ts`、`money.ts`                                                                                                                                                     |
-| `src/admin`        | Fastify 管理 API、静态页面装配         | `admin-server.ts`、`admin-contracts.ts`、`admin-schemas.ts`、`static-assets.ts`、`routes/`（8 个功能文件）                                                                                                                                                                        |
-| `src/admin/static` | ES module 入口与模块、编号脚本、`app.css`、`index.html` | `entry.js`、`modules/`、`01-core.js` 到 `09-wiring.js`                                                                                                                                                                                                                |
-| `src/shared`       | 运行诊断、JSON/JSONL、时间与错误工具   | `runtime-diagnostics.ts`、`json.ts`、`time.ts`、`errors.ts`、`logger.ts`、`paths.ts`、`ids.ts`                                                                                                                                                                                    |
-| `electron/`        | 托盘、单实例、登录项、冒烟退出         | `index.ts`、`single-instance.ts`、`auto-start.ts`、`smoke-exit.ts`                                                                                                                                                                                                                |
-| `src/ui/static/`   | 只有 `.gitkeep`，不是 UI 源            | UI 源在 `src/admin/static/`                                                                                                                                                                                                                                                       |
+| 目录               | 职责                                                       | 主要文件                                                                                                                                                                                                                                                                                                     |
+| ------------------ | ---------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `src/app`          | 装配、生命周期、关闭协调                                   | `runtime.ts`、`application.ts`、`shutdown.ts`                                                                                                                                                                                                                                                                |
+| `src/cli`          | 命令行解析与源码启动                                       | `index.ts`、`runner.ts`、`signals.ts`、`browser.ts`                                                                                                                                                                                                                                                          |
+| `src/config`       | zod 校验、配置文件读写、默认值                             | `config-schema.ts`、`config-validation.ts`、`config-normalizer.ts`、`config-repository.ts`、`application-config.ts`、`defaults.ts`                                                                                                                                                                           |
+| `src/proxy`        | 监听器、转发、请求流水线、负载均衡                         | `proxy-listener.ts`、`proxy-manager.ts`、`proxy-runtime-registry.ts`、`proxy-request-pipeline.ts`、`upstream-forwarder.ts`、`routing.ts`、`target.ts`、`api-request.ts`、`streams.ts`、`payload.ts`、`headers.ts`、`response-decoder.ts`、`load-balancer.ts`、`load-monitor.ts`、`protocol/task-identity.ts` |
+| `src/logging`      | 请求事件落库、任务归并、正文存储                           | `traffic-log-service.ts`、`task-matcher.ts`、`write-queue.ts`                                                                                                                                                                                                                                                |
+| `src/persistence`  | SQLite schema、迁移、按变更原因拆分的存储模块与唯一入口    | `database.ts`、`repository.ts`（唯一入口与业务写事务）、`task-store.ts`、`record-store.ts`、`search-store.ts`、`pricing-store.ts`、`generated-text-store.ts`、`column-codec.ts`、`access-contracts.ts`、`schema-v1.ts` 到 `schema-v13.ts`、`body-storage.ts`                                                 |
+| `src/maintenance`  | 历史查询、统计、压缩、清理、导出、备份、摘要与任务简介生成 | `log-query-service.ts`、`usage-statistics-service.ts`、`log-cleanup.ts`、`log-export.ts`、`summary-model-client.ts`、`summary-generation-service.ts`、`summary-input.ts`、`summary-answer.ts`、`summary-prompts.ts`                                                                                          |
+| `src/pricing`      | 计价解析与用量换算                                         | `model-catalog.ts`、`model-price-matcher.ts`、`request-pricing.ts`、`usage-accumulator.ts`、`usage-normalizer.ts`、`money.ts`                                                                                                                                                                                |
+| `src/admin`        | Fastify 管理 API、静态页面装配                             | `admin-server.ts`、`admin-contracts.ts`、`admin-schemas.ts`、`static-assets.ts`、`routes/`（8 个功能文件）                                                                                                                                                                                                   |
+| `src/admin/static` | ES module 入口与模块、编号脚本、`app.css`、`index.html`    | `entry.js`、`modules/`、`01-core.js` 到 `09-wiring.js`                                                                                                                                                                                                                                                       |
+| `src/shared`       | 运行诊断、JSON/JSONL、时间与错误工具                       | `runtime-diagnostics.ts`、`json.ts`、`time.ts`、`errors.ts`、`logger.ts`、`paths.ts`、`ids.ts`                                                                                                                                                                                                               |
+| `electron/`        | 托盘、单实例、登录项、冒烟退出                             | `index.ts`、`single-instance.ts`、`auto-start.ts`、`smoke-exit.ts`                                                                                                                                                                                                                                           |
+| `src/ui/static/`   | 只有 `.gitkeep`，不是 UI 源                                | UI 源在 `src/admin/static/`                                                                                                                                                                                                                                                                                  |
 
 管理端路由按功能注册在 `src/admin/routes/` 下，只有对应服务存在时才注册。
 `test-node/admin/api-contract.test.ts` 钉住路由表和顶层响应键，包括空配置的情况。
@@ -98,29 +98,30 @@
 
 ## 7. 验证入口
 
-| 目的                      | 命令                                                                                            |
-| ------------------------- | ----------------------------------------------------------------------------------------------- |
-| 静态检查与全量测试        | `npm run check`                                                                                 |
-| 全量类型检查              | `npm run typecheck`                                                                             |
-| 只编译产品与打包工具      | `npm run build`                                                                                 |
-| UI 组装后的 lint 与类型   | `npm run lint:ui-assembly`、`npm run typecheck:ui`                                              |
-| 便携版打包                | `npm run build && npm run rebuild:electron && npx electron-builder -w portable --publish never` |
-| UI 基线重生成             | `npm run regen:ui-baselines`                                                                    |
-| 文档格式检查              | `npx prettier --ignore-path .gitignore --check docs`                                            |
-| Node 测试前的原生模块 ABI | `npm rebuild better-sqlite3`                                                                |
-| Node 侧 SQLite ABI 用真实查询证明 | `npm run build && npm run abi:node`                                      |
-| Electron 侧 SQLite ABI 用真实查询证明 | `npm run abi:electron`（先 `npm run rebuild:electron`，产物与本地 Electron 都要 Electron ABI） |
-| 两种运行时都要证明                    | `npm run abi:check`                                                                     |
-| unpacked 载荷交付冒烟（`release/win-unpacked`） | `npm run smoke:payload`                                         |
-| portable 包装器交付冒烟（真正发布的 exe）       | `npm run smoke:artifact`                                          |
-| 按顺序跑完两个交付冒烟                          | `npm run smoke:delivery`（先载荷，后包装器）                       |
-| 运行时模块环与越界导入    | `npm run check:modules`                                                                     |
+| 目的                                            | 命令                                                                                            |
+| ----------------------------------------------- | ----------------------------------------------------------------------------------------------- |
+| 静态检查与全量测试                              | `npm run check`                                                                                 |
+| 全量类型检查                                    | `npm run typecheck`                                                                             |
+| 只编译产品与打包工具                            | `npm run build`                                                                                 |
+| UI 组装与静态资源构建                           | `npm run bundle:ui`                                                                             |
+| UI lint 与类型检查                              | `npm run lint`、`npm run typecheck`                                                             |
+| 便携版打包                                      | `npm run build && npm run rebuild:electron && npx electron-builder -w portable --publish never` |
+| UI 基线重生成                                   | `npm run regen:ui-baselines`                                                                    |
+| 文档格式检查                                    | `npx prettier --ignore-path .gitignore --check docs`                                            |
+| Node 测试前的原生模块 ABI                       | `npm rebuild better-sqlite3`                                                                    |
+| Node 侧 SQLite ABI 用真实查询证明               | `npm run build && npm run abi:node`                                                             |
+| Electron 侧 SQLite ABI 用真实查询证明           | `npm run abi:electron`（先 `npm run rebuild:electron`，产物与本地 Electron 都要 Electron ABI）  |
+| 两种运行时都要证明                              | `npm run abi:check`                                                                             |
+| unpacked 载荷交付冒烟（`release/win-unpacked`） | `npm run smoke:payload`                                                                         |
+| portable 包装器交付冒烟（真正发布的 exe）       | `npm run smoke:artifact`                                                                        |
+| 按顺序跑完两个交付冒烟                          | `npm run smoke:delivery`（先载荷，后包装器）                                                    |
+| 运行时模块环与越界导入                          | `npm run check:modules`                                                                         |
 
 `npm rebuild better-sqlite3` 只在最终 Electron 重建之前跑一次；在 Electron 重建之后、打包之前
 再跑一次会让便携版带上 Node ABI 的模块并在启动时失败。Windows 上跑测试和基线命令请从大写
 盘符进入（`cd /D/...`）。
 
-`npm run build` 用 `tsconfig.build.json` 只把 `src`、`electron` 和 `scripts` 编译进 `dist-node`：
+`npm run build` 用 `tsconfig.build.json` 只把 `src`、`electron` 和 `scripts` 编译进 `dist-node`，随后复制静态资源并生成 UI bundle：
 测试实现不进产品产物，也不参与打包。`npm run typecheck` 用 `tsconfig.json` 检查产品、测试和
 工具，再用 `tsconfig.ui.json` 检查九个浏览器脚本，所以测试里的类型错误照样能让 `npm run check`
 失败，但不会改变产品编译。`electron-builder.yml` 的 `files` 按这三棵编译树逐项列出，输出目录里
@@ -155,8 +156,5 @@ ABI 证明只认真实查询：`require("better-sqlite3")` 不碰原生绑定，
 
 ## 9. 仍未收口的事项
 
-配置与统计（AI-01、AI-02）、数据库版本来源（AI-03）和运行时依赖环（AI-10）已经收口。其余见
-[待办清单](./ai-development-optimization-todo.md)：错误分类（AI-05）、类型与 API 合同
-（AI-06～AI-09）、日志读取与迁移（AI-11～AI-13）、SSE 时序（AI-14）、
-测试入口（AI-15）、构建与打包状态（AI-16～AI-17）、渲染与样式归属（AI-21～AI-22）、
-文档与 skills 收口（AI-23～AI-24）。
+配置与统计（AI-01、AI-02）、数据库版本来源（AI-03）、类型与 API 合同（AI-05～AI-09）、运行时边界、日志查询与持久化职责（AI-10～AI-13）、SSE 与场景测试（AI-14）、编译与交付入口（AI-15～AI-17）已经收口。其余见
+[待办清单](./ai-development-optimization-todo.md)：代理配置与负载均衡模块化（AI-18）、历史与指标模块化（AI-19）、UI 类型与 DOM 合同（AI-20）、渲染输入与缓存失效（AI-21）、组件样式归属（AI-22）、skills 收口（AI-23）、综合验收（AI-24）以及旧配置键保留（AI-25）。
