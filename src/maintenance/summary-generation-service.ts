@@ -86,8 +86,9 @@ export class SummaryGenerationService {
    */
   cachedSummary(recordId: string): HistorySummary | undefined {
     for (const root of this.#logRoots()) {
-      const repository = new TrafficRepository(root);
+      let repository: TrafficRepository | undefined;
       try {
+        repository = new TrafficRepository(root);
         const summaryJson = repository.historySummaryJson(recordId);
         if (summaryJson !== undefined) {
           const parsed: unknown = JSON.parse(summaryJson);
@@ -95,8 +96,6 @@ export class SummaryGenerationService {
           return isRecord(parsed) ? parsed : undefined;
         }
       } catch (error) {
-        // A missing row is the expected answer for a root that does not hold this
-        // record; reaching here means the query itself failed and is worth naming.
         this.#logger.warn("Summary read failed", {
           phase: "history_summary_read",
           record_id: recordId,
@@ -104,8 +103,12 @@ export class SummaryGenerationService {
           error_type: errorName(error),
           cause_type: errorName(causeOf(error)),
         });
+        throw storageError("The summary could not be read.", {
+          cause: error,
+          details: { phase: "history_summary_read", record_id: recordId },
+        });
       } finally {
-        repository.close();
+        repository?.close();
       }
     }
     return undefined;
@@ -134,16 +137,15 @@ export class SummaryGenerationService {
    */
   cachedBrief(taskId: string): TaskBrief | undefined {
     for (const root of this.#logRoots()) {
-      const repository = new TrafficRepository(root);
+      let repository: TrafficRepository | undefined;
       try {
+        repository = new TrafficRepository(root);
         const row = repository.getTaskBrief(taskId);
         if (row === undefined) continue;
         // An empty brief_text is the "never generated" answer, so the next root is asked.
         if (row.brief_text === null || row.brief_text === "") continue;
         return briefFromRow(row, taskId);
       } catch (error) {
-        // A root without this task answers "no row", which the code above already skips.
-        // Reaching here means the read itself failed.
         this.#logger.warn("Task brief read failed", {
           phase: "task_brief_read",
           task_id: taskId,
@@ -151,8 +153,12 @@ export class SummaryGenerationService {
           error_type: errorName(error),
           cause_type: errorName(causeOf(error)),
         });
+        throw storageError("The task brief could not be read.", {
+          cause: error,
+          details: { phase: "task_brief_read", task_id: taskId },
+        });
       } finally {
-        repository.close();
+        repository?.close();
       }
     }
     return undefined;
@@ -194,13 +200,26 @@ export class SummaryGenerationService {
   /** The newest complete request of a task, or undefined when the task is unknown. */
   #latestRecordOfTask(groupId: string): string | undefined {
     for (const root of this.#logRoots()) {
-      const repository = new TrafficRepository(root);
+      let repository: TrafficRepository | undefined;
       try {
+        repository = new TrafficRepository(root);
         if (!repository.hasTask(groupId)) continue;
         const recordId = repository.latestTaskRecordId(groupId);
         if (recordId !== undefined) return recordId;
+      } catch (error) {
+        this.#logger.warn("Task brief source read failed", {
+          phase: "task_brief_source_read",
+          task_id: groupId,
+          log_root: root,
+          error_type: errorName(error),
+          cause_type: errorName(causeOf(error)),
+        });
+        throw storageError("The task brief source could not be read.", {
+          cause: error,
+          details: { phase: "task_brief_source_read", task_id: groupId },
+        });
       } finally {
-        repository.close();
+        repository?.close();
       }
     }
     return undefined;
@@ -213,12 +232,25 @@ export class SummaryGenerationService {
    */
   #findRecord(recordId: string): Readonly<RecordRow> | undefined {
     for (const root of this.#logRoots()) {
-      const repository = new TrafficRepository(root);
+      let repository: TrafficRepository | undefined;
       try {
+        repository = new TrafficRepository(root);
         const record = repository.getRecord(recordId);
         if (record !== undefined) return record;
+      } catch (error) {
+        this.#logger.warn("Record read failed", {
+          phase: "record_read",
+          record_id: recordId,
+          log_root: root,
+          error_type: errorName(error),
+          cause_type: errorName(causeOf(error)),
+        });
+        throw storageError("The record could not be read.", {
+          cause: error,
+          details: { phase: "record_read", record_id: recordId },
+        });
       } finally {
-        repository.close();
+        repository?.close();
       }
     }
     return undefined;
@@ -233,8 +265,9 @@ export class SummaryGenerationService {
   #storeSummary(recordId: string, summary: HistorySummary, model: string): void {
     let lastError: unknown;
     for (const root of this.#logRoots()) {
-      const repository = new TrafficRepository(root);
+      let repository: TrafficRepository | undefined;
       try {
+        repository = new TrafficRepository(root);
         if (!repository.hasRecord(recordId)) {
           continue;
         }
@@ -257,7 +290,7 @@ export class SummaryGenerationService {
           cause_type: errorName(causeOf(error)),
         });
       } finally {
-        repository.close();
+        repository?.close();
       }
     }
     throw storageError("The summary could not be saved.", {
@@ -276,8 +309,9 @@ export class SummaryGenerationService {
     const contextJson = Object.keys(facts).length === 0 ? null : JSON.stringify(facts);
     let lastError: unknown;
     for (const root of this.#logRoots()) {
-      const repository = new TrafficRepository(root);
+      let repository: TrafficRepository | undefined;
       try {
+        repository = new TrafficRepository(root);
         // Only the root that owns the task can hold the brief: the row
         // references tasks(id), so writing it elsewhere is a foreign key
         // violation that would leave the brief in the wrong directory.
@@ -303,7 +337,7 @@ export class SummaryGenerationService {
           cause_type: errorName(causeOf(error)),
         });
       } finally {
-        repository.close();
+        repository?.close();
       }
     }
     throw storageError("The task brief could not be saved.", {
