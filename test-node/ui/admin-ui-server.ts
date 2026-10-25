@@ -95,6 +95,10 @@ function assertNoUnhandledPageErrors(): void {
   );
 }
 
+function asError(error: unknown): Error {
+  return error instanceof Error ? error : new Error(String(error));
+}
+
 export async function startStubAdminServer(): Promise<void> {
   // The page this suite drives is the product page, so it needs the generated module
   // bridge. A lone `npx vitest run test-node/ui` does not go through the pretest hook
@@ -576,25 +580,59 @@ export async function closeTestPage(): Promise<void> {
   if (currentPage === undefined) {
     return;
   }
+  let pageError: Error | undefined;
+  let closeError: Error | undefined;
   // Drain the page's task queue first. A script that throws from a timer or a microtask
   // may have raised its error a moment before this hook runs, and the report travels back
   // over the same ordered connection as the command below, so a round trip the browser
   // answers only after its queued work cannot return before an earlier exception.
-  await currentPage.evaluate(() => new Promise((resolve) => setTimeout(resolve, 0)));
-  assertNoUnhandledPageErrors();
-  await currentPage.close();
-  activePage = undefined;
+  try {
+    try {
+      await currentPage.evaluate(() => new Promise((resolve) => setTimeout(resolve, 0)));
+      assertNoUnhandledPageErrors();
+    } catch (error: unknown) {
+      pageError = asError(error);
+    }
+  } finally {
+    try {
+      await currentPage.close();
+    } catch (error: unknown) {
+      closeError = asError(error);
+    } finally {
+      activePage = undefined;
+    }
+  }
+  if (pageError !== undefined) {
+    throw pageError;
+  }
+  if (closeError !== undefined) {
+    throw closeError;
+  }
 }
 
 export async function closeStubAdminServer(): Promise<void> {
+  let firstCleanupError: Error | undefined;
   const currentBrowser = activeBrowser;
   if (currentBrowser !== undefined) {
-    await currentBrowser.close();
-    activeBrowser = undefined;
+    try {
+      await currentBrowser.close();
+    } catch (error: unknown) {
+      firstCleanupError = asError(error);
+    } finally {
+      activeBrowser = undefined;
+    }
   }
   const currentServer = activeServer;
   if (currentServer !== undefined) {
-    await currentServer.close();
-    activeServer = undefined;
+    try {
+      await currentServer.close();
+    } catch (error: unknown) {
+      firstCleanupError ??= asError(error);
+    } finally {
+      activeServer = undefined;
+    }
+  }
+  if (firstCleanupError !== undefined) {
+    throw firstCleanupError;
   }
 }

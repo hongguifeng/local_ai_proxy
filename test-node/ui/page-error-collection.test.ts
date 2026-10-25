@@ -62,5 +62,7 @@ describe("unhandled page error collection", { timeout: UI_TEST_TIMEOUT_MS }, () 
     expect(message).toContain("deliberate page failure");
     expect(message).toContain("at ");
     expect(unhandledPageErrors()).toEqual([]);
+    expect(page.isClosed()).toBe(true);
+    await expect(closeTestPage()).resolves.toBeUndefined();
   });
 });
