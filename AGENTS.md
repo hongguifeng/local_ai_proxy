@@ -42,3 +42,8 @@ time.
 - `real-upstream-acceptance` - proving changes against real traffic
 - `design-doc-readability` - measured readability for design documents
 - `safe-deletion` - proving a removal is complete
+
+`test-node/docs/skills.test.ts` keeps that laziness honest: it pins the roster,
+checks the frontmatter limits Pi enforces, and fails when a recipe names a file or
+an `npm run` script that no longer exists. `passWithNoTests` is off, so a Vitest
+filter that matches nothing exits 1 instead of looking like a pass.

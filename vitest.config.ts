@@ -15,7 +15,9 @@ export default defineConfig({
     outputFile: {
       junit: "test-results/vitest-junit.xml",
     },
-    passWithNoTests: true,
+    // An empty run must be an error: a filter or a path that matches nothing is
+    // how a stale verification recipe pretends to have passed.
+    passWithNoTests: false,
     reporters: ["default", "junit"],
     restoreMocks: true,
     testTimeout: 10_000,
