@@ -3,11 +3,11 @@ import os from "node:os";
 import path from "node:path";
 import { describe, expect, it } from "vitest";
 
-import { buildAdminModuleBridge } from "../../scripts/build_ui_bundle.js";
+import { buildAdminAppScript } from "../../scripts/build_ui_bundle.js";
 import {
-  BRIDGE_FILE,
+  ADMIN_BUNDLE_FILE,
   GENERATED_ASSET_MARKER,
-  readAdminModuleBridge,
+  readAdminAppScript,
 } from "../../src/admin/static-assets.js";
 
 const CONCURRENT_BUILDS = 8;
@@ -16,13 +16,13 @@ function nextTurn(): Promise<void> {
   return new Promise((resolve) => setImmediate(resolve));
 }
 
-describe("admin UI module bridge build", () => {
-  it("publishes the first bridge atomically when the destination is absent", async () => {
-    const temporaryDirectory = await mkdtemp(path.join(os.tmpdir(), "llm-proxy-bridge-"));
-    const outputFile = path.join(temporaryDirectory, BRIDGE_FILE);
+describe("admin UI script build", () => {
+  it("publishes the first script atomically when the destination is absent", async () => {
+    const temporaryDirectory = await mkdtemp(path.join(os.tmpdir(), "llm-proxy-admin-app-"));
+    const outputFile = path.join(temporaryDirectory, ADMIN_BUNDLE_FILE);
 
     try {
-      expect(await buildAdminModuleBridge(outputFile)).toBe(outputFile);
+      expect(await buildAdminAppScript(outputFile)).toBe(outputFile);
       expect(await readFile(outputFile, "utf8")).toContain(GENERATED_ASSET_MARKER);
     } finally {
       await rm(temporaryDirectory, { recursive: true, force: true });
@@ -30,9 +30,9 @@ describe("admin UI module bridge build", () => {
   });
 
   it("keeps concurrent builds readable as complete generated files", async () => {
-    const outputFile = await buildAdminModuleBridge();
-    const expected = await readAdminModuleBridge();
-    expect(outputFile).toContain("modules-bridge.js");
+    const outputFile = await buildAdminAppScript();
+    const expected = await readAdminAppScript();
+    expect(outputFile).toContain("admin-app.js");
     expect(expected).toContain(GENERATED_ASSET_MARKER);
 
     const observed: string[] = [];
@@ -41,7 +41,7 @@ describe("admin UI module bridge build", () => {
     const reader = (async () => {
       while (!readerState.finished) {
         try {
-          observed.push(await readAdminModuleBridge());
+          observed.push(await readAdminAppScript());
         } catch (error) {
           readFailure = error;
           return;
@@ -51,7 +51,7 @@ describe("admin UI module bridge build", () => {
     })();
 
     try {
-      await Promise.all(Array.from({ length: CONCURRENT_BUILDS }, () => buildAdminModuleBridge()));
+      await Promise.all(Array.from({ length: CONCURRENT_BUILDS }, () => buildAdminAppScript()));
     } finally {
       readerState.finished = true;
       await reader;

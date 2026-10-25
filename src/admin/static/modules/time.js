@@ -1,5 +1,5 @@
 // LLM Proxy admin UI -- splitting a stored timestamp and rendering a duration.
-// ES module: imported by the entry (../entry.js), never concatenated as a classic part.
+// ES module: bundled into /static/app.js by the entry (../entry.js).
 
 /**
  * The log list shows the date and the time of a task on separate lines, so the stored

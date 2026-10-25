@@ -116,8 +116,8 @@ the success answer.
 
 The reason is measured, not theoretical. A reply sent inside `setErrorHandler` **is** serialized
 through the route's response schema, so a closed `{ code, message }` schema attached to 400
-deletes the `issues` array that a rejected configuration carries — and `01-core.js` reads
-`data.error.issues`, `configIssueText()` formats it, and `09-wiring.js` shows it in a toast,
+deletes the `issues` array that a rejected configuration carries — and `modules/core.js` reads
+`data.error.issues`, `configIssueText()` formats it, and `modules/wiring.js` shows it in a toast,
 while `test-node/admin/pairs.test.ts` pins four exact field paths. `AdminConfigFieldIssuesDto`
 carries those paths, and because no error answer carries a schema, a rename stops the build at
 the producer instead of being deleted by a serializer.
@@ -137,16 +137,18 @@ shaped by that fact, and the reason is written in the file so it does not look l
 
 ## The client seam
 
-`src/admin/static/01-core.js` has exactly one `fetch`, inside `api()`. Every admin call the
+`src/admin/static/modules/core.js` has exactly one `fetch`, inside `api()`. Every admin call the
 console makes goes through it, so it is the single place where the wire contract can be named,
 and the call now carries a JSDoc block that points at this file. An unsuccessful answer is
 turned into an `ApiError` whose `message` comes from `data.error.message`, whose `code` comes
 from `data.error.code` and whose `issues` come from `data.error.issues` when the answer carries
 them, so the failure side of the seam is typed against the same shape `adminError()` and
 `adminConfigError()` produce. The success side is left as it is on purpose: retyping the return
-as `Record<string, unknown>` breaks every caller under `tsc -p tsconfig.ui.json`. The browser is
-still nine numbered classic scripts, so the contract is referenced through JSDoc only — no module
-import, no export, no new script file, and `09-wiring.js` is still last.
+as `Record<string, unknown>` breaks every caller under `tsc -p tsconfig.ui.json`. The browser was
+nine numbered classic scripts when this seam was written, so the contract is referenced through
+JSDoc only. Since AI-19 the UI is an ES module graph (`modules/core.js` plus its importers); the
+JSDoc contract is still the only reference, because importing `admin-contracts.ts` into a browser
+module would ship server types the page does not run.
 
 ## What the pair answer guarantees, and what it does not
 

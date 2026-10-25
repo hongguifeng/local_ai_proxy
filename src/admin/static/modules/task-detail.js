@@ -1,8 +1,35 @@
-// LLM Proxy admin UI -- task detail panel: pricing summary, breakdown table, trend charts, task brief
-// Parts are concatenated in numeric order into /static/app.js and served as one classic script.
+// LLM Proxy admin UI -- task detail panel: pricing summary, breakdown table, trend charts, task brief.
+// ES module: imports the shared bootstrap (./core.js), the display helpers and the chart
+// geometry; the history list opens this panel and refreshes it.
+
+import {
+  $,
+  api,
+  closestFrom,
+  parentOf,
+  qs,
+  qsa,
+  qsOn,
+  registerLanguagePanel,
+  state,
+  t,
+  toast,
+} from "./core.js";
+import { chartMeanLine, chartPeakLabel, costAxisLabel, niceAxisScale } from "./chart.js";
+import { formatCurrencyAmount, formatGroupCost, pricingAmount } from "./money.js";
+import {
+  compactNumber,
+  formatDecodeSpeed,
+  formatIntegerValue,
+  formatTokenCount,
+  fullNumber,
+  pricingDecimalFromNano,
+} from "./numbers.js";
+import { escapeHtml } from "./text.js";
+import { displayTimestampParts, formatDuration } from "./time.js";
 
 // Redraw on language change. The sequence mirrors the order the switch used to
-// call these in by hand; see registerLanguagePanel in 01-core.js.
+// call these in by hand; see registerLanguagePanel in ./core.js.
 registerLanguagePanel("requestPricing", 50, () => renderRequestPricing());
 registerLanguagePanel("taskPricing", 60, () => renderTaskPricingPanel());
 
@@ -95,7 +122,7 @@ function pricingTableHtml(breakdown, price = null, totalAmount = null) {
     .join("");
   return `<div class="table-scroll"><table class="pricing-table"><thead><tr><th></th><th>${escapeHtml(t("tokensBilled"))}</th><th>${escapeHtml(t("pricePerMillion"))}</th><th>${escapeHtml(t("amountCny"))}</th><th>${escapeHtml(t("costShare"))}</th></tr></thead><tbody>${rows}</tbody><tfoot><tr><th>${escapeHtml(t("total"))}</th><td>${escapeHtml(formatIntegerValue(pricingUsageTotalTokens(breakdown)))}</td><td></td><td>${escapeHtml(formatCurrencyAmount(totalAmount))}</td><td></td></tr></tfoot></table></div>`;
 }
-function renderRequestPricing() {
+export function renderRequestPricing() {
   const el = $("responsePricing");
   const pricing = state.requestPricing;
   const open = Boolean(pricing && state.requestPricingOpen);
@@ -428,7 +455,7 @@ function taskOutputTokenChartHtml(points) {
   return `<div class="output-token-chart"><svg viewBox="0 0 ${width} ${height}" role="img" aria-label="${escapeHtml(t("outputTokenTrend"))}">${gridLines.join("")}${xLabels}${area}${line}${dots}${meanLine}${peakLabel}</svg></div>`;
 }
 const pricingGroupOpenStorageKey = "llmProxyPricingGroupOpen";
-function loadPricingGroupOpenState() {
+export function loadPricingGroupOpenState() {
   let parsed;
   try {
     parsed = JSON.parse(localStorage.getItem(pricingGroupOpenStorageKey) || "{}");
@@ -665,14 +692,14 @@ function taskPricingRenderSignature(groupId, data, openGroups) {
     groupId,
     JSON.stringify(data),
     JSON.stringify(state.taskBrief),
-    state.activeTaskGroup ? logGroupRenderSignature(state.activeTaskGroup) : "",
+    state.activeTaskGroup ? activeTaskGroupSignature(state.activeTaskGroup) : "",
     series(seriesPoints(state.taskTokenSeries)),
     series(seriesPoints(state.taskCostSeries)),
     series(seriesPoints(state.taskOutputTokenSeries)),
     Object.keys(openGroups).sort().join(","),
   ].join("#");
 }
-function renderTaskPricingPanel() {
+export function renderTaskPricingPanel() {
   const panel = $("pricingPanel");
   const detail = $("detail");
   const pricing = state.taskPricing;
@@ -731,7 +758,7 @@ function renderTaskPricingPanel() {
   const durationText = formatDuration(data.active_request_ms);
   const totalDurationText = formatDuration(data.total_request_ms);
   const group = state.activeTaskGroup;
-  const decodeSpeed = group ? formatGroupDecodeSpeed(group.decode_speed_tps) : "";
+  const decodeSpeed = group ? formatDecodeSpeed(group.decode_speed_tps) : "";
   const decodeSpeedTip = `${t("avgDecodeSpeed")}: ${t("avgDecodeSpeedTip")}`;
   const statCard = (label, value, sub, title, accent) =>
     `<div class="stat-card task-stat${accent ? ` task-stat-${accent}` : ""}"${title ? ` title="${escapeHtml(title)}"` : ""}><small>${escapeHtml(label)}</small><strong>${escapeHtml(value)}</strong>${
@@ -854,7 +881,7 @@ function loadTaskOutputTokenSeries(groupId, signal) {
       renderTaskPricingPanel();
     });
 }
-async function showTaskPricing(groupId) {
+export async function showTaskPricing(groupId) {
   state.taskPricingAbort?.abort();
   const controller = new AbortController();
   state.taskPricingAbort = controller;
@@ -889,7 +916,7 @@ async function showTaskPricing(groupId) {
   renderTaskPricingPanel();
   await Promise.all([series, costSeries, outputTokenSeries, brief]);
 }
-function closeTaskPricing() {
+export function closeTaskPricing() {
   state.taskPricingAbort?.abort();
   state.taskPricingAbort = null;
   state.activeTaskPricing = null;
@@ -900,7 +927,7 @@ function closeTaskPricing() {
   state.taskOutputTokenSeries = null;
   renderTaskPricingPanel();
 }
-async function refreshTaskPricingPanel() {
+export async function refreshTaskPricingPanel() {
   const groupId = state.activeTaskPricing;
   if (!groupId || state.taskPricing?.loading) return;
   // The summary card also carries list facts (model / time range / request
@@ -937,4 +964,75 @@ function updateRequestPricingButton() {
   button.title =
     available && state.requestPricingOpen ? t("hideCostDetails") : t("showCostDetails");
   button.setAttribute("aria-expanded", String(available && state.requestPricingOpen));
+}
+
+/**
+ * The render signature of the list snapshot this panel mirrors. It reads exactly the
+ * fields `syncActiveTaskGroup` copies, plus the language, so a counter that moved in the
+ * list rebuilds the panel and an unchanged snapshot skips the rebuild.
+ * @param {{ id: string, started_at?: unknown, last_activity_at?: unknown, model?: unknown, request_count?: unknown, decode_speed_tps?: unknown }} snapshot
+ * @returns {string}
+ */
+function activeTaskGroupSignature(snapshot) {
+  return [
+    state.language,
+    snapshot.id,
+    snapshot.started_at,
+    snapshot.last_activity_at,
+    snapshot.model,
+    snapshot.request_count,
+    snapshot.decode_speed_tps,
+  ].join("#");
+}
+
+/**
+ * Attaches the listeners the detail panel owns: the pricing panel's own clicks (model
+ * groups, close, re-try, regenerate brief) and the request-pricing toggle.
+ * @returns {void}
+ */
+export function mountTaskDetail() {
+  $("pricingPanel").addEventListener("click", (event) => {
+    if (closestFrom(event.target, "[data-generate-brief]")) {
+      regenerateTaskBrief().catch((e) => toast(e.message));
+      return;
+    }
+    const summary = closestFrom(event.target, "summary");
+    if (summary && state.activeTaskPricing) {
+      const details = parentOf(summary);
+      if (details && details.hasAttribute("data-price-group-model")) {
+        const openGroups =
+          state.pricingGroupOpen[state.activeTaskPricing] ||
+          (state.pricingGroupOpen[state.activeTaskPricing] = {});
+        const model = details.dataset.priceGroupModel;
+        if (details.open) delete openGroups[model];
+        else openGroups[model] = true;
+        savePricingGroupOpenState();
+        return;
+      }
+    }
+    if (closestFrom(event.target, "[data-close-pricing]")) {
+      closeTaskPricing();
+      return;
+    }
+    if (closestFrom(event.target, "[data-retry-pricing]") && state.activeTaskPricing) {
+      showTaskPricing(state.activeTaskPricing).catch((e) => toast(e.message));
+    }
+  });
+  qsa("[data-pricing]").forEach((button) =>
+    button.addEventListener("click", () => {
+      if (!state.requestPricing) return;
+      state.requestPricingOpen = !state.requestPricingOpen;
+      renderRequestPricing();
+    }),
+  );
+}
+
+/**
+ * Releases what outlives the page: the controller of the in-flight pricing, series and
+ * brief requests, so a page unload never leaves four fetches running into a dead panel.
+ * @returns {void}
+ */
+export function disposeTaskDetail() {
+  state.taskPricingAbort?.abort();
+  state.taskPricingAbort = null;
 }

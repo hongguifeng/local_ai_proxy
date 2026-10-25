@@ -2,8 +2,8 @@ import { escapeHtml } from "./text.js";
 
 import { requestWithCancellation } from "./request.js";
 
-/** Owns the editable proxy configuration and connection-test dialog. The classic
- * adapter supplies shared UI services; no feature reads the classic script scope. */
+/** Owns the editable proxy configuration and connection-test dialog. The composition
+ * root supplies shared UI services; this factory reads no global and no sibling scope. */
 export function createProxyConfig({
   $,
   qs,

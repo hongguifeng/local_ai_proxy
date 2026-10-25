@@ -513,7 +513,11 @@ describe("admin UI load balancing groups", { timeout: UI_TEST_TIMEOUT_MS }, () =
     await group.locator('[data-lb-field="name"]').fill("Unsaved group");
     await model.fill("  unsaved-upstream  ");
     await model.focus();
-    await page.evaluate('setLanguage("zh");');
+    await page.evaluate(`
+      const select = document.getElementById("languageSelect");
+      select.value = "zh";
+      select.dispatchEvent(new Event("change"));
+    `);
     await expectPage(model).toBeFocused();
     await expectPage(model).toHaveValue("  unsaved-upstream  ");
     const seen = lbStatusReads.length;
@@ -532,7 +536,7 @@ describe("admin UI load balancing groups", { timeout: UI_TEST_TIMEOUT_MS }, () =
     await page.clock.install();
     await loadAdminPage();
     await expect.poll(() => lbStatusReads.length).toBe(1);
-    await page.evaluate("initializeProxyConfig(); initializeProxyConfig();");
+    await page.evaluate("__adminUiTest.proxyConfig.init(); __adminUiTest.proxyConfig.init();");
     await page.clock.runFor(2_000);
     await expect.poll(() => lbStatusReads.length).toBe(2);
     await page.locator('.tab[data-tab="logs"]').click();
@@ -551,10 +555,12 @@ describe("admin UI load balancing groups", { timeout: UI_TEST_TIMEOUT_MS }, () =
       document.dispatchEvent(new Event("visibilitychange"));
     });
     await expect.poll(() => lbStatusReads.length).toBe(4);
-    await page.evaluate("proxyConfig.dispose(); proxyConfig.dispose();");
+    await page.evaluate(
+      "__adminUiTest.proxyConfig.dispose(); __adminUiTest.proxyConfig.dispose();",
+    );
     await page.clock.runFor(6_000);
     expect(lbStatusReads.length).toBe(4);
-    await page.evaluate("initializeProxyConfig(); initializeProxyConfig();");
+    await page.evaluate("__adminUiTest.proxyConfig.init(); __adminUiTest.proxyConfig.init();");
     await expect.poll(() => lbStatusReads.length).toBe(5);
     await page.clock.runFor(2_000);
     await expect.poll(() => lbStatusReads.length).toBe(6);
@@ -562,7 +568,7 @@ describe("admin UI load balancing groups", { timeout: UI_TEST_TIMEOUT_MS }, () =
 
   it("forwards caller and lifecycle cancellation through the production adapter", async () => {
     await loadAdminPage();
-    await page.evaluate("proxyConfig.dispose();");
+    await page.evaluate("__adminUiTest.proxyConfig.dispose();");
     const observed = await page.evaluate<Record<string, boolean>>(String.raw`
       (async () => {
         const originalFetch = window.fetch;
@@ -585,8 +591,8 @@ describe("admin UI load balancing groups", { timeout: UI_TEST_TIMEOUT_MS }, () =
           });
         };
         try {
-          // Reuse the instances constructed by 02/03 and initialized by 09.
-          initializeProxyConfig();
+          // Reuse the instances the composition root built and initialized.
+          __adminUiTest.proxyConfig.init();
           const first = polls[0];
           const composed = first.signal === first.forwarded.signal &&
             first.signal !== first.caller.signal && first.signal !== first.owner.signal;
@@ -598,16 +604,16 @@ describe("admin UI load balancing groups", { timeout: UI_TEST_TIMEOUT_MS }, () =
           first.owner.abort();
           const lifecycleAbort = second.signal.aborted && !second.caller.signal.aborted;
           // Initialize the production LB owner again through proxy lifecycle init.
-          proxyConfig.dispose();
-          initializeProxyConfig();
+          __adminUiTest.proxyConfig.dispose();
+          __adminUiTest.proxyConfig.init();
           const third = polls[polls.length - 1];
           const pendingBeforeDispose = !third.signal.aborted;
-          loadBalancing.dispose();
+          __adminUiTest.loadBalancing.dispose();
           const disposalAbort = third.signal.aborted;
           await new Promise((resolve) => setTimeout(resolve, 0));
           return { composed, callerAbort, pendingBeforeOwnerAbort, lifecycleAbort, pendingBeforeDispose, disposalAbort };
         } finally {
-          proxyConfig.dispose();
+          __adminUiTest.proxyConfig.dispose();
           window.fetch = originalFetch;
           window.AbortController = OriginalController;
         }

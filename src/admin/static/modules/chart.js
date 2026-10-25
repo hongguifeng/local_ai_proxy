@@ -1,5 +1,5 @@
 // LLM Proxy admin UI -- chart geometry: the axis scale and the two overlay labels.
-// ES module: imported by the entry (../entry.js), never concatenated as a classic part.
+// ES module: bundled into /static/app.js by the entry (../entry.js).
 
 import { compactNumber } from "./numbers.js";
 

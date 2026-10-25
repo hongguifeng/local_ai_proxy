@@ -1,13 +1,127 @@
-// LLM Proxy admin UI -- history logs: task groups, records, search, detail panes, pending sweep
-// Parts are concatenated in numeric order into /static/app.js and served as one classic script.
+// LLM Proxy admin UI -- request history: log group list, selection, detail prefetch, summaries.
+// ES module: imports the shared bootstrap (./core.js), the money display helpers, the JSON
+// panes it feeds, and the task-detail panel a group header opens.
+
+import {
+  $,
+  api,
+  asElement,
+  closestFrom,
+  qsa,
+  qsOn,
+  registerLanguagePanel,
+  state,
+  t,
+  toast,
+} from "./core.js";
+import { renderJsonPane, renderMetaPane, updateResponseTiming } from "./json-pane.js";
+import { formatGroupCost, formatRequestCost } from "./money.js";
+import { escapeHtml } from "./text.js";
+import { displayTimestampParts } from "./time.js";
+import { formatDecodeSpeed, optionalFiniteNumber } from "./numbers.js";
+import {
+  closeTaskPricing,
+  refreshTaskPricingPanel,
+  renderRequestPricing,
+  renderTaskPricingPanel,
+  showTaskPricing,
+} from "./task-detail.js";
 
 // Redraw on language change. The sequence mirrors the order the switch used to
-// call these in by hand; see registerLanguagePanel in 01-core.js.
-registerLanguagePanel("logs", 20, () => renderLogs());
+// call these in by hand; see registerLanguagePanel in ./core.js.
+registerLanguagePanel("logs", 20, () => {
+  renderLogs();
+  // The select-all label flips to "clear selected" while every group is selected, and it
+  // carries a data-i18n attribute, so the dictionary pass alone would put the wrong text back.
+  updateSelectAllLogsButton();
+});
 registerLanguagePanel("metaPanes", 40, () => {
   renderMetaPane("request");
   renderMetaPane("response");
 });
+
+function logMetricHtml(className, label, value, title = label) {
+  return `<span class="log-metric ${className}" title="${escapeHtml(title)}">
+    <span class="log-metric-label">${escapeHtml(label)}</span>
+    <strong class="log-metric-value">${escapeHtml(value)}</strong>
+  </span>`;
+}
+function logItemMetricsHtml(item) {
+  const metrics = [];
+  const messageCount = optionalFiniteNumber(item.message_count);
+  const requestTokenCount = optionalFiniteNumber(item.request_token_count);
+  const responseTokenCount = optionalFiniteNumber(item.response_token_count);
+  if (messageCount !== null) {
+    metrics.push(logMetricHtml("messages", t("messages"), messageCount));
+  }
+  if (requestTokenCount !== null || responseTokenCount !== null) {
+    metrics.push(
+      logMetricHtml(
+        "request-tokens",
+        t("request"),
+        requestTokenCount ?? "-",
+        `${t("request")} ${t("tokens")}`,
+      ),
+      logMetricHtml(
+        "response-tokens",
+        t("response"),
+        responseTokenCount ?? "-",
+        `${t("response")} ${t("tokens")}`,
+      ),
+    );
+  }
+  const decodeSpeed = formatDecodeSpeed(item.decode_speed_tps);
+  const endToEndSpeed = formatDecodeSpeed(item.end_to_end_speed_tps);
+  if (decodeSpeed === "" && endToEndSpeed !== "") {
+    metrics.push(
+      logMetricHtml(
+        "end-to-end-speed",
+        state.language === "en" ? "E2E" : t("endToEndSpeed"),
+        `${endToEndSpeed}t/s`,
+        t("endToEndSpeed"),
+      ),
+    );
+  }
+  if (decodeSpeed !== "") {
+    metrics.push(logMetricHtml("decode-speed", t("speed"), `${decodeSpeed}t/s`, t("speed")));
+  }
+  metrics.push(logMetricHtml("cost", t("cost"), formatRequestCost(item.cost), t("cost")));
+  return (
+    metrics.join("") ||
+    `<span class="log-item-empty">${escapeHtml(formatStatus(item.status))}</span>`
+  );
+}
+
+/**
+ * A record whose response has not arrived yet. The server leaves the status out until the
+ * exchange finishes, so "no status" and the literal "pending" are the same state.
+ * @param {unknown} status
+ * @returns {boolean}
+ */
+export function isPendingStatus(status) {
+  return status === undefined || status === null || status === "pending";
+}
+
+/**
+ * @param {unknown} status
+ * @returns {string}
+ */
+export function formatStatus(status) {
+  return isPendingStatus(status) ? t("pending") : String(status);
+}
+
+/**
+ * The CSS class of a status chip: pending, success for 2xx/3xx, error from 400 up.
+ * @param {unknown} status
+ * @returns {string}
+ */
+export function logStatusClass(status) {
+  if (isPendingStatus(status)) return "pending";
+  const code = Number(status);
+  if (Number.isFinite(code) && code >= 200 && code < 400) return "success";
+  if (Number.isFinite(code) && code >= 400) return "error";
+  return "neutral";
+}
 
 function logGroupTimeHtml(group) {
   const start = displayTimestampParts(group.started_at);
@@ -31,13 +145,9 @@ function logGroupTimeHtml(group) {
     <span class="log-time-range">${range}</span>
   </span>`;
 }
-function formatGroupDecodeSpeed(value) {
-  if (typeof value !== "number" || !Number.isFinite(value) || value <= 0) return "";
-  if (value >= 100) return String(Math.round(value));
-  return value.toFixed(1);
-}
+
 function logGroupFactsHtml(group) {
-  const decodeSpeed = formatGroupDecodeSpeed(group.decode_speed_tps);
+  const decodeSpeed = formatDecodeSpeed(group.decode_speed_tps);
   const decodeSpeedTip = `${t("avgDecodeSpeed")}: ${t("avgDecodeSpeedTip")}`;
   const cost = formatGroupCost(group.cost);
   const costHtml =
@@ -48,9 +158,6 @@ function logGroupFactsHtml(group) {
     <span class="log-group-fact-line">${group.model ? `<span class="log-model" title="${escapeHtml(group.model)}">${escapeHtml(group.model)}</span>` : ""}<span class="log-request-count"><strong>${escapeHtml(group.request_count ?? 0)}</strong> ${escapeHtml(t("requests"))}</span>${decodeSpeed ? `<span class="log-group-decode-speed" title="${escapeHtml(decodeSpeedTip)}">${escapeHtml(decodeSpeed)}t/s</span>` : ""}${costHtml}</span>
     <span class="log-group-fact-line log-target" title="${escapeHtml(group.target || "")}">${escapeHtml(group.target || "—")}</span>
   </span>`;
-}
-function formatGroupCost(cost) {
-  return cost ? formatCurrencyAmount(cost.known_amount) : "—";
 }
 async function exportLogs() {
   const res = await fetch("/api/logs/export");
@@ -211,7 +318,7 @@ function mergeLogGroupSummaries(currentGroups, nextGroups, query = "", options =
 // The /api/logs page schema rejects a limit above this, so an automatic refresh
 // must never ask for more rows than the API can return in one page.
 const LOG_GROUP_PAGE_MAX_LIMIT = 500;
-async function loadLogs(options = {}) {
+export async function loadLogs(options = {}) {
   if (state.logsLoading) {
     // Coalesce instead of dropping: a click on 刷新/加载更多 while a (possibly
     // slow) load is in flight still runs as soon as that load settles, so the
@@ -680,88 +787,6 @@ function collapseLogGroup(groupId) {
     list.scrollTop += newHead.getBoundingClientRect().top - contentTop;
   }
 }
-function hasMetadata(value) {
-  return Boolean(value && typeof value === "object" && Object.keys(value).length);
-}
-function renderMetaPane(key) {
-  const el = $(key + "Meta");
-  const available = hasMetadata(state.meta[key]);
-  const open = available && state.metaOpen[key];
-  el.hidden = !open;
-  el.innerHTML = open ? renderJsonValue(state.meta[key], "", true, true, 0) : "";
-  updateMetaButton(key);
-}
-function updateResponseTiming() {
-  const element = $("responseTiming");
-  const meta = state.meta.response || {};
-  const firstToken = formatDuration(meta.first_token_ms);
-  const total = formatDuration(meta.duration_ms);
-  const parts = [
-    ...(firstToken === "" ? [] : [`${t("firstTokenTime")} ${firstToken}`]),
-    ...(total === "" ? [] : [`${t("totalTime")} ${total}`]),
-  ];
-  const tokenMs = positiveNumber(meta.first_token_ms);
-  const durationMs = positiveNumber(meta.duration_ms);
-  const measured = tokenMs !== undefined;
-  // New records provide an explicit generated-content window. Zero means
-  // buffered/non-streaming output: use end-to-end speed, never invent decode.
-  // Legacy records retain their historical timing convention.
-  const windowMs =
-    meta.decode_window_ms !== undefined && meta.decode_window_ms !== null
-      ? positiveNumber(meta.decode_window_ms)
-      : measured
-        ? durationMs - tokenMs
-        : undefined;
-  if (durationMs !== undefined) {
-    const inputTokens = positiveNumber(meta.request_token_count) ?? 0;
-    const cachedTokens = Math.min(positiveNumber(meta.cached_token_count) ?? 0, inputTokens);
-    const prefill =
-      measured && (meta.decode_window_ms == null || windowMs !== undefined)
-        ? formatTokensPerSecond((inputTokens - cachedTokens) * (1000 / tokenMs))
-        : "";
-    const decode =
-      windowMs !== undefined && windowMs >= 1
-        ? formatTokensPerSecond(
-            (positiveNumber(meta.response_token_count) ?? 0) * (1000 / windowMs),
-          )
-        : "";
-    if (prefill !== "") parts.push(`${t("prefillSpeed")} ${prefill} ${t("tokensPerSecond")}`);
-    if (decode === "") {
-      const speed = formatTokensPerSecond(
-        ((positiveNumber(meta.response_token_count) ?? 0) * 1000) / durationMs,
-      );
-      if (speed !== "") parts.push(`${t("endToEndSpeed")} ${speed} ${t("tokensPerSecond")}`);
-    }
-    if (decode !== "") parts.push(`${t("decodeSpeed")} ${decode} ${t("tokensPerSecond")}`);
-  }
-  element.textContent = parts.join(" · ");
-  element.hidden = parts.length === 0;
-}
-function updateMetaButton(key) {
-  const button = qs(`[data-meta="${key}"]`);
-  if (!button) return;
-  const available = hasMetadata(state.meta[key]);
-  button.disabled = !available;
-  button.classList.toggle("active", available && state.metaOpen[key]);
-  button.title = available && state.metaOpen[key] ? t("hideMetadata") : t("showMetadata");
-}
-function updatePaneButtons(key) {
-  qs(`[data-wrap="${key}"]`).classList.toggle("active", state.wrap[key]);
-  qs(`[data-format="${key}"]`).classList.toggle("active", state.formatStrings[key]);
-  const expandBtn = qs(`[data-expand="${key}"]`);
-  if (expandBtn) {
-    const details = qsaOn($(key + "Json"), "details:not(.json-str-detail)");
-    const allOpen = details.length > 0 && details.every((detail) => detail.open);
-    expandBtn.classList.toggle("active", !allOpen);
-  }
-}
-function updateExpandButton(key) {
-  const button = qs(`[data-expand="${key}"]`);
-  if (!button) return;
-  const details = qsaOn($(key + "Json"), "details:not(.json-str-detail)");
-  const allOpen = details.length > 0 && details.every((detail) => detail.open);
-  button.title = allOpen ? t("collapseJson") : t("expandJson");
-}
 function hasFinishedResponseDetail() {
   const meta = state.meta.response;
   if (!meta || typeof meta !== "object") return false;
@@ -772,7 +797,7 @@ function hasFinishedResponseDetail() {
 function selectedLogNeedsRefresh() {
   return Boolean(state.selected) && !hasFinishedResponseDetail();
 }
-function applySelectedLogDetail(data, options = {}) {
+export function applySelectedLogDetail(data, options = {}) {
   state.raw.request = data.request;
   state.raw.response = data.response;
   state.meta.request = data.request_meta || null;
@@ -970,3 +995,245 @@ function runLogSearch() {
 // a row the pointer rests on does, so sweeping a long list stays cheap.
 let hoverPrefetchId = null;
 let hoverPrefetchTimer = null;
+
+/**
+ * Attaches every listener the history list owns: the toolbar (refresh, search, export,
+ * cleanup, select-all, auto refresh), the delegated list clicks and keyboard activation,
+ * the hover/press detail prefetch and the summary dialog. Nothing runs at import time.
+ * @returns {void}
+ */
+export function mountHistory() {
+  $("summarizeRecord")?.addEventListener("click", async () => {
+    const button = $("summarizeRecord");
+    if (!state.selected) {
+      toast("请先选择一条请求");
+      return;
+    }
+    if (button.disabled) return;
+    button.disabled = true;
+    button.textContent = "…";
+    try {
+      const existing = await api(`/api/logs/${encodeURIComponent(state.selected)}/summary`);
+      if (existing) {
+        if ($("summaryPanel").open) {
+          $("summaryPanel").close();
+          return;
+        }
+        renderSummary(existing, { open: true });
+        markLogSummarized(state.selected);
+        return;
+      }
+      const result = await api(`/api/logs/${encodeURIComponent(state.selected)}/summary`, {
+        method: "POST",
+      });
+      renderSummary(result, { open: true });
+      markLogSummarized(state.selected);
+      toast(t("summaryGenerated"));
+    } catch (e) {
+      if (
+        String(e.message || "")
+          .toLowerCase()
+          .includes("not configured")
+      ) {
+        toast(t("summaryModelRequired"));
+        document.getElementById("summaryModelSettings")?.click();
+      } else toast(e.message);
+    } finally {
+      button.disabled = false;
+      button.textContent = "✨";
+    }
+  });
+  $("refreshLogs").addEventListener("click", () => loadLogs().catch((e) => toast(e.message)));
+  $("searchLogs").addEventListener("click", runLogSearch);
+  $("logSearch").addEventListener("keydown", (event) => {
+    if (event.key === "Enter") runLogSearch();
+  });
+  $("exportLogs").addEventListener("click", () => exportLogs().catch((e) => toast(e.message)));
+  $("cleanupLogs").addEventListener("click", () => cleanupLogs().catch((e) => toast(e.message)));
+  $("cleanupSingleRequestLogs").addEventListener("click", () =>
+    cleanupSingleRequestLogs().catch((e) => toast(e.message)),
+  );
+  $("summaryModelSettings").addEventListener("click", async () => {
+    const current = await api("/api/settings/summary-model").catch(() => null);
+    const base = current || {
+      api_type: "openai_chat",
+      target_url: "",
+      api_key: "",
+      model: "",
+      target_headers: [],
+      timeout_ms: 180000,
+    };
+    $("summaryApiType").value = base.api_type;
+    $("summaryDisableReasoning").checked = base.disable_reasoning !== false;
+    $("summaryUrl").value = base.target_url;
+    $("summaryModel").value = base.model;
+    $("summaryKey").value = base.api_key;
+    $("summaryHeaders").value = (base.target_headers || []).join("\n");
+    $("summaryTimeout").value = String(
+      Math.max(1, Math.round(Number(base.timeout_ms || 180000) / 1000)),
+    );
+    $("summaryTestResult").hidden = true;
+    $("summaryTestResult").textContent = "";
+    $("summaryModelDialog").showModal();
+  });
+  $("summaryModelForm").addEventListener("submit", async (e) => {
+    e.preventDefault();
+    const base = await api("/api/settings/summary-model").catch(() => ({}));
+    await api("/api/settings/summary-model", {
+      method: "PUT",
+      body: JSON.stringify({
+        ...base,
+        disable_reasoning: $("summaryDisableReasoning").checked,
+        api_type: $("summaryApiType").value,
+        target_url: $("summaryUrl").value,
+        model: $("summaryModel").value,
+        api_key: $("summaryKey").value,
+        target_headers: $("summaryHeaders").value.split("\n").filter(Boolean),
+        timeout_ms: Number($("summaryTimeout").value) * 1000,
+      }),
+    });
+    $("summaryModelDialog").close();
+    toast(t("summaryConfigSaved"));
+  });
+  $("summaryCancel").addEventListener("click", () => $("summaryModelDialog").close());
+  $("selectAllLogs").addEventListener("click", () => toggleSelectAllLogs());
+  $("autoRefreshLogs").addEventListener("change", () => scheduleLogRefresh(250));
+  $("logItems").addEventListener("click", (event) => {
+    if (asElement(event.target).matches("[data-select-group]")) {
+      state.selectedLogGroups[asElement(event.target).dataset.selectGroup] = asElement(
+        event.target,
+      ).checked;
+      updateSelectAllLogsButton();
+      return;
+    }
+    const groupToggle = closestFrom(event.target, "[data-group-toggle]");
+    if (groupToggle) {
+      // The caret button is the only entry point for expanding/collapsing the
+      // second-level request list.
+      toggleLogGroupBody(groupToggle.dataset.groupToggle).catch((e) => toast(e.message));
+      return;
+    }
+    const group = closestFrom(event.target, "[data-group-id]");
+    if (group) {
+      // A header click (or Enter/Space on it) only opens the task detail panel;
+      // it never touches the body expansion.
+      showTaskPricing(group.dataset.groupId).catch((e) => toast(e.message));
+      return;
+    }
+    const item = closestFrom(event.target, "[data-log-id]");
+    if (item) selectLog(item.dataset.logId).catch((e) => toast(e.message));
+    const recordMore = closestFrom(event.target, "[data-load-more-records]");
+    if (recordMore) {
+      loadMoreLogGroup(recordMore.dataset.loadMoreRecords).catch((e) => toast(e.message));
+      return;
+    }
+    if (asElement(event.target).matches("[data-load-more]"))
+      loadLogs({ append: true }).catch((e) => toast(e.message));
+  });
+  $("logItems").addEventListener("pointerover", (event) => {
+    const item = closestFrom(event.target, "[data-log-id]");
+    const id = item ? item.dataset.logId : null;
+    if (id === hoverPrefetchId) return;
+    hoverPrefetchId = id;
+    if (hoverPrefetchTimer !== null) {
+      clearTimeout(hoverPrefetchTimer);
+      hoverPrefetchTimer = null;
+    }
+    if (id === null) return;
+    hoverPrefetchTimer = setTimeout(() => {
+      hoverPrefetchTimer = null;
+      prefetchLogDetail(id);
+    }, LOG_DETAIL_PREFETCH_DWELL_MS);
+  });
+  // Pressing the button already decides the click, and it is held for tens of
+  // milliseconds before the release: start the request under the finger instead
+  // of waiting for the click event that follows.
+  $("logItems").addEventListener("pointerdown", (event) => {
+    const item = closestFrom(event.target, "[data-log-id]");
+    if (item) prefetchLogDetail(item.dataset.logId);
+  });
+  // Keyboard selection gets the same head start as the pointer.
+  $("logItems").addEventListener("focusin", (event) => {
+    const item = closestFrom(event.target, "[data-log-id]");
+    if (item) prefetchLogDetail(item.dataset.logId);
+  });
+  $("logItems").addEventListener("keydown", (event) => {
+    if (event.key !== "Enter" && event.key !== " ") return;
+    if (closestFrom(event.target, "input, button, a, select, textarea")) return;
+    const group = closestFrom(event.target, ".log-group-head[data-group-id]");
+    if (!group) return;
+    event.preventDefault();
+    // The header only opens the task detail panel; the caret button toggles the
+    // list and, being a real <button>, activates natively on Enter/Space and
+    // reaches the delegated click handler above.
+    showTaskPricing(group.dataset.groupId).catch((e) => toast(e.message));
+  });
+  $("summaryTest").addEventListener("click", async () => {
+    const result = $("summaryTestResult");
+    result.hidden = false;
+    result.className = "target-check-result testing";
+    result.textContent = t("testTesting");
+    try {
+      const r = await api("/api/settings/summary-model/test", {
+        method: "POST",
+        body: JSON.stringify({
+          disable_reasoning: $("summaryDisableReasoning").checked,
+          api_type: $("summaryApiType").value,
+          target_url: $("summaryUrl").value,
+          model: $("summaryModel").value,
+          api_key: $("summaryKey").value,
+          target_headers: $("summaryHeaders").value.split("\n").filter(Boolean),
+          timeout_ms: Number($("summaryTimeout").value) * 1000,
+        }),
+      });
+      result.className = `target-check-result ${r.ok ? "success" : "failure"}`;
+      result.textContent = r.ok ? t("testSuccess") : r.detail || t("testFailed");
+    } catch (e) {
+      result.className = "target-check-result failure";
+      result.textContent = e.message || t("testFailedGeneric");
+    }
+  });
+  $("summaryClose").addEventListener("click", () => {
+    $("summaryPanel").close();
+  });
+  $("summaryRegenerate").addEventListener("click", async () => {
+    if (!state.selected) return;
+    const button = $("summaryRegenerate");
+    if (button.disabled) return;
+    button.disabled = true;
+    button.textContent = "生成中…";
+    try {
+      const result = await api(`/api/logs/${encodeURIComponent(state.selected)}/summary`, {
+        method: "POST",
+      });
+      // Do not force-reopen a dialog the user closed while the request was in flight.
+      renderSummary(result, { open: $("summaryPanel").open });
+      toast("智能摘要已重新生成");
+    } catch (e) {
+      toast(e.message || "重新生成失败");
+    } finally {
+      button.disabled = false;
+      button.textContent = "重新生成";
+    }
+  });
+  $("summaryCopy").addEventListener("click", () =>
+    navigator.clipboard.writeText($("summaryContent").textContent || ""),
+  );
+}
+
+/**
+ * Releases what outlives the page: the auto-refresh timer and the hover-prefetch timer.
+ * An in-flight detail request is left to finish on its own; its result is dropped because
+ * the page it would render into is gone.
+ * @returns {void}
+ */
+export function disposeHistory() {
+  if (state.refreshTimer !== null) {
+    clearTimeout(state.refreshTimer);
+    state.refreshTimer = null;
+  }
+  if (hoverPrefetchTimer !== null) {
+    clearTimeout(hoverPrefetchTimer);
+    hoverPrefetchTimer = null;
+  }
+}

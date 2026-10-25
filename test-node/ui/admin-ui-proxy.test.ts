@@ -996,7 +996,11 @@ describe("admin UI proxy page", { timeout: UI_TEST_TIMEOUT_MS }, () => {
     await mapping.evaluate((element) => {
       if (element instanceof HTMLTextAreaElement) element.setSelectionRange(3, 9);
     });
-    await page.evaluate('setLanguage("zh");');
+    await page.evaluate(`
+      const select = document.getElementById("languageSelect");
+      select.value = "zh";
+      select.dispatchEvent(new Event("change"));
+    `);
     await expectPage(mapping).toHaveValue("  draft-*  =>  upstream-model  ");
     await expectPage(mapping).toBeFocused();
     expect(
@@ -1006,7 +1010,7 @@ describe("admin UI proxy page", { timeout: UI_TEST_TIMEOUT_MS }, () => {
           : [],
       ),
     ).toEqual([3, 9]);
-    await page.evaluate("proxyConfig.load();");
+    await page.evaluate("__adminUiTest.proxyConfig.load();");
     await expectPage(name).toHaveValue("Unsaved proxy");
     await expectPage(price).toHaveValue("0.00100");
     await page.locator("#languageSelect").selectOption("en");
@@ -1016,10 +1020,12 @@ describe("admin UI proxy page", { timeout: UI_TEST_TIMEOUT_MS }, () => {
 
   it("initializes once and removes form and language listeners on disposal", async () => {
     await loadAdminPage();
-    await page.evaluate("initializeProxyConfig(); initializeProxyConfig();");
+    await page.evaluate("__adminUiTest.proxyConfig.init(); __adminUiTest.proxyConfig.init();");
     await page.locator("#addProxy").click();
     await expectPage(page.locator(".proxy-card")).toHaveCount(2);
-    await page.evaluate("proxyConfig.dispose(); proxyConfig.dispose();");
+    await page.evaluate(
+      "__adminUiTest.proxyConfig.dispose(); __adminUiTest.proxyConfig.dispose();",
+    );
     await page.locator("#addProxy").click();
     await expectPage(page.locator(".proxy-card")).toHaveCount(2);
     // Disposal unregisters the feature panel, including its draft capture callback.
@@ -1028,7 +1034,7 @@ describe("admin UI proxy page", { timeout: UI_TEST_TIMEOUT_MS }, () => {
     await expectPage(
       page.locator(".proxy-card").first().locator('[data-field="name"]'),
     ).toHaveValue("Disposed draft");
-    await page.evaluate("initializeProxyConfig(); initializeProxyConfig();");
+    await page.evaluate("__adminUiTest.proxyConfig.init(); __adminUiTest.proxyConfig.init();");
     await page.locator("#addProxy").click();
     await expectPage(page.locator(".proxy-card")).toHaveCount(3);
     await page.locator("#languageSelect").selectOption("en");

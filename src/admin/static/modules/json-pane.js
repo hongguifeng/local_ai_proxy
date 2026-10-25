@@ -1,11 +1,32 @@
-// LLM Proxy admin UI -- JSON tree pane: lazy materialization, line-width probes, row windowing
-// Parts are concatenated in numeric order into /static/app.js and served as one classic script.
+// LLM Proxy admin UI -- JSON tree pane: lazy materialization, line-width probes, row windowing,
+// metadata pane and the pane toolbar it drives.
+// ES module: imports the shared bootstrap (./core.js) and the display helpers; the history
+// list calls its render operations, and it never reaches into another feature's scope.
+
+import {
+  $,
+  asElement,
+  closestFrom,
+  closestOn,
+  qs,
+  qsa,
+  qsaOn,
+  qsOn,
+  registerLanguagePanel,
+  state,
+  t,
+  toast,
+} from "./core.js";
+import { formatTokensPerSecond, positiveNumber } from "./numbers.js";
+import { escapeHtml, formatString } from "./text.js";
+import { formatDuration } from "./time.js";
 
 // Redraw on language change. The sequence mirrors the order the switch used to
-// call these in by hand; see registerLanguagePanel in 01-core.js.
+// call these in by hand; see registerLanguagePanel in ./core.js.
 registerLanguagePanel("jsonPanes", 30, () => {
   renderJsonPane("request", { preserveView: true });
   renderJsonPane("response", { preserveView: true });
+  applyPaneChrome();
 });
 
 function jsonType(value) {
@@ -144,31 +165,180 @@ function updateJsonRowWindow(key) {
   windowState.hint = firstVisible === undefined ? index : firstVisible;
   windowState.top = contentTop;
 }
-["request", "response"].forEach((key) => {
-  // Wake on scroll events and update in the next frame's rAF, which runs
-  // before that frame's paint, so rows are realized by the time they show.
-  // The check re-arms only while the scroll position keeps moving: an
-  // always-running rAF loop would never settle under faked clocks (tests use
-  // page.clock) and wastes frames when idle.
-  let lastTop = -1;
-  let pending = false;
-  const checkJsonRows = () => {
-    pending = false;
-    const el = $(key + "Json");
-    const top = el.scrollTop;
-    if (top === lastTop) return;
-    lastTop = top;
-    updateJsonRowWindow(key);
-    pending = true;
-    requestAnimationFrame(checkJsonRows);
-  };
-  $(key + "Json").addEventListener("scroll", () => {
-    if (!pending) {
+/**
+ * Attaches every listener the panes own: the scroll-driven row window, the
+ * wrap/meta/expand/format/copy toolbar buttons, the lazy `toggle` materialization and the
+ * string-copy clicks. Nothing here runs at import time, so the page decides when the panes
+ * become interactive and a test can mount them in any order.
+ * @returns {void}
+ */
+export function mountJsonPanes() {
+  ["request", "response"].forEach((key) => {
+    // Wake on scroll events and update in the next frame's rAF, which runs
+    // before that frame's paint, so rows are realized by the time they show.
+    // The check re-arms only while the scroll position keeps moving: an
+    // always-running rAF loop would never settle under faked clocks (tests use
+    // page.clock) and wastes frames when idle.
+    let lastTop = -1;
+    let pending = false;
+    const checkJsonRows = () => {
+      pending = false;
+      const el = $(key + "Json");
+      const top = el.scrollTop;
+      if (top === lastTop) return;
+      lastTop = top;
+      updateJsonRowWindow(key);
       pending = true;
       requestAnimationFrame(checkJsonRows);
-    }
+    };
+    $(key + "Json").addEventListener("scroll", () => {
+      if (!pending) {
+        pending = true;
+        requestAnimationFrame(checkJsonRows);
+      }
+    });
+
+    // Keep the cached line width current so lazy fills never read clientWidth
+    // after a mutation (that read forces a synchronous re-layout of the pane).
+    new ResizeObserver(() => {
+      const el = $(key + "Json");
+      jsonLineWidthCache[key] = el.clientWidth > 24 ? el.clientWidth - 24 : 0;
+    }).observe($(key + "Json"));
+    $(key + "Json").addEventListener(
+      "toggle",
+      (event) => {
+        const detail = asElement(event.target);
+        if (detail instanceof HTMLElement && detail.open && detail.dataset.jsonLazy === "1") {
+          enqueueJsonMaterialize($(key + "Json"), detail);
+        }
+        schedulePaneButtonsUpdate(key);
+      },
+      true,
+    );
+    $(key + "Json").addEventListener("click", (event) => {
+      const summary = closestFrom(event.target, "summary");
+      const detail =
+        summary && summary.parentElement.matches("details.json-node")
+          ? summary.parentElement
+          : null;
+      if (detail) {
+        const container = $(key + "Json");
+        const naturalTop = jsonContentOffset(container, detail);
+        const visualTop =
+          summary.getBoundingClientRect().top -
+          container.getBoundingClientRect().top +
+          container.scrollTop;
+        const stuckBy = visualTop - naturalTop;
+        if (stuckBy > 0.5) {
+          event.preventDefault();
+          container.scrollTo({
+            top: Math.max(0, container.scrollTop - stuckBy),
+            behavior: "smooth",
+          });
+        }
+      }
+      const button = closestFrom(event.target, "[data-copy-string]");
+      if (!button) return;
+      const body = button.closest(".json-str-full")?.querySelector(".json-str-body");
+      if (!body) return;
+      navigator.clipboard.writeText(body.textContent || "").then(
+        () => toast(t("copiedText")),
+        () => toast(t("copyFailed")),
+      );
+    });
   });
-});
+  qsa("[data-wrap]").forEach((button) =>
+    button.addEventListener("click", () => {
+      const key = button.dataset.wrap;
+      state.wrap[key] = !state.wrap[key];
+      renderJsonPane(key, { preserveView: true });
+    }),
+  );
+  qsa("[data-meta]").forEach((button) =>
+    button.addEventListener("click", () => {
+      const key = button.dataset.meta;
+      if (!key || !hasMetadata(state.meta[key])) return;
+      state.metaOpen[key] = !state.metaOpen[key];
+      renderMetaPane(key);
+    }),
+  );
+  qsa("[data-expand]").forEach((button) =>
+    button.addEventListener("click", () => {
+      const key = button.dataset.expand;
+      state.tree[key] = true;
+      if (qsaOn($(key + "Json"), "details").length === 0) renderJsonPane(key);
+      const details = qsaOn($(key + "Json"), "details:not(.json-str-detail)");
+      const allOpen = details.length > 0 && details.every((detail) => detail.open);
+      if (allOpen) {
+        details.forEach((detail) => {
+          const parentDetail = detail.parentElement
+            ? detail.parentElement.closest("details")
+            : null;
+          detail.open =
+            detail.classList.contains("root") || Boolean(parentDetail?.classList.contains("root"));
+        });
+      } else {
+        const nextLevel = details.filter((detail) => {
+          if (detail.open) return false;
+          let parentDetail = detail.parentElement ? detail.parentElement.closest("details") : null;
+          while (parentDetail) {
+            if (!parentDetail.open) return false;
+            parentDetail = parentDetail.parentElement
+              ? parentDetail.parentElement.closest("details")
+              : null;
+          }
+          return true;
+        });
+        // Refresh the width cache before touching the tree, then queue instead
+        // of opening here: the click returns immediately and the queue opens
+        // each node right after its children are filled, so the level streams
+        // in without blocking the main thread.
+        jsonLineWidthCache[key] =
+          $(key + "Json").clientWidth > 24 ? $(key + "Json").clientWidth - 24 : 0;
+        nextLevel.forEach((detail) => {
+          // Non-lazy trees already have their children in the DOM, so opening
+          // directly is the correct (and cheap) path; only lazy nodes go
+          // through the queue, which fills them before opening.
+          if (detail.dataset.jsonLazy === "1") enqueueJsonMaterialize($(key + "Json"), detail);
+          else detail.open = true;
+        });
+        schedulePaneButtonsUpdate(key);
+      }
+    }),
+  );
+  qsa("[data-format]").forEach((button) =>
+    button.addEventListener("click", () => {
+      const key = button.dataset.format;
+      state.formatStrings[key] = !state.formatStrings[key];
+      renderJsonPane(key, { preserveView: true });
+    }),
+  );
+  qsa("[data-copy]").forEach((button) =>
+    button.addEventListener("click", () => {
+      const key = button.dataset.copy;
+      if (key && state.raw[key] !== null) {
+        navigator.clipboard.writeText(JSON.stringify(state.raw[key], null, 2)).then(
+          () => toast(t("copiedJson")),
+          () => toast(t("copyFailed")),
+        );
+      }
+    }),
+  );
+}
+
+/**
+ * Re-applies the toolbar text and the response timing line. Both read `t()` rather than a
+ * `data-i18n` attribute, so the dictionary pass cannot reach them, and both live in this
+ * module so the pane's chrome has a single owner.
+ * @returns {void}
+ */
+export function applyPaneChrome() {
+  updateExpandButton("request");
+  updateExpandButton("response");
+  updateMetaButton("request");
+  updateMetaButton("response");
+  updateResponseTiming();
+}
 /** Fills the children of a node that the lazy first render left empty. */
 function materializeJsonNode(el, detail) {
   if (detail.dataset.jsonLazy !== "1" || detail.dataset.jsonLazyDone === "1") return;
@@ -537,7 +707,7 @@ function jsonText(value) {
   return text === undefined ? "undefined" : text;
 }
 const jsonLineWidthCache = {};
-function renderJsonPane(key, options = {}) {
+export function renderJsonPane(key, options = {}) {
   const el = $(key + "Json");
   // Cache the content width while the DOM is still clean: reading it later,
   // after the tree was mutated, forces a synchronous re-layout.
@@ -581,4 +751,101 @@ function renderJsonPane(key, options = {}) {
   }
   updateExpandButton(key);
   updatePaneButtons(key);
+}
+
+function hasMetadata(value) {
+  return Boolean(value && typeof value === "object" && Object.keys(value).length);
+}
+export function renderMetaPane(key) {
+  const el = $(key + "Meta");
+  const available = hasMetadata(state.meta[key]);
+  const open = available && state.metaOpen[key];
+  el.hidden = !open;
+  el.innerHTML = open ? renderJsonValue(state.meta[key], "", true, true, 0) : "";
+  updateMetaButton(key);
+}
+export function updateResponseTiming() {
+  const element = $("responseTiming");
+  const meta = state.meta.response || {};
+  const firstToken = formatDuration(meta.first_token_ms);
+  const total = formatDuration(meta.duration_ms);
+  const parts = [
+    ...(firstToken === "" ? [] : [`${t("firstTokenTime")} ${firstToken}`]),
+    ...(total === "" ? [] : [`${t("totalTime")} ${total}`]),
+  ];
+  const tokenMs = positiveNumber(meta.first_token_ms);
+  const durationMs = positiveNumber(meta.duration_ms);
+  const measured = tokenMs !== undefined;
+  // New records provide an explicit generated-content window. Zero means
+  // buffered/non-streaming output: use end-to-end speed, never invent decode.
+  // Legacy records retain their historical timing convention.
+  const windowMs =
+    meta.decode_window_ms !== undefined && meta.decode_window_ms !== null
+      ? positiveNumber(meta.decode_window_ms)
+      : measured
+        ? durationMs - tokenMs
+        : undefined;
+  if (durationMs !== undefined) {
+    const inputTokens = positiveNumber(meta.request_token_count) ?? 0;
+    const cachedTokens = Math.min(positiveNumber(meta.cached_token_count) ?? 0, inputTokens);
+    const prefill =
+      measured && (meta.decode_window_ms == null || windowMs !== undefined)
+        ? formatTokensPerSecond((inputTokens - cachedTokens) * (1000 / tokenMs))
+        : "";
+    const decode =
+      windowMs !== undefined && windowMs >= 1
+        ? formatTokensPerSecond(
+            (positiveNumber(meta.response_token_count) ?? 0) * (1000 / windowMs),
+          )
+        : "";
+    if (prefill !== "") parts.push(`${t("prefillSpeed")} ${prefill} ${t("tokensPerSecond")}`);
+    if (decode === "") {
+      const speed = formatTokensPerSecond(
+        ((positiveNumber(meta.response_token_count) ?? 0) * 1000) / durationMs,
+      );
+      if (speed !== "") parts.push(`${t("endToEndSpeed")} ${speed} ${t("tokensPerSecond")}`);
+    }
+    if (decode !== "") parts.push(`${t("decodeSpeed")} ${decode} ${t("tokensPerSecond")}`);
+  }
+  element.textContent = parts.join(" · ");
+  element.hidden = parts.length === 0;
+}
+function updateMetaButton(key) {
+  const button = qs(`[data-meta="${key}"]`);
+  if (!button) return;
+  const available = hasMetadata(state.meta[key]);
+  button.disabled = !available;
+  button.classList.toggle("active", available && state.metaOpen[key]);
+  button.title = available && state.metaOpen[key] ? t("hideMetadata") : t("showMetadata");
+}
+function updatePaneButtons(key) {
+  qs(`[data-wrap="${key}"]`).classList.toggle("active", state.wrap[key]);
+  qs(`[data-format="${key}"]`).classList.toggle("active", state.formatStrings[key]);
+  const expandBtn = qs(`[data-expand="${key}"]`);
+  if (expandBtn) {
+    const details = qsaOn($(key + "Json"), "details:not(.json-str-detail)");
+    const allOpen = details.length > 0 && details.every((detail) => detail.open);
+    expandBtn.classList.toggle("active", !allOpen);
+  }
+}
+function updateExpandButton(key) {
+  const button = qs(`[data-expand="${key}"]`);
+  if (!button) return;
+  const details = qsaOn($(key + "Json"), "details:not(.json-str-detail)");
+  const allOpen = details.length > 0 && details.every((detail) => detail.open);
+  button.title = allOpen ? t("collapseJson") : t("expandJson");
+}
+
+function schedulePaneButtonsUpdate(key) {
+  jsonPaneButtonsUpdateKeys.add(key);
+  if (jsonPaneButtonsUpdateQueued) return;
+  jsonPaneButtonsUpdateQueued = true;
+  setTimeout(() => {
+    jsonPaneButtonsUpdateQueued = false;
+    for (const pendingKey of jsonPaneButtonsUpdateKeys) {
+      updateExpandButton(pendingKey);
+      updatePaneButtons(pendingKey);
+    }
+    jsonPaneButtonsUpdateKeys.clear();
+  });
 }

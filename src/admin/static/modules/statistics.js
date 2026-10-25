@@ -1,5 +1,11 @@
-// LLM Proxy admin UI -- usage statistics page: overview cards, trend chart, breakdown, export
-// Parts are concatenated in numeric order into /static/app.js and served as one classic script.
+// LLM Proxy admin UI -- usage statistics page: overview cards, trend chart, breakdown, export.
+// ES module: imports the shared bootstrap (./core.js) and the display helpers; the page is
+// rendered on demand and re-rendered in place when the language changes.
+
+import { $, asElement, qsa, registerLanguagePanel, state, toast } from "./core.js";
+import { formatCurrencyAmount, pricingAmount } from "./money.js";
+import { pricingDecimalFromNano } from "./numbers.js";
+import { escapeHtml } from "./text.js";
 
 // The statistics page is rendered on demand; re-render it if it was loaded so its
 // inline (non data-i18n) labels follow the new language without a refresh.
@@ -14,24 +20,11 @@ registerLanguagePanel(
   () => Boolean($("statsOverview")?.innerHTML),
 );
 
-function isPendingStatus(status) {
-  return status === undefined || status === null || status === "pending";
-}
-function formatStatus(status) {
-  return isPendingStatus(status) ? t("pending") : String(status);
-}
-function logStatusClass(status) {
-  if (isPendingStatus(status)) return "pending";
-  const code = Number(status);
-  if (Number.isFinite(code) && code >= 200 && code < 400) return "success";
-  if (Number.isFinite(code) && code >= 400) return "error";
-  return "neutral";
-}
 // The chart geometry this page used to own (nice axis scale, mean line, peak label and
 // cost tick labels) is now src/admin/static/modules/chart.js; the task-detail charts
-// reach it through the bridge in entry.js.
+// import it directly through the module graph.
 let statisticsRequestId = 0;
-async function loadStatistics() {
+export async function loadStatistics() {
   const requestId = ++statisticsRequestId;
   const metricState = state.statisticsMetrics || (state.statisticsMetrics = {});
   // Distribution legends retain the pie-legend class contract for downstream themes.
@@ -556,7 +549,7 @@ function showStatisticsError(error) {
   );
   toast(error.message);
 }
-async function loadStatisticsOptions() {
+export async function loadStatisticsOptions() {
   const to = $("statsTo")?.value ? new Date($("statsTo").value) : new Date();
   const from = $("statsFrom")?.value
     ? new Date($("statsFrom").value)
@@ -595,27 +588,101 @@ function statsLocalInput(value) {
   const pad = (n) => String(n).padStart(2, "0");
   return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
 }
-const metricsState = {
-  url: "",
-  apiKey: "",
-  loading: false,
-  error: null,
-  text: "",
-  truncated: false,
-  status: 0,
-  durationMs: 0,
-  filter: "",
-  view: "dashboard",
-  openFamilies: {},
-  families: [],
-  familyByName: new Map(),
-  refreshMs: 0,
-  refreshTimer: null,
-  refreshTicks: 0,
-  scrollY: { dashboard: 0, list: 0 },
-};
-function mdsStat(labelKey, value, sub, tipKey) {
-  const tip = tipKey === undefined ? "" : ` title="${escapeHtml(t(tipKey))}"`;
-  const subHtml = sub === undefined || sub === "" ? "" : `<em>${sub}</em>`;
-  return `<div class="mds-stat"${tip}><small>${escapeHtml(t(labelKey))}</small><strong>${value}</strong>${subHtml}</div>`;
+/**
+ * Attaches the listeners of the page-level controls (refresh, quick ranges, follow-now,
+ * export, apply/reset filters, the two time inputs). The controls the render itself emits
+ * re-bind at the end of every render, because they are replaced along with it.
+ * @returns {void}
+ */
+export function mountStatistics() {
+  $("refreshStatistics")?.addEventListener("click", () =>
+    loadStatistics().catch(showStatisticsError),
+  );
+  qsa("[data-stats-range]").forEach((button) =>
+    button.addEventListener("click", () => {
+      const days = Number(button.dataset.statsRange || 7);
+      const to = new Date();
+      const from =
+        days === 0
+          ? new Date(to.getFullYear(), to.getMonth(), to.getDate())
+          : new Date(to.getTime() - days * 86400000);
+      $("statsFrom").value = statsLocalInput(from);
+      $("statsTo").value = statsLocalInput(to);
+      qsa("[data-stats-range]").forEach((item) => item.classList.toggle("active", item === button));
+      loadStatisticsOptions()
+        .then(() => loadStatistics())
+        .catch(showStatisticsError);
+    }),
+  );
+  $("statsFollowNow")?.addEventListener("change", () => {
+    if ($("statsFollowNow").checked) {
+      $("statsTo").value = statsLocalInput(new Date());
+      loadStatistics().catch(showStatisticsError);
+    }
+  });
+  $("exportStatistics")?.addEventListener("click", () => {
+    const now = new Date();
+    const from = $("statsFrom").value
+      ? new Date($("statsFrom").value)
+      : new Date(now.getTime() - 7 * 86400000);
+    const to = $("statsTo").value ? new Date($("statsTo").value) : now;
+    const params = new URLSearchParams({
+      from: from.toISOString(),
+      to: to.toISOString(),
+      granularity: $("statsGranularity")?.value || "day",
+      timezoneOffset: String(-new Date().getTimezoneOffset()),
+    });
+    if ($("statsTarget")?.value) params.set("targetId", $("statsTarget").value);
+    if ($("statsModel")?.value) params.set("model", $("statsModel").value);
+    window.open(`/api/usage-statistics/export?${params.toString()}`, "_blank");
+  });
+  $("statsMetric")?.addEventListener("change", () =>
+    loadStatistics().catch((e) => toast(e.message)),
+  );
+  $("statsTarget")?.addEventListener("change", () =>
+    loadStatisticsOptions()
+      .then(() => loadStatistics())
+      .catch(showStatisticsError),
+  );
+  $("statsModel")?.addEventListener("change", () =>
+    loadStatistics().catch((e) => toast(e.message)),
+  );
+  $("statsGranularity")?.addEventListener("change", () =>
+    loadStatistics().catch((e) => toast(e.message)),
+  );
+  $("statsBreakdown")?.addEventListener("change", () =>
+    loadStatistics().catch((e) => toast(e.message)),
+  );
+  $("applyStatsFilters")?.addEventListener("click", () => {
+    loadStatisticsOptions()
+      .then(() => loadStatistics())
+      .catch(showStatisticsError);
+  });
+  $("resetStatsFilters")?.addEventListener("click", () => {
+    const now = new Date();
+    $("statsFrom").value = statsLocalInput(new Date(now.getTime() - 7 * 86400000));
+    $("statsTo").value = statsLocalInput(now);
+    $("statsMetricTrend") && ($("statsMetricTrend").value = "token");
+    $("statsMetricTarget") && ($("statsMetricTarget").value = "token");
+    $("statsMetricModel") && ($("statsMetricModel").value = "token");
+    $("statsGranularity") && ($("statsGranularity").value = "auto");
+    $("statsBreakdown") && ($("statsBreakdown").value = "model");
+    $("statsTarget") && ($("statsTarget").value = "");
+    $("statsModel") && ($("statsModel").value = "");
+    state.statisticsMetrics = { trend: "token", target: "token", model: "token" };
+    qsa("[data-stats-range]").forEach((item) =>
+      item.classList.toggle("active", item.dataset.statsRange === "7"),
+    );
+    loadStatisticsOptions()
+      .then(() => loadStatistics())
+      .catch(showStatisticsError);
+  });
+  $("statsFrom")?.addEventListener("change", () => {
+    loadStatisticsOptions().catch((e) => toast(e.message));
+    loadStatistics().catch((e) => toast(e.message));
+  });
+  $("statsTo")?.addEventListener("change", () => {
+    loadStatisticsOptions().catch((e) => toast(e.message));
+    loadStatistics().catch((e) => toast(e.message));
+  });
 }
