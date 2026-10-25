@@ -1,6 +1,11 @@
-// LLM Proxy admin UI -- shared bootstrap: i18n dictionary, language, state, DOM/format helpers, API client
-// Parts are concatenated in numeric order into /static/app.js and served as one classic script.
+// LLM Proxy admin UI -- shared bootstrap: i18n dictionary, language, state, DOM/format helpers, API client.
+// ES module: the root of every other UI module. It owns the one mutable `state` object and
+// the language-panel registry; a feature module imports what it needs from here and never
+// reaches into another feature's scope.
 
+import { configureDisplayLanguage } from "./display-locale.js";
+
+/** The i18n dictionary every label is looked up in; `t()` is the only reader. */
 const translations = {
   zh: {
     language: "语言",
@@ -793,7 +798,13 @@ const translations = {
 const savedLanguage = localStorage.getItem("llmProxyLanguage");
 const initialLanguage =
   savedLanguage || ((navigator.language || "").toLowerCase().startsWith("zh") ? "zh" : "en");
-const state = {
+/**
+ * The one mutable UI state object. Fields that belong to a single feature (the JSON pane's
+ * line caches, the metrics dialog, the in-flight detail requests) live inside that feature
+ * module instead; what stays here is the state more than one module reads: the list of log
+ * groups, the selected record and its payload, and the language.
+ */
+export const state = {
   language: translations[initialLanguage] ? initialLanguage : "en",
   logGroups: [],
   logs: [],
@@ -859,38 +870,39 @@ const state = {
  * @param {string} id
  * @returns {UiElement | null}
  */
-const $ = (id) => /** @type {UiElement | null} */ (document.getElementById(id));
+export const $ = (id) => /** @type {UiElement | null} */ (document.getElementById(id));
 /**
  * @param {string} selector
  * @returns {UiElement | null}
  */
-const qs = (selector) => /** @type {UiElement | null} */ (document.querySelector(selector));
+export const qs = (selector) => /** @type {UiElement | null} */ (document.querySelector(selector));
 /**
  * @param {string} selector
  * @returns {UiElement[]}
  */
-const qsa = (selector) =>
+export const qsa = (selector) =>
   /** @type {UiElement[]} */ (Array.from(document.querySelectorAll(selector)));
 /**
  * @param {Element} root
  * @param {string} selector
  * @returns {UiElement[]}
  */
-const qsaOn = (root, selector) =>
+export const qsaOn = (root, selector) =>
   /** @type {UiElement[]} */ (Array.from(root.querySelectorAll(selector)));
 /**
  * @param {Element} root
  * @param {string} selector
  * @returns {UiElement | null}
  */
-const qsOn = (root, selector) => /** @type {UiElement | null} */ (root.querySelector(selector));
+export const qsOn = (root, selector) =>
+  /** @type {UiElement | null} */ (root.querySelector(selector));
 /**
  * Event handlers get `EventTarget`, which has none of the DOM members this UI
  * uses. This is a type-level cast: it returns the very same object.
  * @param {EventTarget | null} target
  * @returns {UiElement | null}
  */
-const asElement = (target) => /** @type {UiElement | null} */ (target);
+export const asElement = (target) => /** @type {UiElement | null} */ (target);
 /**
  * closest() is typed to return Element, but every node this UI finds is used as
  * a control afterwards, so the lookup helper carries the useful type.
@@ -898,7 +910,7 @@ const asElement = (target) => /** @type {UiElement | null} */ (target);
  * @param {string} selector
  * @returns {UiElement | null}
  */
-const closestFrom = (target, selector) =>
+export const closestFrom = (target, selector) =>
   /** @type {UiElement | null} */ (asElement(target)?.closest?.(selector) ?? null);
 /**
  * Same reason as closestFrom, for a lookup that starts from a known element.
@@ -908,14 +920,14 @@ const closestFrom = (target, selector) =>
  * @param {string} selector
  * @returns {UiElement | null}
  */
-const closestOn = (root, selector) =>
+export const closestOn = (root, selector) =>
   /** @type {UiElement | null} */ (root?.closest?.(selector) ?? null);
 /**
  * parentElement is typed as Element, which again hides the members this UI needs.
  * @param {Element | null | undefined} el
  * @returns {UiElement | null}
  */
-const parentOf = (el) => /** @type {UiElement | null} */ (el?.parentElement ?? null);
+export const parentOf = (el) => /** @type {UiElement | null} */ (el?.parentElement ?? null);
 /**
  * One field the server rejected, as `error.issues` names it.
  * @typedef {{ code: string, message: string, path: string }} ApiConfigIssue
@@ -927,17 +939,17 @@ const parentOf = (el) => /** @type {UiElement | null} */ (el?.parentElement ?? n
  * as the extra properties below.
  * @typedef {Error & { code?: string, issues?: readonly ApiConfigIssue[] }} ApiError
  */
-const t = (key) =>
+export const t = (key) =>
   (translations[state.language] && translations[state.language][key]) ||
   translations.en[key] ||
   key;
-const toast = (text) => {
+export const toast = (text) => {
   const el = $("toast");
   el.textContent = text;
   el.classList.add("show");
   setTimeout(() => el.classList.remove("show"), 2400);
 };
-const api = async (url, options = {}) => {
+export const api = async (url, options = {}) => {
   const requestOptions = {
     ...options,
     headers: {
@@ -969,9 +981,16 @@ const api = async (url, options = {}) => {
   }
   return data;
 };
-function applyLanguage() {
-  // The display locale the migrated number helpers format with is pushed here. This is
-  // the only writer: it runs once during startup from 09-wiring.js and again on every
+/**
+ * Applies the current language to every element that carries a `data-i18n*` attribute.
+ * The toolbar buttons whose text comes from `t()` instead (the JSON pane buttons and the
+ * response timing line) are chrome their own module repaints, because they are also
+ * redrawn whenever a record is selected and must not depend on this function.
+ * @returns {void}
+ */
+export function applyLanguage() {
+  // The display locale the display helpers format with is pushed here. This is the only
+  // writer: it runs once during startup from the wiring module and again on every
   // language change, so no number is ever formatted before the locale is known.
   configureDisplayLanguage(state.language);
   document.documentElement.lang = state.language === "zh" ? "zh-CN" : "en";
@@ -985,12 +1004,6 @@ function applyLanguage() {
   qsa("[data-i18n-placeholder]").forEach((el) => {
     el.placeholder = t(el.dataset.i18nPlaceholder);
   });
-  updateExpandButton("request");
-  updateExpandButton("response");
-  updateMetaButton("request");
-  updateMetaButton("response");
-  updateResponseTiming();
-  updateSelectAllLogsButton();
 }
 /**
  * A surface that has to be redrawn when the UI language changes. Panels register
@@ -1008,7 +1021,7 @@ const languagePanels = [];
  * @param {() => boolean} [when] Skip the panel when its surface is not on screen.
  * @param {() => void} [before] Capture editable values before translation updates the DOM.
  */
-function registerLanguagePanel(id, sequence, render, when, before) {
+export function registerLanguagePanel(id, sequence, render, when, before) {
   if (languagePanels.some((panel) => panel.id === id)) return () => {};
   const panel = {
     id,
@@ -1033,53 +1046,11 @@ function rerenderLanguagePanels() {
     panel.render();
   }
 }
-function setLanguage(language) {
+export function setLanguage(language) {
   if (!translations[language]) return;
   prepareLanguagePanels();
   state.language = language;
   localStorage.setItem("llmProxyLanguage", language);
   applyLanguage();
   rerenderLanguagePanels();
-}
-// The pure display helpers (escaping, strings, durations, timestamps, number and
-// token formatting, chart geometry) live in src/admin/static/modules/ and reach this
-// script scope through the bridge in entry.js. What stays here is what still needs the
-// i18n dictionary through t(), which is not migrated until AI-19.
-function formatCurrencyAmount(amount) {
-  if (amount === null || amount === undefined || amount === "") return "—";
-  const text = String(amount);
-  const [wholeRaw, fractionRaw = ""] = text.split(".");
-  const whole = wholeRaw || "0";
-  const next = (fractionRaw.slice(0, 5) + "00000").slice(0, 5);
-  let rounded = BigInt(whole + next.slice(0, 4)) + BigInt(next[4] >= "5" ? 1 : 0);
-  const scale = 10_000n;
-  const integer = rounded / scale;
-  const fraction = (rounded % scale).toString().padStart(4, "0").replace(/0+$/, "");
-  if (integer === 0n && fraction === "" && !/^0+(?:\.0+)?$/.test(text))
-    return `< ${t("currencySymbol")}0.0001`;
-  return `${t("currencySymbol")}${integer}${fraction ? `.${fraction}` : ""}`;
-}
-function formatRequestCost(cost) {
-  if (!cost || cost.status === "unpriced") return "—";
-  if (cost.status === "pending") return t("calculating");
-  return formatCurrencyAmount(cost.amount);
-}
-// Replaced by static-assets.ts before the browser ever sees this identifier.
-// @ts-expect-error -- the name only exists in the authored source.
-const suggestedStripRequestFields = __SUGGESTED_STRIP_REQUEST_FIELDS__;
-function pricingAmount(value) {
-  return formatCurrencyAmount(pricingDecimalFromNano(value));
-}
-function schedulePaneButtonsUpdate(key) {
-  jsonPaneButtonsUpdateKeys.add(key);
-  if (jsonPaneButtonsUpdateQueued) return;
-  jsonPaneButtonsUpdateQueued = true;
-  setTimeout(() => {
-    jsonPaneButtonsUpdateQueued = false;
-    for (const pendingKey of jsonPaneButtonsUpdateKeys) {
-      updateExpandButton(pendingKey);
-      updatePaneButtons(pendingKey);
-    }
-    jsonPaneButtonsUpdateKeys.clear();
-  });
 }

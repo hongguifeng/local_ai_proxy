@@ -1,6 +1,6 @@
 import { chromium, type Browser, type Page } from "@playwright/test";
 import type { AddressInfo } from "node:net";
-import { buildAdminModuleBridge } from "../../scripts/build_ui_bundle.js";
+import { buildAdminAppScript } from "../../scripts/build_ui_bundle.js";
 import {
   applicationHealth,
   createAdminServer,
@@ -104,7 +104,7 @@ export async function startStubAdminServer(): Promise<void> {
   // bridge. A lone `npx vitest run test-node/ui` does not go through the pretest hook
   // that builds it, so build it here: the stub then serves the same bytes the product
   // build serves, instead of a script with the helpers missing.
-  await buildAdminModuleBridge();
+  await buildAdminAppScript();
   server = createAdminServer({
     getHealth: () => applicationHealth("running"),
     targetCheckService: {

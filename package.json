@@ -26,7 +26,7 @@
     "dev": "npm run bundle:ui && tsx watch src/main.ts",
     "format": "prettier --write .",
     "format:check": "prettier --check .",
-    "lint": "tsx scripts/build_ui_bundle.ts && tsx scripts/concat_ui_parts.ts && eslint \"src/**/*.ts\" \"electron/**/*.ts\" \"test-node/**/*.ts\" \"scripts/**/*.ts\" \".ui-check/app.js\" \"src/admin/static/entry.js\" \"src/admin/static/modules/*.js\" --no-error-on-unmatched-pattern --max-warnings=0",
+    "lint": "tsx scripts/build_ui_bundle.ts && eslint \"src/**/*.ts\" \"electron/**/*.ts\" \"test-node/**/*.ts\" \"scripts/**/*.ts\" \"src/admin/static/entry.js\" \"src/admin/static/modules/*.js\" --no-error-on-unmatched-pattern --max-warnings=0",
     "rebuild:node": "npm rebuild better-sqlite3",
     "rebuild:electron": "electron-rebuild --force --only better-sqlite3",
     "package:electron": "npm run build && npm run rebuild:electron && electron-builder --publish never",

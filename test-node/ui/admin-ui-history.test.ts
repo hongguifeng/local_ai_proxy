@@ -309,11 +309,12 @@ describe("admin UI history page", { timeout: UI_TEST_TIMEOUT_MS }, () => {
     await expect(
       page.evaluate(
         (amounts) => {
+          // The module graph publishes exactly this surface for the browser tests.
           const formatter = (
             window as unknown as Window & {
-              formatCurrencyAmount: (amount: string | null) => string;
+              __adminUiTest: { formatCurrencyAmount: (amount: string | null) => string };
             }
-          ).formatCurrencyAmount;
+          ).__adminUiTest.formatCurrencyAmount;
           return amounts.map((amount) => formatter(amount));
         },
         ["5", "0.03", "0.041125", "0.042750", "0.00001", "0", null],
@@ -1190,7 +1191,7 @@ describe("admin UI history page", { timeout: UI_TEST_TIMEOUT_MS }, () => {
       const sections = Object.fromEntries(
         Array.from({ length: 12 }, (_, index) => ["section" + index, branches]),
       );
-      window.applySelectedLogDetail(
+      window.__adminUiTest.applySelectedLogDetail(
         { request: sections, response: null, request_meta: {}, response_meta: {}, pricing: null },
         { resetView: true },
       );

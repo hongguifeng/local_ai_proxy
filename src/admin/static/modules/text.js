@@ -1,5 +1,5 @@
 // LLM Proxy admin UI -- text helpers shared by every panel that builds markup.
-// ES module: imported by the entry (../entry.js), never concatenated as a classic part.
+// ES module: bundled into /static/app.js by the entry (../entry.js).
 
 /**
  * Every panel builds markup by string concatenation, so untrusted text from the API

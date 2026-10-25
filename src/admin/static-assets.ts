@@ -8,59 +8,41 @@ import type { AdminStaticAssets } from "./admin-contracts.js";
 const STRIP_FIELDS_PLACEHOLDER = "__SUGGESTED_STRIP_REQUEST_FIELDS__";
 const WINDOWS_READ_ATTEMPTS = 8;
 const WINDOWS_READ_DELAY_MS = 25;
-const WINDOWS_READ_RETRYABLE_ERROR_CODES = new Set(["EACCES", "EBUSY", "EPERM"]);
+/**
+ * The bundle is published by `[System.IO.File]::Replace`, which briefly removes the
+ * destination: a reader polling across that window gets `ENOENT` for a file that is being
+ * replaced, measured once in about ten thousand back-to-back reads. The retry keeps the
+ * error honest anyway — after the whole window a genuinely absent bundle still fails with
+ * the "build it first" message.
+ */
+const WINDOWS_READ_RETRYABLE_ERROR_CODES = new Set(["EACCES", "EBUSY", "ENOENT", "EPERM"]);
 
 /**
- * The marker every generated browser chunk carries. Reading it back proves the asset
+ * The marker every generated browser asset carries. Reading it back proves the asset
  * the server is about to serve is the one the bundler wrote, not a stray or truncated
  * file that happens to sit in the same directory.
  */
 export const GENERATED_ASSET_MARKER = "GENERATED FILE - DO NOT EDIT";
 
 /**
- * Where the generated chunk lives, relative to the directory that holds this project's
+ * Where the generated script lives, relative to the directory that holds this project's
  * package.json. The same rule resolves it from source (`npm run dev`, Vitest), from the
  * compiled tree (`npm run build`) and from inside `app.asar`, because in all three the
  * package root is the directory the walk-up stops at. It deliberately sits beside
  * `src/admin/static`, never inside it: `copy_static_assets.ts` deletes anything in that
- * directory the source no longer has, and a generated chunk is exactly that to it.
+ * directory the source no longer has, and a generated script is exactly that to it.
  */
-export const BRIDGE_DIRECTORY = ["dist-node", "src", "admin", "static-bundle"] as const;
-export const BRIDGE_FILE = "modules-bridge.js";
+export const ADMIN_BUNDLE_DIRECTORY = ["dist-node", "src", "admin", "static-bundle"] as const;
+export const ADMIN_BUNDLE_FILE = "admin-app.js";
 
 /**
- * The admin UI is authored as classic-script parts that share one global scope. They
- * are concatenated in this exact order into the single /static/app.js the browser
- * loads: function declarations hoist per part, but top-level statements run in load
- * order, so the wiring part must stay last.
- *
- * The generated ES module bundle is concatenated ahead of all of them, so the bridge it
- * publishes exists before the first top-level statement in `09-wiring.js` runs. See
- * `scripts/build_ui_bundle.ts` and `src/admin/static/entry.js`.
- */
-export const ADMIN_SCRIPT_PARTS = [
-  "01-core.js",
-  "02-proxy-config.js",
-  "03-load-balancing.js",
-  "04-history-logs.js",
-  "05-task-detail.js",
-  "06-json-pane.js",
-  "07-statistics.js",
-  "08-metrics.js",
-  "09-wiring.js",
-] as const;
-
-/**
- * The script the browser runs, modulo the strip-field placeholder: the generated module
- * bridge first, then the numbered parts in load order. `npm run lint` writes exactly
- * this text to `.ui-check/app.js`, so ESLint checks the program the browser sees.
+ * The script the browser runs, modulo the strip-field placeholder: the bundled module
+ * graph in `src/admin/static/entry.js` and everything it imports, and nothing else.
+ * `npm run lint` lints those sources directly, and the packaged-artifact test compares
+ * this text with what the server actually serves.
  */
 export async function buildAdminAppJsTemplate(): Promise<string> {
-  const [bridge, scriptParts] = await Promise.all([
-    readAdminModuleBridge(),
-    Promise.all(ADMIN_SCRIPT_PARTS.map(readStaticAsset)),
-  ]);
-  return [bridge, ...scriptParts].join("\n");
+  return await readAdminAppScript();
 }
 
 export async function loadAdminStaticAssets(): Promise<AdminStaticAssets> {
@@ -88,31 +70,35 @@ export function readAdminStaticAsset(name: string): Promise<string> {
 /**
  * Reads the generated classic-script chunk the ES modules are delivered in. A missing
  * or unrecognisable artifact is an error here rather than an empty `<script>` in the
- * page. The build commands complete `npm run bundle:ui` before starting a reader, so
- * an absent bridge is a clear startup error instead of a polling window that can race
- * the first build.
+ * page.
  */
-export async function readAdminModuleBridge(): Promise<string> {
+/**
+ * Reads the generated script the browser runs. A missing or unrecognisable artifact is
+ * an error here rather than an empty `<script>` in the page. The build commands complete
+ * `npm run bundle:ui` before starting a reader, so an absent bundle is a clear startup
+ * error instead of a polling window that can race the first build.
+ */
+export async function readAdminAppScript(): Promise<string> {
   const root = await findPackageRoot(path.dirname(fileURLToPath(import.meta.url)));
-  const file = path.join(root, ...BRIDGE_DIRECTORY, BRIDGE_FILE);
-  const text = await readBridgeFile(file).catch((error: unknown) => {
+  const file = path.join(root, ...ADMIN_BUNDLE_DIRECTORY, ADMIN_BUNDLE_FILE);
+  const text = await readBundleFile(file).catch((error: unknown) => {
     const detail = error instanceof Error ? error.message : String(error);
     const code = errorCode(error);
     const message =
       code === "ENOENT"
-        ? `Admin UI module bridge not found at ${file}. Build it first with: npm run bundle:ui`
-        : `Admin UI module bridge could not be read at ${file}: ${detail}`;
+        ? `Admin UI script not found at ${file}. Build it first with: npm run bundle:ui`
+        : `Admin UI script could not be read at ${file}: ${detail}`;
     throw new Error(message, { cause: error });
   });
   if (!text.includes(GENERATED_ASSET_MARKER)) {
     throw new Error(
-      `Admin UI module bridge at ${file} is not a generated artifact (no "${GENERATED_ASSET_MARKER}" marker).`,
+      `Admin UI script at ${file} is not a generated artifact (no "${GENERATED_ASSET_MARKER}" marker).`,
     );
   }
   return text;
 }
 
-async function readBridgeFile(file: string): Promise<string> {
+async function readBundleFile(file: string): Promise<string> {
   for (let attempt = 0; ; attempt += 1) {
     try {
       return await readFile(file, "utf8");

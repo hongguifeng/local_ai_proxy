@@ -1,7 +1,6 @@
 import { mkdir, writeFile, access } from "node:fs/promises";
 import path from "node:path";
 import { describe, expect, it } from "vitest";
-import { ADMIN_SCRIPT_PARTS } from "../../src/admin/static-assets.js";
 
 const DIST_STATIC_DIR = path.resolve("dist-node/src/admin/static");
 
@@ -19,7 +18,8 @@ describe("built admin static assets", () => {
     const script = await import("../../scripts/copy_static_assets.js");
     expect(script).toBeDefined();
 
-    for (const name of ["index.html", "app.css", ...ADMIN_SCRIPT_PARTS]) {
+    // `entry.js` and `modules/` are the authored script; nothing else ships from there.
+    for (const name of ["index.html", "app.css", "entry.js", "modules/core.js"]) {
       await access(path.join(DIST_STATIC_DIR, name));
     }
     await expect(access(stale)).rejects.toThrow();

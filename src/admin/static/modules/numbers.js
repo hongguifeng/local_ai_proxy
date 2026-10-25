@@ -1,5 +1,5 @@
 // LLM Proxy admin UI -- value coercion and number display shared by logs, detail, metrics and statistics.
-// ES module: imported by the entry (../entry.js), never concatenated as a classic part.
+// ES module: bundled into /static/app.js by the entry (../entry.js).
 
 import { displayLanguageIsEnglish, displayLocaleTag } from "./display-locale.js";
 
@@ -105,6 +105,18 @@ export function pricingDecimalFromNano(value) {
 export function formatTokensPerSecond(value) {
   if (typeof value !== "number" || !Number.isFinite(value) || value <= 0) return "";
   if (value >= 1000) return `${(value / 1000).toFixed(1)}k`;
+  if (value >= 100) return String(Math.round(value));
+  return value.toFixed(1);
+}
+
+/**
+ * A decode speed as the list row and the task summary card print it: no sample stays
+ * empty, three digits and up lose the fraction, everything else keeps one decimal.
+ * @param {unknown} value
+ * @returns {string}
+ */
+export function formatDecodeSpeed(value) {
+  if (typeof value !== "number" || !Number.isFinite(value) || value <= 0) return "";
   if (value >= 100) return String(Math.round(value));
   return value.toFixed(1);
 }

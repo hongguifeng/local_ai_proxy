@@ -5,27 +5,25 @@ import path from "node:path";
 import { pathToFileURL } from "node:url";
 
 import {
-  BRIDGE_DIRECTORY,
-  BRIDGE_FILE,
+  ADMIN_BUNDLE_DIRECTORY,
+  ADMIN_BUNDLE_FILE,
   GENERATED_ASSET_MARKER,
 } from "../src/admin/static-assets.js";
 
 /**
  * The admin UI is authored as ES modules (`src/admin/static/entry.js` and the files it
- * imports) and as classic scripts at the same time: the nine numbered parts still share
- * one script scope, and the browser is served one file at one URL. This step turns the
- * module side into a single classic-script chunk that the server concatenates ahead of
- * those parts, so /static/app.js stays the only browser request and every probe that
- * intercepts that URL keeps working.
+ * imports) and the browser is served one file at one URL. This step bundles that module
+ * graph into the single classic-script chunk the server answers /static/app.js with, so
+ * every probe that intercepts that URL keeps working and the page never depends on a
+ * module-capable script tag or on a second request.
  *
  * Run it with `npm run bundle:ui`. It is wired into `predev`, `pretest` and `build`
- * because every one of those paths serves the page, and `scripts/concat_ui_parts.ts`
- * reads its output so ESLint sees the same bytes the browser does.
+ * because every one of those paths serves the page.
  */
 
 const ROOT_DIR = path.resolve(import.meta.dirname, "..");
 const ENTRY_POINT = path.join(ROOT_DIR, "src", "admin", "static", "entry.js");
-const OUTPUT_DIRECTORY = path.join(ROOT_DIR, ...BRIDGE_DIRECTORY);
+const OUTPUT_DIRECTORY = path.join(ROOT_DIR, ...ADMIN_BUNDLE_DIRECTORY);
 
 const WINDOWS_REPLACEMENT_ATTEMPTS = 8;
 const WINDOWS_REPLACEMENT_DELAY_MS = 25;
@@ -34,19 +32,18 @@ const WINDOWS_RETRYABLE_ERROR_CODES = new Set(["EACCES", "EBUSY", "EEXIST", "EPE
 const BANNER = [
   `// ${GENERATED_ASSET_MARKER}.`,
   "// Bundled from src/admin/static/entry.js by scripts/build_ui_bundle.ts.",
-  "// The server concatenates this chunk ahead of the numbered admin UI scripts and",
-  "// serves the result as /static/app.js, so ESLint must see it too.",
+  "// The server serves this chunk as /static/app.js; it is the whole admin UI.",
   "// Regenerate with: npm run bundle:ui",
   "",
 ].join("\n");
 
-export async function buildAdminModuleBridge(
-  outputFile = path.join(OUTPUT_DIRECTORY, BRIDGE_FILE),
+export async function buildAdminAppScript(
+  outputFile = path.join(OUTPUT_DIRECTORY, ADMIN_BUNDLE_FILE),
 ): Promise<string> {
   const outputDirectory = path.dirname(outputFile);
   await mkdir(outputDirectory, { recursive: true });
-  const temporaryDirectory = await mkdtemp(path.join(outputDirectory, ".modules-bridge-"));
-  const temporaryFile = path.join(temporaryDirectory, BRIDGE_FILE);
+  const temporaryDirectory = await mkdtemp(path.join(outputDirectory, ".admin-app-"));
+  const temporaryFile = path.join(temporaryDirectory, ADMIN_BUNDLE_FILE);
   try {
     await build({
       entryPoints: [ENTRY_POINT],
@@ -147,15 +144,15 @@ async function replaceOutputFileOnWindows(
         "-NoProfile",
         "-NonInteractive",
         "-Command",
-        "[System.IO.File]::Replace($env:LLM_PROXY_BRIDGE_TEMP, $env:LLM_PROXY_BRIDGE_OUTPUT, $env:LLM_PROXY_BRIDGE_BACKUP)",
+        "[System.IO.File]::Replace($env:LLM_PROXY_ADMIN_APP_TEMP, $env:LLM_PROXY_ADMIN_APP_OUTPUT, $env:LLM_PROXY_ADMIN_APP_BACKUP)",
       ],
       {
         windowsHide: true,
         env: {
           ...process.env,
-          LLM_PROXY_BRIDGE_TEMP: temporaryFile,
-          LLM_PROXY_BRIDGE_OUTPUT: outputFile,
-          LLM_PROXY_BRIDGE_BACKUP: `${temporaryFile}.backup`,
+          LLM_PROXY_ADMIN_APP_TEMP: temporaryFile,
+          LLM_PROXY_ADMIN_APP_OUTPUT: outputFile,
+          LLM_PROXY_ADMIN_APP_BACKUP: `${temporaryFile}.backup`,
         },
       },
       (error) => {
@@ -170,6 +167,6 @@ async function replaceOutputFileOnWindows(
 }
 
 if (process.argv[1] !== undefined && import.meta.url === pathToFileURL(process.argv[1]).href) {
-  const written = await buildAdminModuleBridge();
+  const written = await buildAdminAppScript();
   console.log(`wrote ${written} from ${ENTRY_POINT}`);
 }

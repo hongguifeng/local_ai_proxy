@@ -392,7 +392,8 @@ describe("assembled admin surface", () => {
     expect(script.status).toBe(200);
     expect(script.headers.get("content-type")).toContain("javascript");
     expect(script.headers.get("cache-control")).toBe("no-cache");
-    expect(await script.text()).toContain("const state = {");
+    // The served script is the bundled module graph; `startAdminUi` is its entry call.
+    expect(await script.text()).toContain("function startAdminUi(");
 
     const archive = await get("/api/logs/export");
     expect(archive.status).toBe(200);

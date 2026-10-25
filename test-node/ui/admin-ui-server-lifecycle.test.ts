@@ -1,7 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const testDoubles = vi.hoisted(() => ({
-  buildAdminModuleBridge: vi.fn(),
+  buildAdminAppScript: vi.fn(),
   createAdminServer: vi.fn(),
   loadAdminStaticAssets: vi.fn(),
   chromium: {
@@ -11,7 +11,7 @@ const testDoubles = vi.hoisted(() => ({
 }));
 
 vi.mock("../../scripts/build_ui_bundle.js", () => ({
-  buildAdminModuleBridge: testDoubles.buildAdminModuleBridge,
+  buildAdminAppScript: testDoubles.buildAdminAppScript,
 }));
 
 vi.mock("../../src/admin/index.js", () => ({
@@ -65,7 +65,7 @@ function configureStart(
 
 describe("admin UI fixture lifecycle", () => {
   beforeEach(() => {
-    testDoubles.buildAdminModuleBridge.mockResolvedValue(undefined);
+    testDoubles.buildAdminAppScript.mockResolvedValue(undefined);
     testDoubles.loadAdminStaticAssets.mockResolvedValue({});
     testDoubles.chromium.executablePath.mockReturnValue("fixture-chrome");
   });
@@ -77,7 +77,7 @@ describe("admin UI fixture lifecycle", () => {
 
   it("keeps setup errors when teardown runs before resources initialize", async () => {
     const bridgeFailure = new Error("admin module bridge failed");
-    testDoubles.buildAdminModuleBridge.mockRejectedValue(bridgeFailure);
+    testDoubles.buildAdminAppScript.mockRejectedValue(bridgeFailure);
 
     await expect(startStubAdminServer()).rejects.toBe(bridgeFailure);
     await expect(closeTestPage()).resolves.toBeUndefined();

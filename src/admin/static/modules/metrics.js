@@ -1,66 +1,50 @@
-// LLM Proxy admin UI -- upstream metrics: Prometheus list, auto refresh, vLLM dashboard
-// Parts are concatenated in numeric order into /static/app.js and served as one classic script.
+// LLM Proxy admin UI -- upstream metrics: Prometheus list, auto refresh, vLLM dashboard.
+// ES module: imports the shared bootstrap (./core.js), the display helpers and the status
+// label the list view reuses.
+
+import { $, api, asElement, registerLanguagePanel, state, t } from "./core.js";
+import { formatIntegerValue } from "./numbers.js";
+import { escapeHtml } from "./text.js";
+import { formatDuration } from "./time.js";
+
+/**
+ * The metrics dialog's own state. The fetch result, the Prometheus text and the dashboard
+ * view live here rather than in the shared `state` object, because no other module reads
+ * them and the dialog is disposed with the page.
+ */
+const metricsState = {
+  url: "",
+  apiKey: "",
+  loading: false,
+  error: null,
+  text: "",
+  truncated: false,
+  status: 0,
+  durationMs: 0,
+  filter: "",
+  view: "dashboard",
+  openFamilies: {},
+  families: [],
+  familyByName: new Map(),
+  refreshMs: 0,
+  refreshTimer: null,
+  refreshTicks: 0,
+  scrollY: { dashboard: 0, list: 0 },
+};
+function mdsStat(labelKey, value, sub, tipKey) {
+  const tip = tipKey === undefined ? "" : ` title="${escapeHtml(t(tipKey))}"`;
+  const subHtml = sub === undefined || sub === "" ? "" : `<em>${sub}</em>`;
+  return `<div class="mds-stat"${tip}><small>${escapeHtml(t(labelKey))}</small><strong>${value}</strong>${subHtml}</div>`;
+}
 
 // Redraw on language change. The sequence mirrors the order the switch used to
-// call these in by hand; see registerLanguagePanel in 01-core.js.
+// call these in by hand; see registerLanguagePanel in ./core.js.
 registerLanguagePanel(
   "metricsDialog",
   70,
   () => renderMetricsDialog(),
   () => Boolean($("metricsDialog")?.open),
 );
-
-function logMetricHtml(className, label, value, title = label) {
-  return `<span class="log-metric ${className}" title="${escapeHtml(title)}">
-    <span class="log-metric-label">${escapeHtml(label)}</span>
-    <strong class="log-metric-value">${escapeHtml(value)}</strong>
-  </span>`;
-}
-function logItemMetricsHtml(item) {
-  const metrics = [];
-  const messageCount = optionalFiniteNumber(item.message_count);
-  const requestTokenCount = optionalFiniteNumber(item.request_token_count);
-  const responseTokenCount = optionalFiniteNumber(item.response_token_count);
-  if (messageCount !== null) {
-    metrics.push(logMetricHtml("messages", t("messages"), messageCount));
-  }
-  if (requestTokenCount !== null || responseTokenCount !== null) {
-    metrics.push(
-      logMetricHtml(
-        "request-tokens",
-        t("request"),
-        requestTokenCount ?? "-",
-        `${t("request")} ${t("tokens")}`,
-      ),
-      logMetricHtml(
-        "response-tokens",
-        t("response"),
-        responseTokenCount ?? "-",
-        `${t("response")} ${t("tokens")}`,
-      ),
-    );
-  }
-  const decodeSpeed = formatGroupDecodeSpeed(item.decode_speed_tps);
-  const endToEndSpeed = formatGroupDecodeSpeed(item.end_to_end_speed_tps);
-  if (decodeSpeed === "" && endToEndSpeed !== "") {
-    metrics.push(
-      logMetricHtml(
-        "end-to-end-speed",
-        state.language === "en" ? "E2E" : t("endToEndSpeed"),
-        `${endToEndSpeed}t/s`,
-        t("endToEndSpeed"),
-      ),
-    );
-  }
-  if (decodeSpeed !== "") {
-    metrics.push(logMetricHtml("decode-speed", t("speed"), `${decodeSpeed}t/s`, t("speed")));
-  }
-  metrics.push(logMetricHtml("cost", t("cost"), formatRequestCost(item.cost), t("cost")));
-  return (
-    metrics.join("") ||
-    `<span class="log-item-empty">${escapeHtml(formatStatus(item.status))}</span>`
-  );
-}
 const PROMETHEUS_COMMENT = /^#\s*(HELP|TYPE)\s+(\S+)(?:\s+(.*))?$/;
 const PROMETHEUS_SAMPLE = /^([A-Za-z_:][A-Za-z0-9_:]*)(?:\{([^}]*)\})?\s+(\S+)(?:\s+\d+)?$/;
 const PROMETHEUS_LABEL = /(\w+)="((?:[^"\\]|\\.)*)"/g;
@@ -701,7 +685,7 @@ function renderMetricsDialog() {
       .join("")}`;
   $("metricsRawPre").textContent = metricsState.text;
 }
-function openTargetMetricsDialog(target) {
+export function openTargetMetricsDialog(target) {
   metricsState.url = target.target_url || "";
   metricsState.apiKey = target.target_api_key || "";
   metricsState.filter = "";
@@ -803,4 +787,56 @@ function loadTargetMetrics(options = {}) {
       if (list) list.scrollTop = metricsState.scrollY.list;
       syncMetricsRefreshCountdown();
     });
+}
+/**
+ * Attaches the metrics dialog's listeners: close, refresh, auto-refresh interval, the two
+ * view switches, the filter input and the captured `toggle` events that remember which
+ * Prometheus families were open across a filter re-render.
+ * @returns {void}
+ */
+export function mountMetrics() {
+  $("metricsClose").addEventListener("click", () => $("metricsDialog").close());
+  $("metricsDialog").addEventListener("close", stopMetricsAutoRefresh);
+  $("metricsRefresh").addEventListener("click", () => loadTargetMetrics());
+  $("metricsRefreshInterval")?.addEventListener("change", (event) => {
+    const select = event.target;
+    if (!(select instanceof HTMLSelectElement)) return;
+    startMetricsAutoRefresh(Number(select.value) || 0);
+    syncMetricsRefreshCountdown();
+  });
+  $("metricsViewDashboard").addEventListener("click", () => {
+    metricsState.view = "dashboard";
+    renderMetricsDialog();
+  });
+  $("metricsViewList").addEventListener("click", () => {
+    metricsState.view = "list";
+    renderMetricsDialog();
+  });
+  $("metricsFilter").addEventListener("input", (event) => {
+    metricsState.filter = asElement(event.target).value;
+    renderMetricsDialog();
+  });
+  // The `toggle` event does not bubble, so family open/collapse state must be
+  // captured (not bubbled) on the container to survive filter re-renders.
+  $("metricsListBody").addEventListener(
+    "toggle",
+    (event) => {
+      const el = asElement(event.target);
+      if (!(el instanceof HTMLDetailsElement)) return;
+      const name = el.dataset.metricsFamily;
+      if (typeof name !== "string" || name === "") return;
+      if (el.open) metricsState.openFamilies[name] = true;
+      else delete metricsState.openFamilies[name];
+    },
+    true,
+  );
+}
+
+/**
+ * Stops the auto-refresh timer. The dialog's `close` event also stops it, but a page
+ * unload never fires one, and a timer that outlived the page would keep fetching metrics.
+ * @returns {void}
+ */
+export function disposeMetrics() {
+  stopMetricsAutoRefresh();
 }
