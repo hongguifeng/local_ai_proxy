@@ -1,5 +1,6 @@
+import { execFile } from "node:child_process";
 import { build } from "esbuild";
-import { mkdir } from "node:fs/promises";
+import { mkdir, mkdtemp, rename, rm } from "node:fs/promises";
 import path from "node:path";
 import { pathToFileURL } from "node:url";
 
@@ -38,18 +39,75 @@ const BANNER = [
 export async function buildAdminModuleBridge(): Promise<string> {
   const outputFile = path.join(OUTPUT_DIRECTORY, BRIDGE_FILE);
   await mkdir(OUTPUT_DIRECTORY, { recursive: true });
-  await build({
-    entryPoints: [ENTRY_POINT],
-    outfile: outputFile,
-    bundle: true,
-    format: "iife",
-    platform: "browser",
-    target: "es2022",
-    charset: "utf8",
-    legalComments: "none",
-    banner: { js: BANNER },
+  const temporaryDirectory = await mkdtemp(path.join(OUTPUT_DIRECTORY, ".modules-bridge-"));
+  const temporaryFile = path.join(temporaryDirectory, BRIDGE_FILE);
+  try {
+    await build({
+      entryPoints: [ENTRY_POINT],
+      outfile: temporaryFile,
+      bundle: true,
+      format: "iife",
+      platform: "browser",
+      target: "es2022",
+      charset: "utf8",
+      legalComments: "none",
+      banner: { js: BANNER },
+    });
+    await replaceOutputFile(temporaryFile, outputFile);
+    return outputFile;
+  } finally {
+    await rm(temporaryDirectory, { recursive: true, force: true });
+  }
+}
+
+async function replaceOutputFile(temporaryFile: string, outputFile: string): Promise<void> {
+  try {
+    await rename(temporaryFile, outputFile);
+  } catch (error) {
+    if (process.platform !== "win32" || !(error instanceof Error && "code" in error)) {
+      throw error;
+    }
+    const code = (error as NodeJS.ErrnoException).code;
+    if (code !== "EPERM" && code !== "EEXIST") {
+      throw error;
+    }
+    await replaceOutputFileOnWindows(temporaryFile, outputFile);
+  }
+}
+
+/** Node's Windows rename cannot replace an existing file; File.Replace is atomic. */
+async function replaceOutputFileOnWindows(
+  temporaryFile: string,
+  outputFile: string,
+): Promise<void> {
+  await new Promise<void>((resolve, reject) => {
+    execFile(
+      "powershell.exe",
+      [
+        "-NoLogo",
+        "-NoProfile",
+        "-NonInteractive",
+        "-Command",
+        "[System.IO.File]::Replace($env:LLM_PROXY_BRIDGE_TEMP, $env:LLM_PROXY_BRIDGE_OUTPUT, $env:LLM_PROXY_BRIDGE_BACKUP)",
+      ],
+      {
+        windowsHide: true,
+        env: {
+          ...process.env,
+          LLM_PROXY_BRIDGE_TEMP: temporaryFile,
+          LLM_PROXY_BRIDGE_OUTPUT: outputFile,
+          LLM_PROXY_BRIDGE_BACKUP: `${temporaryFile}.backup`,
+        },
+      },
+      (error) => {
+        if (error !== null) {
+          reject(error instanceof Error ? error : new Error("Windows file replacement failed"));
+          return;
+        }
+        resolve();
+      },
+    );
   });
-  return outputFile;
 }
 
 if (process.argv[1] !== undefined && import.meta.url === pathToFileURL(process.argv[1]).href) {
