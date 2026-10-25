@@ -222,11 +222,11 @@ P0 是已复现的功能缺陷；P1 是契约、文档和后端基础；P2 是�
 
 入口：[LogQueryService](../src/maintenance/log-query-service.ts)、[管理服务接口](../src/admin/admin-contracts.ts)、[统计服务](../src/maintenance/usage-statistics-service.ts)。
 
-- [ ] 为任务计价、三类趋势、请求计价、摘要和简介提供具体返回类型。
-- [ ] 将数据库行到服务模型、服务模型到响应的转换放到明确边界。
-- [ ] 统一服务接口和真实实现，清理 unknown 返回值及重复定义。
-- [ ] 为有业务意义的空值、缺失值、pending 和未计价状态建立明确合同。
-- [ ] 用有类型的 fixture 构造器减少重复载荷；移除整份服务的双重强转。
+- [x] 为任务计价、三类趋势、请求计价、摘要和简介提供具体返回类型。
+- [x] 将数据库行到服务模型、服务模型到响应的转换放到明确边界。
+- [x] 统一服务接口和真实实现，清理 unknown 返回值及重复定义。
+- [x] 为有业务意义的空值、缺失值、pending 和未计价状态建立明确合同。
+- [x] 用有类型的 fixture 构造器减少重复载荷；移除整份服务的双重强转。
 
 验收：服务字段重命名或遗漏能影响真实消费者的编译检查。外部模型的原始 JSON 仍可保持开放结构。
 
@@ -263,11 +263,11 @@ P0 是已复现的功能缺陷；P1 是契约、文档和后端基础；P2 是�
 
 入口：[proxy 导出](../src/proxy/index.ts)、[运行时注册表](../src/proxy/proxy-runtime-registry.ts)、[日志服务](../src/logging/traffic-log-service.ts)、[任务身份](../src/proxy/task-identity.ts)。
 
-- [ ] 将协议分析、任务身份和纯记录处理放入职责明确的叶模块。
-- [ ] 避免低层 helper 通过包含 manager/registry 的大 barrel 引入运行时。
-- [ ] 依据实际职责更新依赖方向，保持 transport、存储和控制面的边界。
-- [ ] 用 AST 或成熟工具检查运行时 import/re-export 环，排除纯类型导入。
-- [ ] 增加边界校验，并用必然违规的样例验证校验器有效。
+- [x] 将协议分析、任务身份和纯记录处理放入职责明确的叶模块。
+- [x] 避免低层 helper 通过包含 manager/registry 的大 barrel 引入运行时。
+- [x] 依据实际职责更新依赖方向，保持 transport、存储和控制面的边界。
+- [x] 用 AST 或成熟工具检查运行时 import/re-export 环，排除纯类型导入。
+- [x] 增加边界校验，并用必然违规的样例验证校验器有效。
 
 验收：本次发现的六文件环消失，纯 helper 可独立加载。检查器能发现新环和越界导入，报出具体依赖链。
 
@@ -494,6 +494,8 @@ P0 是已复现的功能缺陷；P1 是契约、文档和后端基础；P2 是�
 
 ## 8. 最终验收清单
 
+- 本轮勾选口径：勾 §8 只勾“本轮亲自复现过判据”的那一条；AI-01～AI-05 的验收由更早的会话做出，本轮没有逐条独立复现它们的判据，所以先留空，到 AI-24 综合验收时再统一核对（进度表行与任务小节的复选框已按当时验收勾过）。
+
 - [ ] AI-01：代理和总结设置交错更新互不覆盖，失败不暴露未提交状态。
 - [ ] AI-02：统计随日志目录变更生效，空配置下接口返回合法空结果。
 - [ ] AI-03：公共 schema 版本、新库和备份恢复版本一致。
@@ -648,6 +650,7 @@ UI 截图、性能或迁移结果（适用时）：
 - 内置 `worker` 的 frontmatter 写 `thinking: high`，而本机 lmstudio 的 `Qwen3.8-Flash-Next` 只接受 `xhigh`/`medium`/`low`，第一次启动两个子任务都在 2 秒内以 HTTP 400 死去、没有产生任何改动。同协议重试的办法是在 `model` 字段上加思考档后缀（`lmstudio/Qwen3.8-Flash-Next:xhigh`），后缀优先于 frontmatter；`resume` 会沿用子任务存下来的 model/thinking 契约，救不了这类失败。
 - 两项任务合并进 main 时零冲突：两条 lane 改动的文件集合交集为空（用 `comm` 对 `git status --porcelain` 与 `git diff --name-only -M` 求交），且 AI-07 从 `src/proxy/index.js` 重新导出的 8 个目标探测类型在 AI-10 的 barrel 里全部仍在（AI-10 只改再导出路径，不改名字）。
 - 冒烟用的端口段与各 lane 自用的端口段严格分开：lane 用 39411/39412 与 39421/39422，编排方合并后用 39431/39432/39433 与 39441/39442/39443，全部先实测空闲；用户实例占用的 18085 全程未使用、未停止，清理时只杀自己启动的进程。
+- 勾验收要同时勾三处，只勾进度表会漏：任务小节里的验收复选框（每项 4～5 条）、进度表那一行、§8 里覆盖到该项的那一条。上一轮 AI-07 与 AI-10 只补了后两处，任务小节的 10 个复选框拖到用户提醒才补，补勾时逐条对着本轮亲自复现的证据判定：AI-07 五项分别对着“冒烟里三类序列与分组计价键、行→模型的 `taskBriefFromRow` 与 `parseSummaryPayload`、`admin-contracts.ts` 具体返回类型且 `api-contract.test.ts` 已无 `as unknown as`、200+`null` 与带 code 的 404 与 `unpriced`/`pending`、`log-service-fixtures.ts` 的 10 个构造器”；AI-10 五项分别对着“`protocol/` 叶模块、检查器的 transport 包含规则、0 越界、AST 图排除纯类型边、还原 HEAD 报 6 环 2 越界与自造样例报 2 环 1 越界”。
 
 ### AI-08 与 AI-15 在办记录
 
