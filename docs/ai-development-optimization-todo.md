@@ -124,7 +124,7 @@ P0 是已复现的功能缺陷；P1 是契约、文档和后端基础；P2 是�
 | [ ]  | AI-14 | P1     | 补齐场景测试并稳定时序验证  | AI-01、AI-02、AI-05、AI-08、AI-09                                                                                                                               | 在办   |
 | [x]  | AI-15 | P2     | 分离产品、测试与工具编译    | 无                                                                                                                                                              | 已完成 |
 | [x]  | AI-16 | P2     | 固化 ABI 和交付冒烟流程     | AI-15                                                                                                                                                           | 已完成 |
-| [ ]  | AI-17 | P2     | 建立前端模块构建入口        | AI-08、AI-15                                                                                                                                                    | 在办   |
+| [x]  | AI-17 | P2     | 建立前端模块构建入口        | AI-08、AI-15                                                                                                                                                    | 已完成 |
 | [ ]  | AI-18 | P2     | 模块化代理配置与负载均衡    | AI-17                                                                                                                                                           | 未开始 |
 | [ ]  | AI-19 | P2     | 模块化历史、详情和指标      | AI-11、AI-17、AI-18                                                                                                                                             | 未开始 |
 | [ ]  | AI-20 | P2     | 收紧 UI 类型与 DOM 合同     | AI-18、AI-19                                                                                                                                                    | 未开始 |
@@ -361,11 +361,11 @@ P0 是已复现的功能缺陷；P1 是契约、文档和后端基础；P2 是�
 
 入口：[静态资源加载](../src/admin/static-assets.ts)、[拼接工具](../scripts/concat_ui_parts.ts)、[静态复制](../scripts/copy_static_assets.ts)、[UI 检查](../tsconfig.ui.json)。
 
-- [ ] 建立明确的 ES module 源码入口，选择原生模块或构建打包方案并记录理由。
-- [ ] 迁移一组纯工具或统计计算模块，先证明 import/export、测试和构建链路可用。
-- [ ] 保持现有静态 URL 与功能可用，验证编译后和打包后的资源。
-- [ ] 调整 lint、类型检查、静态源码守卫，避免依赖隐藏的全局作用域。
-- [ ] 必须过渡的桥接仅导出列明的能力，并在 AI-19 完成前移除。
+- [x] 建立明确的 ES module 源码入口，选择原生模块或构建打包方案并记录理由。
+- [x] 迁移一组纯工具或统计计算模块，先证明 import/export、测试和构建链路可用。
+- [x] 保持现有静态 URL 与功能可用，验证编译后和打包后的资源。
+- [x] 调整 lint、类型检查、静态源码守卫，避免依赖隐藏的全局作用域。
+- [x] 必须过渡的桥接仅导出列明的能力，并在 AI-19 完成前移除。
 
 验收：新模块不依赖任意跨文件全局名字，检查器实际检查运行的代码。该项不要求引入 UI 框架，也不能一次性改写全部页面。
 
@@ -798,6 +798,19 @@ UI 截图、性能或迁移结果（适用时）：
 - lane 与身份：`D:/code/lane-ai14` 分支 `lane/ai-14`，从 `acf35b0` 起；启动前 `git status --short` 行数实测 0，595 MB `node_modules` 副本（robocopy 退出码 1 = 成功），`:memory:` 实查询报 `{"a":42}` 证明 Node ABI。workflow `82dea497-9363-45af-a2b7-a329c6855205`；子运行 `9dbeff02-0e36-440b-8968-0d77cc4de9e9`；预算 50 分钟、编排层上限 60 分钟；脚本 `.pi/subagents/lane-ai14.mjs` 先 validate 报 `{"ok":true,"errors":[]}`。端口 39561/39562/39563 实测全空闲。
 - 写进包里的实测事实：那条压缩 SSE 偶发失败的全量签名（期望 `decode_window_ms >= 20` 实得 `1`）、单跑那个文件 32/32、编排方探针实测 `1.2 ms`、夹具第 1210–1214 行嵌套 `setTimeout` 加第 8 行 `node:zlib`（饥饿时就挤进同一 tick）；`runtime.test.ts` 已带 AI-09 那 +158 行、钉着十个真 GET 与关键 POST 走装配后的服务；`static-source.test.ts` 钉作者顺序等于 `ADMIN_SCRIPT_PARTS`、每个部分规范格式、拼接里一个占位符且无重复顶层声明；`pageerror` 在 `test-node/ui` 里出现 **0** 次（所以第五条是新活，不是微改）；`test-node` 里 `readFileSync/existsSync` 在非夹具非数据库位置 **15** 处（第四条的清单起点）。
 - 还写进去了它兄弟那条致命教训：冒烟脚本打完最后一行却不退出，就会被自己那个还在监听的夹具服务撑住事件循环，启动它的 bash 调用永不返回，预算全烧在等一个不会回来的命令——AI-11 正是这么死的。要求 `unref()` 服务器与 socket，或者查完就 `process.exit`。
+
+### AI-17 完成记录
+
+- 状态：**已完成**，按裁定方案交付。4 个提交 `181a3b2`（ES 模块入口 + 打包的经典脚本块 + 显示助手迁移）、`a1a69ff`（架构模块图一行 + UI 工具技能到新加载顺序）、`c901455`（package 脚本从入口点跑打包、ABI 生命周期钩子钉住）、`3f7cff4`（AGENTS 一条 + 技能一条），审查时 `git status --short` 行数实测 **0**。squash 合并进 main 为 `4743e34`，**零冲突**，21 个文件 `+866/-243`，与它报的完全一致。
+- 裁定被逐项落实了（这三条都是编排方量出来的，不是听它说的）：生成块住在 `dist-node/src/admin/static-bundle/modules-bridge.js`，`copy_static_assets.ts` 和它的陈旧守卫根本看不见这个目录；`findPackageRoot()` 从 `import.meta.url` 所在目录往上走找到放 `package.json` 的那层，从源码、从 `dist-node`、从 `app.asar` 里是同一条规则。**最关键的那个实验编排方自己做了**：先 `rm -rf dist-node/src/admin/static-bundle`，然后裸跑 `npx vitest run test-node/admin/static-source.test.ts`——exit **1**，报的是 `Admin UI module bridge not found at D:\code\lane-ai17\dist-node\src\admin\static-bundle\modules-bridge.js. Build it first with: npm run bundle:ui`，把缺的文件和修它的命令一起报出来，而不是弄一个空 `<script>` 让控制台白屏；然后走 `npm test -- test-node/admin`，它先打包、写出那个文件、再跑，`17 文件 114/114` 全绿。`bundle:ui` 已接进 `build`、`lint`、`dev`、`test`、`test:coverage`、`test:watch` 六个入口。
+- esbuild 按裁定显式声明了：`package.json` 第 65 行 `"esbuild": "0.28.1"`，`npm ls esbuild` 顶层出 `+-- esbuild@0.28.1`（tsx 和 vite 那边是 `deduped`），不是传递依赖。
+- 桥接只导出列明的能力，这个数字编排方自己数过：`entry.js` 里 `globalThis.x =` 赋值 **17** 条，打包出来的 chunk 里 `globalThis.` 赋值也是 **17** 条，两边对上；ESLint 的 bridge 全局名是从 `entry.js` 里读出来的，不是手写清单，所以 ESLint 不会替一个浏览器根本收不到的名字背书；`static-source.test.ts` 第 70–71 行钉住“生成块的 banner 是拼接里的第一个”且 `01-core.js` 的表头紧跟其后——这就是裁定里“生成块必须排在最前、`09-wiring.js` 之前”落地的地方。
+- 编排方在合并后的 main 上自己量了一次装配：`buildAdminAppJsTemplate()` 出来的模板 **316,064 字节**（与它报的字节数相同），`chunk is first: true`，`01-core header after it: true`。
+- 它在 lane 里复现过、编排方也复现过的门：两份 typecheck exit 0 / `0 error TS`、lint exit 0、prettier exit 0、`check:modules` exit 0（lane 报 `123 / 277 / 88 / 0 环 / 0 越界`；合并后 main 仍是 `131 / 295 / 94 / 0 / 0`，浏览器端的 JS 不参与这张图）。合并后 main 上编排方跑的分组全绿：admin `17 文件 114`、ui `93 passed + 2 个原有 skip`、docs `27`、maintenance `112`、app `21`、persistence `80`。
+- 测试台账：main 声明数 `1000 → 1008`（+8 = 7 条桥接测试 + 1 条格式测试），文件 `130 → 131`；删除断言 **0** 行、`it.skip|only|todo` 新增 **0**。十个基线 PNG 和哈希文档**没动**（`git diff --name-only` 里 grep 不到），UI 套件里那 11 条像素回归测试没重生成基线就绿——说明这次改动渲染层面是中性的。
+- 这项真正要降的那个数字，它给了一张 AST 量的表（跨文件引用 `1974 → 1568`、跨边界的名字 `144 → 128`、共享作用域里的顶层声明 `295 → 279`、逐文件 lint 的 `no-undef` 假阳性 `1942 → 1555`），并且明说“没归零是因为迁移的 16 个名字只是共享的一小部分：`state`、`t()`、`$`、`api` 和渲染助手还在跨边界，九个部分每一个都还在读至少一个”——那就是 AI-18/AI-19 要动的数。
+- V-P/V-U 按它的记录：打包产物里服务出的 `/static/app.js` 与本分支产出的 payload 字节相同、`/static/app.css` 与 `app.asar` 里的拷贝字节相同、页面仍是同一个单 script 标签，93 条 UI 测试加 11 条像素基线测试都没重生成基线就过；`AGENTS.md` `+1` 行、`static-checks-and-split` 技能改了 13 行（新加载顺序与那个 `no-implicit-globals` 探针坑）。它在 lane 里跑了一次顺序全量套件（`124 文件 + 1 skip，1091 + 2 skip`）——任务包里让不要跑全量，它还是跑了，但那是它自己 lane 里的独占副本，编排方当时正在跑集成检查，没有撞。
+- 下一步的隐患已经在账上：AI-14 的基础是 `acf35b0`，而这次合并动了 `test-node/admin/static-source.test.ts`、`test-node/ui/admin-ui-server.ts`、`tsconfig.ui.json`、`package.json` 和 `eslint.config.js`——AI-14 交回时必须先 rebase 到合并后的 main 我再审，这正是开两个之前预告过的碰撞。
 
 ### AI-13 完成记录
 
