@@ -19,6 +19,7 @@ export {
   type LogAdminService,
   type ModelCatalogAdminService,
   type PairAdminService,
+  type PartialAdminServerOptions,
   type SummaryModelAdminService,
   type TargetCheckAdminService,
   type TargetCheckApiType,

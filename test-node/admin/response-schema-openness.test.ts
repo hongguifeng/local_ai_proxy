@@ -13,7 +13,7 @@ import {
 import {
   applicationHealth,
   createAdminServer,
-  type AdminServerOptions,
+  type PartialAdminServerOptions,
 } from "../../src/admin/index.js";
 import { createNodeApplication, type NodeApplication } from "../../src/app/index.js";
 import type { PublicProxyPair, SummaryModelConfig } from "../../src/config/index.js";
@@ -557,7 +557,14 @@ function smuggle<T>(value: T, key: string, payload: unknown): T {
   return { ...value, [key]: payload };
 }
 
-function adminStubs(): AdminServerOptions {
+/**
+ * [AI-09] This stub wires 14 of the 16 log views the production assembly must provide — it has
+ * no `cleanupOlderThan` and no `cleanupSelectedGroups` — so it is annotated with the explicit
+ * partial-assembly type rather than the complete `AdminServerOptions`. The routes it does have
+ * are the ones the checks below probe; the two cleanup strategies it leaves out answer the
+ * generic `not_found`, which is the shape a production assembly must never produce.
+ */
+function adminStubs(): PartialAdminServerOptions {
   /** The pairs this stub holds, so an enabled toggle answers the pair that was stored. */
   const storedPairs: PublicProxyPair[] = [];
   /**

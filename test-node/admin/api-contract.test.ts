@@ -7,6 +7,7 @@ import {
   applicationHealth,
   createAdminServer,
   type AdminServerOptions,
+  type PartialAdminServerOptions,
 } from "../../src/admin/index.js";
 import { createNodeApplication, type NodeApplication } from "../../src/app/index.js";
 import type { SummaryModelConfig } from "../../src/config/index.js";
@@ -233,6 +234,32 @@ describe("admin route table", () => {
     await server.close();
 
     expect(table).toEqual([...ROUTE_TABLE]);
+  });
+
+  // [AI-09] A service the assembly leaves out takes its route with it, and the answer that
+  // comes back is the not-found handler's own `{ code: "not_found", message: "Route not
+  // found." }`. This is the shape the production assembly must never produce: its options
+  // require every service listed here, so it cannot be given this value.
+  it("[AI-09] registers only the routes whose services the assembly supplies", async () => {
+    const partial: PartialAdminServerOptions = {
+      getHealth: () => applicationHealth("running"),
+      logService: { listGroups: () => emptyGroupPage() },
+    };
+
+    const server = createAdminServer(partial);
+    await server.ready();
+    const table = readRouteTable(server.printRoutes({ commonPrefix: false }));
+    const missingRoute = await server.inject({
+      method: "GET",
+      url: "/api/logs/records?ids=missing",
+    });
+    await server.close();
+
+    expect(table).toEqual(["GET /api/health", "GET /api/logs"]);
+    expect(missingRoute.statusCode).toBe(404);
+    expect(missingRoute.json()).toEqual({
+      error: { code: "not_found", message: "Route not found." },
+    });
   });
 });
 

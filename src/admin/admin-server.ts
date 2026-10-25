@@ -5,7 +5,7 @@ import { ConfigValidationError } from "../config/index.js";
 import { StructuredLogger } from "../shared/index.js";
 import { HEALTH_SNAPSHOT_SCHEMA } from "./admin-schemas.js";
 import { adminError, adminConfigError, errorProperty } from "./admin-contracts.js";
-import type { AdminServerOptions } from "./admin-contracts.js";
+import type { AdminServerOptions, PartialAdminServerOptions } from "./admin-contracts.js";
 import { registerStatisticsRoutes } from "./routes/statistics.js";
 import { registerSummaryModelRoutes } from "./routes/settings.js";
 import { registerTargetRoutes } from "./routes/targets.js";
@@ -25,6 +25,11 @@ export interface AdminControlPlaneAddress {
   readonly port: number;
 }
 
+/**
+ * The admin server the application runs. Its options extend the complete service set, so this
+ * is the entry a production assembly cannot satisfy with a hole: `AdminServerOptions` is where
+ * the completeness is stated, and `src/app/admin-services.ts` is where it is enforced at startup.
+ */
 export class AdminControlPlane {
   readonly #host: string;
   readonly #port: number;
@@ -52,7 +57,19 @@ export class AdminControlPlane {
   }
 }
 
-export function createAdminServer(options: AdminServerOptions): FastifyInstance {
+/**
+ * Builds the admin server. It is handed the explicit partial assembly
+ * (`PartialAdminServerOptions`), so a stub that wires one route family compiles, and a complete
+ * set is assignable to it as well. The production entry is `AdminControlPlane`, whose options
+ * extend the complete `AdminServerOptions`: an assembly that leaves a service out does not
+ * compile, and a hole that survives typing is refused at startup by the assembly check.
+ *
+ * A route is registered only when the service that answers it is present, so on a partial
+ * server a route the stub left out answers `404 { code: "not_found", message: "Route not
+ * found." }` — the answer of the not-found handler, distinct from the `log_record_not_found`
+ * and `log_group_not_found` codes a wired route gives a record or group that does not exist.
+ */
+export function createAdminServer(options: PartialAdminServerOptions): FastifyInstance {
   const requestLogger = options.logger ?? new StructuredLogger({ service: "llm-proxy-admin" });
   const requestStarted = new WeakMap<object, number>();
   const server = Fastify({

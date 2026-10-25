@@ -13,6 +13,30 @@ without changing the serializer. `test-node/admin/api-contract.test.ts` boots th
 application and pins the route table and the top-level response keys, which is where a rename
 on a route that has no response schema would otherwise reach the browser as `undefined`.
 
+## What has to be wired before a route exists
+
+[AI-09] made `AdminServerOptions` the complete set: every service the route table answers from is
+required, and the log, pair and summary services are required in full. The assembly in
+`src/app/runtime.ts` is typed through `AdminControlPlaneOptions`, so a service the application
+forgot does not compile. `PartialAdminServerOptions` is the named partial assembly a test wires on
+purpose; a complete set is assignable to it, so `createAdminServer` keeps one signature and both
+consumers, and production cannot be handed the partial one.
+
+`assembleAdminServices` in `src/app/admin-services.ts` is where the services are built and where
+their owners are visible: one `LogQueryService` per start answers every log-backed view, usage
+statistics included, the proxy manager owns the pairs, the load balancers and the summary-model
+configuration, and both are released when the control plane closes and the manager stops. Before
+the control plane is built, `assertAdminServicesComplete` reads the assembled options against the
+route table's requirement and throws with the name of anything missing, so a hole that survives
+typing fails at startup with a message rather than looking like a missing record later.
+
+The two 404 answers stay distinguishable, and that is what the check protects. The not-found
+handler answers `{ code: "not_found", message: "Route not found." }`, which means the route was
+never registered; `log_record_not_found`, `log_group_not_found` and `pair_not_found` come from a
+registered route whose object does not exist. `test-node/app/service-assembly.test.ts` proves both
+directions of the assembly, `test-node/app/runtime.test.ts` pins the write routes on a booted
+application, and `test-node/admin/api-contract.test.ts` pins the route table and the codes.
+
 ## The conversion rules
 
 `z.toJSONSchema()` cannot be handed to Fastify as it is. Three parts are translated, and only

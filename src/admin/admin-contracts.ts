@@ -42,7 +42,44 @@ export type HealthSnapshot = Omit<DeclaredHealthSnapshot, "applicationState"> & 
   readonly applicationState: ApplicationState;
 };
 
+/**
+ * The complete service set the production application has to assemble. Every member is
+ * required, and a service whose methods gate a route is required in full, so a feature whose
+ * service the assembly forgot is a compile error in `src/app/runtime.ts` — the assembly is
+ * typed against this interface — and a hole that arrives through a cast or a plain object is
+ * refused at startup by `assertAdminServicesComplete` in `src/app/admin-services.ts`.
+ * Both happen before any port is bound, so a missing service can never reach the browser as
+ * `404 { error: { code: "not_found" } }`, which is what an unregistered route looks like.
+ *
+ * Only `logger` stays optional: it is not a service any route answers from, and
+ * `createAdminServer` supplies a structured one when the assembly does not.
+ */
 export interface AdminServerOptions {
+  readonly getHealth: () => HealthSnapshot;
+  readonly logService: Required<LogAdminService>;
+  readonly logger?: AdminRequestLogger;
+  readonly pairService: Required<PairAdminService>;
+  readonly staticAssets: AdminStaticAssets | (() => Promise<AdminStaticAssets>);
+  readonly targetCheckService: TargetCheckAdminService;
+  readonly targetMetricsService: TargetMetricsAdminService;
+  readonly targetModelsService: TargetModelsAdminService;
+  readonly loadBalancerService: LoadBalancerAdminService;
+  readonly summaryModelService: Required<SummaryModelAdminService>;
+  readonly modelCatalogService: ModelCatalogAdminService;
+  readonly usageStatisticsService: UsageStatisticsService;
+}
+
+/**
+ * The explicit partial assembly: the subset of services a test wires when it exercises one
+ * route family. A route whose service is absent is not registered, so that server answers the
+ * generic `not_found` — which is exactly the shape a production assembly must never produce,
+ * and the reason this is a named type instead of a hole in `AdminServerOptions`.
+ *
+ * A complete set is assignable here, so `createAdminServer` keeps one signature and both
+ * consumers; production enters through `AdminControlPlaneOptions`, which extends the complete
+ * interface and cannot be satisfied by this one.
+ */
+export interface PartialAdminServerOptions {
   readonly getHealth: () => HealthSnapshot;
   readonly logService?: LogAdminService;
   readonly logger?: AdminRequestLogger;
@@ -71,8 +108,9 @@ export interface ModelCatalogAdminService {
  * `admin-schemas.ts`, which is also where the response schema comes from, so the shape a
  * service must answer and the shape the browser receives are one declaration: a renamed or
  * forgotten field stops the assembly in `src/app/runtime.ts` and every stub from compiling
- * instead of reaching the browser as `undefined`. A method is absent only when the running
- * application does not wire it, which is what removes its route.
+ * instead of reaching the browser as `undefined`. A method is optional here so a test can wire
+ * one route family; the assembled application is typed against `Required<LogAdminService>`, so
+ * every method the route table answers from is present in production and no route is dropped.
  */
 export interface LogAdminService {
   readonly cleanupKeepLatest?: (keepLatest: number) => AdminLogCleanupResult;

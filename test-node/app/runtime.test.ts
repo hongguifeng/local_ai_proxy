@@ -513,6 +513,164 @@ describe("createNodeApplication", () => {
     expect(persisted.summary_model).toMatchObject(summary);
     await runtime.application.stop();
   });
+
+  // [AI-09] Every write route the route table declares is answered by the assembled
+  // application. The discriminator this test is written against is the 404 code: `not_found`
+  // comes from the not-found handler and means the route was never registered, while
+  // `pair_not_found`, `log_group_not_found` and `record_not_found` mean the route is registered
+  // and the object the request named does not exist. Pinning the status and code of all twelve
+  // requests is what tells those two apart; a route that was dropped by a missing service would
+  // show up here as `404 not_found`.
+  it("[AI-09] answers every write route on its own assembled application", async () => {
+    const root = await mkdtemp(path.join(tmpdir(), "llm-proxy-app-"));
+    temporaryRoots.push(root);
+    const configFile = path.join(root, "proxies.json");
+    await writeFile(configFile, JSON.stringify({ pairs: [disabledPairFixture("managed")] }));
+    const runtime = createNodeApplication({
+      applicationConfigFile: path.join(root, "llm-proxy.json"),
+      configFile,
+      logRoot: path.join(root, "logs"),
+      host: "127.0.0.1",
+      port: 0,
+    });
+    await runtime.application.start();
+    try {
+      const adminPort = runtime.address()?.port;
+      expect(adminPort).toBeTypeOf("number");
+      const base = `http://127.0.0.1:${adminPort}`;
+      // Port 9 is the discard port: nothing listens there, so the connection test reports a
+      // failed request instead of reaching an upstream that costs money.
+      const unreachableSummary = { ...summaryModelFixture(), target_url: "http://127.0.0.1:9" };
+
+      const writes: readonly {
+        readonly method: string;
+        readonly route: string;
+        readonly body: unknown;
+        readonly status: number;
+        readonly code: string | null;
+      }[] = [
+        {
+          method: "POST",
+          route: "/api/log-groups/missing-group/brief",
+          body: {},
+          status: 502,
+          code: "task_brief_failed",
+        },
+        {
+          method: "POST",
+          route: "/api/logs/missing-record/summary",
+          body: {},
+          status: 502,
+          code: "summary_failed",
+        },
+        {
+          method: "POST",
+          route: "/api/logs/cleanup",
+          body: { group_ids: ["missing-group"] },
+          status: 200,
+          code: null,
+        },
+        {
+          method: "POST",
+          route: "/api/model-prices/import",
+          body: {},
+          status: 400,
+          code: "FST_ERR_VALIDATION",
+        },
+        {
+          method: "POST",
+          route: "/api/target-check",
+          body: {},
+          status: 400,
+          code: "FST_ERR_VALIDATION",
+        },
+        {
+          method: "POST",
+          route: "/api/target-metrics",
+          body: {},
+          status: 400,
+          code: "FST_ERR_VALIDATION",
+        },
+        {
+          method: "POST",
+          route: "/api/target-models",
+          body: {},
+          status: 400,
+          code: "FST_ERR_VALIDATION",
+        },
+        {
+          method: "POST",
+          route: "/api/pairs/managed-pair/enabled",
+          body: { enabled: true },
+          status: 200,
+          code: null,
+        },
+        {
+          method: "POST",
+          route: "/api/pairs/missing-pair/enabled",
+          body: { enabled: true },
+          status: 404,
+          code: "pair_not_found",
+        },
+        {
+          method: "POST",
+          route: "/api/settings/summary-model/test",
+          body: unreachableSummary,
+          status: 200,
+          code: null,
+        },
+        {
+          method: "PUT",
+          route: "/api/pairs",
+          body: { pairs: [disabledPairFixture("renamed")] },
+          status: 200,
+          code: null,
+        },
+        {
+          method: "PUT",
+          route: "/api/settings/summary-model",
+          body: unreachableSummary,
+          status: 200,
+          code: null,
+        },
+      ];
+
+      const mismatched: string[] = [];
+      for (const write of writes) {
+        const response = await fetch(base + write.route, {
+          method: write.method,
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify(write.body),
+        });
+        const parsed = (await response.json()) as { error?: { code?: string } };
+        const code = response.status === 200 ? null : (parsed.error?.code ?? null);
+        if (response.status !== write.status || code !== write.code) {
+          mismatched.push(
+            `${write.method} ${write.route}: ${response.status} ${code ?? "-"} instead of ${write.status} ${write.code ?? "-"}`,
+          );
+        }
+      }
+      expect(mismatched).toEqual([]);
+
+      // The two writes that change state have to be visible afterwards, which is what makes them
+      // write operations instead of routes that only answer.
+      const pairsAfter = (await (await fetch(`${base}/api/pairs`)).json()) as {
+        pairs: { name: string; enabled: boolean }[];
+      };
+      expect(pairsAfter.pairs.map((pair) => [pair.name, pair.enabled])).toEqual([
+        ["renamed", false],
+      ]);
+
+      const persisted = JSON.parse(await readFile(configFile, "utf8")) as {
+        pairs: { name: string }[];
+        summary_model?: Record<string, unknown>;
+      };
+      expect(persisted.pairs[0]?.name).toBe("renamed");
+      expect(persisted.summary_model).toMatchObject(unreachableSummary);
+    } finally {
+      await runtime.application.stop();
+    }
+  });
 });
 
 function disabledPairFixture(name: string, logRoot = "logs"): Record<string, unknown> {

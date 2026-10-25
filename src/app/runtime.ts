@@ -5,24 +5,13 @@ import {
   applicationHealth,
   loadAdminStaticAssets,
   type AdminControlPlaneAddress,
+  type AdminControlPlaneOptions,
 } from "../admin/index.js";
-import {
-  ConfigRepository,
-  summaryModelConfigSchema,
-  type SummaryModelConfig,
-} from "../config/index.js";
+import { ConfigRepository } from "../config/index.js";
 import { LogQueryService } from "../maintenance/index.js";
-import {
-  ProxyManager,
-  checkTarget,
-  createLoadBalancerAdminService,
-  fetchTargetMetrics,
-  fetchTargetModels,
-} from "../proxy/index.js";
-import { importModelPrices } from "../pricing/index.js";
-import { joinTargetPath } from "../proxy/target.js";
-import { ApplicationError } from "../shared/index.js";
+import { ProxyManager } from "../proxy/index.js";
 import { Application } from "./application.js";
+import { assembleAdminServices, assertAdminServicesComplete } from "./admin-services.js";
 
 export interface NodeApplicationOptions {
   readonly applicationConfigFile: string;
@@ -58,131 +47,31 @@ export function createNodeApplication(options: NodeApplicationOptions): NodeAppl
           `Failed to start ${startResult.failed.size} enabled proxy pair(s).`,
         );
       }
-      // One query service owns every log-backed admin view, including usage statistics. It
-      // reads the log roots when a query runs, so a committed configuration change is visible
-      // without rebuilding any admin service.
+      // One query service owns every log-backed admin view, including usage statistics, for
+      // as long as this start lasts. The services it feeds are assembled from it and the
+      // manager, and are handed to the control plane below; nothing else holds them.
       const logs = new LogQueryService(() => currentManager.logRoots());
       try {
-        admin = new AdminControlPlane({
+        const adminOptions: AdminControlPlaneOptions = {
           host: options.host,
           port: options.port,
-          getHealth: () =>
-            applicationHealth(
-              application.state,
-              options.version ?? "development",
-              currentManager.state === "degraded",
-            ),
-          pairService: currentManager,
-          logService: {
-            listGroups: logs.listGroups.bind(logs),
-            getGroupLogs: logs.getGroupLogs.bind(logs),
-            listRecordsByIds: logs.listRecordsByIds.bind(logs),
-            getRecordDetail: logs.getRecordDetail.bind(logs),
-            getGroupPricing: logs.getGroupPricing.bind(logs),
-            getGroupTokenSeries: logs.getGroupTokenSeries.bind(logs),
-            getGroupCostSeries: logs.getGroupCostSeries.bind(logs),
-            getGroupOutputTokenSeries: logs.getGroupOutputTokenSeries.bind(logs),
-            getSummary: logs.getSummary.bind(logs),
-            getTaskBrief: logs.getTaskBrief.bind(logs),
-            exportLogs: logs.exportLogs.bind(logs),
-            cleanupSelectedGroups: logs.cleanupSelectedGroups.bind(logs),
-            cleanupOlderThan: logs.cleanupOlderThan.bind(logs),
-            cleanupKeepLatest: logs.cleanupKeepLatest.bind(logs),
-            summarizeRecord: (id: string) => {
-              const model = currentManager.config.summary_model;
-              if (!model) return Promise.reject(missingSummaryModel());
-              return logs.summarizeRecord(id, model);
-            },
-            generateTaskBrief: (groupId: string) => {
-              const model = currentManager.config.summary_model;
-              if (!model) return Promise.reject(missingSummaryModel());
-              return logs.generateTaskBrief(groupId, model);
-            },
-          },
-          usageStatisticsService: logs.usageStatisticsService(),
-          targetCheckService: { checkTarget },
-          targetMetricsService: { fetchTargetMetrics },
-          targetModelsService: { fetchTargetModels },
-          loadBalancerService: createLoadBalancerAdminService({
-            loadBalancer: (pairId) => currentManager.registry.loadBalancer(pairId),
-            loadMonitor: (pairId) => currentManager.registry.loadMonitor(pairId),
-            pairs: () => currentManager.listPairs(),
-          }),
-          modelCatalogService: { importModelPrices },
-          summaryModelService: {
-            getConfig: () => currentManager.config.summary_model,
-            setConfig: async (value: SummaryModelConfig) => {
-              const parsed = summaryModelConfigSchema.parse(value);
-              await currentManager.updateSummaryModel(parsed);
-              return parsed;
-            },
-            testConfig: async (value: SummaryModelConfig) => {
-              const endpoint =
-                value.api_type === "openai_responses"
-                  ? "/responses"
-                  : value.api_type === "anthropic_messages"
-                    ? "/messages"
-                    : "/chat/completions";
-              const headers: Record<string, string> = {
-                "content-type": "application/json",
-                ...(value.api_type === "anthropic_messages"
-                  ? { "x-api-key": value.api_key, "anthropic-version": "2023-06-01" }
-                  : { authorization: `Bearer ${value.api_key}` }),
-                ...Object.fromEntries(
-                  value.target_headers.map((item) => {
-                    const index = item.indexOf(":");
-                    return [item.slice(0, index).trim(), item.slice(index + 1).trim()];
-                  }),
-                ),
-              };
-              const body =
-                value.api_type === "openai_responses"
-                  ? {
-                      model: value.model,
-                      input: "ping",
-                      stream: false,
-                      ...(value.disable_reasoning ? { reasoning_effort: "none" } : {}),
-                    }
-                  : value.api_type === "anthropic_messages"
-                    ? {
-                        model: value.model,
-                        max_tokens: 1,
-                        messages: [{ role: "user", content: "ping" }],
-                        stream: false,
-                        ...(value.disable_reasoning ? { reasoning_effort: "none" } : {}),
-                      }
-                    : {
-                        model: value.model,
-                        messages: [{ role: "user", content: "ping" }],
-                        stream: false,
-                        ...(value.disable_reasoning ? { reasoning_effort: "none" } : {}),
-                      };
-              try {
-                const target = new URL(value.target_url);
-                const basePath = target.pathname.replace(/\/$/u, "");
-                target.pathname = basePath.endsWith(endpoint)
-                  ? basePath
-                  : joinTargetPath(basePath, endpoint);
-                const r = await fetch(target, {
-                  method: "POST",
-                  headers,
-                  body: JSON.stringify(body),
-                  signal: AbortSignal.timeout(value.timeout_ms),
-                });
-                const responseText = (await r.text()).trim().slice(0, 500);
-                return {
-                  ok: r.status >= 200 && r.status < 300,
-                  detail:
-                    responseText === "" ? `HTTP ${r.status}` : `HTTP ${r.status}: ${responseText}`,
-                };
-              } catch (e) {
-                return { ok: false, detail: e instanceof Error ? e.message : "request failed" };
-              }
-            },
-          },
           staticAssets:
             options.version !== undefined ? await loadAdminStaticAssets() : loadAdminStaticAssets,
-        });
+          ...assembleAdminServices({
+            manager: currentManager,
+            logQuery: logs,
+            getHealth: () =>
+              applicationHealth(
+                application.state,
+                options.version ?? "development",
+                currentManager.state === "degraded",
+              ),
+          }),
+        };
+        // Checked before the control plane is built, so a service the assembly left out fails
+        // here with its name instead of answering 404 from an unregistered route later.
+        assertAdminServicesComplete(adminOptions);
+        admin = new AdminControlPlane(adminOptions);
         address = await admin.start();
       } catch (error) {
         await currentManager.stopAll();
@@ -212,16 +101,4 @@ export function createNodeApplication(options: NodeApplicationOptions): NodeAppl
 
 function asError(value: unknown): Error {
   return value instanceof Error ? value : new Error(String(value));
-}
-
-/**
- * Generation cannot run without a summary model. The sentence is written here and holds no
- * configuration value, so the console can show it as it stands.
- */
-function missingSummaryModel(): ApplicationError {
-  return new ApplicationError("Summary model is not configured.", {
-    code: "upstream_error",
-    expose: true,
-    statusCode: 502,
-  });
 }

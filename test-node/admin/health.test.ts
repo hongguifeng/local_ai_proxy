@@ -7,6 +7,7 @@ import {
   createAdminServer,
   type HealthSnapshot,
 } from "../../src/admin/index.js";
+import { completeAdminServices } from "./admin-service-fixtures.js";
 
 const servers: ReturnType<typeof createAdminServer>[] = [];
 
@@ -43,10 +44,13 @@ describe("admin health route", () => {
   });
 
   it("starts and stops a Fastify control plane on TCP", async () => {
+    // [AI-09] The control plane is the production entry, so its options carry the complete
+    // service set: the stub supplies all 11 members the route table answers from. The request
+    // and the assertions below are unchanged from before completeness was stated.
     const controlPlane = new AdminControlPlane({
       host: "127.0.0.1",
       port: 0,
-      getHealth: () => applicationHealth("running", "0.1.0-network"),
+      ...completeAdminServices(() => applicationHealth("running", "0.1.0-network")),
     });
     const address = await controlPlane.start();
 
