@@ -6,6 +6,7 @@ import type {
   HistorySummary,
   LogCleanupResult,
   LogGroupPage,
+  LogGroupSummary,
   LogPendingRecord,
   LogRecordDetail,
   TaskBrief,
@@ -21,6 +22,25 @@ import type { ModelPriceImportResult } from "../../src/pricing/index.js";
 /** The group page an application with no log root answers with. */
 export function emptyGroupPage(limit = 100, offset = 0): LogGroupPage {
   return { groups: [], total: 0, limit, offset, next_offset: offset, has_more: false };
+}
+
+/** One row of the group page, with the cost block the console shows. */
+export function groupSummary(groupId = "task-1"): LogGroupSummary {
+  return {
+    id: groupId,
+    cost: {
+      currency: "CNY",
+      known_amount: "0.041125",
+      pending_request_count: 0,
+      priced_request_count: 2,
+      unpriced_request_count: 1,
+    },
+    last_activity_at: "2026-07-18 12:00:05",
+    model: "fixture-model",
+    request_count: 3,
+    started_at: "2026-07-18 11:55:00",
+    target: "fixture-target",
+  };
 }
 
 /** A cleanup answer; `deleted` is what the caller asked to remove. */

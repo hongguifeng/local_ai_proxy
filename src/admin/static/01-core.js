@@ -922,8 +922,15 @@ const closestOn = (root, selector) =>
  */
 const parentOf = (el) => /** @type {UiElement | null} */ (el?.parentElement ?? null);
 /**
- * A failed API call carries the field paths of a rejected configuration.
- * @typedef {Error & { issues?: unknown }} ApiError
+ * One field the server rejected, as `error.issues` names it.
+ * @typedef {{ code: string, message: string, path: string }} ApiConfigIssue
+ */
+/**
+ * A failed API call. The server answers every error with `{ code, message }` inside
+ * `error`, and adds `issues` when it rejected a configuration, so the thrown error carries
+ * the same three things the wire does: `message` in the Error itself, `code` and `issues`
+ * as the extra properties below.
+ * @typedef {Error & { code?: string, issues?: readonly ApiConfigIssue[] }} ApiError
  */
 const t = (key) =>
   (translations[state.language] && translations[state.language][key]) ||
@@ -943,6 +950,12 @@ const api = async (url, options = {}) => {
       ...(options.headers || {}),
     },
   };
+  /**
+   * The one place a console call meets the wire, so the contract lives here:
+   * docs/refactoring/admin-api-contract.md declares every shape this fetch can meet — the
+   * payload a route answers on success, and `{ error: { code, message } }` on failure, with
+   * `error.issues` added when a configuration is rejected.
+   */
   const res = await fetch(url, requestOptions);
   const data = await res.json().catch(() => ({}));
   if (!res.ok) {
@@ -953,7 +966,9 @@ const api = async (url, options = {}) => {
           ? data.error.message
           : res.statusText;
     const error = /** @type {ApiError} */ (new Error(message));
-    // Field paths from a rejected configuration let the UI point at the offending input.
+    // The answer's own code and field paths ride along, so a caller can name the failure
+    // and point at the offending input instead of re-reading the message text.
+    if (data.error && typeof data.error.code === "string") error.code = data.error.code;
     if (data.error && Array.isArray(data.error.issues)) error.issues = data.error.issues;
     throw error;
   }

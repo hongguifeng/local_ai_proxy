@@ -1,28 +1,25 @@
 import type { Readable } from "node:stream";
 import type { ApplicationState } from "../app/index.js";
-import type {
-  ConfigFieldError,
-  ProxyPair,
-  PublicProxyPair,
-  SummaryModelConfig,
-} from "../config/index.js";
-import type {
-  HistorySummary,
-  LogCleanupResult,
-  LogGroupLogs,
-  LogGroupPage,
-  LogPendingRecord,
-  LogRecordDetail,
-  TaskBrief,
-} from "../maintenance/index.js";
+import type { ConfigFieldError } from "../config/index.js";
+import type { ProxyPair, PublicProxyPair, SummaryModelConfig } from "../config/index.js";
 import type { UsageStatisticsService } from "../maintenance/usage-statistics-service.js";
-import type {
-  TaskCostSeriesPoint,
-  TaskOutputTokenSeriesPoint,
-  TaskPricingAggregate,
-  TaskTokenSeriesPoint,
-} from "../persistence/index.js";
 import type { ModelPriceImportRequest, ModelPriceImportResult } from "../pricing/index.js";
+import type {
+  AdminErrorDto,
+  AdminHistorySummary,
+  AdminLogCleanupResult,
+  AdminLogGroupLogs,
+  AdminLogGroupPage,
+  AdminLogRecordDetail,
+  AdminRecordBatch,
+  AdminTaskBrief,
+  AdminTaskPricing,
+  AdminCostSeriesPoint,
+  AdminTokenSeriesPoint,
+  AdminOutputTokenSeriesPoint,
+  HealthSnapshot as DeclaredHealthSnapshot,
+  HealthStatus,
+} from "./admin-schemas.js";
 import type {
   LoadBalancerStatusResponse,
   TargetCheckApiType,
@@ -34,13 +31,16 @@ import type {
   TargetModelsResponse,
 } from "../proxy/index.js";
 
-export type HealthStatus = "degraded" | "ok" | "starting" | "stopping";
+/**
+ * Health is answered by the assembly, which owns the lifecycle states, so the declared
+ * `applicationState` string is narrowed back to them here: the schema says what travels,
+ * this says what the process may report. `HealthStatus` is the schema's own union.
+ */
+export type { AdminErrorDto, AdminJsonSchema, HealthStatus } from "./admin-schemas.js";
 
-export interface HealthSnapshot {
+export type HealthSnapshot = Omit<DeclaredHealthSnapshot, "applicationState"> & {
   readonly applicationState: ApplicationState;
-  readonly status: HealthStatus;
-  readonly version: string;
-}
+};
 
 export interface AdminServerOptions {
   readonly getHealth: () => HealthSnapshot;
@@ -67,38 +67,37 @@ export interface ModelCatalogAdminService {
 }
 
 /**
- * The log views the admin API answers from. Every signature is the shape
- * `LogQueryService` really answers with, so a renamed or forgotten field on that service
- * stops the assembly in `src/app/runtime.ts` and every stub from compiling instead of
- * reaching the browser as `undefined`. A method is absent only when the running
+ * The log views the admin API answers from. Every return type is a DTO declared in
+ * `admin-schemas.ts`, which is also where the response schema comes from, so the shape a
+ * service must answer and the shape the browser receives are one declaration: a renamed or
+ * forgotten field stops the assembly in `src/app/runtime.ts` and every stub from compiling
+ * instead of reaching the browser as `undefined`. A method is absent only when the running
  * application does not wire it, which is what removes its route.
  */
 export interface LogAdminService {
-  readonly cleanupKeepLatest?: (keepLatest: number) => LogCleanupResult;
-  readonly cleanupOlderThan?: (olderThanDays: number) => LogCleanupResult;
-  readonly cleanupSelectedGroups?: (groupIds: readonly string[]) => LogCleanupResult;
+  readonly cleanupKeepLatest?: (keepLatest: number) => AdminLogCleanupResult;
+  readonly cleanupOlderThan?: (olderThanDays: number) => AdminLogCleanupResult;
+  readonly cleanupSelectedGroups?: (groupIds: readonly string[]) => AdminLogCleanupResult;
   readonly exportLogs?: () => Readable;
   readonly getGroupLogs?: (
     groupId: string,
     query: string,
     limit: number,
     offset: number,
-  ) => LogGroupLogs | undefined;
-  readonly listRecordsByIds?: (ids: readonly string[]) => {
-    readonly records: readonly LogPendingRecord[];
-  };
-  readonly getRecordDetail?: (recordId: string) => LogRecordDetail | undefined;
-  readonly summarizeRecord?: (recordId: string) => Promise<HistorySummary | undefined>;
-  readonly getSummary?: (recordId: string) => HistorySummary | undefined;
-  readonly getGroupPricing?: (groupId: string) => TaskPricingAggregate | undefined;
-  readonly getGroupTokenSeries?: (groupId: string) => readonly TaskTokenSeriesPoint[] | undefined;
-  readonly getGroupCostSeries?: (groupId: string) => readonly TaskCostSeriesPoint[] | undefined;
+  ) => AdminLogGroupLogs | undefined;
+  readonly listRecordsByIds?: (ids: readonly string[]) => AdminRecordBatch;
+  readonly getRecordDetail?: (recordId: string) => AdminLogRecordDetail | undefined;
+  readonly summarizeRecord?: (recordId: string) => Promise<AdminHistorySummary | undefined>;
+  readonly getSummary?: (recordId: string) => AdminHistorySummary | undefined;
+  readonly getGroupPricing?: (groupId: string) => AdminTaskPricing | undefined;
+  readonly getGroupTokenSeries?: (groupId: string) => readonly AdminTokenSeriesPoint[] | undefined;
+  readonly getGroupCostSeries?: (groupId: string) => readonly AdminCostSeriesPoint[] | undefined;
   readonly getGroupOutputTokenSeries?: (
     groupId: string,
-  ) => readonly TaskOutputTokenSeriesPoint[] | undefined;
-  readonly getTaskBrief?: (groupId: string) => TaskBrief | undefined;
-  readonly generateTaskBrief?: (groupId: string) => Promise<TaskBrief>;
-  listGroups(query: string, limit: number, offset: number): LogGroupPage;
+  ) => readonly AdminOutputTokenSeriesPoint[] | undefined;
+  readonly getTaskBrief?: (groupId: string) => AdminTaskBrief | undefined;
+  readonly generateTaskBrief?: (groupId: string) => Promise<AdminTaskBrief>;
+  listGroups(query: string, limit: number, offset: number): AdminLogGroupPage;
 }
 
 export interface PairAdminService {
@@ -144,14 +143,6 @@ export interface AdminStaticAssets {
   readonly indexHtml: string;
 }
 
-export interface AdminErrorDto {
-  readonly error: {
-    readonly code: string;
-    readonly message: string;
-    readonly issues?: readonly ConfigFieldError[];
-  };
-}
-
 export function csvCell(value: unknown): string {
   const text =
     value === null || value === undefined
@@ -165,12 +156,32 @@ export function csvCell(value: unknown): string {
   return /[",\n\r]/.test(safe) ? `"${safe.replace(/"/g, '""')}"` : safe;
 }
 
-export function adminError(
+/**
+ * An error answer that also names the configuration fields that were rejected. The shared
+ * `{ code, message }` shape is declared in `admin-schemas.ts`; the field paths ride along only
+ * on an answer the error handler produced, because a response schema would delete them.
+ */
+export interface AdminConfigFieldIssuesDto extends AdminErrorDto {
+  readonly error: AdminErrorDto["error"] & { readonly issues: readonly ConfigFieldError[] };
+}
+
+/**
+ * The one error answer. `AdminErrorDto` is the DTO declared in `admin-schemas.ts`, and this is
+ * the only place that builds one, so every error the admin API sends has the same shape. No
+ * error answer carries a response schema, so a rename stops the build here instead of being
+ * deleted by a serializer.
+ */
+export function adminError(code: string, message: string): AdminErrorDto {
+  return { error: { code, message } };
+}
+
+/** The same shape, with the field paths the console points at. */
+export function adminConfigError(
   code: string,
   message: string,
-  issues?: readonly ConfigFieldError[],
-): AdminErrorDto {
-  return { error: { code, message, ...(issues === undefined ? {} : { issues }) } };
+  issues: readonly ConfigFieldError[],
+): AdminConfigFieldIssuesDto {
+  return { error: { code, message, issues } };
 }
 
 export function errorProperty<T extends "number" | "string">(

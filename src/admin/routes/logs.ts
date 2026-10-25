@@ -1,13 +1,30 @@
 import type { FastifyInstance } from "fastify";
 import { ApplicationError, StructuredLogger } from "../../shared/index.js";
 import {
+  adminResponseSchemas,
+  GROUP_LOG_QUERY_SCHEMA,
+  HISTORY_SUMMARY_RESPONSE_SCHEMA,
+  HISTORY_SUMMARY_SCHEMA,
+  LOG_CLEANUP_REQUEST_SCHEMA,
+  LOG_CLEANUP_RESPONSE_SCHEMA,
   LOG_GROUP_COST_SERIES_SCHEMA,
   LOG_GROUP_LOGS_SCHEMA,
   LOG_GROUP_OUTPUT_TOKEN_SERIES_SCHEMA,
   LOG_GROUP_PAGE_SCHEMA,
+  LOG_GROUP_PRICING_SCHEMA,
+  LOG_GROUP_QUERY_SCHEMA,
   LOG_GROUP_TOKEN_SERIES_SCHEMA,
-  LOG_RECORDS_SCHEMA,
   LOG_RECORD_DETAIL_SCHEMA,
+  LOG_RECORDS_SCHEMA,
+  PATH_ID_PARAMS_SCHEMA,
+  RECORD_IDS_QUERY_SCHEMA,
+  TASK_BRIEF_RESPONSE_SCHEMA,
+  TASK_BRIEF_SCHEMA,
+  type AdminCleanupRequestBody,
+  type AdminGroupLogQuery,
+  type AdminLogGroupQuery,
+  type AdminPathParams,
+  type AdminRecordIdsQuery,
 } from "../admin-schemas.js";
 import { adminError } from "../admin-contracts.js";
 import type { AdminErrorDto, AdminRequestLogger, LogAdminService } from "../admin-contracts.js";
@@ -25,27 +42,12 @@ export function registerLogRoutes(
     cleanupOlderThan !== undefined ||
     cleanupKeepLatest !== undefined
   ) {
-    server.post<{
-      Body: { group_ids?: string[]; keep_latest?: number; older_than_days?: number };
-    }>(
+    server.post<{ Body: AdminCleanupRequestBody }>(
       "/api/logs/cleanup",
       {
         schema: {
-          body: {
-            type: "object",
-            additionalProperties: false,
-            minProperties: 1,
-            properties: {
-              group_ids: {
-                type: "array",
-                minItems: 1,
-                uniqueItems: true,
-                items: { type: "string", minLength: 1 },
-              },
-              older_than_days: { type: "integer", minimum: 0 },
-              keep_latest: { type: "integer", minimum: 0 },
-            },
-          },
+          body: LOG_CLEANUP_REQUEST_SCHEMA,
+          response: adminResponseSchemas(LOG_CLEANUP_RESPONSE_SCHEMA),
         },
       },
       (request, reply) => {
@@ -66,6 +68,7 @@ export function registerLogRoutes(
   }
   const exportLogs = logService.exportLogs?.bind(logService);
   if (exportLogs !== undefined) {
+    // A ZIP stream has no JSON body to declare a response schema for.
     server.get("/api/logs/export", (_request, reply) =>
       reply
         .header("content-disposition", 'attachment; filename="llm-proxy-logs.zip"')
@@ -73,20 +76,12 @@ export function registerLogRoutes(
         .send(exportLogs()),
     );
   }
-  server.get<{ Querystring: { limit?: number; offset?: number; q?: string } }>(
+  server.get<{ Querystring: AdminLogGroupQuery }>(
     "/api/logs",
     {
       schema: {
-        querystring: {
-          type: "object",
-          additionalProperties: false,
-          properties: {
-            q: { type: "string", default: "" },
-            limit: { type: "integer", minimum: 1, maximum: 500, default: 100 },
-            offset: { type: "integer", minimum: 0, default: 0 },
-          },
-        },
-        response: { 200: LOG_GROUP_PAGE_SCHEMA },
+        querystring: LOG_GROUP_QUERY_SCHEMA,
+        response: adminResponseSchemas(LOG_GROUP_PAGE_SCHEMA),
       },
     },
     (request) =>
@@ -100,16 +95,12 @@ export function registerLogRoutes(
   const getGroupPricing = logService.getGroupPricing?.bind(logService);
   const getGroupCostSeries = logService.getGroupCostSeries?.bind(logService);
   if (getGroupPricing !== undefined) {
-    server.get<{ Params: { id: string } }>(
+    server.get<{ Params: AdminPathParams }>(
       "/api/log-groups/:id/pricing",
       {
         schema: {
-          params: {
-            type: "object",
-            required: ["id"],
-            properties: { id: { type: "string", minLength: 1 } },
-          },
-          response: { 200: LOG_GROUP_LOGS_SCHEMA },
+          params: PATH_ID_PARAMS_SCHEMA,
+          response: adminResponseSchemas(LOG_GROUP_PRICING_SCHEMA),
         },
       },
       (request, reply) =>
@@ -119,16 +110,12 @@ export function registerLogRoutes(
   }
   const getGroupTokenSeries = logService.getGroupTokenSeries?.bind(logService);
   if (getGroupTokenSeries !== undefined) {
-    server.get<{ Params: { id: string } }>(
+    server.get<{ Params: AdminPathParams }>(
       "/api/log-groups/:id/pricing/tokens",
       {
         schema: {
-          params: {
-            type: "object",
-            required: ["id"],
-            properties: { id: { type: "string", minLength: 1 } },
-          },
-          response: { 200: LOG_GROUP_TOKEN_SERIES_SCHEMA },
+          params: PATH_ID_PARAMS_SCHEMA,
+          response: adminResponseSchemas(LOG_GROUP_TOKEN_SERIES_SCHEMA),
         },
       },
       (request, reply) =>
@@ -137,16 +124,12 @@ export function registerLogRoutes(
     );
   }
   if (getGroupCostSeries !== undefined) {
-    server.get<{ Params: { id: string } }>(
+    server.get<{ Params: AdminPathParams }>(
       "/api/log-groups/:id/pricing/costs",
       {
         schema: {
-          params: {
-            type: "object",
-            required: ["id"],
-            properties: { id: { type: "string", minLength: 1 } },
-          },
-          response: { 200: LOG_GROUP_COST_SERIES_SCHEMA },
+          params: PATH_ID_PARAMS_SCHEMA,
+          response: adminResponseSchemas(LOG_GROUP_COST_SERIES_SCHEMA),
         },
       },
       (request, reply) =>
@@ -156,16 +139,12 @@ export function registerLogRoutes(
   }
   const getGroupOutputTokenSeries = logService.getGroupOutputTokenSeries?.bind(logService);
   if (getGroupOutputTokenSeries !== undefined) {
-    server.get<{ Params: { id: string } }>(
+    server.get<{ Params: AdminPathParams }>(
       "/api/log-groups/:id/pricing/output-tokens",
       {
         schema: {
-          params: {
-            type: "object",
-            required: ["id"],
-            properties: { id: { type: "string", minLength: 1 } },
-          },
-          response: { 200: LOG_GROUP_OUTPUT_TOKEN_SERIES_SCHEMA },
+          params: PATH_ID_PARAMS_SCHEMA,
+          response: adminResponseSchemas(LOG_GROUP_OUTPUT_TOKEN_SERIES_SCHEMA),
         },
       },
       (request, reply) =>
@@ -177,55 +156,56 @@ export function registerLogRoutes(
   const generateTaskBrief = logService.generateTaskBrief?.bind(logService);
   if (generateTaskBrief !== undefined) {
     if (getTaskBrief !== undefined)
-      server.get<{ Params: { id: string } }>("/api/log-groups/:id/brief", (request) =>
-        absentAsNull(getTaskBrief(request.params.id)),
+      server.get<{ Params: AdminPathParams }>(
+        "/api/log-groups/:id/brief",
+        {
+          schema: {
+            params: PATH_ID_PARAMS_SCHEMA,
+            response: adminResponseSchemas(TASK_BRIEF_RESPONSE_SCHEMA),
+          },
+        },
+        (request) => absentAsNull(getTaskBrief(request.params.id)),
       );
-    server.post<{ Params: { id: string } }>("/api/log-groups/:id/brief", async (request, reply) => {
-      try {
-        return await generateTaskBrief(request.params.id);
-      } catch (error) {
-        if (!(error instanceof ApplicationError)) {
-          // A classified error already carries what an operator needs; this is the case
-          // where nothing was expected and the reason has to stay in the log.
-          logger.warn("Task brief generation failed", {
-            phase: "task_brief_generate",
-            task_id: request.params.id,
-            error_type: errorName(error),
-            cause_type: errorName(causeOf(error)),
+    server.post<{ Params: AdminPathParams }>(
+      "/api/log-groups/:id/brief",
+      {
+        schema: {
+          params: PATH_ID_PARAMS_SCHEMA,
+          response: adminResponseSchemas(TASK_BRIEF_SCHEMA),
+        },
+      },
+      async (request, reply) => {
+        try {
+          return await generateTaskBrief(request.params.id);
+        } catch (error) {
+          if (!(error instanceof ApplicationError)) {
+            // A classified error already carries what an operator needs; this is the case
+            // where nothing was expected and the reason has to stay in the log.
+            logger.warn("Task brief generation failed", {
+              phase: "task_brief_generate",
+              task_id: request.params.id,
+              error_type: errorName(error),
+              cause_type: errorName(causeOf(error)),
+            });
+          }
+          const failure = operationFailure(error, {
+            notFound: "log_group_not_found",
+            inProgress: "task_brief_in_progress",
+            failed: "task_brief_failed",
           });
+          return reply.code(failure.status).send(failure.body);
         }
-        const failure = operationFailure(error, {
-          notFound: "log_group_not_found",
-          inProgress: "task_brief_in_progress",
-          failed: "task_brief_failed",
-        });
-        return reply.code(failure.status).send(failure.body);
-      }
-    });
+      },
+    );
   }
   if (getGroupLogs !== undefined) {
-    server.get<{
-      Params: { id: string };
-      Querystring: { limit?: number; offset?: number; q?: string };
-    }>(
+    server.get<{ Params: AdminPathParams; Querystring: AdminGroupLogQuery }>(
       "/api/log-groups/:id/logs",
       {
         schema: {
-          params: {
-            type: "object",
-            required: ["id"],
-            properties: { id: { type: "string", minLength: 1 } },
-          },
-          querystring: {
-            type: "object",
-            additionalProperties: false,
-            properties: {
-              q: { type: "string", default: "" },
-              limit: { type: "integer", minimum: 1, maximum: 500, default: 200 },
-              offset: { type: "integer", minimum: 0, default: 0 },
-            },
-          },
-          response: { 200: LOG_GROUP_LOGS_SCHEMA },
+          params: PATH_ID_PARAMS_SCHEMA,
+          querystring: GROUP_LOG_QUERY_SCHEMA,
+          response: adminResponseSchemas(LOG_GROUP_LOGS_SCHEMA),
         },
       },
       (request, reply) => {
@@ -243,27 +223,22 @@ export function registerLogRoutes(
   }
   const listRecordsByIds = logService.listRecordsByIds?.bind(logService);
   if (listRecordsByIds !== undefined) {
-    server.get<{ Querystring: { ids?: string } }>(
+    server.get<{ Querystring: AdminRecordIdsQuery }>(
       "/api/logs/records",
       {
         schema: {
-          querystring: {
-            type: "object",
-            required: ["ids"],
-            properties: {
-              ids: { type: "string", minLength: 1, maxLength: 16_384 },
-            },
-          },
-          response: { 200: LOG_RECORDS_SCHEMA },
+          querystring: RECORD_IDS_QUERY_SCHEMA,
+          response: adminResponseSchemas(LOG_RECORDS_SCHEMA),
         },
       },
       (request, reply) => {
         // Comma-separated ids: a repeated query key parses as an array only
         // when it appears more than once, which would make a single-id
-        // request fail validation.
+        // request fail validation. The schema already requires `ids`, so an
+        // empty list can only come from whitespace or empty separators.
         const ids = [
           ...new Set(
-            (request.query.ids ?? "")
+            request.query.ids
               .split(",")
               .map((value) => value.trim())
               .filter((value) => value !== ""),
@@ -282,16 +257,12 @@ export function registerLogRoutes(
   const summarizeRecord = logService.summarizeRecord?.bind(logService);
   const getSummary = logService.getSummary?.bind(logService);
   if (getRecordDetail !== undefined) {
-    server.get<{ Params: { id: string } }>(
+    server.get<{ Params: AdminPathParams }>(
       "/api/logs/:id",
       {
         schema: {
-          params: {
-            type: "object",
-            required: ["id"],
-            properties: { id: { type: "string", minLength: 1 } },
-          },
-          response: { 200: LOG_RECORD_DETAIL_SCHEMA },
+          params: PATH_ID_PARAMS_SCHEMA,
+          response: adminResponseSchemas(LOG_RECORD_DETAIL_SCHEMA),
         },
       },
       (request, reply) =>
@@ -302,33 +273,49 @@ export function registerLogRoutes(
 
   if (summarizeRecord !== undefined) {
     if (getSummary !== undefined)
-      server.get<{ Params: { id: string } }>("/api/logs/:id/summary", (request) =>
-        absentAsNull(getSummary(request.params.id)),
+      server.get<{ Params: AdminPathParams }>(
+        "/api/logs/:id/summary",
+        {
+          schema: {
+            params: PATH_ID_PARAMS_SCHEMA,
+            response: adminResponseSchemas(HISTORY_SUMMARY_RESPONSE_SCHEMA),
+          },
+        },
+        (request) => absentAsNull(getSummary(request.params.id)),
       );
-    server.post<{ Params: { id: string } }>("/api/logs/:id/summary", async (request, reply) => {
-      try {
-        const result = await summarizeRecord(request.params.id);
-        // The service answers undefined for a record no log root holds.
-        if (result === undefined)
-          return await reply.code(404).send(adminError("record_not_found", "Record not found."));
-        return result;
-      } catch (error) {
-        if (!(error instanceof ApplicationError)) {
-          logger.warn("Record summary generation failed", {
-            phase: "record_summary_generate",
-            record_id: request.params.id,
-            error_type: errorName(error),
-            cause_type: errorName(causeOf(error)),
+    server.post<{ Params: AdminPathParams }>(
+      "/api/logs/:id/summary",
+      {
+        schema: {
+          params: PATH_ID_PARAMS_SCHEMA,
+          response: adminResponseSchemas(HISTORY_SUMMARY_SCHEMA),
+        },
+      },
+      async (request, reply) => {
+        try {
+          const result = await summarizeRecord(request.params.id);
+          // The service answers undefined for a record no log root holds.
+          if (result === undefined)
+            return await reply.code(404).send(adminError("record_not_found", "Record not found."));
+          return result;
+        } catch (error) {
+          if (!(error instanceof ApplicationError)) {
+            logger.warn("Record summary generation failed", {
+              phase: "record_summary_generate",
+              record_id: request.params.id,
+              error_type: errorName(error),
+              cause_type: errorName(causeOf(error)),
+            });
+          }
+          const failure = operationFailure(error, {
+            notFound: "record_not_found",
+            inProgress: "summary_in_progress",
+            failed: "summary_failed",
           });
+          return reply.code(failure.status).send(failure.body);
         }
-        const failure = operationFailure(error, {
-          notFound: "record_not_found",
-          inProgress: "summary_in_progress",
-          failed: "summary_failed",
-        });
-        return reply.code(failure.status).send(failure.body);
-      }
-    });
+      },
+    );
   }
 }
 

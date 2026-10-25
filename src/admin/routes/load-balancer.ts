@@ -1,5 +1,5 @@
 import type { FastifyInstance } from "fastify";
-import { LOAD_BALANCER_STATUS_RESPONSE_SCHEMA } from "../admin-schemas.js";
+import { adminResponseSchemas, LOAD_BALANCER_STATUS_RESPONSE_SCHEMA } from "../admin-schemas.js";
 import type { LoadBalancerAdminService } from "../admin-contracts.js";
 
 export function registerLoadBalancerRoutes(
@@ -10,7 +10,7 @@ export function registerLoadBalancerRoutes(
     "/api/load-balancer/status",
     {
       schema: {
-        response: { 200: LOAD_BALANCER_STATUS_RESPONSE_SCHEMA },
+        response: adminResponseSchemas(LOAD_BALANCER_STATUS_RESPONSE_SCHEMA),
       },
     },
     () => loadBalancerService.getStatus(),

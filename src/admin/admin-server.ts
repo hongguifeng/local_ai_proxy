@@ -4,7 +4,7 @@ import { performance } from "node:perf_hooks";
 import { ConfigValidationError } from "../config/index.js";
 import { StructuredLogger } from "../shared/index.js";
 import { HEALTH_SNAPSHOT_SCHEMA } from "./admin-schemas.js";
-import { adminError, errorProperty } from "./admin-contracts.js";
+import { adminError, adminConfigError, errorProperty } from "./admin-contracts.js";
 import type { AdminServerOptions } from "./admin-contracts.js";
 import { registerStatisticsRoutes } from "./routes/statistics.js";
 import { registerSummaryModelRoutes } from "./routes/settings.js";
@@ -58,6 +58,10 @@ export function createAdminServer(options: AdminServerOptions): FastifyInstance 
   const server = Fastify({
     logController: new LogController({ disableRequestLogging: true }),
     logger: false,
+    // Fastify's validator deletes keys a schema does not declare before the handler sees
+    // them. That turns field drift into a missing key nobody notices, so it is switched off:
+    // a closed payload now answers 400, while an open one keeps the keys it was given.
+    ajv: { customOptions: { removeAdditional: false } },
   });
   server.addHook("onRequest", (request, _reply, done) => {
     requestStarted.set(request, performance.now());
@@ -82,17 +86,19 @@ export function createAdminServer(options: AdminServerOptions): FastifyInstance 
   server.setErrorHandler((error, _request, reply) => {
     const statusCode = errorProperty(error, "statusCode", "number") ?? 500;
     const publicError = statusCode < 500;
+    const code =
+      errorProperty(error, "code", "string") ?? (publicError ? "bad_request" : "internal_error");
+    const message = publicError
+      ? (errorProperty(error, "message", "string") ?? "Request failed.")
+      : "Internal server error.";
+    // A rejected configuration names the fields it rejected, and the console shows them. A
+    // response schema attached to this status would delete that list, so errors carry no
+    // schema; see docs/refactoring/admin-api-contract.md.
+    const issues = error instanceof ConfigValidationError ? error.issues : undefined;
     return reply
       .code(statusCode)
       .send(
-        adminError(
-          errorProperty(error, "code", "string") ??
-            (publicError ? "bad_request" : "internal_error"),
-          publicError
-            ? (errorProperty(error, "message", "string") ?? "Request failed.")
-            : "Internal server error.",
-          error instanceof ConfigValidationError ? error.issues : undefined,
-        ),
+        issues === undefined ? adminError(code, message) : adminConfigError(code, message, issues),
       );
   });
   server.setNotFoundHandler((_request, reply) =>

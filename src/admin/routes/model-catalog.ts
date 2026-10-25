@@ -1,7 +1,9 @@
 import type { FastifyInstance } from "fastify";
 import {
+  adminResponseSchemas,
   MODEL_PRICES_IMPORT_REQUEST_SCHEMA,
   MODEL_PRICES_IMPORT_RESPONSE_SCHEMA,
+  type AdminModelPricesImportRequestInput,
 } from "../admin-schemas.js";
 import { adminError } from "../admin-contracts.js";
 import type { ModelCatalogAdminService } from "../admin-contracts.js";
@@ -10,14 +12,12 @@ export function registerModelCatalogRoutes(
   server: FastifyInstance,
   modelCatalogService: ModelCatalogAdminService,
 ): void {
-  server.post<{
-    Body: { priceRate?: string; targetApiKey?: string; targetUrl: string };
-  }>(
+  server.post<{ Body: AdminModelPricesImportRequestInput }>(
     "/api/model-prices/import",
     {
       schema: {
         body: MODEL_PRICES_IMPORT_REQUEST_SCHEMA,
-        response: { 200: MODEL_PRICES_IMPORT_RESPONSE_SCHEMA },
+        response: adminResponseSchemas(MODEL_PRICES_IMPORT_RESPONSE_SCHEMA),
       },
     },
     async (request, reply) => {
