@@ -72,14 +72,29 @@
 
 管理端路由按功能注册在 `src/admin/routes/` 下，只有对应服务存在时才注册。
 `test-node/admin/api-contract.test.ts` 钉住路由表和顶层响应键，包括空配置的情况。
+`src/proxy/protocol/` 是 proxy 目录内的叶模块区：`analysis.ts`（协议分析）、
+`task-identity.ts`（任务身份）、`payload.ts` 与 `streams.ts`（负载和 SSE 解析）。这一区对外只
+依赖 `src/shared`，transport 和存储都直接引用具体文件，不经 `src/proxy/index.ts` barrel。
 
 ## 6. 依赖方向
 
-目标方向是 transport 不依赖 admin，domain 不依赖 UI，repository 不反向依赖 service。
-当前 `src/proxy` 和 `src/logging` 的六个文件之间存在一个运行时循环（6 个节点，40 条边：
-`proxy-manager.ts`、`proxy-runtime-registry.ts`、`proxy/index.ts`、`traffic-log-service.ts`、
-`task-matcher.ts`、`logging/index.ts`），收口在 AI-10。在此之前，新增跨模块导入前先确认它
-不会扩大这个环。
+方向由 `scripts/module-edges.ts` 用 TypeScript AST 检查，入口是 `npm run check:modules`：
+它扫 `src/**` 和 `electron/**`，把写成 `.js` 的内部说明符解析回 `.ts` 源和目录 barrel，
+排除纯类型 import 与 `export type`，报出运行时 import/re-export 环和越界导入的具体依赖链。
+
+- transport 运行时（`proxy-listener.ts`、`proxy-manager.ts`、`proxy-runtime-registry.ts`、
+  `proxy-request-pipeline.ts`）只由控制面 `src/app`、`src/admin`、`src/cli` 和装配根持有。
+  `src/proxy/index.ts` barrel 连带这些文件，所以存储、读取和支撑领域只直接导入 proxy 的
+  叶模块，不导入 barrel。
+- 请求与响应的语义——端点分类、指纹、任务身份、负载与 SSE 解析——住在 `src/proxy/protocol/`。
+  transport 和存储同向指向它。在此之前存储经 `src/proxy/index.ts` 反向拿到运行时，形成
+  `proxy/index.ts`、`proxy-manager.ts`、`proxy-runtime-registry.ts`、`logging/index.ts`、
+  `task-matcher.ts`、`traffic-log-service.ts` 六文件运行时环；AI-10 已把它消除，检查器在
+  当前源码上报 0 环、0 越界。
+- repository 不反向依赖 service，`shared` 不依赖任何业务领域，任何 `src` 模块不导入
+  `electron/`，transport 不依赖 admin/app/cli。
+- 新增跨领域运行时导入之前先跑一次检查器；测试夹具仍可直接导入领域内部模块，检查器不扫
+  `test-node/`。
 
 ## 7. 验证入口
 
@@ -92,6 +107,7 @@
 | UI 基线重生成             | `npm run regen:ui-baselines`                                                                    |
 | 文档格式检查              | `npx prettier --ignore-path .gitignore --check docs`                                            |
 | Node 测试前的原生模块 ABI | `npm rebuild better-sqlite3`                                                                    |
+| 运行时模块环与越界导入    | `npm run check:modules`                                                                         |
 
 `npm rebuild better-sqlite3` 只在最终 Electron 重建之前跑一次；在 Electron 重建之后、打包之前
 再跑一次会让便携版带上 Node ABI 的模块并在启动时失败。Windows 上跑测试和基线命令请从大写
@@ -112,8 +128,8 @@
 
 ## 9. 仍未收口的事项
 
-配置与统计（AI-01、AI-02）和数据库版本来源（AI-03）已经收口。其余见
+配置与统计（AI-01、AI-02）、数据库版本来源（AI-03）和运行时依赖环（AI-10）已经收口。其余见
 [待办清单](./ai-development-optimization-todo.md)：错误分类（AI-05）、类型与 API 合同
-（AI-06～AI-09）、日志读取与迁移（AI-11～AI-13）、运行时环（AI-10）、SSE 时序（AI-14）、
+（AI-06～AI-09）、日志读取与迁移（AI-11～AI-13）、SSE 时序（AI-14）、
 测试入口（AI-15）、构建与打包状态（AI-16～AI-17）、渲染与样式归属（AI-21～AI-22）、
 文档与 skills 收口（AI-23～AI-24）。

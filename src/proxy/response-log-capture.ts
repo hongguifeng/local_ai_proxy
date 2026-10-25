@@ -8,8 +8,8 @@ import {
   type PricingEndpointKind,
   type UsageCaptureResult,
 } from "../pricing/index.js";
-import { bytesPayload, type BytePayload } from "./payload.js";
-import { IncrementalSseAccumulator } from "./streams.js";
+import { bytesPayload, type BytePayload } from "./protocol/payload.js";
+import { IncrementalSseAccumulator } from "./protocol/streams.js";
 
 export const DEFAULT_RESPONSE_LOG_MEMORY_THRESHOLD_BYTES = 4 * 1024 * 1024;
 export const DEFAULT_MAX_RESPONSE_LOG_BODY_BYTES = 64 * 1024 * 1024;

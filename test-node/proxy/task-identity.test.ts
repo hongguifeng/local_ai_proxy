@@ -1,20 +1,22 @@
 import { describe, expect, it } from "vitest";
 
 import {
+  requestBoundaryFingerprints,
+  requestFingerprints,
+  requestUserMessages,
+} from "../../src/proxy/protocol/analysis.js";
+import {
   MAX_TASK_USER_HASHES,
   boundaryWithoutUser,
   contentFingerprint,
   hasContinuationEvidence,
   mergeLegacyContextKeys,
-  requestBoundaryFingerprints,
   requestContextKeys,
-  requestFingerprints,
-  requestUserMessages,
   taskIdentity,
   userHashPrefixMatches,
   userMessageHashes,
   userMessagesPrefixMatches,
-} from "../../src/proxy/index.js";
+} from "../../src/proxy/protocol/task-identity.js";
 
 function chatPayload(
   system: string,

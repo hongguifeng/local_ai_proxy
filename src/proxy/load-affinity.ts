@@ -1,7 +1,7 @@
 import { stableJsonStringify } from "../shared/index.js";
 
-import { stableHash, type EndpointKind } from "./records.js";
-import { userHashPrefixMatches, type TaskIdentity } from "./task-identity.js";
+import { stableHash, type EndpointKind } from "./protocol/analysis.js";
+import { userHashPrefixMatches, type TaskIdentity } from "./protocol/task-identity.js";
 
 /**
  * The affinity table answers one question: has this request been routed to a node

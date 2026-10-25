@@ -17,7 +17,7 @@ export {
   type ForwardHeaderOptions,
   type HeaderEntry,
 } from "./headers.js";
-export { bodyJsonValue, bytesPayload, type BytePayload } from "./payload.js";
+export { bodyJsonValue, bytesPayload, type BytePayload } from "./protocol/payload.js";
 export {
   createResponseBodyDecoder,
   type ResponseBodyDecoder,
@@ -41,12 +41,10 @@ export {
   requestFingerprints,
   requestUserMessages,
   responseIdsFromBody,
-  responseTokenCount,
-  responseTokenCounts,
   stableHash,
   type EndpointKind,
-  type ResponseTokenCounts,
-} from "./records.js";
+} from "./protocol/analysis.js";
+export { responseTokenCount, responseTokenCounts, type ResponseTokenCounts } from "./records.js";
 export {
   MAX_TASK_USER_HASHES,
   MAX_TASK_USER_MESSAGES,
@@ -70,7 +68,7 @@ export {
   type RequestHeaderMap,
   type TaskIdentity,
   type TaskIdentityInput,
-} from "./task-identity.js";
+} from "./protocol/task-identity.js";
 export {
   AFFINITY_TTL_MS,
   MAX_BINDINGS_PER_GROUP,
@@ -181,7 +179,7 @@ export {
   MAX_SUMMARY_TEXT_CHARS,
   type ParsedSseEvents,
   type StreamSummary,
-} from "./streams.js";
+} from "./protocol/streams.js";
 export {
   ProxyListener,
   type ProxyListenerAddress,

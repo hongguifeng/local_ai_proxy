@@ -1,6 +1,6 @@
 import type { RequestPricingResult } from "../pricing/index.js";
 
-import type { BytePayload } from "./payload.js";
+import type { BytePayload } from "./protocol/payload.js";
 import type { ResponseLogPayload } from "./response-log-capture.js";
 
 /**

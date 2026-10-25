@@ -15,7 +15,7 @@ import {
   RequestBodyTooLargeError,
   type BodyCollectorOptions,
 } from "./body-collector.js";
-import { bytesPayload } from "./payload.js";
+import { bytesPayload } from "./protocol/payload.js";
 import {
   createResponseBodyDecoder,
   type ResponseBodyDecoder,
@@ -35,10 +35,10 @@ import {
   type ResponseLogCaptureOptions,
   type ResponseLogPayload,
 } from "./response-log-capture.js";
-import { endpointKind, responseIdsFromBody } from "./records.js";
+import { endpointKind, responseIdsFromBody } from "./protocol/analysis.js";
 import { requestModelFromBody, rewriteRequestModel, selectTargetByModel } from "./routing.js";
 import type { LoadBalancer, LoadBalancerReservation, LoadSample } from "./load-balancer.js";
-import { taskIdentity, type TaskIdentity } from "./task-identity.js";
+import { taskIdentity, type TaskIdentity } from "./protocol/task-identity.js";
 import {
   finishedEvent,
   pendingResponseEvent,

@@ -1,5 +1,6 @@
 import type { RequestPricingResult } from "../pricing/index.js";
-import type { EndpointKind, TrafficEventName, TrafficHeaderMap } from "../proxy/index.js";
+import type { EndpointKind } from "../proxy/protocol/analysis.js";
+import type { TrafficEventName, TrafficHeaderMap } from "../proxy/traffic-event.js";
 
 export interface TrafficRecordWriteFields {
   readonly id: string;

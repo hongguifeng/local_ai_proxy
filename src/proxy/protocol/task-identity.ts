@@ -1,4 +1,4 @@
-import { isRecord, stableJsonStringify } from "../shared/index.js";
+import { isRecord, stableJsonStringify } from "../../shared/index.js";
 
 import {
   endpointKind,
@@ -7,7 +7,7 @@ import {
   requestUserMessages,
   stableHash,
   type EndpointKind,
-} from "./records.js";
+} from "./analysis.js";
 
 /**
  * Shared task identity projections. Both the request router (which decides which

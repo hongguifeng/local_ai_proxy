@@ -1,13 +1,13 @@
 import { describe, expect, it } from "vitest";
 
-import { bodyJsonValue } from "../../src/proxy/payload.js";
+import { bodyJsonValue } from "../../src/proxy/protocol/payload.js";
 import {
   MAX_SUMMARY_TEXT_CHARS,
   IncrementalSseAccumulator,
   compactSseValue,
   compactSummaryValue,
   parseSseEvents,
-} from "../../src/proxy/streams.js";
+} from "../../src/proxy/protocol/streams.js";
 
 describe("parseSseEvents", () => {
   it("parses JSON data lines and tracks the DONE marker", () => {

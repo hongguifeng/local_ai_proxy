@@ -1,23 +1,25 @@
 import type { RepositoryRecord } from "../persistence/index.js";
 import type { TrafficRepository } from "../persistence/index.js";
 import {
-  addContextKey,
-  bodyJsonValue,
-  boundaryWithoutUser,
   endpointKind,
-  hasContinuationEvidence,
-  mergeLegacyContextKeys,
-  nestedValue,
   requestBoundaryFingerprints,
-  requestContextKeys,
   requestFingerprints,
   requestUserMessages,
   responseIdsFromBody,
-  userMessagesPrefixMatches,
   type EndpointKind,
-  type ResponseLogPayload,
-  type TrafficRecordEvent,
-} from "../proxy/index.js";
+} from "../proxy/protocol/analysis.js";
+import {
+  addContextKey,
+  boundaryWithoutUser,
+  hasContinuationEvidence,
+  mergeLegacyContextKeys,
+  nestedValue,
+  requestContextKeys,
+  userMessagesPrefixMatches,
+} from "../proxy/protocol/task-identity.js";
+import { bodyJsonValue } from "../proxy/protocol/payload.js";
+import type { ResponseLogPayload } from "../proxy/response-log-capture.js";
+import type { TrafficRecordEvent } from "../proxy/traffic-event.js";
 import {
   createRequestId,
   isRecord,

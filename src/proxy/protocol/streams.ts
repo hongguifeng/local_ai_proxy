@@ -1,4 +1,4 @@
-import { isRecord } from "../shared/index.js";
+import { isRecord } from "../../shared/index.js";
 
 export const MAX_SUMMARY_TEXT_CHARS = 2_000;
 export const MAX_SUMMARY_LIST_ITEMS = 20;

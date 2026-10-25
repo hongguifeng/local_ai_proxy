@@ -2,7 +2,7 @@ import { readFileSync } from "node:fs";
 
 import { describe, expect, it } from "vitest";
 
-import { bodyJsonValue, bytesPayload } from "../../src/proxy/payload.js";
+import { bodyJsonValue, bytesPayload } from "../../src/proxy/protocol/payload.js";
 
 interface PayloadFixtureCase {
   readonly name: string;

@@ -1,15 +1,9 @@
 import { TrafficRepository } from "../persistence/index.js";
-import {
-  bodyJsonValue,
-  displayEndpoint,
-  endpointKind,
-  redactEvent,
-  requestMessageCount,
-  responseTokenCount,
-  responseTokenCounts,
-  type TrafficRecordEvent,
-  type TrafficTargetInfo,
-} from "../proxy/index.js";
+import { displayEndpoint, endpointKind, requestMessageCount } from "../proxy/protocol/analysis.js";
+import { bodyJsonValue } from "../proxy/protocol/payload.js";
+import { responseTokenCount, responseTokenCounts } from "../proxy/records.js";
+import { redactEvent } from "../proxy/redaction.js";
+import type { TrafficRecordEvent, TrafficTargetInfo } from "../proxy/traffic-event.js";
 import { stableJsonStringify, StructuredLogger } from "../shared/index.js";
 import { TaskMatcher } from "./task-matcher.js";
 import type { TrafficRecordWrite } from "./traffic-record-write.js";

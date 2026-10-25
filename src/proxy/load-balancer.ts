@@ -10,7 +10,7 @@ import { loadBalancerMemberTargetIds } from "../config/index.js";
 import { LoadAffinityTable, type AffinityBinding } from "./load-affinity.js";
 import { tryCanonicalNodeKey } from "./node-identity.js";
 import { modelPatternMatches } from "./routing.js";
-import type { TaskIdentity } from "./task-identity.js";
+import type { TaskIdentity } from "./protocol/task-identity.js";
 
 /**
  * Per-pair load balancing state. The object outlives every pipeline rebuild, so
