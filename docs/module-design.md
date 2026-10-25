@@ -882,6 +882,14 @@ pipeline 只做三件事：问组要一个节点、预留它、请求结束时�
 - 用户可见 UI 功能与视觉。
 - CLI 环境变量。
 - task grouping 行为。
+- Admin API 的路径集合与顶层响应键。
+
+`test-node/admin/api-contract.test.ts` 把这份 admin 合同钉住：
+
+- 用 Fastify 的 `printRoutes` 跟源码声明比对，33 条注册全部写死在表里（多行泛型会让行扫描漏掉 4 条，所以表格来自运行时打印 + 源码交叉校验）。
+- 启动一个真实应用（临时目录里的 `proxies.json`，端口 0），检查 19 个 `/api` GET 都不返回“路由未注册”的 `not_found`。
+- 钉住顶层响应键，例如 `/api/logs` 的 `groups,total,limit,offset,next_offset,has_more`、`/api/usage-statistics/trend` 的 `dataVersion,granularity,points`。
+- 响应 schema 只覆盖 33 条里的 17 条，请求体校验 7 条；没有响应 schema 的 16 条里，动态接口是统计 4 条、summary-model 3 条、任务摘要 2 条、日志摘要 2 条、cleanup、export，其余 3 条是页面和静态资源。schema 覆盖的接口改名会被 Fastify 自己报错（实测 `/api/health` 返回错误包），没覆盖的接口改名只会让 UI 安静地显示 `undefined`。
 
 ### 9.2 可自由调整的内部合同
 

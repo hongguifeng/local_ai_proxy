@@ -47,3 +47,8 @@ time.
 checks the frontmatter limits Pi enforces, and fails when a recipe names a file or
 an `npm run` script that no longer exists. `passWithNoTests` is off, so a Vitest
 filter that matches nothing exits 1 instead of looking like a pass.
+
+`test-node/admin/api-contract.test.ts` pins the admin route table and the top-level
+response keys by booting the real application. Only 17 of the 33 registrations carry a
+response schema, so a rename on one of the other 16 is invisible to both typechecks and
+would only show up as `undefined` in the UI; this test is where it fails instead.
