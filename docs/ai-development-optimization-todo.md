@@ -121,7 +121,7 @@ P0 是已复现的功能缺陷；P1 是契约、文档和后端基础；P2 是�
 | [x]  | AI-11 | P1     | 分离模型调用与日志查询      | AI-01、AI-05、AI-07、AI-10                                                                                                                                      | 已完成 |
 | [x]  | AI-12 | P1     | 按职责拆分持久化访问        | AI-06、AI-07、AI-10                                                                                                                                             | 已完成 |
 | [x]  | AI-13 | P1     | 稳定历史迁移依赖            | AI-03、AI-10、AI-12                                                                                                                                             | 已完成 |
-| [ ]  | AI-14 | P1     | 补齐场景测试并稳定时序验证  | AI-01、AI-02、AI-05、AI-08、AI-09                                                                                                                               | 在办   |
+| [x]  | AI-14 | P1     | 补齐场景测试并稳定时序验证  | AI-01、AI-02、AI-05、AI-08、AI-09                                                                                                                               | 已完成 |
 | [x]  | AI-15 | P2     | 分离产品、测试与工具编译    | 无                                                                                                                                                              | 已完成 |
 | [x]  | AI-16 | P2     | 固化 ABI 和交付冒烟流程     | AI-15                                                                                                                                                           | 已完成 |
 | [x]  | AI-17 | P2     | 建立前端模块构建入口        | AI-08、AI-15                                                                                                                                                    | 已完成 |
@@ -319,11 +319,11 @@ P0 是已复现的功能缺陷；P1 是契约、文档和后端基础；P2 是�
 
 入口：[应用测试](../test-node/app/runtime.test.ts)、[SSE 测试](../test-node/proxy/proxy-listener.test.ts)、[源码守卫](../test-node/admin/static-source.test.ts)、[UI 测试基础](../test-node/ui/admin-ui-server.ts)。
 
-- [ ] 审查并补齐跨设置更新、空配置到有配置、失败回滚等操作序列。
-- [ ] 复现和定位压缩 SSE 时序失败，使用可观测事件协调发送阶段。
-- [ ] 将协议内容、流式先后关系和测量计算分层验证，保留必要真实流集成测试。
-- [ ] 将只检查业务源码文本的用例改为行为或结构测试，保留必要静态不变量。
-- [ ] 浏览器测试统一收集未处理 pageerror，确保测试结束时有明确失败反馈。
+- [x] 审查并补齐跨设置更新、空配置到有配置、失败回滚等操作序列。
+- [x] 复现和定位压缩 SSE 时序失败，使用可观测事件协调发送阶段。
+- [x] 将协议内容、流式先后关系和测量计算分层验证，保留必要真实流集成测试。
+- [x] 将只检查业务源码文本的用例改为行为或结构测试，保留必要静态不变量。
+- [x] 浏览器测试统一收集未处理 pageerror，确保测试结束时有明确失败反馈。
 
 验收：相关用例单跑和全量并发运行均通过；报告重复次数和环境。仍要发现压缩未解码、整段响应被缓冲、测量公式错误等回归。不得仅加等待、重试或放宽阈值求绿。
 
@@ -521,7 +521,7 @@ P0 是已复现的功能缺陷；P1 是契约、文档和后端基础；P2 是�
 - [x] AI-09：完整应用遗漏服务接线时有确定失败反馈。
 - [x] AI-10：运行时依赖环消除，并有有效的自动检查。
 - [x] AI-11～13：查询、模型生成和存储职责明确，历史迁移结果稳定。
-- [ ] AI-14：操作序列和流式边界有回归测试，时序问题有定位记录。
+- [x] AI-14：操作序列和流式边界有回归测试，时序问题有定位记录。
 - [x] AI-15～16：产品构建、测试检查、ABI 与交付验证入口明确可重复。
 - [ ] AI-17～20：前端通过模块边界协作，过渡桥接清除，严格检查生效。
 - [ ] AI-21：渲染与缓存输入一致，刷新和大正文体验保持。
@@ -819,6 +819,16 @@ UI 截图、性能或迁移结果（适用时）：
 - 落点编排方自己量的：AI-17 合并进去的改动是 `startStubAdminServer`（第 50 行）4 行——引 `buildAdminModuleBridge`、三行注释、一句 `await buildAdminModuleBridge();`；AI-14 的编辑在 `resetStubAdminServer`（513/515 行）——同一个文件的不同 hunk，rebase 应当干净。要求它交回前先 rebase 到 main 并报告解掉的冲突；真有冲突就两边都留（打包块与收集器互不相干）。
 - 附的条件：纯加法、不动任何现有断言；收集到的 pageerror 必须让测试带着错误文本真失败，不是吞进 console、不是 try/catch 兜底、不是只写日志，并且要用一个故意弄坏的页面真演示一次失败而不是声称它会失败；预期会有今天过的测试因为没人盯过的页面错误开始失败——那是发现不是麻烦，要逐个报实际错误与成因，不许靠过滤错误类型、忽略“良性”错误、削弱断言或加重试把它们压下去；若是真产品缺陷，在归属的 src 文件里做最小修复并逐文件申报；机制该归 `.agents/skills/ui-test-quirks/SKILL.md` 就写进去（那个技能当下没人占），不许碰 `static-checks-and-split`（AI-17 刚重写）。
 - 禁令重申并提醒：它那边仍然禁 `package.json`、`package-lock.json`、`eslint.config.js`、`tsconfig*.json`、`electron-builder.yml`、`src/admin/static/**`、`static-assets.ts`、`concat_ui_parts.ts`、`copy_static_assets.ts`、十个基线与哈希文档——其中好几个已经被 AI-17 的合并改过了，要以现在的样子读，不要按它基线时的样子读。
+
+### AI-14 完成记录
+
+- 状态：**已完成（子代理超时）**。编排层报 `Error: Subagent timed out after 3000000ms.` 且“Saved output: unavailable”，handoff 没交回——它死在收尾，最后一条输出就是它问我的那个问题。但工作在提交里全活着：rebase 后 `main..HEAD` 实测 8 个提交 `9462485`（SSE 相位按观测交付放行）、`ce43347`（拆流式先后/测量/内容三层）、`a9c8efb`（走装配后应用的操作序列）、`6c6b702` + `a12f8b4`（从语法树读启动与托盘、冒烟入口）、`17b175a`（从模块 AST 读迁移依赖）、`879231a`（页面关闭前抛出未处理页面错误）、`d82b6f9`（把 SDK 示例当程序读而不是当字符串读）；工作树只剩一个未跟踪的 `.ai14-scratch/`。squash 合并进 main 为 `92247db`，**零冲突**，11 个文件 `+1839/-68`。
+- 它自己先 rebase 到了 main（这正是我批复里要求的），所以合并零冲突——它历史里含 `4743e34`。编排方先被一个假信号唬了一跳：`git diff acf35b0..HEAD --name-only` 里跳出一堆“违禁文件”（package.json、eslint.config.js、tsconfig.ui.json、src/admin/static/**、基线相关），其实那是 rebase 之后这个区间把 AI-17 的合并也算进去了；改成按提交归属重新数才看清：**只看它自己 8 个提交碰的文件，实测 11 个，全部在 `test-node/**` 加一个 `.agents/skills/ui-test-quirks/SKILL.md`**，被禁的那些一个没动。
+- 五个盒子都落地了：第一条 `operation-sequence.test.ts` 5 条测试（app 组 4 文件/21 → 5 文件/26）；第二条 `releaseAfterDelivery` 编排方逐行读过——先 `await compressorFlushed(gzip)`，再 `await withinDeadline(delivery.arrived(1), DELIVERY_GATE_MS, "the first compressed chunk never reached the client")`，两者都到了才放其余帧，第 1270 行还有 `expect(gateFailure).toBeUndefined()` 断言闸门本身成功；第三条 `stream-measurement.test.ts` +5 条（proxy 组 32 文件/444 → 33 文件/449）；第四条把字符串 grep 换成结构断言：`migration-freeze.test.ts` 第 166 行现在是 `references.map((r) => r.specifier)` 从 AST 取再 `toEqual` 同一张清单，`smoke-harness.test.ts` 第 101 行是 `calledNames(source)` 取调用名——都是更强的替代；第五条 `admin-ui-server.ts` `+50` 行：在唯一建页面的 `resetStubAdminServer` 上挂 `page.on("pageerror", recordPageError)`，页面消失前把每一条带 message 和 stack 编号抛出，并先 `page.evaluate(() => new Promise((resolve) => setTimeout(resolve, 0)))` 排空页面任务队列再断言（报错走同一条有序连接，浏览器排完队里的活才会回答那次往返），`page-error-collection.test.ts` 第 46 行 `expect.poll(() => unhandledPageErrors().length).toBe(1)` 加第 48 行断言 message 是 `deliberate page failure`——真演示了一次失败，不是声称会失败。
+- 断言审计（编排方逐条对照替代，`git diff main..HEAD -- test-node/`）：删除断言 **17** 行。其中 13 行是字符串 grep 换成 AST/结构断言（specifiers、calledNames、示例当程序读），迁移那 3 行换成上面第 166 行的 AST specifier 断言，等价或更强；剩下的是时序那一处：`windowMs >= 20` 换成 `> 0` 加一条 `toBeLessThan(duration_ms - first_token_ms)` 的上界。编排方读过逐行确认：断言处带着实测理由注释（60 ms 的事件循环阻塞会把所有挂起定时器塌进恢复那个 tick，把压缩用例的窗口从 47.0 ms 打成 1.2 ms，所以饥饿之下定时器延迟证明不了任何先后关系），而“用可观测事件协调发送阶段”正是任务第二条的字面要求——阈值本身失去意义是这个设计的后果，不是削弱。`it.skip|only|todo` 新增 **0**。
+- 复现台账：lane 分组全 exit 0——app 5/26、ui 6+1 skip/95+2、admin 17/114、electron 17/50、docs 11/27、persistence 10/80、maintenance 8/112、proxy 33/449；那个 SSE 文件单跑连跑 5 次全 32/32 exit 0，proxy 组连跑 2 次全 449/449 exit 0。合并后 main 上集成全量 `npm run check` **连跑两次均 exit 0**：`133 passed | 1 skipped (134)`、`1189 passed | 2 skipped (1191)`、`FAIL` 行 0、`check:modules 131 / 295 / 94 / 0 环 / 0 越界`，`proxy-listener.test.ts (32 tests) 824ms`。这条偶发历史上四次全量里出现过一次，修复之后两次全量 + 两次组跑 + 五次单跑都没再现。
+- 台账对齐：Vitest 运行时数 `1171（AI-11 后）→ 1179（AI-17 +8）→ 1191（AI-14 +12）`；测试文件 `130 → 131 → 134`；声明数 `1000 → 1008 → 1020`。新增三个测试文件：operation-sequence、stream-measurement、page-error-collection。
+- 裁定落实：批的 (b) 方案就是它交回的样子——`+50` 行纯加法，没动任何现有断言，现有六个 `admin-ui-*.test.ts` 一个没改写（新机制在 `admin-ui-server.ts` 加一个新测试文件），与 AI-17 在 `startStubAdminServer` 的改动是同文件不同 hunk，零冲突就是证据。`.ai14-scratch/`（里面那个 `probe_window.ts` 探针）它自己在断言注释里写了 deleted，但目录还在工作树里——合并前编排方删了它。UI 里那条跳过的 css-cascade 文件仍是 opt-in（`CSS_CANDIDATE`），与之前一致；页面错误收集从此是新增的回归哨兵，不是已知的静默问题。
 
 ### AI-13 完成记录
 
