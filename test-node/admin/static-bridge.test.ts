@@ -29,6 +29,8 @@ const BRIDGE_CAPABILITIES = [
   "compactNumber",
   "configureDisplayLanguage",
   "costAxisLabel",
+  "createLoadBalancing",
+  "createProxyConfig",
   "displayTimestampParts",
   "escapeHtml",
   "formatDuration",
@@ -117,16 +119,38 @@ describe("[AI-17] admin UI module bridge", () => {
     }
   });
 
-  it("keeps the modules free of the classic scope and of the DOM", async () => {
+  it("keeps display helpers free of the classic scope and of the DOM", async () => {
     const modules = await readModuleSources();
     expect(modules.size).toBeGreaterThan(1);
     for (const [name, source] of modules) {
-      // Nothing in the module graph may read the shared script scope or touch the page:
+      if (name === "proxy-config.js" || name === "load-balancing.js") {
+        expect(codeOnly(source), name).not.toMatch(/\b(translations|globalThis)\b/);
+        continue;
+      }
+      // Nothing in the display helper graph may read the shared script scope or touch the page:
       // these helpers take arguments and return text.
       expect(codeOnly(source), name).not.toMatch(
         /\b(state|translations|localStorage|document|window|navigator)\b/,
       );
     }
+  });
+
+  it("keeps proxy drafts and load-balancing operations inside their feature modules", async () => {
+    const parts = await readParts();
+    for (const [name, source] of parts) {
+      expect(codeOnly(source), name).not.toMatch(/\bstate\.(pairs|targetCheck[A-Za-z]*)\b/);
+      expect(codeOnly(source), name).not.toMatch(
+        /function (collectPairs|savePairs|refreshLoadBalancerStatus|applyLoadBalancerStatus)\b/,
+      );
+    }
+    const modules = await readModuleSources();
+    const proxy = modules.get("proxy-config.js") ?? "";
+    const balancing = modules.get("load-balancing.js") ?? "";
+    expect(proxy).toContain("getPairs: () => structuredClone(state.pairs)");
+    expect(proxy).toContain("loadBalancing.collectGroups(");
+    expect(balancing).toContain("operations.addGroup(");
+    expect(balancing).toContain("operations.removeGroup(");
+    expect(codeOnly(balancing)).not.toMatch(/\bstate\./);
   });
 
   it("imports nothing outside its own directory", async () => {

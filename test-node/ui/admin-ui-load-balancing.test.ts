@@ -505,4 +505,121 @@ describe("admin UI load balancing groups", { timeout: UI_TEST_TIMEOUT_MS }, () =
     const stored = await page.evaluate(() => localStorage.getItem("llmProxyLbGroupOpen"));
     expect(stored).toBe("{}");
   });
+  it("preserves member mappings and selections through language and status refreshes", async () => {
+    const card = await openPairWithGroup();
+    const group = card.locator(".lb-card");
+    await tickMembers(group, [0, 1]);
+    const model = group.locator("[data-lb-member-model]").first();
+    await group.locator('[data-lb-field="name"]').fill("Unsaved group");
+    await model.fill("  unsaved-upstream  ");
+    await model.focus();
+    await page.evaluate('setLanguage("zh");');
+    await expectPage(model).toBeFocused();
+    await expectPage(model).toHaveValue("  unsaved-upstream  ");
+    const seen = lbStatusReads.length;
+    await waitForLbPoll(seen);
+    await expectPage(model).toHaveValue("  unsaved-upstream  ");
+    await expectPage(group.locator("[data-lb-member-model]")).toHaveCount(2);
+    await page.locator("#languageSelect").selectOption("en");
+    await expectPage(group.locator('[data-lb-field="name"]')).toHaveValue("Unsaved group");
+    await expectPage(model).toHaveValue("  unsaved-upstream  ");
+    await group.locator("[data-lb-picker-toggle]").click();
+    await expectPage(group.locator("[data-lb-node]").nth(0)).toBeChecked();
+    await expectPage(group.locator("[data-lb-node]").nth(1)).toBeChecked();
+  });
+
+  it("owns one poll timer across repeated init, tab changes, visibility and disposal", async () => {
+    await page.clock.install();
+    await loadAdminPage();
+    await expect.poll(() => lbStatusReads.length).toBe(1);
+    await page.evaluate("initializeProxyConfig(); initializeProxyConfig();");
+    await page.clock.runFor(2_000);
+    await expect.poll(() => lbStatusReads.length).toBe(2);
+    await page.locator('.tab[data-tab="logs"]').click();
+    await page.clock.runFor(6_000);
+    expect(lbStatusReads.length).toBe(2);
+    await page.locator('.tab[data-tab="proxies"]').click();
+    await expect.poll(() => lbStatusReads.length).toBe(3);
+    await page.evaluate(() => {
+      Object.defineProperty(document, "hidden", { value: true, configurable: true });
+      document.dispatchEvent(new Event("visibilitychange"));
+    });
+    await page.clock.runFor(6_000);
+    expect(lbStatusReads.length).toBe(3);
+    await page.evaluate(() => {
+      Object.defineProperty(document, "hidden", { value: false, configurable: true });
+      document.dispatchEvent(new Event("visibilitychange"));
+    });
+    await expect.poll(() => lbStatusReads.length).toBe(4);
+    await page.evaluate("proxyConfig.dispose(); proxyConfig.dispose();");
+    await page.clock.runFor(6_000);
+    expect(lbStatusReads.length).toBe(4);
+    await page.evaluate("initializeProxyConfig(); initializeProxyConfig();");
+    await expect.poll(() => lbStatusReads.length).toBe(5);
+    await page.clock.runFor(2_000);
+    await expect.poll(() => lbStatusReads.length).toBe(6);
+  });
+
+  it("forwards caller and lifecycle cancellation through the production adapter", async () => {
+    await loadAdminPage();
+    await page.evaluate("proxyConfig.dispose();");
+    const observed = await page.evaluate<Record<string, boolean>>(String.raw`
+      (async () => {
+        const originalFetch = window.fetch;
+        const OriginalController = window.AbortController;
+        const controllers = [];
+        const polls = [];
+        window.AbortController = class extends OriginalController {
+          constructor() { super(); controllers.push(this); }
+        };
+        window.fetch = (url, options) => {
+          if (url !== "/api/load-balancer/status") return originalFetch(url, options);
+          // The real LB factory creates lifecycle, caller and forwarded controllers
+          // before fetch; observing them here leaves production wiring intact.
+          const [forwarded, caller, owner] = controllers.slice(-3).reverse();
+          polls.push({ signal: options.signal, forwarded, caller, owner });
+          return new Promise((_resolve, reject) => {
+            const abort = () => reject(new Error("request aborted"));
+            if (options.signal.aborted) abort();
+            else options.signal.addEventListener("abort", abort, { once: true });
+          });
+        };
+        try {
+          // Reuse the instances constructed by 02/03 and initialized by 09.
+          initializeProxyConfig();
+          const first = polls[0];
+          const composed = first.signal === first.forwarded.signal &&
+            first.signal !== first.caller.signal && first.signal !== first.owner.signal;
+          document.querySelector('[data-tab="logs"]').click();
+          const callerAbort = first.signal.aborted && first.caller.signal.aborted && !first.owner.signal.aborted;
+          document.querySelector('[data-tab="proxies"]').click();
+          const second = polls[1];
+          const pendingBeforeOwnerAbort = !second.signal.aborted;
+          first.owner.abort();
+          const lifecycleAbort = second.signal.aborted && !second.caller.signal.aborted;
+          // Initialize the production LB owner again through proxy lifecycle init.
+          proxyConfig.dispose();
+          initializeProxyConfig();
+          const third = polls[polls.length - 1];
+          const pendingBeforeDispose = !third.signal.aborted;
+          loadBalancing.dispose();
+          const disposalAbort = third.signal.aborted;
+          await new Promise((resolve) => setTimeout(resolve, 0));
+          return { composed, callerAbort, pendingBeforeOwnerAbort, lifecycleAbort, pendingBeforeDispose, disposalAbort };
+        } finally {
+          proxyConfig.dispose();
+          window.fetch = originalFetch;
+          window.AbortController = OriginalController;
+        }
+      })()
+    `);
+    expect(observed).toEqual({
+      composed: true,
+      callerAbort: true,
+      pendingBeforeOwnerAbort: true,
+      lifecycleAbort: true,
+      pendingBeforeDispose: true,
+      disposalAbort: true,
+    });
+  });
 });

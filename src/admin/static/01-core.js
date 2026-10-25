@@ -795,12 +795,7 @@ const initialLanguage =
   savedLanguage || ((navigator.language || "").toLowerCase().startsWith("zh") ? "zh" : "en");
 const state = {
   language: translations[initialLanguage] ? initialLanguage : "en",
-  pairs: [],
   logGroups: [],
-  targetCheckModelsNotice: null,
-  targetCheckModelOptions: [],
-  targetCheckModelFilter: null,
-  targetCheckModelActive: -1,
   logs: [],
   selected: null,
   selectedLogGroups: {},
@@ -1001,7 +996,7 @@ function applyLanguage() {
  * A surface that has to be redrawn when the UI language changes. Panels register
  * themselves in their own file, so adding a panel cannot silently leave it out of
  * the language switch the way a hand-written call list did.
- * @typedef {{ id: string, sequence: number, render: () => void, when?: () => boolean }} LanguagePanel
+ * @typedef {{ id: string, sequence: number, render: () => void, when?: () => boolean, before?: () => void }} LanguagePanel
  */
 /** @type {LanguagePanel[]} */
 const languagePanels = [];
@@ -1011,10 +1006,25 @@ const languagePanels = [];
  *   used to call the panels in by hand, so moving one means changing one number.
  * @param {() => void} render
  * @param {() => boolean} [when] Skip the panel when its surface is not on screen.
+ * @param {() => void} [before] Capture editable values before translation updates the DOM.
  */
-function registerLanguagePanel(id, sequence, render, when) {
-  if (languagePanels.some((panel) => panel.id === id)) return;
-  languagePanels.push({ id, sequence, render, ...(when === undefined ? {} : { when }) });
+function registerLanguagePanel(id, sequence, render, when, before) {
+  if (languagePanels.some((panel) => panel.id === id)) return () => {};
+  const panel = {
+    id,
+    sequence,
+    render,
+    ...(when === undefined ? {} : { when }),
+    ...(before === undefined ? {} : { before }),
+  };
+  languagePanels.push(panel);
+  return () => {
+    const index = languagePanels.indexOf(panel);
+    if (index >= 0) languagePanels.splice(index, 1);
+  };
+}
+function prepareLanguagePanels() {
+  for (const panel of languagePanels) panel.before?.();
 }
 function rerenderLanguagePanels() {
   const ordered = languagePanels.slice().sort((left, right) => left.sequence - right.sequence);
@@ -1025,7 +1035,7 @@ function rerenderLanguagePanels() {
 }
 function setLanguage(language) {
   if (!translations[language]) return;
-  if (qs(".proxy-card")) collectPairs();
+  prepareLanguagePanels();
   state.language = language;
   localStorage.setItem("llmProxyLanguage", language);
   applyLanguage();
@@ -1057,63 +1067,6 @@ function formatRequestCost(cost) {
 // Replaced by static-assets.ts before the browser ever sees this identifier.
 // @ts-expect-error -- the name only exists in the authored source.
 const suggestedStripRequestFields = __SUGGESTED_STRIP_REQUEST_FIELDS__;
-function modelPriceRuleHtml(target, index) {
-  const rule = (target.model_prices || [])[index] || {};
-  const numberFields = [
-    ["price_multiplier", "priceMultiplier"],
-    ["input_per_million", "normalInputPrice"],
-    ["output_per_million", "outputPrice"],
-    ["cache_read_per_million", "cacheReadPrice"],
-    ["cache_write_per_million", "cacheWritePrice"],
-  ];
-  const patternCell = `<label><span>${escapeHtml(t("pricePattern"))}</span><input data-price-field="model_pattern" value="${escapeHtml(rule.model_pattern ?? "")}" placeholder="gpt-*"></label>`;
-  const gridCells = [
-    patternCell,
-    ...numberFields.map(
-      ([field, label]) =>
-        `<label><span>${escapeHtml(t(label))}</span><input data-price-field="${field}" inputmode="decimal" value="${escapeHtml(field === "price_multiplier" ? (rule[field] ?? "1") : (rule[field] ?? ""))}"></label>`,
-    ),
-  ];
-  return `<section class="model-price-rule" data-price-index="${index}" aria-label="${escapeHtml(`${t("priceRule")} ${index + 1}`)}">
-    <div class="price-rule-head"><strong>${escapeHtml(`${t("priceRule")} ${index + 1}`)}</strong><div class="price-actions"><button type="button" data-price-up title="${escapeHtml(t("movePriceUp"))}" aria-label="${escapeHtml(t("movePriceUp"))}" ${index === 0 ? "disabled" : ""}>↑</button><button type="button" data-price-down title="${escapeHtml(t("movePriceDown"))}" aria-label="${escapeHtml(t("movePriceDown"))}" ${index === (target.model_prices || []).length - 1 ? "disabled" : ""}>↓</button><button type="button" data-price-remove>${escapeHtml(t("delete"))}</button></div></div>
-    <div class="price-field-grid">${gridCells.join("")}</div>
-  </section>`;
-}
-function localPriceMatch(target) {
-  const model = target.price_test_model || "";
-  const rules = target.model_prices || [];
-  if (!model) return "";
-  const exact = rules.findIndex(
-    (rule) => !rule.model_pattern?.includes("*") && rule.model_pattern === model,
-  );
-  const wildcard = rules.findIndex(
-    (rule) => rule.model_pattern?.includes("*") && wildcardPriceMatch(rule.model_pattern, model),
-  );
-  const index = exact >= 0 ? exact : wildcard;
-  return index < 0 ? t("priceNoMatch") : `#${index + 1}: ${rules[index].model_pattern}`;
-}
-function updateLocalPriceMatch(targetCard) {
-  const target = {
-    price_test_model: targetCard.querySelector("[data-price-test]")?.value || "",
-    model_prices: [...targetCard.querySelectorAll("[data-price-index]")].map((rule) =>
-      Object.fromEntries(
-        [...rule.querySelectorAll("[data-price-field]")].map((input) => [
-          input.dataset.priceField,
-          input.value,
-        ]),
-      ),
-    ),
-  };
-  const output = targetCard.querySelector(".price-test output");
-  if (output) output.textContent = localPriceMatch(target);
-}
-function wildcardPriceMatch(pattern, model) {
-  const escaped = pattern
-    .split("*")
-    .map((part) => part.replace(/[\\^$.*+?()[\]{}|]/g, "\\$&"))
-    .join(".*");
-  return new RegExp(`^${escaped}$`).test(model);
-}
 function pricingAmount(value) {
   return formatCurrencyAmount(pricingDecimalFromNano(value));
 }

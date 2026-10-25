@@ -103,7 +103,9 @@ describe("admin UI source migration", () => {
       ["targetCheckModels", 80],
       ["statistics", 90],
     ] as const;
-    const registered = [...script.matchAll(/^registerLanguagePanel\(\s*"([a-zA-Z]+)",\s*(\d+),/gm)]
+    const registered = [
+      ...script.matchAll(/^\s*registerLanguagePanel\(\s*"([a-zA-Z]+)",\s*(\d+),/gm),
+    ]
       .map((match) => [match[1], Number(match[2])])
       .filter((entry): entry is [string, number] => entry[0] !== undefined)
       .sort((left, right) => left[1] - right[1]);

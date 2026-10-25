@@ -52,18 +52,6 @@ function logGroupFactsHtml(group) {
 function formatGroupCost(cost) {
   return cost ? formatCurrencyAmount(cost.known_amount) : "—";
 }
-function newLoadBalancerGroup() {
-  return {
-    id: `lb-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`,
-    name: "",
-    enabled: true,
-    model_pattern: "",
-    members: [],
-    strategy: "least_load",
-    metrics_enabled: true,
-    failover_enabled: true,
-  };
-}
 async function exportLogs() {
   const res = await fetch("/api/logs/export");
   if (!res.ok) throw new Error(res.statusText);
@@ -966,25 +954,6 @@ async function refreshSelectedLogDetail() {
   } finally {
     state.selectedLogRefreshLoading = false;
   }
-}
-function openTargetCheckDialog(target) {
-  $("targetCheckUrl").value = target.target_url || "";
-  $("targetCheckApiType").value = "chat";
-  $("targetCheckApiKey").value = target.target_api_key || "";
-  const mappings = target.model_mappings || [];
-  $("targetCheckModel").value = mappings[mappings.length - 1]?.upstream || "";
-  const result = $("targetCheckResult");
-  result.hidden = true;
-  result.textContent = "";
-  result.className = "target-check-result";
-  // A fetched list belongs to this dialog only, so every open starts from the defaults.
-  applyTargetCheckModelOptions(defaultTargetCheckModels);
-  closeTargetCheckModelPop();
-  state.targetCheckModelsNotice = null;
-  renderTargetCheckModelsNotice();
-  targetCheckModelsButton.disabled = false;
-  targetCheckModelsButton.textContent = t("fetchModels");
-  $("targetCheckDialog").showModal();
 }
 function runLogSearch() {
   state.logQuery = $("logSearch").value.trim();
