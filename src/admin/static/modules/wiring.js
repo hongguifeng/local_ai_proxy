@@ -210,7 +210,6 @@ export function startAdminUi() {
     logSplitter.addEventListener("lostpointercapture", () => stopDragging(false));
   })();
   applyLanguage();
-  applyLanguage();
   applyPaneChrome();
   proxyConfig.load().catch((e) => toast(e.message));
   loadStatisticsOptions().catch(() => {});

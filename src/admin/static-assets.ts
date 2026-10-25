@@ -68,11 +68,6 @@ export function readAdminStaticAsset(name: string): Promise<string> {
 }
 
 /**
- * Reads the generated classic-script chunk the ES modules are delivered in. A missing
- * or unrecognisable artifact is an error here rather than an empty `<script>` in the
- * page.
- */
-/**
  * Reads the generated script the browser runs. A missing or unrecognisable artifact is
  * an error here rather than an empty `<script>` in the page. The build commands complete
  * `npm run bundle:ui` before starting a reader, so an absent bundle is a clear startup
@@ -140,7 +135,7 @@ async function findPackageRoot(startDirectory: string): Promise<string> {
       const parent = path.dirname(directory);
       if (parent === directory) {
         throw new Error(
-          `No package.json above ${startDirectory}: cannot locate the admin UI module bridge.`,
+          `No package.json above ${startDirectory}: cannot locate the admin UI bundle.`,
         );
       }
       directory = parent;

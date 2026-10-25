@@ -459,9 +459,8 @@ Splitter 拖动（左右分栏与上下分栏）采用“预览后提交”：po
   统计加载）。
 - 各子系统一个模块，自己拥有自己的监听器与生命周期：`history.js`（日志列表、选中、详情预取、
   摘要）、`json-pane.js`（分栏渲染、懒实现、行窗口、pane 工具栏）、`task-detail.js`（计价
-  面板、趋势图、任务简介）、`statistics.js`、`metrics.js`；`money.js`、`record-status.js`、
-  `text.js`、`time.js`、`numbers.js`、`chart.js`、`display-locale.js`、`request.js` 是无状态的
-  显示/请求助手。
+  面板、趋势图、任务简介）、`statistics.js`、`metrics.js`；`money.js`、`text.js`、`time.js`、
+  `numbers.js`、`chart.js`、`display-locale.js`、`request.js` 是无状态的显示/请求助手。
 - 模块只通过 `import`/`export` 交互：没有任何业务函数挂在 `window`/`globalThis` 上。唯一写到
   全局的是 `modules/test-adapter.js` 的 `__adminUiTest`，由组合根在启动时装入，只供浏览器测试
   使用（合成超大正文的 `applySelectedLogDetail`、精确金额格式化、两个配置面板的

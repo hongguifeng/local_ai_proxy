@@ -100,10 +100,10 @@ function asError(error: unknown): Error {
 }
 
 export async function startStubAdminServer(): Promise<void> {
-  // The page this suite drives is the product page, so it needs the generated module
-  // bridge. A lone `npx vitest run test-node/ui` does not go through the pretest hook
-  // that builds it, so build it here: the stub then serves the same bytes the product
-  // build serves, instead of a script with the helpers missing.
+  // The page this suite drives is the product page, so it needs the generated admin UI
+  // bundle. A lone `npx vitest run test-node/ui` does not go through the pretest hook that
+  // builds it, so build it here: the stub then serves the same bytes the product build
+  // serves, instead of a script with the helpers missing.
   await buildAdminAppScript();
   server = createAdminServer({
     getHealth: () => applicationHealth("running"),

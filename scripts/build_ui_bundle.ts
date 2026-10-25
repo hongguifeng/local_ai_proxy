@@ -100,7 +100,7 @@ async function replaceOutputFile(temporaryFile: string, outputFile: string): Pro
   }
 
   throw new Error(
-    `Could not publish the admin UI module bridge after ${WINDOWS_REPLACEMENT_ATTEMPTS} ` +
+    `Could not publish the admin UI bundle after ${WINDOWS_REPLACEMENT_ATTEMPTS} ` +
       `Windows replacement attempts: ${outputFile}`,
     { cause: lastError },
   );

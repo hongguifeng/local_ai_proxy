@@ -22,7 +22,7 @@ registerLanguagePanel(
 
 // The chart geometry this page used to own (nice axis scale, mean line, peak label and
 // cost tick labels) is now src/admin/static/modules/chart.js; the task-detail charts
-// reach it through the bridge in entry.js.
+// import it directly through the module graph.
 let statisticsRequestId = 0;
 export async function loadStatistics() {
   const requestId = ++statisticsRequestId;
