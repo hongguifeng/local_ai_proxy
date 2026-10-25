@@ -651,6 +651,7 @@ UI 截图、性能或迁移结果（适用时）：
 - 两项任务合并进 main 时零冲突：两条 lane 改动的文件集合交集为空（用 `comm` 对 `git status --porcelain` 与 `git diff --name-only -M` 求交），且 AI-07 从 `src/proxy/index.js` 重新导出的 8 个目标探测类型在 AI-10 的 barrel 里全部仍在（AI-10 只改再导出路径，不改名字）。
 - 冒烟用的端口段与各 lane 自用的端口段严格分开：lane 用 39411/39412 与 39421/39422，编排方合并后用 39431/39432/39433 与 39441/39442/39443，全部先实测空闲；用户实例占用的 18085 全程未使用、未停止，清理时只杀自己启动的进程。
 - 勾验收要同时勾三处，只勾进度表会漏：任务小节里的验收复选框（每项 4～5 条）、进度表那一行、§8 里覆盖到该项的那一条。上一轮 AI-07 与 AI-10 只补了后两处，任务小节的 10 个复选框拖到用户提醒才补，补勾时逐条对着本轮亲自复现的证据判定：AI-07 五项分别对着“冒烟里三类序列与分组计价键、行→模型的 `taskBriefFromRow` 与 `parseSummaryPayload`、`admin-contracts.ts` 具体返回类型且 `api-contract.test.ts` 已无 `as unknown as`、200+`null` 与带 code 的 404 与 `unpriced`/`pending`、`log-service-fixtures.ts` 的 10 个构造器”；AI-10 五项分别对着“`protocol/` 叶模块、检查器的 transport 包含规则、0 越界、AST 图排除纯类型边、还原 HEAD 报 6 环 2 越界与自造样例报 2 环 1 越界”。
+- §7 里“是否隔离原生依赖目录？”那一行的替代条件已经实际触发并落地：两条 lane 各自一个 worktree + 一份 `node_modules` 副本，并各自能独立切换 ABI（本轮实测：副本内 `:memory:` 查询报 Node ABI，lane 自己 `rebuild:electron` 后不影响另一 lane）。AI-16 动手时直接拿这个实测结论写方案，不必再从零评估。
 
 ### AI-08 与 AI-15 在办记录
 
