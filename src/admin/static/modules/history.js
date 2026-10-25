@@ -465,6 +465,17 @@ async function refreshPendingLogItems() {
     refreshedIds.add(record.id);
     const item = rowsById.get(record.id);
     if (!item || record.pending) return;
+    const changed = [
+      ["message_count", record.message_count],
+      ["status", record.status],
+      ["request_token_count", record.request_token_count],
+      ["response_token_count", record.response_token_count],
+      ["decode_speed_tps", record.decode_speed_tps],
+      ["end_to_end_speed_tps", record.end_to_end_speed_tps],
+    ].some(([key, value]) => value !== undefined && item[key] !== value);
+    const costChanged =
+      record.cost !== undefined && JSON.stringify(item.cost) !== JSON.stringify(record.cost);
+    if (changed || costChanged) listChanged = true;
     item.message_count = record.message_count ?? item.message_count;
     item.status = record.status ?? item.status;
     item.request_token_count = record.request_token_count ?? item.request_token_count;
@@ -472,7 +483,6 @@ async function refreshPendingLogItems() {
     item.decode_speed_tps = record.decode_speed_tps ?? item.decode_speed_tps;
     item.end_to_end_speed_tps = record.end_to_end_speed_tps ?? item.end_to_end_speed_tps;
     item.cost = record.cost ?? item.cost;
-    listChanged = true;
   });
   // The selected record still needs its own detail request: batch rows carry no
   // bodies, and only the detail endpoint can grow or replace the JSON panes
@@ -605,38 +615,72 @@ function logGroupSectionHtml(group) {
 // Everything a task section renders from: the summary facts plus the flags that
 // decide its body (expanded, loading, selected row). A refresh only rebuilds the
 // sections whose signature changed, so the rest of the list keeps its DOM nodes.
+function logItemRenderInput(item) {
+  return {
+    id: item.id,
+    sequence: item.sequence,
+    timestamp: item.timestamp,
+    status: item.status,
+    message_count: item.message_count,
+    request_token_count: item.request_token_count,
+    response_token_count: item.response_token_count,
+    decode_speed_tps: item.decode_speed_tps,
+    end_to_end_speed_tps: item.end_to_end_speed_tps,
+    cost: item.cost
+      ? { known_amount: item.cost.known_amount, status: item.cost.status, reason: item.cost.reason }
+      : null,
+    has_summary: Boolean(item.has_summary),
+    selected: state.selected === item.id,
+  };
+}
 function logItemRenderSignature(item) {
+  const input = logItemRenderInput(item);
   return [
-    item.id,
-    item.sequence,
-    item.timestamp,
-    item.status,
-    item.message_count,
-    item.request_token_count,
-    item.response_token_count,
-    item.decode_speed_tps,
-    item.end_to_end_speed_tps,
-    item.cost?.known_amount,
-    item.cost?.status,
-    item.cost?.reason,
-    item.has_summary ? "star" : "",
-    state.selected === item.id ? "selected" : "",
+    input.id,
+    input.sequence,
+    input.timestamp,
+    input.status,
+    input.message_count,
+    input.request_token_count,
+    input.response_token_count,
+    input.decode_speed_tps,
+    input.end_to_end_speed_tps,
+    input.cost?.known_amount,
+    input.cost?.status,
+    input.cost?.reason,
+    input.has_summary ? "star" : "",
+    input.selected ? "selected" : "",
   ].join("|");
 }
+function logGroupRenderInput(group) {
+  return {
+    group,
+    language: state.language,
+    selected: Boolean(state.selectedLogGroups[group.id]),
+    expanded: Boolean(state.collapsedGroups[group.id]),
+    loading: Boolean(state.loadingLogGroups[group.id]),
+    loadingMore: Boolean(state.loadingMoreLogGroups[group.id]),
+    loaded: Boolean(group.logsLoaded),
+    hasMore: Boolean(group.logsHasMore),
+    total: group.logsTotal,
+    items: (group.logs || []).map(logItemRenderInput),
+  };
+}
 function logGroupRenderSignature(group) {
+  const input = logGroupRenderInput(group);
   return [
     // Labels come from the active language, so a language switch must rebuild.
-    state.language,
-    logGroupSummarySignature(group),
-    group.decode_speed_tps,
-    state.selectedLogGroups[group.id] ? "checked" : "",
-    state.collapsedGroups[group.id] ? "expanded" : "collapsed",
-    state.loadingLogGroups[group.id] ? "loading" : "",
-    state.loadingMoreLogGroups[group.id] ? "loading-more" : "",
-    group.logsLoaded ? "loaded" : "unloaded",
-    group.logsHasMore ? "more" : "",
-    group.logsTotal,
-    (group.logs || []).map(logItemRenderSignature).join(","),
+    input.language,
+    logGroupSummarySignature(input.group),
+    input.group.decode_speed_tps,
+    input.selected ? "checked" : "",
+    input.expanded ? "expanded" : "collapsed",
+    input.loading ? "loading" : "",
+    input.loadingMore ? "loading-more" : "",
+    input.loaded ? "loaded" : "unloaded",
+    input.hasMore ? "more" : "",
+    input.total,
+    input.items.map((item) => logItemRenderSignature(item)).join(","),
   ].join("#");
 }
 function logListTailHtml() {

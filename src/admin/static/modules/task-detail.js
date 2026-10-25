@@ -607,8 +607,8 @@ function taskBriefFactsHtml(context) {
     )
     .join("")}</div>`;
 }
-function taskBriefCardHtml(groupId) {
-  const brief = state.taskBrief && state.taskBrief.id === groupId ? state.taskBrief : null;
+function taskBriefCardHtml(groupId, taskBrief = state.taskBrief) {
+  const brief = taskBrief && taskBrief.id === groupId ? taskBrief : null;
   const data = brief ? brief.data : null;
   const text = data ? String(data.text || "") : "";
   const facts = data ? taskBriefFactsHtml(data.context) : "";
@@ -681,22 +681,37 @@ async function regenerateTaskBrief() {
   }
   renderTaskPricingPanel();
 }
-function taskPricingRenderSignature(groupId, data, openGroups) {
-  // Mirror the render's own series lookup: a series that belongs to another
-  // task is not drawn, so it must not hold the signature either.
+function taskPricingRenderInput(groupId, data, openGroups) {
   const seriesPoints = (series) =>
     series !== null && series !== undefined && series.id === groupId ? series.points : null;
-  const series = (points) => (points || []).map((point) => JSON.stringify(point)).join(",");
-  return [
-    state.language,
+  return {
+    language: state.language,
     groupId,
-    JSON.stringify(data),
-    JSON.stringify(state.taskBrief),
-    state.activeTaskGroup ? activeTaskGroupSignature(state.activeTaskGroup) : "",
-    series(seriesPoints(state.taskTokenSeries)),
-    series(seriesPoints(state.taskCostSeries)),
-    series(seriesPoints(state.taskOutputTokenSeries)),
-    Object.keys(openGroups).sort().join(","),
+    data,
+    brief: state.taskBrief,
+    activeTaskGroup: state.activeTaskGroup,
+    tokenSeries: seriesPoints(state.taskTokenSeries),
+    costSeries: seriesPoints(state.taskCostSeries),
+    outputTokenSeries: seriesPoints(state.taskOutputTokenSeries),
+    openGroups: Object.keys(openGroups).sort().reduce((result, key) => {
+      result[key] = Boolean(openGroups[key]);
+      return result;
+    }, {}),
+  };
+}
+function taskPricingRenderSignature(groupId, data, openGroups) {
+  const input = taskPricingRenderInput(groupId, data, openGroups);
+  // Keep cache decisions derived from the same explicit snapshot as the panel.
+  return [
+    input.language,
+    input.groupId,
+    JSON.stringify(input.data),
+    JSON.stringify(input.brief),
+    input.activeTaskGroup ? activeTaskGroupSignature(input.activeTaskGroup) : "",
+    (input.tokenSeries || []).map((point) => JSON.stringify(point)).join(","),
+    (input.costSeries || []).map((point) => JSON.stringify(point)).join(","),
+    (input.outputTokenSeries || []).map((point) => JSON.stringify(point)).join(","),
+    Object.keys(input.openGroups).join(","),
   ].join("#");
 }
 export function renderTaskPricingPanel() {
@@ -732,6 +747,7 @@ export function renderTaskPricingPanel() {
   // The panel draws one chart point per request, so rebuilding it is the most
   // expensive render on the page; a refresh round-trip that returned the same
   // numbers keeps the existing DOM instead of drawing it again.
+  const renderInput = taskPricingRenderInput(active, data, openGroups);
   const signature = taskPricingRenderSignature(active, data, openGroups);
   if (signature === state.taskPricingRendered) {
     // The values stay on screen, but a narrower window can still make the model
@@ -757,7 +773,7 @@ export function renderTaskPricingPanel() {
   };
   const durationText = formatDuration(data.active_request_ms);
   const totalDurationText = formatDuration(data.total_request_ms);
-  const group = state.activeTaskGroup;
+  const group = renderInput.activeTaskGroup;
   const decodeSpeed = group ? formatDecodeSpeed(group.decode_speed_tps) : "";
   const decodeSpeedTip = `${t("avgDecodeSpeed")}: ${t("avgDecodeSpeedTip")}`;
   const statCard = (label, value, sub, title, accent) =>
@@ -824,19 +840,12 @@ export function renderTaskPricingPanel() {
   const summaryCard = `<section class="task-summary">${targetLine}<div class="task-stat-cards">${taskStats.join("")}</div></section>`;
   // The task brief is its own card at the very top of the panel, above the
   // fact grid: it is free-form prose, so it does not fit the stat-card shape.
-  const briefCard = taskBriefCardHtml(active);
-  const tokenSeries =
-    state.taskTokenSeries && state.taskTokenSeries.id === active
-      ? state.taskTokenSeries.points
-      : null;
+  const briefCard = taskBriefCardHtml(active, renderInput.brief);
+  const tokenSeries = renderInput.tokenSeries;
   const tokenChart = `<h3 class="section-token">${escapeHtml(t("tokenTrend"))}</h3>${tokenSeries === null ? `<p>${escapeHtml(t("loading"))}</p>` : taskTokenChartHtml(tokenSeries)}<p class="pricing-note">${escapeHtml(t("tokenTrendNote"))}</p>`;
-  const costSeries =
-    state.taskCostSeries && state.taskCostSeries.id === active ? state.taskCostSeries.points : null;
+  const costSeries = renderInput.costSeries;
   const costChart = `<h3 class="section-cost">${escapeHtml(t("costTrend"))}</h3>${costSeries === null ? `<p>${escapeHtml(t("loading"))}</p>` : taskCostChartHtml(costSeries)}<p class="pricing-note">${escapeHtml(t("costTrendNote"))}</p>`;
-  const outputTokenSeries =
-    state.taskOutputTokenSeries && state.taskOutputTokenSeries.id === active
-      ? state.taskOutputTokenSeries.points
-      : null;
+  const outputTokenSeries = renderInput.outputTokenSeries;
   const outputTokenChart = `<h3 class="section-output">${escapeHtml(t("outputTokenTrend"))}</h3>${outputTokenSeries === null ? `<p>${escapeHtml(t("loading"))}</p>` : taskOutputTokenChartHtml(outputTokenSeries)}<p class="pricing-note">${escapeHtml(t("outputTokenTrendNote"))}</p>`;
   panel.innerHTML = `<div class="pricing-panel-head"><strong>${escapeHtml(t("taskPricing"))}</strong><button type="button" data-close-pricing>${escapeHtml(t("close"))}</button></div>${briefCard}${summaryCard}${data.priced_request_count ? taskBreakdownTableHtml(data.breakdown, pricingDecimalFromNano(data.cost_nano_cny)) : `<p>${escapeHtml(reasons || t("unpriced"))}</p>`}<p class="pricing-note">${escapeHtml(t("taskWholeScope"))}</p>${costChart}${tokenChart}${outputTokenChart}<h3 class="section-groups">${escapeHtml(t("priceGroups"))}</h3>${groups || `<p>${escapeHtml(t("unpriced"))}</p>`}`;
   fitTaskSummaryValues(panel);

@@ -715,13 +715,18 @@ export function renderJsonPane(key, options = {}) {
   const viewState = options.preserveView ? collectJsonPaneViewState(el) : null;
   el.classList.toggle("wrap", state.wrap[key]);
   el.classList.toggle("nowrap", !state.wrap[key]);
+  // The cache input is the raw value plus view modes and the current measured
+  // content width. Raw/mode changes replace markup; unchanged input preserves
+  // DOM nodes, expansion state, and pane scroll. Width changes reset probe
+  // measurements in prepareJsonMeasurements. A replaced or materialized tree
+  // invalidates the flat row cache so viewport pre-realization sees current rows.
   const rendered = state.jsonPaneHtml[key];
   // Parsing the tree is what costs: a several-hundred-kilobyte request body is
   // tens of thousands of nodes. Building the markup is cheap, so a refresh that
   // produced the same markup keeps the existing DOM instead of re-parsing it.
   if (state.tree[key]) {
     el.dataset.jsonPaneKey = key;
-    const lineWidth = el.clientWidth > 24 ? el.clientWidth - 24 : 0;
+    const lineWidth = jsonLineWidthCache[key] || 0;
     if (state.formatStrings[key])
       prepareJsonMeasurements(state.raw[key], lineWidth, defaultJsonExpandedDepth);
     const html = jsonRowHtml(
