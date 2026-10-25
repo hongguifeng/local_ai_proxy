@@ -1,3 +1,4 @@
+import { preserveConfigFileFields } from "./config-preservation.js";
 import type { ProxyConfigFile } from "./config-schema.js";
 import { proxyConfigFileSchema } from "./config-schema.js";
 
@@ -24,7 +25,7 @@ export class ConfigValidationError extends Error {
 export function validateProxyConfigFile(value: unknown): ProxyConfigFile {
   const result = proxyConfigFileSchema.safeParse(value);
   if (result.success) {
-    return result.data;
+    return preserveConfigFileFields(result.data, value);
   }
   throw new ConfigValidationError(
     result.error.issues.map((issue) => ({

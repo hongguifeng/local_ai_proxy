@@ -335,23 +335,12 @@ describe("[AI-08] open payloads through the assembled application", () => {
   /**
    * Measured on this application, and asserted as what the product actually guarantees.
    *
-   * The written pair carries 27 keys; `/api/pairs` answers 11 — `id, name, enabled,
-   * listen_host, listen_port, access_log, targets, default_target_id, load_balancers, running,
-   * actual_listen_port`. Only 5 of the written keys are among those, so 22 are dropped and 6
-   * are the pipeline's own (`access_log`, `targets`, `default_target_id`, `load_balancers`,
-   * `running`, `actual_listen_port`). The dropped ones include `log_root`, `redact_logs`,
-   * `model_mapping_mode`, `upstream_url`, `target_headers`, `model_mappings`, the retry and
-   * timeout knobs and the rest, and they disappear in `normalizeProxyPair()` in `src/config`,
-   * which rebuilds a pair from its own key list, so they never reach the serializer. The pair payload
-   * is open, so this is not the serializer deleting them: the stub-backed `custom_field` round
-   * trip below proves an undeclared key survives when the pipeline carries it.
-   *
-   * Preserving configuration the model does not declare is AI-25's job, recorded in
-   * `docs/ai-development-optimization-todo.md`; opening `src/config` is outside this task.
-   * So this check asserts the two things the current pipeline really does: a legacy flat pair's
-   * modelled values survive normalisation, and what the model does not know is dropped.
+   * The written pair carries 27 keys. `/api/pairs` returns those legacy keys alongside the
+   * current modeled fields and runtime status. The open pair payload keeps the values because
+   * `src/config` now stores unknown JSON fields in a typed preservation boundary and
+   * materializes them again only for API/persisted configuration output.
    */
-  it("carries a legacy flat pair's modelled values and drops what the model does not know", async () => {
+  it("[AI-25] carries all legacy flat pair keys while keeping runtime fields transient", async () => {
     const response = await ask("/api/pairs");
     expect(response.status).toBe(200);
     const body = await readJson(response);
@@ -368,6 +357,28 @@ describe("[AI-08] open payloads through the assembled application", () => {
       "targets",
       "default_target_id",
       "load_balancers",
+      "upstream_url",
+      "model_mapping_mode",
+      "default_model",
+      "default_upstream_model",
+      "preserve_route_model",
+      "allow_unnamed_model",
+      "unknown_model_policy",
+      "unknown_param_mode",
+      "unknown_param_paths",
+      "stream_keepalive_interval_seconds",
+      "target_retry_limit",
+      "target_retry_backoff_milliseconds",
+      "failover_reuse_connection",
+      "target_connect_timeout_milliseconds",
+      "target_first_byte_timeout_milliseconds",
+      "target_idle_chunk_timeout_milliseconds",
+      "target_headers",
+      "strip_request_fields",
+      "inject_request_fields",
+      "log_root",
+      "redact_logs",
+      "model_mappings",
       "running",
       "actual_listen_port",
     ]);
@@ -396,25 +407,36 @@ describe("[AI-08] open payloads through the assembled application", () => {
     expect(targetLogRoot).toBe(path.join(root ?? "", "logs"));
     expect(path.isAbsolute(String(targetLogRoot))).toBe(true);
 
-    // (b) Keys the configuration model does not declare are gone, including the three the
-    // pair-level legacy file set. `expect(...).toBeUndefined()` on each, on top of the key set
-    // above, so the loss is named rather than only counted.
-    for (const dropped of [
+    // Every legacy key is retained verbatim, including fields that are now represented by the
+    // synthesized target as part of the current nested model.
+    const legacyValues = opennessPair as Record<string, unknown>;
+    for (const key of [
+      "upstream_url",
+      "model_mapping_mode",
+      "default_model",
+      "default_upstream_model",
+      "preserve_route_model",
+      "allow_unnamed_model",
+      "unknown_model_policy",
+      "unknown_param_mode",
+      "unknown_param_paths",
+      "stream_keepalive_interval_seconds",
+      "target_retry_limit",
+      "target_retry_backoff_milliseconds",
+      "failover_reuse_connection",
+      "target_connect_timeout_milliseconds",
+      "target_first_byte_timeout_milliseconds",
+      "target_idle_chunk_timeout_milliseconds",
+      "target_headers",
+      "strip_request_fields",
+      "inject_request_fields",
       "log_root",
       "redact_logs",
-      "model_mapping_mode",
-      "upstream_url",
       "model_mappings",
-      "target_headers",
-      "unknown_model_policy",
-      "target_retry_limit",
-      "strip_request_fields",
     ]) {
-      expect(pair[dropped]).toBeUndefined();
+      expect(pair[key]).toEqual(legacyValues[key]);
     }
-
-    // (c) The answer stays open: the two keys the runtime adds are not declared by the pair
-    // payload, yet they come back verbatim through the real serializer.
+    // Runtime state is supplied by the registry and never comes from persisted configuration.
     expect(pair["running"]).toBe(false);
     expect(pair["actual_listen_port"]).toBeNull();
   });

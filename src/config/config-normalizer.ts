@@ -10,6 +10,13 @@ import type {
   ProxyPair,
   TargetConfig,
 } from "./config-schema.js";
+import {
+  PAIR_CONFIG_KEYS,
+  preserveConfigFileFields,
+  preserveUnknownConfigFields,
+  preservedConfigFields,
+  TARGET_CONFIG_KEYS,
+} from "./config-preservation.js";
 import { validateProxyConfigFile } from "./config-validation.js";
 import { createDefaultTarget, DEFAULT_LOG_ROOT } from "./defaults.js";
 
@@ -86,12 +93,54 @@ export function normalizeProxyConfigFile(
   const pairs = value["pairs"]
     .filter((pair) => isRecord(pair))
     .map((pair, index) => normalizeProxyPair(pair, index, defaultLogRoot));
-  return validateProxyConfigFile({
-    pairs,
-    ...(value["summary_model"] === undefined ? {} : { summary_model: value["summary_model"] }),
-  });
+  return preserveConfigFileFields(
+    validateProxyConfigFile({
+      pairs,
+      ...(value["summary_model"] === undefined ? {} : { summary_model: value["summary_model"] }),
+    }),
+    value,
+  );
 }
 
+export function materializeTargetConfig(target: TargetConfig): TargetConfig {
+  return {
+    id: target.id,
+    name: target.name,
+    enabled: target.enabled,
+    target_url: target.target_url,
+    target_api_key: target.target_api_key,
+    target_headers: target.target_headers,
+    strip_request_fields: target.strip_request_fields,
+    inject_request_fields: target.inject_request_fields,
+    log_root: target.log_root,
+    redact_logs: target.redact_logs,
+    model_mappings: target.model_mappings,
+    model_prices: target.model_prices,
+    ...preservedConfigFields(target),
+  };
+}
+
+export function materializeProxyPair(pair: ProxyPair): ProxyPair {
+  return {
+    id: pair.id,
+    name: pair.name,
+    enabled: pair.enabled,
+    listen_host: pair.listen_host,
+    listen_port: pair.listen_port,
+    access_log: pair.access_log,
+    targets: pair.targets.map(materializeTargetConfig),
+    default_target_id: pair.default_target_id,
+    load_balancers: pair.load_balancers,
+    ...preservedConfigFields(pair),
+  };
+}
+
+export function materializeProxyConfigFile(config: ProxyConfigFile): ProxyConfigFile {
+  return {
+    pairs: config.pairs.map(materializeProxyPair),
+    ...(config.summary_model === undefined ? {} : { summary_model: config.summary_model }),
+  };
+}
 export function normalizeProxyPair(
   value: unknown,
   index: number,
@@ -105,17 +154,21 @@ export function normalizeProxyPair(
         .map((target, targetIndex) => normalizeTargetConfig(target, targetIndex, defaultLogRoot))
     : [];
   const targets = ensureAtLeastOneTarget(rawTargets, defaultLogRoot);
-  return {
-    id: pairId,
-    name: primitiveText(raw["name"]) || pairId,
-    enabled: Boolean(raw["enabled"] ?? false),
-    listen_host: primitiveText(raw["listen_host"]) || "127.0.0.1",
-    listen_port: positiveNumber(raw["listen_port"], 1234),
-    access_log: Boolean(raw["access_log"] ?? false),
-    targets,
-    default_target_id: normalizeDefaultTargetId(raw["default_target_id"], targets),
-    load_balancers: normalizeLoadBalancerGroups(raw["load_balancers"]),
-  };
+  return preserveUnknownConfigFields(
+    {
+      id: pairId,
+      name: primitiveText(raw["name"]) || pairId,
+      enabled: Boolean(raw["enabled"] ?? false),
+      listen_host: primitiveText(raw["listen_host"]) || "127.0.0.1",
+      listen_port: positiveNumber(raw["listen_port"], 1234),
+      access_log: Boolean(raw["access_log"] ?? false),
+      targets,
+      default_target_id: normalizeDefaultTargetId(raw["default_target_id"], targets),
+      load_balancers: normalizeLoadBalancerGroups(raw["load_balancers"]),
+    },
+    raw,
+    PAIR_CONFIG_KEYS,
+  );
 }
 
 export function normalizeTargetConfig(
@@ -128,20 +181,24 @@ export function normalizeTargetConfig(
   const rawHeaders = Array.isArray(raw["target_headers"])
     ? raw["target_headers"].map((header) => primitiveText(header)).filter((header) => header !== "")
     : [];
-  return {
-    id: targetId,
-    name: primitiveText(raw["name"]) || targetId,
-    enabled: raw["enabled"] === undefined ? true : Boolean(raw["enabled"]),
-    target_url: primitiveText(raw["target_url"]).trim() || "http://127.0.0.1:1235",
-    target_api_key: primitiveText(raw["target_api_key"]).trim(),
-    target_headers: rawHeaders,
-    strip_request_fields: primitiveText(raw["strip_request_fields"]),
-    inject_request_fields: normalizeInjectRequestFields(raw["inject_request_fields"]),
-    log_root: normalizeLogRoot(raw["log_root"], defaultLogRoot),
-    redact_logs: Boolean(raw["redact_logs"] ?? false),
-    model_mappings: normalizeModelMappings(raw["model_mappings"] ?? raw["models"]),
-    model_prices: normalizeModelPrices(raw["model_prices"]),
-  };
+  return preserveUnknownConfigFields(
+    {
+      id: targetId,
+      name: primitiveText(raw["name"]) || targetId,
+      enabled: raw["enabled"] === undefined ? true : Boolean(raw["enabled"]),
+      target_url: primitiveText(raw["target_url"]).trim() || "http://127.0.0.1:1235",
+      target_api_key: primitiveText(raw["target_api_key"]).trim(),
+      target_headers: rawHeaders,
+      strip_request_fields: primitiveText(raw["strip_request_fields"]),
+      inject_request_fields: normalizeInjectRequestFields(raw["inject_request_fields"]),
+      log_root: normalizeLogRoot(raw["log_root"], defaultLogRoot),
+      redact_logs: Boolean(raw["redact_logs"] ?? false),
+      model_mappings: normalizeModelMappings(raw["model_mappings"] ?? raw["models"]),
+      model_prices: normalizeModelPrices(raw["model_prices"]),
+    },
+    raw,
+    TARGET_CONFIG_KEYS,
+  );
 }
 
 /**

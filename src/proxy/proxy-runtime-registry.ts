@@ -2,6 +2,7 @@ import path from "node:path";
 import type { ServerResponse } from "node:http";
 
 import type { ProxyPair, PublicProxyPair, TargetConfig } from "../config/index.js";
+import { materializeProxyPair } from "../config/index.js";
 import { TrafficLogService } from "../logging/index.js";
 import { ActiveRequestRegistry } from "./active-requests.js";
 import { parseHeaderOverrides } from "./headers.js";
@@ -123,7 +124,7 @@ export class ProxyRuntimeRegistry {
   publicPair(pair: ProxyPair): PublicProxyPair {
     const status = this.status(pair.id);
     return {
-      ...pair,
+      ...materializeProxyPair(pair),
       running: status.running,
       actual_listen_port: status.actualListenPort,
     };
