@@ -19,6 +19,7 @@
     "check": "npm run format:check && npm run lint && npm run typecheck && npm run check:modules && npm run test && npm run build",
     "bundle:ui": "tsx scripts/build_ui_bundle.ts",
     "check:modules": "tsx scripts/check-module-edges.ts",
+    "check:skills": "vitest run test-node/docs/skills.test.ts",
     "abi:node": "node --enable-source-maps dist-node/scripts/native_abi_probe.js",
     "abi:electron": "node --enable-source-maps dist-node/scripts/native_abi_probe.js --electron",
     "abi:check": "npm run abi:node && npm run abi:electron",

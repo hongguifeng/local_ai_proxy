@@ -116,6 +116,7 @@
 | portable 包装器交付冒烟（真正发布的 exe）       | `npm run smoke:artifact`                                                                        |
 | 按顺序跑完两个交付冒烟                          | `npm run smoke:delivery`（先载荷，后包装器）                                                    |
 | 运行时模块环与越界导入                          | `npm run check:modules`                                                                         |
+| skills 元数据、引用与命令                       | `npm run check:skills`                                                                          |
 
 `npm rebuild better-sqlite3` 只在最终 Electron 重建之前跑一次；在 Electron 重建之后、打包之前
 再跑一次会让便携版带上 Node ABI 的模块并在启动时失败。Windows 上跑测试和基线命令请从大写
@@ -156,5 +157,5 @@ ABI 证明只认真实查询：`require("better-sqlite3")` 不碰原生绑定，
 
 ## 9. 仍未收口的事项
 
-配置与统计（AI-01、AI-02）、数据库版本来源（AI-03）、类型与 API 合同（AI-05～AI-09）、运行时边界、日志查询与持久化职责（AI-10～AI-13）、SSE 与场景测试（AI-14）、编译与交付入口、代理配置与负载均衡、历史与指标模块化（AI-15～AI-19）、UI 类型与 DOM 合同（AI-20）、渲染输入与缓存失效（AI-21）、组件样式归属（AI-22）已经收口。其余见
-[待办清单](./ai-development-optimization-todo.md)：skills 收口（AI-23）以及综合验收（AI-24）。旧配置键保留（AI-25）已经完成，综合验收仍需复核其最终交付证据。
+配置与统计（AI-01、AI-02）、数据库版本来源（AI-03）、类型与 API 合同（AI-05～AI-09）、运行时边界、日志查询与持久化职责（AI-10～AI-13）、SSE 与场景测试（AI-14）、编译与交付入口、代理配置与负载均衡、历史与指标模块化（AI-15～AI-19）、UI 类型与 DOM 合同（AI-20）、渲染输入与缓存失效（AI-21）、组件样式归属（AI-22）、skills 收口（AI-23）已经收口。其余见
+[待办清单](./ai-development-optimization-todo.md)：综合验收（AI-24）。旧配置键保留（AI-25）已经完成，综合验收仍需复核其最终交付证据。

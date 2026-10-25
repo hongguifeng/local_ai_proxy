@@ -1,15 +1,89 @@
 ---
 name: ui-test-quirks
 description: >-
-  Toolchain quirks: synchronous Request.postData in playwright-core 1.62, waitForResponse timing and response registration order, toHaveValues strict-mode failure, missing locator.uncheckAll, clock.install plus runFor and overlapping-refresh guards, no it.setTimeout (pass the timeout as the third it() argument), lint bans on null-stripping casts and dot-notation collisions, keepAlive agents against connect ENOBUFS, unhandled pageerror collected on every suite page and raised by the close hook so a broken page cannot pass. Use when writing or debugging UI or Node integration tests.
+  Pinned toolchain behavior for UI and Node integration tests: waitForResponse timing,
+  strict-mode selectors, synchronous postDataJSON, toHaveValues, clock.install with runFor and
+  refresh guards, the missing it.setTimeout, lint bans on non-null assertions and null-stripping
+  casts, focusable overlay rows, keepAlive agents against connect ENOBUFS, and page errors that
+  fail the test that provoked them. Use when writing or debugging UI or Node integration tests.
 ---
 
 # Pinned Playwright and Vitest behaviors in this repo
 
-These traps were learned in this repository and moved here verbatim from `AGENTS.md`;
-nothing was paraphrased.
+## When this applies
 
-- Playwright `page.waitForResponse` waits for a response received _after_ the call; a response that already delivered can miss it and the wait hangs until the 30 s timeout (observed when a handler fires a burst of fetches and an earlier-registered sibling wait or prior assertions consume the window). Register all series waits in one `Promise.all` together with the click that triggers the requests; for re-open/re-render flows where the requests already fired, skip the response waits and let the retrying `expect` assertions wait on the rendered DOM instead. Likewise, when duplicating an SVG chart for a second metric give the new chart its own container class and share only the inner element classes — reusing the original container class makes strict-mode selectors like `#pricingPanel .token-chart svg` in the UI tests resolve to two elements. The same strict-mode trap applies to tags: the breakpoint test selects `header:not(.summary-dialog-head)` on the page, so any new `<dialog>` head must be a `<div>` (not a `<header>`) or it silently breaks that test the moment the dialog is added to the DOM.
-- In the pinned playwright-core (1.62.0) `Request.postData()` / `Request.postDataJSON()` (reached via a page `Response.request()`) are _synchronous_ methods (`null | string` / `null | Serializable`) — do not `await` them; use `postDataJSON()` to assert POST bodies. `expect(locator).toHaveValues([...])` also misbehaves in this version: it throws a strict-mode violation even for a stable two-element locator, so assert per element with `nth(i)` + `toHaveValue()` instead. Note: the `APIResponse` returned by `page.request` (APIRequestContext) has `request()` in the typings but **not at runtime** in this version (`TypeError: request is not a function`), so body assertions must go through page `response` events / `waitForResponse`, not through the API request context. Timer-driven UI (auto-refresh intervals) is testable without wall-clock waits via `page.clock.install()` before `goto` + `page.clock.runFor(ms)` — in-page timers only advance when you run the clock forward, while `expect.poll`/web-first assertions still use real time; remember other app timers (e.g. log auto-refresh) fast-forward too and may fire extra stubbed fetches. A refresh timer that guards against overlapping requests (the metrics auto-refresh returns early while `metricsState.loading` is true) silently drops a tick when the previous fetch is still in flight, so clock-driven tests must first wait for that settle signal (the metrics dialog's `#metricsRefresh` button is disabled while loading — `toBeEnabled()` is the cheap wait) before `runFor`, or the call count comes up short on slow CI runners. Lint forbids both `!` and null-stripping `as` casts, so keep the target type nullable and guard (`const body = req.postDataJSON() as {…} | null; if (body === null) throw …;`). `locator.uncheckAll()` does not exist in this version - loop `nth(i).uncheck()` - and a checkbox inside a floating overlay times out as not visible until its toggle button is clicked, so click the toggle before ticking anything in the overlay. `noPropertyAccessFromIndexSignature: true` demands bracket access for index-signature properties while `@typescript-eslint/dot-notation` demands dots: they only collide when the local's type is a union with a concrete object shape, so give such locals one `Record<string, unknown>` type and keep brackets; `Array.isArray` on an `unknown` narrows to `any[]`, so annotate the map callback parameter as `unknown` or the `any` element leaks into an object literal and trips `no-unsafe-assignment`. Styled toggle switches used to be unclickable in tests: `.switch input` was `opacity: 0; width: 0; height: 0`, so a probe clicking `[data-lb-toggle]` waited forever and had to hit `label.switch`. The input now covers its whole 42 x 24 box (`position: absolute; inset: 0; z-index: 1`, still `opacity: 0`), so `check()` / `uncheck()` act on the input directly and label clicks keep working; any new switch styling must keep that non-zero box or tests hang again.
-- A Node integration test that opens dozens of sequential connections to one listener can fail on Windows with `connect ENOBUFS` while everything else stays green; share one `http.Agent({ keepAlive: true })` across the fixture's requests and destroy it in `afterEach`.
-- Every page the UI suite creates carries a `pageerror` listener (`resetStubAdminServer` in `test-node/ui/admin-ui-server.ts`), and `closeTestPage` raises whatever it collected before the page goes away, so a browser test cannot pass on a page that threw. Before it raises, `closeTestPage` drains the page task queue with one `page.evaluate(() => new Promise((resolve) => setTimeout(resolve, 0)))`: without that drain, a throw scheduled by `setTimeout(..., 0)` was reported after the hook had already asserted and the same test passed (measured: 1 passed without the drain, 1 failed with it). CDP is one ordered connection, so a round trip the browser answers only after its queued work cannot return before an earlier exception. A test that provokes an error on purpose reads `unhandledPageErrors()` first and then calls `closeTestPage()` itself and catches the throw - the raise empties the list, so the registered hook still closes the page. Nothing else consumes a page error: do not add a filter, an ignore list, or a retry.
+- You write or change a browser test under `test-node/ui/`.
+- A Playwright locator, click or wait hangs, or an assertion reports a strict-mode violation.
+- A clock-driven or connection-heavy test passes locally and fails on CI.
+
+## Invariants
+
+- `page.waitForResponse` waits for a response received _after_ the call. Register all series
+  waits in one `Promise.all` together with the click that triggers the requests; for
+  re-open/re-render flows where the requests already fired, skip the response waits and let the
+  retrying `expect` assertions wait on the rendered DOM.
+- When you duplicate an SVG chart for a second metric, give the new chart its own container
+  class and share only the inner element classes; otherwise a strict-mode selector such as
+  `#pricingPanel .token-chart svg` resolves to two elements. The same trap applies to tags: the
+  breakpoint test selects `header:not(.summary-dialog-head)`, so a new `<dialog>` head must be a
+  `<div>`.
+- In the pinned playwright-core, `Request.postData()` / `postDataJSON()` (reached through a page
+  `response.request()`) are synchronous — do not `await` them. `expect(locator).toHaveValues([...])`
+  throws a strict-mode violation even for a stable locator, so assert per element with
+  `nth(i)` + `toHaveValue()`. The `APIResponse` from `page.request` has `request()` in its
+  typings but not at runtime, so body assertions go through page `response` events.
+- Timer-driven UI is testable with `page.clock.install()` before `goto` plus
+  `page.clock.runFor(ms)`. Other app timers fast-forward too, and a refresh timer that guards
+  against overlapping requests silently drops a tick while the previous fetch is in flight, so
+  wait for that settle signal (the metrics dialog's `#metricsRefresh` is disabled while loading)
+  before advancing the clock.
+- Vitest has no `it.setTimeout`: pass the timeout as the third argument of `it()` / `describe()`.
+  `UI_TEST_TIMEOUT_MS` in `test-node/ui/admin-ui-fixture.ts` is that value.
+- Lint forbids both `!` and null-stripping `as` casts: keep the type nullable and guard, then
+  throw a named error. `noPropertyAccessFromIndexSignature` and `@typescript-eslint/dot-notation`
+  only collide on a union with a concrete object shape, so give such a local one
+  `Record<string, unknown>` type and keep brackets. `Array.isArray` on `unknown` narrows to
+  `any[]`, so annotate the callback parameter as `unknown`.
+- `locator.uncheckAll()` does not exist in this version — loop `nth(i).uncheck()`. A checkbox
+  inside a floating overlay times out as not visible until its toggle button is clicked.
+- Styled toggle switches must keep a non-zero hit box: `.switch input` is `position: absolute;
+inset: 0; z-index: 1` with `opacity: 0`, so `check()`/`uncheck()` act on the input directly.
+  A zero-size or `display: none` input makes those calls hang again.
+- A Node integration test that opens dozens of sequential connections to one listener fails on
+  Windows with `connect ENOBUFS` while everything else is green. Share one
+  `http.Agent({ keepAlive: true })` across the fixture's requests and destroy it in `afterEach`.
+- Every page the UI suite creates carries a `pageerror` listener, and `closeTestPage` raises
+  whatever it collected before the page goes away, so a browser test cannot pass on a page that
+  threw. A test that provokes an error on purpose reads `unhandledPageErrors()` first, calls
+  `closeTestPage()` itself and catches the throw. Nothing else consumes a page error: do not add
+  a filter, an ignore list, or a retry.
+- The browser suite is split by area into `test-node/ui/admin-ui-*.test.ts` on top of
+  `admin-ui-fixture.ts`, `admin-ui-server.ts` and `admin-ui-page.ts`, with dependencies only
+  pointing page → server → fixture. Stub knobs live inside the fixture module because ESM
+  imports are read-only views, so a test-side write goes through a `setX()` call while plain
+  reads keep working. Each file registers its own lifecycle hooks.
+
+## Standard commands
+
+```bash
+npm test -- test-node/ui
+npm run typecheck
+npm run lint
+```
+
+## Reading the result
+
+- `connect ENOBUFS` is a socket-resource failure, not a product failure; rerun the single file
+  to confirm, then fix the fixture's agent.
+- A 30-second timeout is usually a locator that matches nothing, a checkbox that is not visible,
+  or a wait registered after the response already arrived.
+- A test that reports a page error it did not provoke is a real page bug. Read the collected
+  message instead of adding an ignore rule.
+
+## Deeper material
+
+- [reference.md](./reference.md) — the version-specific evidence and the measured failure
+  signatures.
+- [../render-internals/SKILL.md](../render-internals/SKILL.md) — why some waits never settle.
+- `test-node/ui/admin-ui-server.ts` and `test-node/ui/admin-ui-page.ts` — the helpers these rules
+  apply to.

@@ -1,19 +1,95 @@
 ---
 name: packaging-smoke
 description: >-
-  Build and smoke-test the portable executable: the NSIS 7z payload hides strings so inspect release/win-unpacked app.asar with @electron/asar path gotchas, delete ELECTRON_RUN_AS_NODE before running the exe, the single-instance lock namespaced by userData plus fresh LLM_PROXY_DATA_DIR, history log roots resolved from the application config file directory, compression level and locale trimming knobs, and Windows login-item registration with path read-back. Use when building or smoke-testing the packaged app.
+  Build and smoke-test the portable exe: inspect release/win-unpacked app.asar instead of
+  the NSIS-wrapped exe, delete ELECTRON_RUN_AS_NODE before spawning it, isolate a run with
+  LLM_PROXY_DATA_DIR, a free port and LLM_PROXY_SMOKE_EXIT_FILE, resolve history log roots
+  from the application config's directory, and prove SQLite with a real query. Use when
+  building, packaging or smoke-testing the packaged app or its installer.
 ---
 
 # Portable packaging and smoke launches
 
-These traps were learned in this repository and moved here verbatim from `AGENTS.md`;
-nothing was paraphrased.
+## When this applies
 
-- The portable exe is an NSIS wrapper around a 7z-compressed `win-unpacked` payload: raw string search in the `.exe` misses code; verify build contents in `release/win-unpacked/resources/app.asar` (or extract the 7z payload with 7-Zip). When an LLM Proxy instance is already running, do not assume it is your own test launch — the exe name and version are unchanged across consecutive same-version builds; check the process creation time and extraction path (portables unpack to a `Temp` dir) before querying or killing it, and only kill processes you started.
-- Portable exe build: use `npm run package:electron:portable` to avoid also building the NSIS installer. `electron-builder.env` (auto-loaded by the CLI, listed in .prettierignore) sets `ELECTRON_BUILDER_COMPRESSION_LEVEL=1`; shell environment overrides this value. Level 1 trades a slightly larger exe for faster packaging; measure compilation, native rebuild, and packaging separately before tuning compression. `package:electron:dir` skips exe compression for local debugging. `win.electronLanguages` trims the 46MB locales dir to the wanted `.pak` files, but the matching is exact-per-locale: it must be `en-US`/`zh-CN`-style codes — a prefix like `en` or `zh` deletes ALL 55 locales and breaks the UI.
-- Windows login items (auto start): Electron's `setLoginItemSettings` supports a `path` option (Windows) that registers an arbitrary executable under the Run value named `electron.app.<app name>`; the portable NSIS launcher deletes its temp unpack dir on exit, so register the stable `PORTABLE_EXECUTABLE_FILE` it exports (fallback: `PORTABLE_EXECUTABLE_DIR` + `PORTABLE_EXECUTABLE_APP_FILENAME`) instead of the default `process.execPath`. Read-back is path-sensitive: `getLoginItemSettings` must receive the same `path`/`args` used at write time or `openAtLogin` reports false; turning off removes the value by name regardless of `path`. Probe these semantics cheaply with a `.cjs` Electron script via `npx electron` — the harness presets `ELECTRON_RUN_AS_NODE=1` in this shell, which silently degrades the launch to plain Node (clear it from the child env when spawning packaged exes too).
-- Packaging content and smoke entry point: `npx asar list release/win-unpacked/resources/app.asar` is the fastest way to confirm what ships (electron-builder `files` enumerates the three compiled trees `dist-node/src/**/*`, `dist-node/electron/**/*` and `dist-node/scripts/**/*` plus `package.json`; since AI-15 the product compile runs through `tsconfig.build.json` and never emits tests, so a `dist-node/test-node` left behind by a pre-split build cannot be packaged but can still mislead the reasoning of anyone who did not delete it. A merged payload measures 3,085 entries with `dist-node` at 421 — 336 `src`, 33 `electron`, 48 `scripts` files and 4 directory entries); to read one entry back, `@electron/asar` `extractFile(archive, filename)` needs both arguments and wants the backslash-separated path **without** the leading `\` that `asar list` / `listPackage` print (`dist-node\src\admin\static\app.js`): the listed form raises `"…" was not found in this archive`, forward-slash paths raise the same, and a one-argument call reads the string as the archive path and dies inside `readArchiveHeaderSync`; bash eats escaped backslashes in `node -e` / heredoc source, so build that path in a script file by joining segments with `String.fromCharCode(92)`. `npm run smoke:artifact` and `npm run smoke:payload` delete `ELECTRON_RUN_AS_NODE` from the child environment before they spawn (`smokeChildEnvironment` in `scripts/smoke_harness.ts`, guarded by `test-node/electron/smoke-harness.test.ts` so a spawn that hands the inherited environment to a child fails the gate instead of being discovered by hand), so the packaged `LLM Proxy.exe` runs as Electron. A manual spawn still has to clear the variable itself: an exe that keeps it degrades to plain Node and dies at once (exit 0 for `release/win-unpacked`, exit 9 `bad option` when the portable stub forwards the flags) with no output at all. The portable stub unpacks into a Temp dir named for the app version, so a smoke launch while the user's same-version portable instance is running shares that dir and the app never binds its admin port; `did not become healthy` there is not a packaging regression. Verify the payload without that collision by running `release/win-unpacked/LLM Proxy.exe --no-browser --port <free>` with `ELECTRON_RUN_AS_NODE` deleted and polling `/api/health`. App flags such as `--port` only reach the app when the exe runs as Electron: with `ELECTRON_RUN_AS_NODE=1` Node parses the argv instead and dies with `bad option: --port` (exit 9), which is the death previously attributed to `release/win-unpacked/LLM Proxy.exe` — with the variable cleared that unpacked exe accepts `--no-browser --port <free>` and serves `/api/health` in about a second. `npm run smoke:artifact` must still target the portable artifact because the stub plus 7z payload is what ships. The harness's health deadline is now 60 s (`DEFAULT_HEALTH_DEADLINE_MS = 60_000` in `scripts/smoke_harness.ts`, with `SHUTDOWN_DEADLINE_MS = 30_000` and `DATABASE_DEADLINE_MS = 20_000`), and a clean integrated run measured 3,436 ms to health for the wrapper plus 557 ms for the unpacked payload, so `did not become healthy` points at the launch environment or a shared unpack dir rather than at a deadline that is too short.
-- Electron's single-instance lock is namespaced by the userData directory, so a packaged portable exe can be smoke-tested alongside a user's running instance by pointing `LLM_PROXY_DATA_DIR` at a fresh dir and `--port` at a free ephemeral port (combine with `LLM_PROXY_SMOKE_EXIT_FILE` for clean shutdown, as `scripts/artifact_smoke.ts` does). This shell expands `$_`, which breaks PowerShell one-liners (`$_` becomes `/usr/bin/bash.ProcessName`) — run PowerShell logic from a `.ps1` file or use `tasklist`; `Get-CimInstance Win32_Process` with `CreationDate`/`ExecutablePath`/`CommandLine` is what tells the user's instance apart from a smoke launch. Spawning Node from a script in this shell needs `process.execPath` (`spawn("node", …)` fails with `spawn node ENOENT`), and a bash `/tmp/...` cwd is not usable for a Windows child process — take the throwaway cwd from `os.tmpdir()`, and give the executable an absolute `path.resolve(...)` there, because a relative exe path is resolved against that cwd and fails with `spawn ... ENOENT`. After `npm run rebuild:electron`, a plain-Node run of the DB-backed admin APIs returns 500 `ERR_DLOPEN_FAILED`: that is the Electron-ABI state of `better-sqlite3`, not a bug in the app. Probing that state needs a real query: `require("better-sqlite3")` alone never touches the native binding, so it prints success even while the binary carries the Electron ABI — open a `:memory:` database and run `select 1` before concluding anything about which ABI is installed.
-- History log roots resolve relative to the **application config file's directory** (`logRootBaseDirectory: path.dirname(options.applicationConfigFile)` in `src/app/runtime.ts`), not the child's cwd and not `--log-root` alone. A smoke run whose `--application-config` is a throwaway copy therefore shows an empty history (0 groups, and every task-brief endpoint 404) even when the real log root is named — pass the portable app's own `llm-proxy.json` (the app only writes it when missing) while keeping `LLM_PROXY_DATA_DIR` fresh for the single-instance lock. The production `traffic.db` is ~10 GB: give a real-data launch a generous health deadline and prefer pointing at the real log root over copying that file. Copy the pairs config instead and move its `listen_port` off the port the user's instance holds — and move `summary_model.target_url` with it when it points back at that same listener, or the model call hits a dead port.
-- A smoke that only fetches `/`, `/static/app.css` and `/static/app.js` does not prove SQLite works in the payload, because a fresh data dir with no configured proxy never opens the database. Ask `GET /api/logs?limit=5` and confirm `traffic.db` appears in that run's log root (~180 KB on a fresh schema); that is also the cheapest way to separate a real ABI failure from a launch problem. It showed the packaged `app.asar` copy of `better_sqlite3.node` byte-identical to the file in `node_modules` while the app still opened the database, so comparing binaries is not evidence — loading one through the admin API is.
-- When `electron-builder` cannot reach the network (`Client network socket disconnected before secure TLS connection was established`, `failedTask=build`) the Electron zip is not in the local cache, so every target re-downloads it and the build dies even though `nsis`, `nsis-resources` and `7zip` are already cached under `%LOCALAPPDATA%\electron-builder\Cache`. Build against the runtime already unpacked in the worktree instead — `npx electron-builder --dir --publish never -c.electronDist=node_modules/electron/dist`, then the same override for `-w portable` — after confirming the installed Electron release matches the `electronVersion` the configuration asks for (`npm ls electron`, or read the `electron` package manifest); the payload then carries the same Chromium as a downloaded build, which is what makes a smoke run still meaningful. `npm run abi:electron` keeps working offline because `scripts/native_abi_probe.ts` spawns the local `node_modules/electron`, so an ABI proof is available even while packaging is not.
+- You build the Windows portable exe or the installer, and need to know what shipped.
+- A packaged launch fails to become healthy, or answers 500 on a database route.
+- You change the smoke harness entry points or the Electron main process.
+
+## Invariants
+
+- The portable exe is an NSIS wrapper around a 7z-compressed `win-unpacked` payload, so raw
+  string search in the `.exe` finds nothing. Verify contents in
+  `release/win-unpacked/resources/app.asar` (or extract the 7z payload with 7-Zip).
+- The exe name and version do not change between consecutive same-version builds. Tell your
+  launch from the user's by process creation time and unpack path (portables unpack into a
+  `Temp` directory), and only kill processes you started.
+- `npm run package:electron:portable` builds the portable target only; `package:electron:dir`
+  skips exe compression for local debugging. `electron-builder.env` sets the compression
+  level (a shell variable overrides it) and `win.electronLanguages` trims the locales
+  directory — its entries must be exact codes such as `en-US`/`zh-CN`, because a prefix like
+  `en` deletes every locale and breaks the UI.
+- Delete `ELECTRON_RUN_AS_NODE` from the child environment before spawning a packaged exe.
+  `npm run smoke:payload` and `npm run smoke:artifact` do it in `smokeChildEnvironment`
+  (`scripts/smoke_harness.ts`), guarded by
+  `test-node/electron/smoke-harness.test.ts`; a manual spawn that keeps it degrades to plain
+  Node and dies with no output (exit 0 for the unpacked exe, exit 9 `bad option` through the
+  portable stub), and app flags such as `--port` only reach the app when it runs as Electron.
+- Isolate every run: the single-instance lock is namespaced by the userData directory, so a
+  fresh `LLM_PROXY_DATA_DIR`, a free `--port`, an absolute log root and
+  `LLM_PROXY_SMOKE_EXIT_FILE` let a packaged exe run beside the user's instance and exit
+  cleanly. The portable stub unpacks into a Temp directory named for the app version, so a
+  same-version instance that is already running shares it and the app never binds its admin
+  port; `did not become healthy` there is not a packaging regression.
+- History log roots resolve relative to the **application config file's directory**
+  (`logRootBaseDirectory: path.dirname(options.applicationConfigFile)` in
+  `src/app/runtime.ts`), not the child's cwd. A run whose `--application-config` is a
+  throwaway copy shows an empty history even when the real log root is named.
+- A smoke that only fetches `/`, `/static/app.css` and `/static/app.js` does not prove
+  SQLite works in the payload: a fresh data dir with no configured proxy never opens the
+  database. Ask `GET /api/logs?limit=5` and confirm `traffic.db` appears in that run's log
+  root.
+- `require("better-sqlite3")` never touches the native binding, so it prints success under
+  either ABI. Prove the ABI by opening a database and running a query: `npm run abi:check`,
+  or `npm run smoke:database` against the packaged production dependencies.
+- Offline packing uses the runtime already unpacked in the worktree:
+  `-c.electronDist=node_modules/electron/dist`, after confirming `npm ls electron` matches the
+  configured `electronVersion`.
+- After `npm run rebuild:electron`, a plain-Node run of the DB-backed admin APIs returns 500
+  `ERR_DLOPEN_FAILED`. That is the Electron ABI state, not an app bug; `npm run rebuild:node`
+  restores the Node one.
+
+## Standard commands
+
+```bash
+npm run package:electron:portable
+npm run smoke:payload
+npm run smoke:artifact
+npm run smoke:delivery
+npm run abi:check
+npm run smoke:database
+
+npx asar list release/win-unpacked/resources/app.asar
+```
+
+## Reading the result
+
+- A clean smoke proves: `/api/health` healthy, one real proxy round trip at 200,
+  `GET /api/logs?limit=5` at 200 with `total >= 1`, and `traffic.db` present in that run's log
+  root; the temporary config and data directory are removed afterwards.
+- A 500 on the logs API is a SQLite binding problem (ABI or packaging), not a route problem.
+- When the wrapper smoke fails, run `npm run smoke:payload` first: the stub releases its
+  unpack directory on exit, so a concurrent same-version run can hit "unpack directory
+  conflict", which the harness reports as a conflict rather than a payload regression.
+- The health deadline is 60 s (`DEFAULT_HEALTH_DEADLINE_MS` in `scripts/smoke_harness.ts`),
+  so a timeout points at the launch environment or a shared unpack directory, not at a
+  deadline that is too short.
+
+## Deeper material
+
+- [reference.md](./reference.md) — asar path semantics, payload entry counts, measured
+  startup times, login-item registration and the shell traps around spawning.
+- [current-architecture.md](../../../docs/current-architecture.md) §7 — the delivery entry
+  table and the ABI rules.
+- [real-upstream-acceptance.md](../real-upstream-acceptance/SKILL.md) — running a payload
+  against real traffic.
