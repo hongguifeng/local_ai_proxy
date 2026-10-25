@@ -123,7 +123,7 @@ P0 是已复现的功能缺陷；P1 是契约、文档和后端基础；P2 是�
 | [ ]  | AI-13 | P1     | 稳定历史迁移依赖            | AI-03、AI-10、AI-12                                                                                                                                             | 未开始 |
 | [ ]  | AI-14 | P1     | 补齐场景测试并稳定时序验证  | AI-01、AI-02、AI-05、AI-08、AI-09                                                                                                                               | 未开始 |
 | [x]  | AI-15 | P2     | 分离产品、测试与工具编译    | 无                                                                                                                                                              | 已完成 |
-| [ ]  | AI-16 | P2     | 固化 ABI 和交付冒烟流程     | AI-15                                                                                                                                                           | 在办   |
+| [x]  | AI-16 | P2     | 固化 ABI 和交付冒烟流程     | AI-15                                                                                                                                                           | 已完成 |
 | [ ]  | AI-17 | P2     | 建立前端模块构建入口        | AI-08、AI-15                                                                                                                                                    | 未开始 |
 | [ ]  | AI-18 | P2     | 模块化代理配置与负载均衡    | AI-17                                                                                                                                                           | 未开始 |
 | [ ]  | AI-19 | P2     | 模块化历史、详情和指标      | AI-11、AI-17、AI-18                                                                                                                                             | 未开始 |
@@ -347,11 +347,11 @@ P0 是已复现的功能缺陷；P1 是契约、文档和后端基础；P2 是�
 
 入口：[npm scripts](../package.json)、[数据库 smoke](../scripts/database_smoke.ts)、[产物 smoke](../scripts/artifact_smoke.ts)、[发布工作流](../.github/workflows/release.yml)。
 
-- [ ] 为 Node 与 Electron 验证提供明确入口，用真实查询证明 SQLite ABI。
-- [ ] 将清理 ELECTRON_RUN_AS_NODE 等启动条件写进脚本。
-- [ ] 使用唯一临时配置、独立 userData、空闲端口和可追踪的子进程。
-- [ ] 除 health 外，检查日志接口和实际建库；关闭后清理临时资源。
-- [ ] 区分 portable 包装器与 unpacked 载荷冒烟，按顺序执行，避免共享目录冲突。
+- [x] 为 Node 与 Electron 验证提供明确入口，用真实查询证明 SQLite ABI。
+- [x] 将清理 ELECTRON_RUN_AS_NODE 等启动条件写进脚本。
+- [x] 使用唯一临时配置、独立 userData、空闲端口和可追踪的子进程。
+- [x] 除 health 外，检查日志接口和实际建库；关闭后清理临时资源。
+- [x] 区分 portable 包装器与 unpacked 载荷冒烟，按顺序执行，避免共享目录冲突。
 
 验收：错误 ABI 有可理解的诊断；打包后可访问数据库并正常退出。portable 解包路径碰撞不得被误报为 payload 回归；脚本只关闭自己启动的进程。
 
@@ -522,7 +522,7 @@ P0 是已复现的功能缺陷；P1 是契约、文档和后端基础；P2 是�
 - [x] AI-10：运行时依赖环消除，并有有效的自动检查。
 - [ ] AI-11～13：查询、模型生成和存储职责明确，历史迁移结果稳定。
 - [ ] AI-14：操作序列和流式边界有回归测试，时序问题有定位记录。
-- [ ] AI-15～16：产品构建、测试检查、ABI 与交付验证入口明确可重复。
+- [x] AI-15～16：产品构建、测试检查、ABI 与交付验证入口明确可重复。
 - [ ] AI-17～20：前端通过模块边界协作，过渡桥接清除，严格检查生效。
 - [ ] AI-21：渲染与缓存输入一致，刷新和大正文体验保持。
 - [ ] AI-22：组件样式归属明确，层叠与像素验证无意外变化。
@@ -709,3 +709,13 @@ UI 截图、性能或迁移结果（适用时）：
 - 写进任务包的实测事实：`scripts/artifact_smoke.ts` 用 `env: { ...process.env, ... }` 启动 portable exe 且**从不删除** `ELECTRON_RUN_AS_NODE`；参数只有 `--port <空闲>` 与**相对**的 `--config-file smoke/proxies.json`、`--log-root smoke/logs`，根本没有 `--application-config`；健康之后它只写退出文件并等 10 秒看端口释放，**从不请求 `/api/logs`、从不错看 `traffic.db`**（即清单第 4 条的空缺）；健康截止 30 秒，而陷阱清掉后本机实测 3.0 秒就健康，陷阱没清掉时 exe 直接退化成纯 Node、永远不会健康；`test-node/electron/artifact-smoke.test.ts` 只钉了 `findPortableArtifact`（选 portable `.exe`、缺产物时报 `Portable artifact not found`）；`.github/workflows/release.yml` 有一步 `npm run smoke:artifact`。本 shell 此刻实测 `ELECTRON_RUN_AS_NODE=1`，就是那个坑的现场。
 - 对写者的硬要求：两个方向都要证明（先复现陷阱下的失败，再证明修好后能过），并加一条断言“spawn 子进程的环境里不再有 `ELECTRON_RUN_AS_NODE`”，让以后回归在门禁里死而不是靠人现场发现；交付冒烟必须看 `/api/logs`（200、total ≥ 1、不是 500——500 代的是载荷里 ABI 不对，不是应用 bug）与该运行日志根里真的出现 `traffic.db`；portable 包装器与 unpacked 载荷两条路分开跑、按顺序跑，共享解包目录争用要报可理解的提示而不是报成“载荷回归”；ABI 一律用 `:memory:` 查询证明，`require("better-sqlite3")` 在两种状态下都报成功、不算证据；只杀自己启动的进程。
 - 实时看护两次报了同一个子代理“bash 长时间未返回”，父侧第一版判断**是错的**，后来被实测推翻：`npm run abi:electron` 并没有卡住，它在 15:52 正常结束并报 `electron ABI probe finished with exit code 1`（日志从 113 字节长到 204 字节）——npm 的子进程是在退出时才写输出，所以“跑着的时候日志很短”是正常现象，不是卡住的证据；我当时“lane 里没有任何进程”的判断同样无效，因为按 CommandLine 匹配 worktree 路径的过滤器永远匹配不上 `npm run build`（npm 不把 cwd 写进命令行）。可复用经验：**判断子代理是否卡住要看进程是否存在（过滤器按可执行名与参数，别按路径）、产物 mtime 是否推进、日志是否只在退出时落地、以及 turn/tool 计数是否还在涨；单看时长或日志长度会误判**。误判的代价是编排方发出一条“别再等”的 steer，可能让写者放弃一条本来正当的验证——已发第二道 steer 撤回并要求继续 V-P。顺带记下一个真缺陷：`native_abi_probe.js --electron` 在纯 node 下运行、而装的是 Electron ABI 时，证明的只是**纯 Node 打不开那个二进制**（`ERR_DLOPEN_FAILED`），文案却写成“Electron 运行时打不开 SQLite”——报错了运行时名字。要证明 Electron 侧能开库，要么把 `ELECTRON_RUN_AS_NODE` 从 spawn 环境删掉后在 Electron 内跑探针，要么看打包载荷在 Electron 里 `GET /api/logs` 报 200。两个方向必须在报告里分开：纯 Node 打不开 Electron ABI 二进制是预期现象、不是载荷回归；Electron 打不开 SQLite 才是真回归。
+
+### AI-16 完成记录
+
+- 状态：**已完成（带偏差）**，由编排方验收。lane 提交 `512f80e`（清理启动环境、真实 ABI 探测、拆分两条冒烟）、`ff78123`（把冒烟变量交给子进程、按路径跑 Electron 探针）、`9db2f6d`（把解包目录争用归类为启动碰撞），squash 合并进 main 为 `6c21d74`，**零冲突**。以上“在办记录”保留作审计。
+- 子代理**没交回 handoff**：workflow `435730e3-5fff-4228-82c3-3bf30dff526e` 在 2,700,000 ms 上限处超时（子运行 `4628797b-d4d4-40bb-8ca4-1d78b8dae647` 被停），所有事实由编排方从 lane 提交与实测重建。
+- 编排方在 lane 内独立复现：`npm run typecheck` exit 0 且 0 `error TS`；`npm run lint` exit 0；`npx prettier --check .` exit 0；`npm run check:modules` exit 0 报 `115 modules: 247 runtime edges, 75 type-only / runtime cycles: 0; boundary violations: 0`；`npm run abi:node` exit 0 报 `better-sqlite3 answered a real query in node (NODE_MODULE_VERSION 137, query result {"a":1})`；`test-node/electron` 17 文件 50 测全过；`test-node/docs` 11 文件 27 测全过。断言审计：`git diff ad8a600..HEAD -- test-node/` 删 0 行断言、新增 11 处声明——计数用 `^\s*(it|test)\(`，因为 `emit(` 与 `await(` 含子串 `it(` 会让粗粒度 grep 多算。全量对账：声明测试 `871 → 881`（+10），测试文件 `118 → 119`（+1），无删除。
+- 合并后的集成验收（本轮关键证据）：main 上 typecheck / lint / prettier / `check:modules` 全 exit 0；`npm run package:electron` exit 0（portable `107,740,822` 字节，NSIS installer `107,963,236` 字节）；`npm run abi:electron` exit 0 报 `NODE_MODULE_VERSION 143, query result {"a":1}`；`npm run smoke:delivery` 在**本 shell 仍带 `ELECTRON_RUN_AS_NODE=1`** 的前提下 exit 0——unpacked payload：health 557 ms、proxy 200、`GET /api/logs?limit=5` 200 total 1、`traffic.db` 4096 字节；portable wrapper：health 3436 ms、proxy 200、同一组结果。修复前 `npm run smoke:artifact` 在同一 shell 里必然报 `did not become healthy`，所以“陷阱还在但冒烟能过”就是验收本身。
+- 错误 ABI 的诊断文案实测可行动：`better_sqlite3.node carries the ABI built for NODE_MODULE_VERSION 137 while electron needs 143, so it cannot be loaded here: run npm run rebuild:electron before packaging or running a packaged executable.`（exit 1），反方向 exit 0。
+- 与本清单的偏差、剩余事项：一、子代理自己的 V-P 没跑成——16:09 那次 `electron-builder` 因网络 TLS 抖动失败（`Client network socket disconnected before secure TLS connection was established`，`got` 栈，`BUILDER_EXIT=1`），与它的代码无关；编排方集成 V-P 成功，产物结论成立。二、`abi:check` 在只装了 Node ABI 的工作树里必然失败（`abi:node` 过后 `abi:electron` 报 ABI 不匹配并 exit 1），这是 ABI 状态的耦合不是 bug，用之前先确认装的是哪种。三、UI 基线未动（本次不改渲染）。四、全量 `npm run check` 本轮未跑：另一条 lane 还在跑测试，两条全量并发有 `listen ENOBUFS` 前科，留到 AI-08 落定后一次跑。
+- 顺带更正编排方两处误判：`git diff --stat | tail` 截断让我一度以为 skill 没更新（`.agents/skills/packaging-smoke/SKILL.md` 实际就在合并清单里，已写明 `smokeChildEnvironment` 与它的门禁测试）；健康截止已从 30 秒改为 `DEFAULT_HEALTH_DEADLINE_MS = 60_000`（shutdown 30 s、建库 20 s），skill 里那句“30 s 可能太短”同步修掉。
