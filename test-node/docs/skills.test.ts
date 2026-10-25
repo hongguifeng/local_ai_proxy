@@ -40,6 +40,18 @@ const uncheckedPrefixes = [
   ".ui-check/",
 ];
 
+// Pi loads the whole file once it decides a skill applies, so every skill answers the
+// same five questions in the same order: when it applies, what must stay true while it
+// runs, how to run it, how to read the result, and where the long version lives. The
+// headings are the contract; the wording under them is content and is reviewed.
+const requiredSections = [
+  "## When this applies",
+  "## Invariants",
+  "## Standard commands",
+  "## Reading the result",
+  "## Deeper material",
+] as const;
+
 interface SkillDocument {
   directory: string;
   file: string;
@@ -103,6 +115,18 @@ function isUncheckedPath(reference: string): boolean {
   return uncheckedPrefixes.some((prefix) => reference.startsWith(prefix));
 }
 
+function markdownLinkTargets(body: string): string[] {
+  const targets: string[] = [];
+  for (const match of body.matchAll(/\[[^\]]*\]\(([^)\s]+)\)/g)) {
+    const target = match[1];
+    if (target === undefined) continue;
+    // A URL, a bare anchor, or an absolute path is not a file this repository owns.
+    if (/^(?:[a-z][a-z0-9+.-]*:|#|\/)/i.test(target)) continue;
+    targets.push(target.split("#")[0] ?? "");
+  }
+  return targets.filter((target) => target !== "");
+}
+
 function repoPathReferences(body: string): string[] {
   const references: string[] = [];
   // A leading "@" is a package name (@electron/asar), and a leading "/" means
@@ -154,6 +178,55 @@ describe("project skills", () => {
         problems.push(`${document.directory}: block scalar was not unfolded, length ${description.length}`);
       } else if (description.length > 1024) {
         problems.push(`${document.directory}: description is ${description.length} characters, over 1024`);
+      } else if (!description.includes("Use when")) {
+        problems.push(`${document.directory}: description does not say when to use it`);
+      }
+    }
+    expect(problems).toEqual([]);
+  });
+
+  it("answers when, what must hold, how to run it, how to read it and where to go deeper", async () => {
+    const documents = await loadSkills();
+    const problems: string[] = [];
+    for (const document of documents) {
+      const headings = document.body
+        .split("\n")
+        .filter((line) => line.startsWith("## "))
+        .map((line) => line.trim());
+      const positions: number[] = [];
+      for (const heading of requiredSections) {
+        const occurrences = headings.filter((candidate) => candidate === heading).length;
+        if (occurrences !== 1) {
+          problems.push(`${document.directory}: expects exactly one "${heading}", found ${occurrences}`);
+        }
+        positions.push(headings.indexOf(heading));
+      }
+      const present = positions.filter((position) => position >= 0);
+      const sorted = [...present].sort((left, right) => left - right);
+      if (present.join(",") !== sorted.join(",")) {
+        problems.push(`${document.directory}: the required sections are out of order`);
+      }
+      const deeper = document.body.slice(document.body.indexOf("## Deeper material"));
+      if (markdownLinkTargets(deeper).length === 0) {
+        problems.push(`${document.directory}: "## Deeper material" links nothing`);
+      }
+    }
+    expect(problems).toEqual([]);
+  });
+
+  it("resolves every local link relative to the skill that carries it", async () => {
+    const documents = await loadSkills();
+    const problems: string[] = [];
+    for (const document of documents) {
+      for (const target of markdownLinkTargets(document.body)) {
+        const resolved = path.resolve(path.dirname(document.file), target);
+        if (!resolved.startsWith(repositoryRoot)) {
+          problems.push(`${document.directory}: ${target} points outside the repository`);
+          continue;
+        }
+        if ((await stat(resolved).catch(() => undefined)) === undefined) {
+          problems.push(`${document.directory}: ${target} does not exist`);
+        }
       }
     }
     expect(problems).toEqual([]);

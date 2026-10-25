@@ -1,17 +1,115 @@
 ---
 name: render-internals
 description: >-
-  Internal rebuild rules: renderLogs incremental task sections keyed by logGroupRenderSignature, taskPricingRendered panel skipping, jsonPaneHtml caching, the lazy JSON tree with jsonMaterializeQueue, the row-window rAF watcher and content-visibility hints, scroll anchoring and sticky header geometry, the pending-row sweep and refresh pagination. Use when a state change never shows up, the page freezes, scrolling blanks or a UI test waits forever.
+  How the admin UI rebuilds itself: renderLogs sections keyed by logGroupRenderSignature,
+  task-detail panel skipping, jsonPaneHtml caching, the lazy JSON tree with
+  jsonMaterializeQueue, content-visibility with contain-intrinsic-size, the row-window rAF
+  watcher, scroll anchoring and sticky header geometry, refresh pagination and the language
+  panel registry. Use when a state change never shows up, the page freezes, scrolling
+  blanks, or a UI test waits forever.
 ---
 
 # How the admin UI rebuilds itself
 
-These traps were learned in this repository and moved here verbatim from `AGENTS.md`;
-nothing was paraphrased.
+## When this applies
 
-- What the user experiences as "slow to show the JSON" on a big record is almost entirely the detail round trip, not the tree: for a 930 KB body the click chain is renderLogs ~9 ms, fetch ~50 ms (server assembles the body in ~23 ms, then the browser reads ~1 MB in ~28 ms), `res.json` ~6 ms, line-width probes ~13 ms, `renderJsonPane` ~23 ms. Take the fetch out of the critical path instead of optimizing the rest: `pointerover` on a row arms a 50 ms dwell (a fast sweep across a long list must not turn every row into a megabyte request) and `pointerdown`/`focusin` prefetch immediately, because the button is held for tens of milliseconds before the click event that follows the release; `logDetailPrefetch` is bounded by both entry count and `content-length` bytes (a 5 MB body arrives as a ~10 MB JSON response), pending rows are skipped since their body is still growing, and an in-flight entry is awaited rather than duplicated. Measured on the real instance with a 5.8 MB body: hover-then-click ~25 ms versus ~400 ms before; a cold click with no hover is still bound by the transfer. HTTP compression is a trap for these payloads - a base64 image body only reaches 58.7 % with gzip and costs ~200 ms of CPU to save ~100 ms of loopback transfer, i.e. net worse.
-- The line-width probe pass (`prepareJsonMeasurements` → `collectJsonMeasureProbes`) only needs the strings the current render will paint, so the initial render collects probes down to `defaultJsonExpandedDepth` and `materializeJsonNode` batch-measures the subtree it is about to fill (a per-string fallback forces a layout per string, which is what would stall the drain). The probe map stores intrinsic text widths under a fixed font, keyed by display text, so pane-width changes only change fit decisions and which missing strings need probes; keep measurements across pane resizes and size-cap the map so a long session over many huge bodies cannot grow it unboundedly. ResizeObserver updates the width used by later lazy fills; a splitter move does not rebuild existing markup, and the next render applies the new width while restoring the view.
-- The record list pages 20 rows per request, so a record deep inside a several-hundred-record task only reaches the DOM after repeated `[data-load-more-records]` clicks; and expanding one level _creates_ new lazy nodes for the next level, so an assertion that every `[data-json-lazy]` node is `done` can never pass - wait for the count that existed before the click to be filled.
-- The history list renders incrementally: `renderLogs` only rebuilds the task sections whose `logGroupRenderSignature` changed (cached in `state.logSections`) and leaves every other section's DOM nodes in place, so any state that changes the markup must be part of that signature - language, the group checkbox, expanded/loading flags, the selected row, and every per-record field a row prints. The task-detail panel skips rebuilds the same way through `state.taskPricingRendered`; a new panel block must show up in `taskPricingRenderSignature` (pricing payload, all three series, `state.activeTaskGroup`) or a refresh keeps the old DOM and the block looks like it never rendered. Diagnose admin-UI jank with a throwaway Playwright probe that wraps `window.renderLogs` / `window.renderTaskPricingPanel` with `performance.now()` and counts `MutationObserver` churn, backed by the read-only real `LogQueryService` on the production `traffic.db` - pixel diffing answers the wrong question here. The panel draws one `<circle>` per request, so its rebuild cost scales with the task's request count: it is the dominant per-tick cost once a panel is open. The JSON panes cache their last markup in `state.jsonPaneHtml` for the same reason: building the tree string is cheap (~80 ms for a several-hundred-kilobyte body) while assigning it is what costs seconds, because the tree is tens of thousands of `<details>` nodes - a selected record that is still pending used to be re-parsed on every auto-refresh tick, which froze the page. Time the panes by wrapping `window.renderJsonPane` with `performance.now()` (globals are reachable because `app.js` is a classic script, unlike the module-scoped `state`). Above `lazyJsonEntryLimit` the tree renders lazily: a node that starts collapsed is emitted with `data-json-lazy="1"` and an empty `.json-children`, and its children are only built when the pane's capture-phase `toggle` listener fires - so every path that opens a node programmatically (notably `restoreJsonPaneViewState` assigning `detail.open`, and the expand-one-level button) must materialize as well. Lazy fills go through the time-budgeted `jsonMaterializeQueue`: each node is filled _before_ it opens (never paints empty) and the drain is kicked from `setTimeout(0)`, never synchronously, so the expand click returns sub-millisecond instead of blocking ~300 ms on multi-megabyte bodies; non-lazy trees must still open nodes directly in the click handler because the queue skips unmarked nodes (the one-level-at-a-time UI test guards this). In this Chromium the `toggle` event is a queued task, so a frame can paint a programmatically opened lazy node before the capture-phase listener materializes it - the "empty next level" flash that motivated filling before opening. Proving a served-script patch actually executed: `getEventListeners` is DevTools-console-only and CDP `DOMDebugger.getEventListeners` returns an empty function description here, so instrument the served script with a global hit counter. A `clientWidth` read after the tree was mutated forces a synchronous re-layout of the whole pane - `materializeJsonNode` reads `jsonLineWidthCache` instead, kept fresh by a `ResizeObserver` and the render path; and the toggle listener's button refreshes must coalesce into one timeout per burst (`schedulePaneButtonsUpdate`) because per-toggle updates re-scan the whole tree hundreds of times. The residual lag on the _second_ expand click is layout, not JS: every fill re-lays-out the whole visible tree (16k+ nodes = 100-300 ms frame gaps per drain batch), so `.json-row` carries `content-visibility: auto` (app.css) to contain invalidation and skip offscreen subtrees - and rows the browser has never realized then need an accurate `contain-intrinsic-size`, which `countJsonLinesWalk` estimates from the subtree's _current open state_ (collapsed nodes/strings count as their single summary line) and `jsonRowHtml` bakes into the row's inline style; `materializeJsonNode` must refresh the parent row's hint after filling or the scrollbar stays underestimated ~6x (a hint of `auto 18px` alone gives a scrollHeight that never reaches the real bottom). Chromium still realizes a row that scrolled into view one frame _after_ it paints (a blank flash while scrolling), so the rows around the viewport are pre-realized by `updateJsonRowWindow` + the per-pane scroll-armed `requestAnimationFrame` watcher (rAF runs before that frame's paint; clamp the hint into the cached row list after a rebuild or it points past a shrunken list). That walker moves by index through the cached flat `.json-row` list, which is document order and therefore top-to-bottom order; DOM-neighbour walking is not usable here because rows inside a collapsed `<details>` are `display:none` with a zero rect, which makes geometric/binary search over the flat list non-monotonic _and_ lets a forward walk run to the end of the list, so bound the step count. A fling lands hundreds of rows away from where the walk last stopped, so a jump bigger than the viewport re-anchors by striding the list instead of walking to the landing point one row at a time - a fixed 24-step walk leaves the rows the user scrolled onto blank. Scroll events are dispatched _after_ the frame's animation frame callbacks, so a `page.evaluate` that assigns `scrollTop` and waits a couple of rAFs measures before the watcher has run: split the scroll and the measurement into two evaluates with real time between them (the fast-scroll UI test does exactly this). Compare rects in scroll-content coordinates (`box.top - paneRect.top + scrollTop`); comparing `scrollTop` against raw `getBoundingClientRect()` values reads the wrong rows and makes a working walker look broken. Rows that span the whole document (the root row, a depth-1 ancestor) are never off screen, so Chromium always realizes them and the watcher may leave them unmarked - exclude rows taller than the scrollport when asserting nothing is blank. To reach scroll scale in a UI test, install a synthetic body with `window.applySelectedLogDetail(...)`; the refresh tick overwrites it with the stub fixture, so uncheck `#autoRefreshLogs` first. Never use an always-on rAF loop there: a self-perpetuating rAF chain never settles under `page.clock` and hangs fake-clock tests (the metrics auto-refresh test timed out). Batch style writes after rect reads - interleaved write/read thrashing cost ~900 ms per scroll event, windowed + batched costs 5-20 ms. Measure smoothness with real `page.mouse.wheel` (the input pipeline, where the scroll task runs before the frame's rendering), not programmatic `scrollTop`; a probe that scans every visible row's `offsetHeight` manufactures the very frame gaps it claims to measure. Prove it with a `PerformanceObserver(['longtask'])` plus an rAF-gap probe (gaps > 100 ms = freeze) and `scrollHeight` against a no-CV baseline, not eyeballs; CDP `Performance.getMetrics` `LayoutCount` deltas separate layout churn from script cost. `jsonLineCache` is a WeakMap: primitives are not valid keys (`WeakMap.set` on a string throws `Invalid value used as weak map key`), and because `selectLog` swallows errors a thrown render leaves a silently empty pane - surface the failure by wrapping the suspect function in the served script. Prove responsiveness by timing inside the click handler (sub-ms target) and polling `data-json-lazy-done` for drain settle - interval-based timestamps mislead because timers get clamped while the main thread is busy. Prove a forced rebuild with the formatted-string toggle button, which re-renders the same pane with different markup, and compare row/open/scroll counts before and after rather than eyeballing. In-flight rows are swept through `GET /api/logs/records?ids=a,b` (body-free rows plus `pending`) because one detail read inflates every stored chunk of a record: 22 pending records cost ~100-200 ms of blocked event loop per tick as individual detail requests, and the same batch is ~2 ms. Batch rows carry no bodies, so the selected record must stay out of `refreshedIds` for the caller to still fetch its detail. In UI fixtures, an array that a stub method builds per call cannot be hoisted into a module-level const - values that read mutable test flags (`has_summary: useSummarizedLogFixture`) freeze at module load and the assertion silently sees the old flag. Key patching also woke up Chromium's scroll anchoring: an incremental render replaces one task section while every neighbour stays put, so the browser anchors on an unchanged node and scrolls the list down by the inserted body's full height - which hid the whole second level whenever the expanded task's header sat on the scrollport's content top (for the first section that is any `scrollTop` of ~1 px, so it looked like "only the top entry does this"). `.log-items` sets `overflow-anchor: none` because a full innerHTML replace used to destroy the anchor node; verify numerically with `#logItems.scrollTop` before/after the caret click plus the first `.log-item`'s rect against the scrollport, and keep the pinned-header UI test (large list + `useLargeGroupLogFixture`, which now serves the tall record page for any group id) as the guard. The same sticky geometry bites expansion a second way: a collapsed section is too short for the sticky constraint, so a header that is partly scrolled out of the scrollport is merely clipped, and the body it is about to grow lets it stick at the top and paint over the first record by exactly the clipped height. `toggleLogGroupBody` aligns the header with the scrollport's content top (`logListContentTop`, the same line `collapseLogGroup` tests for pinning) before it expands, which makes the sticky offset zero; measure it as the first `.log-item`'s rect top minus the header's bottom instead of eyeballing the overlap. A state missing from a render signature fails as `element(s) not found`, not as a wrong value, so a mark that never appears means the state driving it is not in the signature; when you delete one of two areas that state the same fact, the state that drives the surviving area's mark has to move into that area's signature in the same change.
-- Two refresh contracts on that page: the automatic tick re-reads every group already on screen, so its `limit` must stay inside the API's `maximum: 500` (`LOG_GROUP_PAGE_MAX_LIMIT`) and a truncated page must carry over the groups the user paged past (`mergeLogGroupSummaries` `keepMissing`, pagination continuing from `state.logGroups.length`) - before that, more than 500 loaded groups made every tick 400 with `FST_ERR_VALIDATION`. `loadLogs` coalesces a request that arrives while another is in flight (`state.logsQueued`) instead of dropping it, and the pending-row sweep reads one rotating slice per tick (`PENDING_REFRESH_BATCH` / `PENDING_REFRESH_CONCURRENCY` / `state.pendingSweepCursor`), so tests that count `detailReads` only ever see the rows in the current batch.
-- The language switch redraws whatever registered itself: a panel calls `registerLanguagePanel(id, sequence, render, when?)` in its own file and `setLanguage()` calls `rerenderLanguagePanels()`, which sorts by `sequence` (10 pairs, 20 logs, 30 jsonPanes, 40 metaPanes, 50 requestPricing, 60 taskPricing, 70 metricsDialog, 80 targetCheckModels, 90 statistics) and skips panels whose `when()` is false. A panel that never registers stays in the previous language after a switch and nothing fails, so `test-node/admin/static-source.test.ts` pins the id/sequence table and rejects any `render*(` call left inside `setLanguage`.
+- A state change does not reach the DOM, or a panel looks like it never rendered.
+- The page freezes, scrolls blank, or lags on a large record.
+- A browser test hangs while waiting for rows that never appear.
+
+## Invariants
+
+- `renderLogs` rebuilds only the task sections whose `logGroupRenderSignature` changed
+  (cached in `state.logSections`) and leaves every other section's nodes in place, so any
+  state that changes markup must be part of that signature: language, group checkbox,
+  expanded/loading flags, the selected row, and every per-record field a row prints. A state
+  missing from the signature fails as `element(s) not found`, not as a wrong value.
+- The task-detail panel skips rebuilds the same way through `state.taskPricingRendered`; a
+  new panel block must appear in `taskPricingRenderSignature` (pricing payload, all three
+  series, `state.activeTaskGroup`) or a refresh keeps the old DOM.
+- The JSON panes cache their last markup in `state.jsonPaneHtml`: building the tree string is
+  cheap, assigning it is what costs the user time, because the tree is tens of thousands of
+  `<details>` nodes.
+- Above `lazyJsonEntryLimit` the tree renders lazily: a node that starts collapsed is emitted
+  with `data-json-lazy="1"` and an empty `.json-children`, and its children are built when the
+  pane's capture-phase `toggle` listener fires. Every path that opens a node programmatically
+  (notably `restoreJsonPaneViewState` assigning `detail.open`, and the expand-one-level
+  button) must materialize as well.
+- Lazy fills go through the time-budgeted `jsonMaterializeQueue`: each node is filled _before_
+  it opens, and the drain is kicked from `setTimeout(0)`, never synchronously. Non-lazy trees
+  must still open nodes directly in the click handler, because the queue skips unmarked nodes.
+- `materializeJsonNode` reads `jsonLineWidthCache` instead of measuring `clientWidth` after
+  mutating the tree: that read forces a synchronous re-layout of the whole pane. The cache is
+  kept fresh by a `ResizeObserver` and the render path, and the toggle listener's button
+  refreshes coalesce through `schedulePaneButtonsUpdate`.
+- `.json-row` carries `content-visibility: auto` plus a `contain-intrinsic-size` hint that
+  `countJsonLinesWalk` estimates from the subtree's current open state and `jsonRowHtml` bakes
+  into the row. `materializeJsonNode` must refresh the parent row's hint after filling.
+- Rows around the viewport are pre-realized by `updateJsonRowWindow` and a per-pane,
+  scroll-armed `requestAnimationFrame` watcher. The walker moves by index through the cached
+  flat `.json-row` list (document order is top-to-bottom order), bounds its step count, and
+  re-anchors by striding when a jump is bigger than the viewport. Never leave an always-on rAF
+  loop: a self-perpetuating chain never settles under `page.clock` and hangs fake-clock tests.
+- Compare rects in scroll-content coordinates (`box.top - paneRect.top + scrollTop`). Rows
+  taller than the scrollport are always realized, so they are not evidence of a blank.
+- `.log-items` sets `overflow-anchor: none`: an incremental render replaces one section while
+  its neighbours stay put, and the browser otherwise anchors on an unchanged node and jumps
+  the list by the inserted body's height.
+- A collapsed section is too short for the sticky constraint, so `toggleLogGroupBody` aligns
+  the header with the scrollport's content top (`logListContentTop`) before expanding;
+  otherwise the header paints over the first record.
+- The record list pages 20 rows per request and expanding one level creates new lazy nodes,
+  so a deep record needs repeated `[data-load-more-records]` clicks and an assertion about
+  "every lazy node is done" can never pass — wait for the count that existed before the click.
+- Refresh contracts: the automatic tick re-reads every group already on screen, so its `limit`
+  must stay inside `LOG_GROUP_PAGE_MAX_LIMIT` and a truncated page carries over the groups the
+  user paged past (`mergeLogGroupSummaries` with `keepMissing`). `loadLogs` coalesces a request
+  that arrives while another is in flight (`state.logsQueued`) instead of dropping it, and the
+  pending-row sweep reads one rotating slice per tick (`PENDING_REFRESH_BATCH`,
+  `PENDING_REFRESH_CONCURRENCY`, `state.pendingSweepCursor`), so tests that count `detailReads`
+  only see the current batch.
+- In-flight rows are swept through `GET /api/logs/records?ids=a,b` (body-free rows plus
+  `pending`), because one detail read inflates every stored chunk of a record. Batch rows carry
+  no bodies, so the selected record has to stay out of `refreshedIds` for its detail to be
+  fetched.
+- The language switch redraws whatever registered itself: a panel calls
+  `registerLanguagePanel(id, sequence, render, when?)`, and `setLanguage()` calls
+  `rerenderLanguagePanels()`, which sorts by `sequence` and skips panels whose `when()` is
+  false. A panel that never registers stays in the previous language and nothing fails;
+  `test-node/admin/static-source.test.ts` pins the id/sequence table and rejects any `render*(`
+  call left inside `setLanguage`.
+- The page publishes no rendering function on `window` any more. Measure observable effects
+  (mutation counts, mark-to-mutation timing) or patch the served bundle text; synthesize a body
+  with `window.__adminUiTest.applySelectedLogDetail(...)` after unchecking `#autoRefreshLogs`,
+  because the refresh tick overwrites it with the stub fixture.
+- In UI fixtures, a value that reads a mutable test flag cannot be hoisted into a module-level
+  const: it freezes at module load and the assertion silently sees the old flag.
+
+## Standard commands
+
+```bash
+npm test -- test-node/ui
+npm test -- test-node/admin/static-source.test.ts
+npm run bundle:ui
+```
+
+## Reading the result
+
+- A mark that never appears means the state driving it is not in the render signature. When you
+  delete one of two areas that state the same fact, the surviving area's signature has to gain
+  that state in the same change.
+- Freezes are proven with a `PerformanceObserver(["longtask"])` plus an rAF-gap probe (gaps
+  over 100 ms) and `scrollHeight` against a no-content-visibility baseline; CDP
+  `Performance.getMetrics` `LayoutCount` deltas separate layout churn from script cost.
+- Responsiveness is proven by timing inside the click handler (sub-millisecond target) and by
+  polling `data-json-lazy-done` for drain settle — interval timestamps mislead because timers
+  are clamped while the main thread is busy.
+- A blank patch while scrolling is a hint problem (the scrollbar underestimates the real
+  height) or a watcher problem; check the row's inline `contain-intrinsic-size` first.
+
+## Deeper material
+
+- [reference.md](./reference.md) — the measured click chains, node counts, frame gaps and the
+  probe recipes that produced these rules.
+- [module-design.md](../../../docs/module-design.md) §4.3, §4.8 — the state and DOM contracts.
+- [../live-ui-probing/SKILL.md](../live-ui-probing/SKILL.md) — probing a running instance.

@@ -1,6 +1,6 @@
 # 面向 AI 持续开发的优化 TODO
 
-基线：`14ae4de`，应用版本 0.4.10。原始清单为 24 项；AI-25 后扩展为 25 项。当前状态：23 / 25 项完成（AI-01～AI-22、AI-25）。
+基线：`14ae4de`，应用版本 0.4.10。原始清单为 24 项；AI-25 后扩展为 25 项。当前状态：24 / 25 项完成（AI-01～AI-23、AI-25）。
 
 本文是本轮优化的执行清单和验收依据。它把代码审查中的发现拆成独立任务，供本地 AI 按依赖顺序实施。历史设计和旧 TODO 只作为背景材料；执行时应复核当前源码。
 
@@ -56,6 +56,8 @@
 ```bash
 npx prettier --ignore-path .gitignore --check docs/ai-development-optimization-todo.md
 ```
+
+skill 的元数据、名单和引用另有固定入口：`npm run check:skills` 校验 frontmatter、名单、AGENTS.md 的路由索引、五个必填小节、本地链接，以及 skill 里点名的文件和 `npm run` 脚本是否仍存在。
 
 相关测试示例：
 
@@ -130,7 +132,7 @@ P0 是已复现的功能缺陷；P1 是契约、文档和后端基础；P2 是�
 | [x]  | AI-20 | P2     | 收紧 UI 类型与 DOM 合同     | AI-18、AI-19                                                                                                                                                           | 已完成 |
 | [x]  | AI-21 | P2     | 统一渲染输入和缓存失效      | AI-19、AI-20                                                                                                                                                           | 已完成 |
 | [x]  | AI-22 | P2     | 建立组件样式归属            | AI-18、AI-19、AI-21                                                                                                                                                    | 已完成 |
-| [ ]  | AI-23 | P2     | 整理 skills 并固化操作入口  | AI-04、AI-14、AI-16、AI-20、AI-21、AI-22                                                                                                                               | 未开始 |
+| [x]  | AI-23 | P2     | 整理 skills 并固化操作入口  | AI-04、AI-14、AI-16、AI-20、AI-21、AI-22                                                                                                                               | 已完成 |
 | [x]  | AI-25 | P2     | 保留旧配置里未建模的键      | AI-08                                                                                                                                                                  | 已完成 |
 | [ ]  | AI-24 | P2     | 综合验收与文档收口          | AI-01、AI-02、AI-03、AI-04、AI-05、AI-06、AI-07、AI-08、AI-09、AI-10、AI-11、AI-12、AI-13、AI-14、AI-15、AI-16、AI-17、AI-18、AI-19、AI-20、AI-21、AI-22、AI-23、AI-25 | 未开始 |
 
@@ -445,11 +447,11 @@ P0 是已复现的功能缺陷；P1 是契约、文档和后端基础；P2 是�
 
 入口：[AGENTS.md](../AGENTS.md)、[项目 skills](../.agents/skills)、[skills 校验](../test-node/docs/skills.test.ts)。
 
-- [ ] 将每个 skill 整理为适用条件、不变量、标准命令、结果判断和深入材料链接。
-- [ ] 将长篇事故过程、历史测量与失败实验移到可链接的参考记录。
-- [ ] 删除已被前述代码和工具消解的重复提醒，保留仍有效的使用边界。
-- [ ] 对固定操作优先提供可重复执行的工具入口，再同步文档。
-- [ ] 维持 skills 的有效加载和引用校验，减少多处手工维护相同清单。
+- [x] 将每个 skill 整理为适用条件、不变量、标准命令、结果判断和深入材料链接。
+- [x] 将长篇事故过程、历史测量与失败实验移到可链接的参考记录。
+- [x] 删除已被前述代码和工具消解的重复提醒，保留仍有效的使用边界。
+- [x] 对固定操作优先提供可重复执行的工具入口，再同步文档。
+- [x] 维持 skills 的有效加载和引用校验，减少多处手工维护相同清单。
 
 验收：本地 AI 能按短步骤完成验证，并知道如何判断成功。文档引用、skill 元数据和测试入口一致；语义过时的内容也经过复核。
 
@@ -531,7 +533,7 @@ P0 是已复现的功能缺陷；P1 是契约、文档和后端基础；P2 是�
 - [x] AI-20：完整 UI 图已启用 strictNullChecks 与 exactOptionalPropertyTypes，状态/API/异步合同与具体 DOM 查询已迁移，并通过编译器负例和真实浏览器初始化测试。
 - [x] AI-21：渲染与缓存输入一致，刷新和大正文体验保持。
 - [x] AI-22：组件样式归属明确，层叠与像素验证无意外变化。
-- [ ] AI-23：skills 内容简明且有效，固定操作由工具承担。
+- [x] AI-23：skills 内容简明且有效，固定操作由工具承担。
 - [x] AI-25：旧配置里未建模的键不再被静默丢弃，控制台自己的运行时键不会被写进保存文件。
 - [ ] AI-24：完整检查、截图核验、portable 构建与隔离冒烟有实际记录。
 
@@ -553,6 +555,20 @@ UI 截图、性能或迁移结果（适用时）：
 与本清单的偏差、剩余事项：
 提交 SHA：未提交 / 实际 SHA
 ```
+
+### AI-23 完成记录
+
+- 状态：已完成
+- 实际变更：把 16 个 `SKILL.md` 统一成五段式——`## When this applies`、`## Invariants`、`## Standard commands`、`## Reading the result`、`## Deeper material`；frontmatter 只留 `name` 与一句带触发词的 `description`。新增 15 个 `reference.md`，把事故过程、历史测量和失败实验从 SKILL.md 移出并单向链接（admin-api-probing、ci-triage、css-cascade-audit、design-doc-readability、live-ui-probing、packaging-smoke、proxy-runtime、real-upstream-acceptance、render-internals、static-checks-and-split、statistics-charts、traffic-log-forensics、ui-baseline-regen、ui-markup-contracts、ui-test-quirks）；`safe-deletion` 原本就短，保持单文件。规模：SKILL.md 合计 90.2 KB → 76.9 KB，其中 render-internals 14.7 → 7.6 KB、packaging-smoke 10.3 → 5.5 KB、css-cascade-audit 8.8 → 4.9 KB；小 skill 因为补了命令和结果判断而略增（如 ci-triage 2.0 → 3.5 KB）。`AGENTS.md` 17.1 KB → 14.0 KB，改成六节结构：开工前、验证入口、安全边界、长命令判断、类型与 lint 合同、数据与持久化、工具与环境、评审前项目事实、skills 路由索引。
+- 修改文件：`AGENTS.md`、`.agents/skills/*/SKILL.md`（16 个）、`.agents/skills/*/reference.md`（15 个新增）、`test-node/docs/skills.test.ts`、`package.json`（新增 `npm run check:skills`）、`docs/current-architecture.md`（§7 增加 skills 校验入口、§9 把 AI-23 移入已收口）、本文件。
+- 前置任务与现状复核：AI-04 建立了 skill 目录与路由索引，AI-14～AI-22 各自往 skill 里追加事实；本轮先逐条核对。复核后确认四类需要处理的问题：一、ES module 迁移（AI-19）之后 `live-ui-probing`、`render-internals`、`ui-markup-contracts` 仍在教读者用 `window.renderLogs`、`window.setLanguage`、`state.jsonPaneHtml` 和 `app.js` 里的函数名，而现行页面只写一个冻结的 `__adminUiTest`；二、`AGENTS.md` 的 `no-implicit-globals` 一条解释的是「`eslint.config.js` 对生成的 `.ui-check/app.js` 关掉该规则」，而 `.ui-check/app.js` 自 AI-17 起已不再生成、`eslint.config.js` 里也没有该分支；三、`AGENTS.md` 写「33 个注册里只有 17 个带 response schema」，实测 28 个带、5 个是流式端点；四、`ui-baseline-regen` 与 `live-ui-probing` 把「harness 服务 `src/admin/static`、打包应用服务 `dist-node` 副本」当成通用规则，而 JS 现在只有一份 bundle。
+- 关键设计选择及理由：一、五段式是硬约定而不是建议——Pi 决定加载后会把整份 `SKILL.md` 读完，所以「何时适用」必须在最前、「标准和命令」必须可复制，历史测量放在只在需要时打开的 `reference.md` 里；该约定由 `skills.test.ts` 钉住，缺段、段序颠倒、`## Deeper material` 没有链接都会失败。二、过时提醒只删被代码和工具真正消解的那条（`no-implicit-globals`），有争议的（如 `:sticky` 不支持）保留并压缩，不因为「读起来旧」而删。三、把长配方从 `AGENTS.md` 移进对应 skill 而不是删除：byte-identical 上游请求的对拍方法进 `proxy-runtime/reference.md`，UI fixture 的 `setX()` 规则与按区拆分进 `ui-test-quirks`，`app.css` 令牌卡示例进 `css-cascade-audit/reference.md`，并在 `AGENTS.md` 里留索引和一句话结论。四、固定操作只加一个入口 `npm run check:skills`：skill 的加载与引用校验在每次改 skill/文档后都要跑，而其余固定操作（`regen:ui-baselines`、`abi:check`、`smoke:delivery`、`check:modules`）已有脚本，不重复造。五、测试契约加三条而不是只加断言：必填小节与顺序、`## Deeper material` 至少一个链接、所有相对链接按 skill 目录解析且必须存在——最后一条让 `reference.md` 本身也被校验。
+- 实际验证命令与结果：`npm run check:skills` → 1 文件 6 用例通过；`npx vitest run test-node/docs` → 11 文件 29 用例通过；`npx prettier --check AGENTS.md ".agents/**/*.md" package.json test-node/docs/skills.test.ts` → 通过；`npx prettier --check .` → 通过（首次因为 `.tmp-ai23` 里的临时测量脚本未忽略而报错，把临时文件移到已忽略的 `test-results/` 后通过）；`npm run typecheck`、`npm run lint` 通过；`npm run check:modules` → `runtime cycles: 0; boundary violations: 0`。`npm run check` 全量：格式、lint、类型检查、模块检查通过，139 个测试文件里 135 通过 1 跳过、1237 用例里 1234 通过 2 跳过，`test-node/ui/admin-ui-statistics.test.ts`、`test-node/ui/page-error-collection.test.ts` 两个文件与 `test-node/admin/ui-types.test.ts` 一个编译用例各以 10 秒 hook/test 超时失败——都是超时而非断言失败，三个文件单独跑 13 用例全过，与 AI-22 记录里同一条并发满载超时一致，本次改动不碰 `src/`；因此 `npm run check` 的 `build` 段未执行，另跑 `npm run build` 通过。
+- 新增/更新的测试及任务 ID：`test-node/docs/skills.test.ts` 新增两条 `[AI-23]` 用例（五段式结构与顺序、本地链接解析），并把「description 必须说明何时使用」并入 frontmatter 用例。两条新用例都做过负例验证：把 `ci-triage` 的 `## Reading the result` 改名后结构用例报 6 条问题，临时追加 `- [missing reference](./nope.md)` 后链接用例报 `ci-triage: ./nope.md does not exist`，恢复后回到 6 用例全过。
+- UI 截图、性能或迁移结果：本项不改 UI，未跑基线重生成；`src/admin/static` 与 `app.css` 无改动，`doc/ui_*.png` 与基线文档未改。
+- 便携版构建与冒烟结果：`npm run build && npm run rebuild:electron && npx electron-builder -w portable --publish never` 通过；`npm run smoke:delivery` 两段全过——unpacked payload health 529 ms、proxy 200、`GET /api/logs?limit=5` total 1、`traffic.db` 4,096 字节、exit 0；portable wrapper health 2,609 ms、同样 proxy 200、logs total 1、`traffic.db` 生成、exit 0。检查 `release/win-unpacked/resources/app.asar`：3,158 个条目，不含 `.agents`，SKILL 文档 0 个；打包后的 `package.json` 由 electron-builder 重写成运行时清单（只留 name/version/private/description/main/type/engines/license/dependencies），所以新增的 `check:skills` 脚本不进产物、也不改变载荷。之后 `npm rebuild better-sqlite3` 并用 `npm run abi:node` 真实查询确认已恢复 Node ABI（NODE_MODULE_VERSION 137）。
+- 与本清单的偏差、剩余事项：一、`AGENTS.md` 里「每次任务后构建便携版」仍保留并按本条执行；本项只动文档与 `package.json` 脚本，载荷内容不变。二、全量 `npm run check` 的 10 秒超时是既有并发问题（AI-22 记录已记，AI-24 需一并复核），本项未改断言或加重试。三、`docs/module-design.md` 与 `docs/software-functional-specification.md` 未做整文件 Prettier 重排；本轮只保证 `current-architecture.md` 与本文继续通过显式 ignore-path 检查。四、`design-doc-readability` 没有固定命令入口：仓库是 Node-only（`test-node/docs/node-only-repository.test.ts` 禁止 `.py`），可读性测量仍是按需的一次性脚本，skill 里明确写了这一点而没有造常驻工具。
+- 提交 SHA：`e02aa74`（skill、skills 契约测试、AGENTS.md、`package.json` 与两份文档的同一次提交；本段完成记录与 SHA 回填另起一次文档提交，与 AI-22 的做法一致）。
 
 ### AI-22 完成记录
 
