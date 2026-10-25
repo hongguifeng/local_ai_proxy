@@ -171,6 +171,8 @@ npm run package:electron:portable
 | `npm run checksums` | 对 `release/` 里的 `.exe`/`.zip` 算 SHA-256 并写出清单 | 发布或核对产物 |
 | `npm run package:cli` | 构建并打出 `release/llm-proxy-cli-<版本>.zip` | 只需要命令行版本时 |
 
+改代码前先读 [docs/current-architecture.md](docs/current-architecture.md)：现行运行模型、配置归属、模块地图、关闭顺序与验证命令都在那里。[docs/module-design.md](docs/module-design.md) 保留 Python 基线与迁移过程，其中标为“历史记录”的小节不代表现行行为。
+
 ## 常见用法
 
 ### 连接本地模型

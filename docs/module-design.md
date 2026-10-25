@@ -2,17 +2,31 @@
 
 ## 1. 文档范围
 
-本文档描述：
+本文档记录 Python 基线和迁移过程，不描述现行实现。现行实现请读
+[现行架构](./current-architecture.md)。
 
-1. 当前 Python 版本的模块边界、依赖关系、运行时数据流和存储设计。
-2. Node.js/TypeScript 重构后的建议模块边界。
-3. Python 模块到 Node.js 模块的迁移映射。
+各小节的状态如下：
+
+| 小节 | 内容                            | 状态                                                       |
+| ---- | ------------------------------- | ---------------------------------------------------------- |
+| 1    | 文档范围                        | 现行                                                       |
+| 2、3 | Python 进程、模块与文件设计      | Python 基线（v0.3.0 之前）的历史记录                        |
+| 4    | 前端脚本、CSS 与 DOM 检查        | 现行                                                       |
+| 5    | 配置聚合与 SQLite 关系           | 现行；schema 版本以 `CURRENT_SCHEMA_VERSION` 为准            |
+| 6    | 并发与关闭顺序                  | Python 基线（v0.3.0 之前）的历史记录                        |
+| 7    | Node 目标架构                    | 切换前的目标；标有“已实现”的小节除外                          |
+| 8    | Python 到 Node 模块映射          | 迁移记录                                                    |
+| 9    | 合同清单                        | 外部合同仍然有效，内部合同已经落地                            |
+| 10   | 原待决事项                      | 已由 [ADR-001～ADR-013](./adr/) 决定，下表给出对应关系        |
+| 11   | 设计验收原则                    | 现行                                                       |
 
 软件功能和用户行为详见[软件功能说明书](./software-functional-specification.md)。迁移步骤详见[Node.js 重构计划](./nodejs-refactoring-plan.md)。
 
-## 2. 当前系统总体架构
+## 2. Python 基线总体架构（历史记录）
 
-当前系统是单进程、多线程架构。管理服务监听一个固定端口，每个启用的 proxy pair 创建一个独立 `ThreadingHTTPServer` 和后台线程，每个 HTTP 请求再由服务器创建请求线程。
+以下描述 v0.3.0 之前的 Python 实现。Python 版本是单进程、多线程架构：管理服务监听一个固定
+端口，每个启用的 proxy pair 创建一个独立 `ThreadingHTTPServer` 和后台线程，每个 HTTP 请求
+再由服务器创建请求线程。现行运行模型见[现行架构](./current-architecture.md)第 1 节。
 
 ```mermaid
 flowchart TB
@@ -48,7 +62,7 @@ flowchart TB
 | 通用基础 | 类型、常量、时间、原子文件 | `models.py`, `constants.py`, `time_utils.py`, `file_io.py` |
 | 前端 | 双语代理配置与日志查看器 | `static/index.html`, `static/app.css`, `static/app.js` |
 
-## 3. 当前模块详细设计
+## 3. Python 基线模块详细设计（历史记录）
 
 ### 3.1 启动模块
 
@@ -332,7 +346,8 @@ synchronous = NORMAL
 check_same_thread = false
 ```
 
-数据库 schema version 为 1。
+Python 基线的 schema version 为 1。现行版本由 `src/persistence/database.ts` 的
+`CURRENT_SCHEMA_VERSION` 给出（AI-03）。
 
 #### `llm_proxy/log_repository.py`
 
@@ -607,7 +622,10 @@ erDiagram
 
 contentless FTS5 虚表只保存倒排索引，映射表保存 record/task 关系，不再复制完整搜索正文。
 
-## 6. 当前并发与资源管理
+## 6. Python 基线并发与资源管理（历史记录）
+
+以下并发与关闭顺序描述 v0.3.0 之前的 Python 实现。现行模型见
+[现行架构](./current-architecture.md)第 1 节和第 4 节。
 
 ### 6.1 并发模型
 
@@ -630,10 +648,15 @@ contentless FTS5 虚表只保存倒排索引，映射表保存 record/task 关�
 
 - 单个上游失败返回/记录 502，不终止其他请求。
 - 某代理监听端口冲突会使启动或配置保存请求失败。
-- 配置替换过程中没有整体事务和运行时回滚。
-- SQLite busy timeout 后的错误会沿调用栈传播；代理日志写入异常目前可能影响请求处理流程。
+- Python 基线在配置替换过程中没有整体事务和运行时回滚。Node 版本改为整体回滚（ADR-004），
+  保存失败时恢复旧配置和旧监听器（ADR-011）。
+- SQLite busy timeout 后的错误会沿调用栈传播。Python 基线的代理日志写入异常可能影响请求
+  处理流程；Node 版本的数据面与日志旁路分离，日志写入失败不改变客户端已收到的响应。
 
-## 7. Node.js 目标架构
+## 7. Node.js 目标架构（切换前的设计）
+
+本节写于 v0.3.0 切换之前。标有“已实现”的小节描述现行行为；其余描述当时的目标，
+现行结构见[现行架构](./current-architecture.md)第 5 节。
 
 ### 7.1 技术基线
 
@@ -948,18 +971,24 @@ pipeline 只做三件事：问组要一个节点、预留它、请求结束时�
 - 第一阶段保留现有 `/api/*` 路径，因为前端原样复用且合同简单。
 - 若后续简化 API，应一次性同步更新 UI 和测试，不实现双版本路由。
 
-## 10. 待决设计事项
+## 10. 原待决设计与已作出的决策
 
-以下事项必须在实现前形成 ADR：
+以下事项在实现前需要 ADR，现在全部已有结论：
 
-1. SQLite 驱动最终选择 `better-sqlite3` 还是 Node 内置 `node:sqlite`。
-2. 是否在 schema v2 同时保存 original request body 和 upstream request body。
-3. 日志 body 的内存上限，以及超过上限时截断、落临时文件还是禁用正文日志。
-4. 客户端断开后是否继续读取上游并完成日志，还是立即 abort。
-5. 配置应用失败时采用整体回滚还是允许部分代理成功。
-6. Windows 交付物是 Electron portable exe、安装包，还是 CLI 单文件加托盘安装包两种产物。
-7. 是否继续强制 `Connection: close`，以及何时引入 keep-alive agent。
-8. 搜索保持 LIKE 语义还是迁移到真正 FTS MATCH；若改变，应更新搜索规格和 UI 提示。
+| 原问题                                       | 结论                                                   | 依据                                        |
+| -------------------------------------------- | ------------------------------------------------------ | ------------------------------------------- |
+| SQLite 驱动选择                               | `better-sqlite3`，同步访问，WAL                        | [ADR-001](./adr/001-sqlite-driver.md)       |
+| schema v2 是否同时保存两份请求体              | 同时保存原始请求体与上游请求体                          | [ADR-002](./adr/002-original-and-upstream-request-body.md) |
+| 日志 body 的内存与大小上限                    | 内存阈值 + 临时文件 spool + 硬上限后结构化截断          | [ADR-003](./adr/003-log-body-memory-and-size-limits.md) |
+| 客户端断开后的行为                            | 立即中止上游                                           | [ADR-005](./adr/005-client-abort-behavior.md) |
+| 配置应用失败时的策略                          | 整体回滚，不允许部分代理成功                            | [ADR-004](./adr/004-configuration-apply-transaction.md) |
+| Windows 交付物                                | NSIS 安装包、portable EXE 与轻量 CLI ZIP               | [ADR-006](./adr/006-windows-artifacts.md)   |
+| 是否继续强制 `Connection: close`              | 首个 Node 版本继续强制关闭                             | [ADR-007](./adr/007-connection-close-parity.md) |
+| 搜索保持 LIKE 还是迁移到 FTS                  | 首版保留 LIKE；现行改用 contentless FTS5 与单一 FTS 谓词 | [ADR-008](./adr/008-search-semantics.md)、[ADR-009](./adr/009-chunked-body-storage.md)、[ADR-010](./adr/010-history-group-fts-consistency.md) |
+
+切换后新增的决策：保存配置时复用监听器并保留在途请求（[ADR-011](./adr/011-listener-reuse-on-config-save.md)）、
+日志记录解码后的响应体（[ADR-012](./adr/012-decoded-response-body-in-logs.md)）、负载均衡采用粘性路由
+加最少在途选择（[ADR-013](./adr/013-load-balancing-sticky-routing.md)）。
 
 ## 11. 设计验收原则
 

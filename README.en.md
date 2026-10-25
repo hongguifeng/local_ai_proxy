@@ -111,6 +111,8 @@ The output is `release/LLM-Proxy-<version>-x64-portable.exe`. This command compi
 
 `electron-builder.env` defaults to 7z compression level 1 for faster builds. In a local comparison, packaging took about 14 seconds versus 21 seconds at level 3, with the exe growing from about 100 MiB to 107 MiB. Actual times depend on hardware, caches, and downloads. For a smaller output, set `$env:ELECTRON_BUILDER_COMPRESSION_LEVEL = '3'` in PowerShell (or a higher level, up to 9) before building; use `Remove-Item Env:ELECTRON_BUILDER_COMPRESSION_LEVEL` to restore the project default. For local debugging, `npm run package:electron:dir` skips exe compression and produces `release/win-unpacked/LLM Proxy.exe` for direct execution.
 
+Before changing code, read [docs/current-architecture.md](docs/current-architecture.md). It covers the current runtime model, configuration ownership, module map, shutdown order, and verification commands. [docs/module-design.md](docs/module-design.md) keeps the Python baseline and the migration record; sections labeled as history do not describe current behavior.
+
 ## Common Workflows
 
 ### Connect a local model

@@ -1,5 +1,7 @@
 # Project Notes for Coding Agents
 
+- Before changing behavior, read `docs/current-architecture.md`: it holds the current startup path, config ownership, module map, shutdown order and verification commands. History documents carry identity labels there; in `docs/module-design.md`, sections 2, 3 and 6 describe the pre-v0.3.0 Python baseline and are not current behavior.
+
 - Project is active: do not preserve old internal APIs by default. For UI/admin API changes, use the simplest current contract unless compatibility is requested. Document every new feature.
 - UI changes: run `npm run regen:ui-baselines` before committing; update README images (`doc/ui_*.png`) and hashes in `docs/refactoring/ui-visual-baseline.md`. Inspect regenerated images in full before cropping. UI text changes also require `npx prettier --check .` and checking English baselines (`doc/ui_proxy_en.png`, `doc/ui_logs_en.png`) for stray Chinese.
 - The admin UI browser suite is split by area into `test-node/ui/admin-ui-*.test.ts` on top of `admin-ui-fixture.ts`, `admin-ui-server.ts` and `admin-ui-page.ts`; dependencies only point page → server → fixture. Stub knobs stay inside the fixture module because ESM imports are read-only views, so a test-side write must go through a `setX()` call while plain reads keep working. Each file registers its own lifecycle hooks and Vitest isolates module state per file.
