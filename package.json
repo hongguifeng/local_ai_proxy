@@ -48,7 +48,7 @@
     "test:coverage": "npm run bundle:ui && vitest run --coverage",
     "pretest:watch": "npm run rebuild:node",
     "test:watch": "npm run bundle:ui && vitest",
-    "typecheck": "tsc -p tsconfig.json --noEmit && tsc -p tsconfig.ui.json --noEmit"
+    "typecheck": "tsc -p tsconfig.json --noEmit && tsc -p tsconfig.ui.json --noEmit && tsc -p tsconfig.ui-dom.json --noEmit"
   },
   "devDependencies": {
     "@electron/rebuild": "^4.2.0",

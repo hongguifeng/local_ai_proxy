@@ -2,7 +2,7 @@
 // ES module: imports the shared bootstrap (./core.js), the display helpers and the status
 // label the list view reuses.
 
-import { $, api, asElement, registerLanguagePanel, state, t } from "./core.js";
+import { $, api, asElement, registerLanguagePanel, requiredDialog, state, t } from "./core.js";
 import { formatIntegerValue } from "./numbers.js";
 import { escapeHtml } from "./text.js";
 import { formatDuration } from "./time.js";
@@ -43,7 +43,7 @@ registerLanguagePanel(
   "metricsDialog",
   70,
   () => renderMetricsDialog(),
-  () => Boolean($("metricsDialog")?.open),
+  () => Boolean(requiredDialog("metricsDialog")?.open),
 );
 const PROMETHEUS_COMMENT = /^#\s*(HELP|TYPE)\s+(\S+)(?:\s+(.*))?$/;
 const PROMETHEUS_SAMPLE = /^([A-Za-z_:][A-Za-z0-9_:]*)(?:\{([^}]*)\})?\s+(\S+)(?:\s+\d+)?$/;
@@ -700,7 +700,7 @@ export function openTargetMetricsDialog(target) {
   metricsState.openFamilies = {};
   metricsState.view = "dashboard";
   renderMetricsDialog();
-  $("metricsDialog").showModal();
+  requiredDialog("metricsDialog").showModal();
   loadTargetMetrics();
   const intervalSelect = $("metricsRefreshInterval");
   if (intervalSelect) startMetricsAutoRefresh(Number(intervalSelect.value) || 0);
@@ -721,7 +721,7 @@ function startMetricsAutoRefresh(intervalMs) {
       return;
     }
     metricsState.refreshTicks = intervalMs;
-    if (!$("metricsDialog")?.open) return;
+    if (!requiredDialog("metricsDialog")?.open) return;
     if (metricsState.loading) return;
     loadTargetMetrics({ showLoading: false });
   }, 1000);
@@ -795,8 +795,8 @@ function loadTargetMetrics(options = {}) {
  * @returns {void}
  */
 export function mountMetrics() {
-  $("metricsClose").addEventListener("click", () => $("metricsDialog").close());
-  $("metricsDialog").addEventListener("close", stopMetricsAutoRefresh);
+  $("metricsClose").addEventListener("click", () => requiredDialog("metricsDialog").close());
+  requiredDialog("metricsDialog").addEventListener("close", stopMetricsAutoRefresh);
   $("metricsRefresh").addEventListener("click", () => loadTargetMetrics());
   $("metricsRefreshInterval")?.addEventListener("change", (event) => {
     const select = event.target;

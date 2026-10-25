@@ -4,6 +4,37 @@
 // reaches into another feature's scope.
 
 import { configureDisplayLanguage } from "./display-locale.js";
+import {
+  $,
+  asElement,
+  closestFrom,
+  closestOn,
+  parentOf,
+  qsa,
+  qsaOn,
+  qs,
+  qsOn,
+  requiredDetails,
+  requiredDialog,
+  requiredElement,
+  requiredInput,
+} from "./dom.js";
+
+export {
+  $,
+  asElement,
+  closestFrom,
+  closestOn,
+  parentOf,
+  qsa,
+  qsaOn,
+  qs,
+  qsOn,
+  requiredDetails,
+  requiredDialog,
+  requiredElement,
+  requiredInput,
+};
 
 /** The i18n dictionary every label is looked up in; `t()` is the only reader. */
 const translations = {
@@ -849,96 +880,9 @@ export const state = {
   splitterDragging: false,
   refreshTimer: null,
 };
-/**
- * The admin UI treats every element it grabs by id as "whichever control this
- * actually is", so the accessor returns an intersection carrying the form, dialog
- * and details members the code uses.
- *
- * Each member must be its own Partial<>: writing Partial<A & B & ...> makes TS
- * reduce the intersection to `never` because `type` has conflicting types across
- * the HTML element interfaces, and every use then reports "Property ... does not
- * exist on type 'never'".
- *
- * The lookup helpers below are declared as returning `UiElement | null` because that
- * is what the DOM actually returns. tsconfig.ui.json runs with strictNullChecks off,
- * which collapses that union, so a missing element still produces no diagnostic: the
- * crash path `qs("#missing").value.trim()` type-checks clean today. Turning the flag on
- * was measured at 207 errors in these nine scripts, which is a separate decision.
- * @typedef {HTMLElement & Partial<HTMLInputElement> & Partial<HTMLTextAreaElement> & Partial<HTMLDialogElement> & Partial<HTMLDetailsElement>} UiElement
- */
-/**
- * @param {string} id
- * @returns {UiElement | null}
- */
-export const $ = (id) => /** @type {UiElement | null} */ (document.getElementById(id));
-/**
- * @param {string} selector
- * @returns {UiElement | null}
- */
-export const qs = (selector) => /** @type {UiElement | null} */ (document.querySelector(selector));
-/**
- * @param {string} selector
- * @returns {UiElement[]}
- */
-export const qsa = (selector) =>
-  /** @type {UiElement[]} */ (Array.from(document.querySelectorAll(selector)));
-/**
- * @param {Element} root
- * @param {string} selector
- * @returns {UiElement[]}
- */
-export const qsaOn = (root, selector) =>
-  /** @type {UiElement[]} */ (Array.from(root.querySelectorAll(selector)));
-/**
- * @param {Element} root
- * @param {string} selector
- * @returns {UiElement | null}
- */
-export const qsOn = (root, selector) =>
-  /** @type {UiElement | null} */ (root.querySelector(selector));
-/**
- * Event handlers get `EventTarget`, which has none of the DOM members this UI
- * uses. This is a type-level cast: it returns the very same object.
- * @param {EventTarget | null} target
- * @returns {UiElement | null}
- */
-export const asElement = (target) => /** @type {UiElement | null} */ (target);
-/**
- * closest() is typed to return Element, but every node this UI finds is used as
- * a control afterwards, so the lookup helper carries the useful type.
- * @param {EventTarget | null} target
- * @param {string} selector
- * @returns {UiElement | null}
- */
-export const closestFrom = (target, selector) =>
-  /** @type {UiElement | null} */ (asElement(target)?.closest?.(selector) ?? null);
-/**
- * Same reason as closestFrom, for a lookup that starts from a known element.
- * The optional chain is kept so a null root or a node without closest() still
- * yields null instead of throwing, exactly like the call sites it replaced.
- * @param {Element | null | undefined} root
- * @param {string} selector
- * @returns {UiElement | null}
- */
-export const closestOn = (root, selector) =>
-  /** @type {UiElement | null} */ (root?.closest?.(selector) ?? null);
-/**
- * parentElement is typed as Element, which again hides the members this UI needs.
- * @param {Element | null | undefined} el
- * @returns {UiElement | null}
- */
-export const parentOf = (el) => /** @type {UiElement | null} */ (el?.parentElement ?? null);
-/**
- * One field the server rejected, as `error.issues` names it.
- * @typedef {{ code: string, message: string, path: string }} ApiConfigIssue
- */
-/**
- * A failed API call. The server answers every error with `{ code, message }` inside
- * `error`, and adds `issues` when it rejected a configuration, so the thrown error carries
- * the same three things the wire does: `message` in the Error itself, `code` and `issues`
- * as the extra properties below.
- * @typedef {Error & { code?: string, issues?: readonly ApiConfigIssue[] }} ApiError
- */
+/** API errors returned by the admin server. */
+/** @typedef {{ code: string, message: string, path: string }} ApiConfigIssue */
+/** @typedef {Error & { code?: string, issues?: readonly ApiConfigIssue[] }} ApiError */
 export const t = (key) =>
   (translations[state.language] && translations[state.language][key]) ||
   translations.en[key] ||
@@ -949,6 +893,11 @@ export const toast = (text) => {
   el.classList.add("show");
   setTimeout(() => el.classList.remove("show"), 2400);
 };
+/**
+ * @param {string} url
+ * @param {RequestInit} [options]
+ * @returns {Promise<any>}
+ */
 export const api = async (url, options = {}) => {
   const requestOptions = {
     ...options,

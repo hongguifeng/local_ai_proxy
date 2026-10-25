@@ -8,6 +8,7 @@ import {
   asElement,
   closestFrom,
   qsa,
+  requiredDialog,
   qsOn,
   registerLanguagePanel,
   state,
@@ -957,7 +958,8 @@ function renderSummary(data, options = {}) {
       : "";
   $("summaryContent").innerHTML =
     `<div class="summary-title">${escapeHtml(String(data.title || t("summaryDialogTitle")))}</div><p class="summary-overview">${escapeHtml(String(data.overview || ""))}</p><div class="summary-segments">${segmentHtml}</div>${section(t("decisions"), list(data.decisions), "summary-decisions")}${section(t("issues"), list(data.issues), "summary-issues")}`;
-  if (options.open && !$("summaryPanel").open) $("summaryPanel").showModal();
+  if (options.open && !requiredDialog("summaryPanel").open)
+    requiredDialog("summaryPanel").showModal();
 }
 async function refreshSelectedLogDetail() {
   const id = state.selected;
@@ -1015,8 +1017,8 @@ export function mountHistory() {
     try {
       const existing = await api(`/api/logs/${encodeURIComponent(state.selected)}/summary`);
       if (existing) {
-        if ($("summaryPanel").open) {
-          $("summaryPanel").close();
+        if (requiredDialog("summaryPanel").open) {
+          requiredDialog("summaryPanel").close();
           return;
         }
         renderSummary(existing, { open: true });
@@ -1074,7 +1076,7 @@ export function mountHistory() {
     );
     $("summaryTestResult").hidden = true;
     $("summaryTestResult").textContent = "";
-    $("summaryModelDialog").showModal();
+    requiredDialog("summaryModelDialog").showModal();
   });
   $("summaryModelForm").addEventListener("submit", async (e) => {
     e.preventDefault();
@@ -1092,10 +1094,10 @@ export function mountHistory() {
         timeout_ms: Number($("summaryTimeout").value) * 1000,
       }),
     });
-    $("summaryModelDialog").close();
+    requiredDialog("summaryModelDialog").close();
     toast(t("summaryConfigSaved"));
   });
-  $("summaryCancel").addEventListener("click", () => $("summaryModelDialog").close());
+  $("summaryCancel").addEventListener("click", () => requiredDialog("summaryModelDialog").close());
   $("selectAllLogs").addEventListener("click", () => toggleSelectAllLogs());
   $("autoRefreshLogs").addEventListener("change", () => scheduleLogRefresh(250));
   $("logItems").addEventListener("click", (event) => {
@@ -1194,7 +1196,7 @@ export function mountHistory() {
     }
   });
   $("summaryClose").addEventListener("click", () => {
-    $("summaryPanel").close();
+    requiredDialog("summaryPanel").close();
   });
   $("summaryRegenerate").addEventListener("click", async () => {
     if (!state.selected) return;
@@ -1207,7 +1209,7 @@ export function mountHistory() {
         method: "POST",
       });
       // Do not force-reopen a dialog the user closed while the request was in flight.
-      renderSummary(result, { open: $("summaryPanel").open });
+      renderSummary(result, { open: requiredDialog("summaryPanel").open });
       toast("智能摘要已重新生成");
     } catch (e) {
       toast(e.message || "重新生成失败");

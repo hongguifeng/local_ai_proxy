@@ -88,9 +88,11 @@ describe("[AI-15] compile entries", () => {
     const uiConfig = await readTypeScriptConfig("tsconfig.ui.json");
     expect(uiConfig.compilerOptions?.moduleDetection).toBe("legacy");
     expect(uiConfig.compilerOptions?.checkJs, "the browser scripts must stay checked").toBe(true);
-    expect(uiConfig.compilerOptions?.strictNullChecks ?? false, "strictNullChecks stays off").toBe(
+    expect(uiConfig.compilerOptions?.strictNullChecks ?? false, "the legacy UI surface remains compatibility checked").toBe(
       false,
     );
+    const strictDomConfig = await readTypeScriptConfig("tsconfig.ui-dom.json");
+    expect(strictDomConfig.compilerOptions?.strictNullChecks).toBe(true);
   });
 
   it("[AI-15] packages only the trees the product build produces", async () => {

@@ -53,6 +53,17 @@ describe("admin UI source migration", () => {
     }
   });
 
+  it("defines required DOM lookup contracts with runtime selector and type errors", async () => {
+    const source = (await readModuleSources()).get("dom.js") ?? "";
+    expect(source).toContain("Required UI element not found: ${selector}");
+    expect(source).toContain("Required UI input has wrong element type");
+    expect(source).toContain("Required UI dialog has wrong element type");
+    expect(source).toContain("Required UI details has wrong element type");
+    expect(source).toContain("HTMLInputElement");
+    expect(source).toContain("HTMLDialogElement");
+    expect(source).toContain("HTMLDetailsElement");
+    expect(source).not.toContain("UiElement");
+  });
   it("ships one generated script and nothing else for the browser to load", async () => {
     // No numbered classic part is left: the whole program is the ES module graph, so the
     // load-order convention and the script-scope rules that came with it are gone.
