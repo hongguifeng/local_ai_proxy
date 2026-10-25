@@ -10,6 +10,16 @@ import {
 } from "../../src/admin/index.js";
 import { createNodeApplication, type NodeApplication } from "../../src/app/index.js";
 import type { SummaryModelConfig } from "../../src/config/index.js";
+import { UsageStatisticsService } from "../../src/maintenance/usage-statistics-service.js";
+import {
+  cleanupResult,
+  emptyGroupPage,
+  enabledPair,
+  exportStream,
+  modelPriceImportResult,
+  recordBatch,
+  taskBrief,
+} from "./log-service-fixtures.js";
 
 // The full route table Fastify builds when every optional service is wired.
 // Pinned so a renamed path, a dropped method, or a route that moves under a new
@@ -167,39 +177,33 @@ function parseBody(text: string): Record<string, unknown> | null {
 
 describe("admin route table", () => {
   it("registers every declared route when every service is wired", async () => {
-    // The contract under test is reachability, so the stubs only have to answer
-    // often enough for each route to be registered; their payloads are irrelevant.
-    const stubs = {
+    // The contract under test is reachability, so the stubs only have to answer often enough
+    // for each route to be registered. They are written against the real contract types, so a
+    // renamed or forgotten service field stops this file from compiling.
+    const stubs: AdminServerOptions = {
+      getHealth: () => applicationHealth("running"),
       logService: {
-        listGroups: () => ({
-          groups: [],
-          total: 0,
-          limit: 100,
-          offset: 0,
-          next_offset: 0,
-          has_more: false,
-        }),
-        cleanupKeepLatest: () => ({ deleted: [], deleted_count: 0 }),
-        cleanupOlderThan: () => ({ deleted: [], deleted_count: 0 }),
-        cleanupSelectedGroups: () => ({ deleted: [], deleted_count: 0 }),
-        exportLogs: () => null,
+        listGroups: () => emptyGroupPage(),
+        cleanupKeepLatest: () => cleanupResult(),
+        cleanupOlderThan: () => cleanupResult(),
+        cleanupSelectedGroups: () => cleanupResult(),
+        exportLogs: () => exportStream(),
         getGroupLogs: () => undefined,
-        listRecordsByIds: () => ({ records: [] }),
+        listRecordsByIds: () => recordBatch(),
         getRecordDetail: () => undefined,
-        summarizeRecord: () => Promise.resolve({}),
+        summarizeRecord: () => Promise.resolve(undefined),
         getSummary: () => undefined,
         getGroupPricing: () => undefined,
         getGroupTokenSeries: () => undefined,
         getGroupCostSeries: () => undefined,
         getGroupOutputTokenSeries: () => undefined,
         getTaskBrief: () => undefined,
-        generateTaskBrief: () => Promise.resolve({}),
-        importModelPrices: () => Promise.resolve({}),
+        generateTaskBrief: () => Promise.resolve(taskBrief()),
       },
       pairService: {
         listPairs: () => [],
         replacePairs: () => Promise.resolve([]),
-        setPairEnabled: () => Promise.resolve({}),
+        setPairEnabled: () => Promise.resolve(enabledPair()),
       },
       staticAssets: { appCss: "a", appJs: "j", indexHtml: "<html>" },
       targetCheckService: { checkTarget: () => Promise.resolve({ ok: true, durationMs: 1 }) },
@@ -215,18 +219,15 @@ describe("admin route table", () => {
         setConfig: (config: SummaryModelConfig) => Promise.resolve(config),
         testConfig: () => Promise.resolve({ ok: true }),
       },
-      modelCatalogService: { importModelPrices: () => Promise.resolve({}) },
-      usageStatisticsService: {
-        overview: () => ({}),
-        trend: () => ({}),
-        repositoryRows: () => ({ targets: [], models: [] }),
+      modelCatalogService: {
+        importModelPrices: () => Promise.resolve(modelPriceImportResult()),
       },
+      usageStatisticsService: new UsageStatisticsService({
+        usageStatisticsRows: () => [],
+      }),
     };
 
-    const server = createAdminServer({
-      ...(stubs as unknown as AdminServerOptions),
-      getHealth: () => applicationHealth("running"),
-    });
+    const server = createAdminServer(stubs);
     await server.ready();
     const table = readRouteTable(server.printRoutes({ commonPrefix: false }));
     await server.close();

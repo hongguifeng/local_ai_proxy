@@ -5,26 +5,98 @@ interface StatisticsRepository {
 
 export type StatisticsMetric = "token" | "cost";
 
-export interface UsageStatisticsOverview {
-  readonly totals: Record<string, string | number>;
-  readonly byTarget: readonly Record<string, unknown>[];
-  readonly byModel: readonly Record<string, unknown>[];
-  readonly unpriced: Record<string, number>;
-  readonly dataVersion: 1;
+/** How a trend is split inside each bucket. */
+export type UsageStatisticsBreakdown = "total" | "model" | "target";
+
+/** Why requests were left out of the totals, and how many of each reason. */
+export type UsageStatisticsUnpriced = Readonly<Record<string, number>>;
+
+/** The token and money totals of everything priced in the window. */
+export interface UsageStatisticsTotals {
+  readonly requests: number;
+  readonly tasks: number;
+  readonly input: string;
+  readonly output: string;
+  readonly cache_read: string;
+  readonly cache_write: string;
+  readonly cost: string;
 }
+
+/** One target or model with its own totals, ranked by request count. */
+export interface UsageStatisticsBucket {
+  readonly id: string;
+  readonly requests: number;
+  readonly tasks: number;
+  readonly input: string;
+  readonly output: string;
+  readonly cache_read: string;
+  readonly cache_write: string;
+  readonly cost: string;
+  /** The size of this bucket in the metric the caller asked for. */
+  readonly value: string;
+}
+
+export interface UsageStatisticsOverview {
+  readonly dataVersion: 1;
+  readonly totals: UsageStatisticsTotals;
+  readonly byTarget: readonly UsageStatisticsBucket[];
+  readonly byModel: readonly UsageStatisticsBucket[];
+  readonly unpriced: UsageStatisticsUnpriced;
+}
+
+/** One model or target inside a trend bucket, when the breakdown asked for one. */
+export interface UsageStatisticsBreakdownEntry {
+  readonly id: string;
+  readonly requests: number;
+  readonly tasks: number;
+  readonly input: string;
+  readonly output: string;
+  readonly cache_read: string;
+  readonly cache_write: string;
+  readonly cost: string;
+  readonly unpriced: number;
+}
+
+/** One bucket of the trend; tokens and money are text to keep large values exact. */
+export interface UsageStatisticsTrendPoint {
+  readonly bucket: string;
+  readonly requests: number;
+  readonly tasks: number;
+  readonly input: string;
+  readonly output: string;
+  readonly cache_read: string;
+  readonly cache_write: string;
+  readonly cost: string;
+  readonly unpriced: number;
+  readonly by_model: readonly UsageStatisticsBreakdownEntry[];
+  readonly by_target: readonly UsageStatisticsBreakdownEntry[];
+}
+
 export interface UsageStatisticsTrend {
   readonly dataVersion: 1;
   readonly granularity: string;
-  readonly points: readonly Record<string, unknown>[];
-}
-type TrendBreakdown = "total" | "model" | "target";
-interface TrendPointGroup {
-  total: ReturnType<typeof empty>;
-  byModel: Map<string, ReturnType<typeof empty>>;
-  byTarget: Map<string, ReturnType<typeof empty>>;
+  readonly points: readonly UsageStatisticsTrendPoint[];
 }
 
-const empty = () => ({
+/** What one bucket accumulates while its rows are read; counters are exact. */
+interface StatisticsAccumulator {
+  input: bigint;
+  output: bigint;
+  cacheRead: bigint;
+  cacheWrite: bigint;
+  cost: bigint;
+  requests: number;
+  unpriced: number;
+  tasks: Map<string, number>;
+}
+
+interface TrendPointGroup {
+  total: StatisticsAccumulator;
+  byModel: Map<string, StatisticsAccumulator>;
+  byTarget: Map<string, StatisticsAccumulator>;
+}
+
+const empty = (): StatisticsAccumulator => ({
   input: 0n,
   output: 0n,
   cacheRead: 0n,
@@ -54,8 +126,8 @@ export class UsageStatisticsService {
   }
 
   overview(from: string, to: string, metric: StatisticsMetric = "token"): UsageStatisticsOverview {
-    const targets = new Map<string, ReturnType<typeof empty>>();
-    const models = new Map<string, ReturnType<typeof empty>>();
+    const targets = new Map<string, StatisticsAccumulator>();
+    const models = new Map<string, StatisticsAccumulator>();
     const total = empty();
     const unpriced: Record<string, number> = {};
     for (const row of this.repository.usageStatisticsRows(from, to)) {
@@ -71,7 +143,7 @@ export class UsageStatisticsService {
       targets.set(targetKey, target);
       models.set(modelKey, model);
     }
-    const project = (map: Map<string, ReturnType<typeof empty>>) => {
+    const project = (map: Map<string, StatisticsAccumulator>) => {
       const rows = [...map].sort((a, b) => b[1].requests - a[1].requests);
       const visible = rows.slice(0, 9);
       const rest = rows.slice(9);
@@ -128,7 +200,7 @@ export class UsageStatisticsService {
     model?: string,
     granularity = "day",
     timezoneOffsetMinutes = 0,
-    breakdown: TrendBreakdown = "total",
+    breakdown: UsageStatisticsBreakdown = "total",
   ): UsageStatisticsTrend {
     const points = new Map<string, TrendPointGroup>();
     for (const row of this.repository.usageStatisticsRows(from, to)) {
@@ -138,8 +210,8 @@ export class UsageStatisticsService {
       const key = bucketKey(String(row["timestamp"]), granularity, timezoneOffsetMinutes);
       const value = points.get(key) ?? {
         total: empty(),
-        byModel: new Map<string, ReturnType<typeof empty>>(),
-        byTarget: new Map<string, ReturnType<typeof empty>>(),
+        byModel: new Map<string, StatisticsAccumulator>(),
+        byTarget: new Map<string, StatisticsAccumulator>(),
       };
       const parsed = this.rowBucket(row, {});
       if (parsed !== undefined) {
@@ -163,7 +235,7 @@ export class UsageStatisticsService {
         .slice(-366)
         .map(([bucket, groups]) => {
           const v = groups.total;
-          const serialize = (m: Map<string, ReturnType<typeof empty>>) =>
+          const serialize = (m: Map<string, StatisticsAccumulator>) =>
             [...m].map(([id, x]) => ({
               id,
               requests: x.requests,
@@ -192,11 +264,7 @@ export class UsageStatisticsService {
     };
   }
 
-  private add(
-    to: ReturnType<typeof empty>,
-    from: ReturnType<typeof empty>,
-    row: RepositoryRecord,
-  ): void {
+  private add(to: StatisticsAccumulator, from: StatisticsAccumulator, row: RepositoryRecord): void {
     to.input += from.input;
     to.output += from.output;
     to.cacheRead += from.cacheRead;
@@ -209,7 +277,7 @@ export class UsageStatisticsService {
   private rowBucket(
     row: RepositoryRecord,
     unpriced: Record<string, number>,
-  ): ReturnType<typeof empty> | undefined {
+  ): StatisticsAccumulator | undefined {
     if (row["pricing_status"] !== "priced") {
       const r = recordText(row, "unknown", "pricing_reason", "pricing_status");
       unpriced[r] = (unpriced[r] ?? 0) + 1;

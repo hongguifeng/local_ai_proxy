@@ -1,9 +1,18 @@
 import { afterEach, describe, expect, it } from "vitest";
-import { Readable } from "node:stream";
 
 import { applicationHealth, createAdminServer } from "../../src/admin/index.js";
 import { ApplicationError, conflict, notFound, storageError } from "../../src/shared/index.js";
-import type { LogPendingRecord } from "../../src/maintenance/index.js";
+import type { LogGroupPage } from "../../src/maintenance/index.js";
+import {
+  cleanupResult,
+  emptyGroupPage,
+  exportStream,
+  historySummary,
+  listRecord,
+  recordBatch,
+  recordDetail,
+  taskBrief,
+} from "./log-service-fixtures.js";
 
 const servers: ReturnType<typeof createAdminServer>[] = [];
 
@@ -15,17 +24,10 @@ describe("GET /api/logs", () => {
   it("cleans selected log groups", async () => {
     const logService = {
       calls: [] as unknown[],
-      listGroups: () => ({
-        groups: [],
-        total: 0,
-        limit: 100,
-        offset: 0,
-        next_offset: 0,
-        has_more: false,
-      }),
+      listGroups: () => emptyGroupPage(),
       cleanupSelectedGroups(groupIds: readonly string[]) {
         this.calls.push(groupIds);
-        return { deleted: groupIds, deleted_count: groupIds.length };
+        return cleanupResult(groupIds);
       },
     };
     const server = createAdminServer({
@@ -49,17 +51,10 @@ describe("GET /api/logs", () => {
     const server = createAdminServer({
       getHealth: () => applicationHealth("running"),
       logService: {
-        listGroups: () => ({
-          groups: [],
-          total: 0,
-          limit: 100,
-          offset: 0,
-          next_offset: 0,
-          has_more: false,
-        }),
+        listGroups: () => emptyGroupPage(),
         cleanupOlderThan(days) {
           calls.push(days);
-          return { deleted: ["old"], deleted_count: 1 };
+          return cleanupResult(["old"]);
         },
       },
     });
@@ -80,17 +75,10 @@ describe("GET /api/logs", () => {
     const server = createAdminServer({
       getHealth: () => applicationHealth("running"),
       logService: {
-        listGroups: () => ({
-          groups: [],
-          total: 0,
-          limit: 100,
-          offset: 0,
-          next_offset: 0,
-          has_more: false,
-        }),
+        listGroups: () => emptyGroupPage(),
         cleanupKeepLatest(count) {
           calls.push(count);
-          return { deleted: ["old"], deleted_count: 1 };
+          return cleanupResult(["old"]);
         },
       },
     });
@@ -110,15 +98,8 @@ describe("GET /api/logs", () => {
     const server = createAdminServer({
       getHealth: () => applicationHealth("running"),
       logService: {
-        listGroups: () => ({
-          groups: [],
-          total: 0,
-          limit: 100,
-          offset: 0,
-          next_offset: 0,
-          has_more: false,
-        }),
-        exportLogs: () => Readable.from([Buffer.from("zip-stream")]),
+        listGroups: () => emptyGroupPage(),
+        exportLogs: () => exportStream("zip-stream"),
       },
     });
     servers.push(server);
@@ -134,7 +115,7 @@ describe("GET /api/logs", () => {
 
   it("passes search and pagination query values to the log service", async () => {
     const calls: unknown[] = [];
-    const page = {
+    const page: LogGroupPage = {
       groups: [],
       total: 2,
       limit: 1,
@@ -166,14 +147,7 @@ describe("GET /api/logs", () => {
     const server = createAdminServer({
       getHealth: () => applicationHealth("running"),
       logService: {
-        listGroups: () => ({
-          groups: [],
-          total: 0,
-          limit: 100,
-          offset: 0,
-          next_offset: 0,
-          has_more: false,
-        }),
+        listGroups: () => emptyGroupPage(),
         getGroupLogs(groupId, query) {
           return groupId === "known"
             ? {
@@ -220,25 +194,11 @@ describe("GET /api/logs", () => {
   });
 
   it("returns record detail and a JSON 404 for missing records", async () => {
-    const detail = {
-      id: "known-record",
-      pending: false,
-      request: { input: "hello" },
-      response: { output: "world" },
-      request_meta: { method: "POST" },
-      response_meta: { status: 200 },
-    };
+    const detail = recordDetail("known-record");
     const server = createAdminServer({
       getHealth: () => applicationHealth("running"),
       logService: {
-        listGroups: () => ({
-          groups: [],
-          total: 0,
-          limit: 100,
-          offset: 0,
-          next_offset: 0,
-          has_more: false,
-        }),
+        listGroups: () => emptyGroupPage(),
         getRecordDetail: (recordId) => (recordId === detail.id ? detail : undefined),
       },
     });
@@ -256,37 +216,15 @@ describe("GET /api/logs", () => {
 
   it("reads many records in one body-free batch request", async () => {
     const calls: (readonly string[])[] = [];
-    const pendingRecord: LogPendingRecord = {
-      id: "in-flight",
-      pending: true,
-      timestamp: "pending",
-      sequence: "1",
-      method: "POST",
-      path: "/v1/responses",
-      endpoint: "/v1/responses",
-      message_count: null,
-      status: null,
-      request_token_count: null,
-      response_token_count: null,
-      target: "fixture-target",
-      has_summary: false,
-      cost: { currency: "CNY", amount: null, status: "pending", reason: null },
-    };
-    const finishedRecord = { ...pendingRecord, id: "done", pending: false, status: 200 };
+    const inFlight = listRecord("in-flight", true);
+    const done = listRecord("done", false);
     const server = createAdminServer({
       getHealth: () => applicationHealth("running"),
       logService: {
-        listGroups: () => ({
-          groups: [],
-          total: 0,
-          limit: 100,
-          offset: 0,
-          next_offset: 0,
-          has_more: false,
-        }),
+        listGroups: () => emptyGroupPage(),
         listRecordsByIds: (ids) => {
           calls.push(ids);
-          return { records: [pendingRecord, finishedRecord].filter((r) => ids.includes(r.id)) };
+          return recordBatch([inFlight, done].filter((record) => ids.includes(record.id)));
         },
       },
     });
@@ -297,7 +235,7 @@ describe("GET /api/logs", () => {
       url: "/api/logs/records?ids=in-flight,done,in-flight",
     });
     expect(response.statusCode).toBe(200);
-    expect(response.json()).toEqual({ records: [pendingRecord, finishedRecord] });
+    expect(response.json()).toEqual(recordBatch([inFlight, done]));
     // Repeated ids are collapsed and surrounding whitespace is trimmed.
     expect(calls).toEqual([["in-flight", "done"]]);
 
@@ -318,14 +256,7 @@ describe("GET /api/logs", () => {
     const server = createAdminServer({
       getHealth: () => applicationHealth("running"),
       logService: {
-        listGroups: () => ({
-          groups: [],
-          total: 0,
-          limit: 100,
-          offset: 0,
-          next_offset: 0,
-          has_more: false,
-        }),
+        listGroups: () => emptyGroupPage(),
       },
     });
     servers.push(server);
@@ -355,14 +286,7 @@ describe("generation error classification", () => {
             },
           }),
       logService: {
-        listGroups: () => ({
-          groups: [],
-          total: 0,
-          limit: 100,
-          offset: 0,
-          next_offset: 0,
-          has_more: false,
-        }),
+        listGroups: () => emptyGroupPage(),
         generateTaskBrief: () => failure(),
         summarizeRecord: () => failure(),
       },
@@ -523,6 +447,74 @@ describe("generation error classification", () => {
         code: "summary_in_progress",
         message: "A summary is already being generated for this record.",
       },
+    });
+  });
+});
+
+describe("[AI-07] stored and absent generation results", () => {
+  // "Nothing is stored" and "no such record" have to look different to the browser: an
+  // absent brief or summary answers JSON null, an unknown record answers a coded 404.
+  it("answers a stored summary verbatim and an absent one as null", async () => {
+    const summary = historySummary();
+    const server = createAdminServer({
+      getHealth: () => applicationHealth("running"),
+      logService: {
+        listGroups: () => emptyGroupPage(),
+        getSummary: (recordId) => (recordId === "known-record" ? summary : undefined),
+        summarizeRecord: () => Promise.resolve(undefined),
+      },
+    });
+    servers.push(server);
+
+    const stored = await server.inject({ method: "GET", url: "/api/logs/known-record/summary" });
+    expect(stored.statusCode).toBe(200);
+    // The summary model's own keys, including one this project never declared, survive.
+    expect(stored.json()).toEqual(summary);
+
+    const absent = await server.inject({ method: "GET", url: "/api/logs/other-record/summary" });
+    expect(absent.statusCode).toBe(200);
+    expect(absent.json()).toBeNull();
+  });
+
+  it("answers a stored task brief and an absent one", async () => {
+    const brief = taskBrief("task-1");
+    const server = createAdminServer({
+      getHealth: () => applicationHealth("running"),
+      logService: {
+        listGroups: () => emptyGroupPage(),
+        getTaskBrief: (groupId) => (groupId === "task-1" ? brief : undefined),
+        generateTaskBrief: () => Promise.resolve(brief),
+      },
+    });
+    servers.push(server);
+
+    const stored = await server.inject({ method: "GET", url: "/api/log-groups/task-1/brief" });
+    expect(stored.statusCode).toBe(200);
+    expect(stored.json()).toEqual(brief);
+
+    const absent = await server.inject({ method: "GET", url: "/api/log-groups/task-2/brief" });
+    expect(absent.statusCode).toBe(200);
+    expect(absent.json()).toBeNull();
+  });
+
+  it("answers a summary for a record no root holds with record_not_found", async () => {
+    const server = createAdminServer({
+      getHealth: () => applicationHealth("running"),
+      logService: {
+        listGroups: () => emptyGroupPage(),
+        summarizeRecord: () => Promise.resolve(undefined),
+        getSummary: () => undefined,
+      },
+    });
+    servers.push(server);
+
+    const response = await server.inject({
+      method: "POST",
+      url: "/api/logs/missing-record/summary",
+    });
+    expect(response.statusCode).toBe(404);
+    expect(response.json()).toEqual({
+      error: { code: "record_not_found", message: "Record not found." },
     });
   });
 });

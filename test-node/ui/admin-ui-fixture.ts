@@ -1,5 +1,5 @@
 import type { ProxyPair, PublicProxyPair } from "../../src/config/index.js";
-import type { LogListItem } from "../../src/maintenance/index.js";
+import type { LogListItem, TaskBrief } from "../../src/maintenance/index.js";
 
 export const logQueries: string[] = [];
 
@@ -26,6 +26,23 @@ export const TASK_BRIEF_GENERATED_FACTS: Record<string, string> = {
 };
 
 export const taskBriefPosts: string[] = [];
+
+/**
+ * The one brief payload the stub answers with. Undefined is the "never generated" state,
+ * which is what a task without a stored brief really returns.
+ */
+export function taskBriefFixtureValue(groupId: string): TaskBrief | undefined {
+  return taskBriefFixture === null
+    ? undefined
+    : {
+        task_id: groupId,
+        text: taskBriefFixture,
+        context: TASK_BRIEF_GENERATED_FACTS,
+        model: "summary-model",
+        generated_at: "2026-07-18T12:05:00.000+08:00",
+        source_record_id: "record-six",
+      };
+}
 
 export const deletedLogGroups = new Set<string>();
 

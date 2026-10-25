@@ -16,8 +16,8 @@ describe("usage statistics benchmark", () => {
       "2026-01-01",
       "2026-01-02",
     );
-    expect(result.totals["requests"]).toBe(10000);
-    expect(result.totals["input"]).toBe("10000");
+    expect(result.totals.requests).toBe(10000);
+    expect(result.totals.input).toBe("10000");
   });
   it("caps trend output at 366 points", () => {
     const rows = Array.from({ length: 400 }, (_, i) => ({

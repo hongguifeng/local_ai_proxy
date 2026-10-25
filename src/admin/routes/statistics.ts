@@ -1,5 +1,9 @@
 import type { FastifyInstance } from "fastify";
 import { recordText } from "../../persistence/repository.js";
+import type {
+  StatisticsMetric,
+  UsageStatisticsBreakdown,
+} from "../../maintenance/usage-statistics-service.js";
 import type { UsageStatisticsService } from "../../maintenance/usage-statistics-service.js";
 import { csvCell } from "../admin-contracts.js";
 
@@ -26,7 +30,11 @@ export function registerStatisticsRoutes(
     "/api/usage-statistics/overview",
     { schema: { querystring: statsQuery } },
     (request) => {
-      const query = request.query as { from?: string; to?: string; metric?: "token" | "cost" };
+      const query = request.query as {
+        from?: string;
+        to?: string;
+        metric?: StatisticsMetric;
+      };
       if (query.from === undefined || query.to === undefined || query.from >= query.to) {
         throw Object.assign(new Error("Invalid time range"), {
           statusCode: 400,
@@ -44,7 +52,7 @@ export function registerStatisticsRoutes(
       model?: string;
       granularity?: string;
       timezoneOffset?: number;
-      breakdown?: "total" | "model" | "target";
+      breakdown?: UsageStatisticsBreakdown;
     };
     if (query.from === undefined || query.to === undefined || query.from >= query.to)
       throw Object.assign(new Error("Invalid time range"), {
@@ -144,17 +152,17 @@ export function registerStatisticsRoutes(
       );
       const lines = [
         "bucket,requests,tasks,input,output,cache_read,cache_write,cost,unpriced",
-        ...trend.points.map((p) =>
+        ...trend.points.map((point) =>
           [
-            csvCell(p["bucket"]),
-            p["requests"],
-            p["tasks"],
-            p["input"],
-            p["output"],
-            p["cache_read"],
-            p["cache_write"],
-            p["cost"],
-            p["unpriced"] ?? 0,
+            csvCell(point.bucket),
+            point.requests,
+            point.tasks,
+            point.input,
+            point.output,
+            point.cache_read,
+            point.cache_write,
+            point.cost,
+            point.unpriced,
           ].join(","),
         ),
       ];

@@ -177,9 +177,8 @@ export function registerLogRoutes(
   const generateTaskBrief = logService.generateTaskBrief?.bind(logService);
   if (generateTaskBrief !== undefined) {
     if (getTaskBrief !== undefined)
-      server.get<{ Params: { id: string } }>(
-        "/api/log-groups/:id/brief",
-        (request) => getTaskBrief(request.params.id) ?? null,
+      server.get<{ Params: { id: string } }>("/api/log-groups/:id/brief", (request) =>
+        absentAsNull(getTaskBrief(request.params.id)),
       );
     server.post<{ Params: { id: string } }>("/api/log-groups/:id/brief", async (request, reply) => {
       try {
@@ -275,7 +274,7 @@ export function registerLogRoutes(
             .code(400)
             .send(adminError("invalid_request", "At least one record id is required."));
         }
-        return listRecordsByIds(ids) ?? { records: [] };
+        return listRecordsByIds(ids);
       },
     );
   }
@@ -303,14 +302,16 @@ export function registerLogRoutes(
 
   if (summarizeRecord !== undefined) {
     if (getSummary !== undefined)
-      server.get<{ Params: { id: string } }>(
-        "/api/logs/:id/summary",
-        (request) => getSummary(request.params.id) ?? null,
+      server.get<{ Params: { id: string } }>("/api/logs/:id/summary", (request) =>
+        absentAsNull(getSummary(request.params.id)),
       );
     server.post<{ Params: { id: string } }>("/api/logs/:id/summary", async (request, reply) => {
       try {
         const result = await summarizeRecord(request.params.id);
-        return result ?? reply.code(404).send(adminError("record_not_found", "Record not found."));
+        // The service answers undefined for a record no log root holds.
+        if (result === undefined)
+          return await reply.code(404).send(adminError("record_not_found", "Record not found."));
+        return result;
       } catch (error) {
         if (!(error instanceof ApplicationError)) {
           logger.warn("Record summary generation failed", {
@@ -329,6 +330,15 @@ export function registerLogRoutes(
       }
     });
   }
+}
+
+/**
+ * The service-model to response boundary for a resource that may be absent: the service
+ * answers `undefined`, and the console reads `null` as "nothing is stored here". Keeping it
+ * in one place means an absent brief and an absent summary look the same to the browser.
+ */
+function absentAsNull<T>(resource: T | undefined): T | null {
+  return resource ?? null;
 }
 
 /**

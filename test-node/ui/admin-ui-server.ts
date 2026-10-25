@@ -10,7 +10,6 @@ import { Readable } from "node:stream";
 import type { LogPendingRecord } from "../../src/maintenance/index.js";
 import { existsSync } from "node:fs";
 import {
-  TASK_BRIEF_GENERATED_FACTS,
   TASK_BRIEF_GENERATED_TEXT,
   deletedLogGroups,
   deploymentPromptFixture,
@@ -34,7 +33,7 @@ import {
   targetMetricsOutcome,
   targetModelsCalls,
   targetModelsOutcome,
-  taskBriefFixture,
+  taskBriefFixtureValue,
   taskBriefPosts,
   taskOneLogFixture,
   useLargeGroupLogFixture,
@@ -252,6 +251,7 @@ export async function startStubAdminServer(): Promise<void> {
           unpriced_reasons: { missing_usage: 1 },
           groups: [
             {
+              algorithm_version: null,
               billing_model: "gpt-5",
               request_count: 3,
               cost_nano_cny: "42750000",
@@ -298,31 +298,17 @@ export async function startStubAdminServer(): Promise<void> {
         ];
       },
       getTaskBrief: (groupId) =>
-        groupId === "task-one" && taskBriefFixture !== null
-          ? {
-              task_id: groupId,
-              text: taskBriefFixture,
-              context: TASK_BRIEF_GENERATED_FACTS,
-              model: "summary-model",
-              generated_at: "2026-07-18T12:05:00.000+08:00",
-              source_record_id: "record-six",
-            }
-          : null,
+        groupId === "task-one" ? taskBriefFixtureValue(groupId) : undefined,
       generateTaskBrief: (groupId) => {
         taskBriefPosts.push(groupId);
         setTaskBriefFixture(groupId === "task-one" ? TASK_BRIEF_GENERATED_TEXT : null);
-        return Promise.resolve(
-          taskBriefFixture === null
-            ? null
-            : {
-                task_id: groupId,
-                text: taskBriefFixture,
-                context: TASK_BRIEF_GENERATED_FACTS,
-                model: "summary-model",
-                generated_at: "2026-07-18T12:05:00.000+08:00",
-                source_record_id: "record-six",
-              },
-        );
+        const brief = taskBriefFixtureValue(groupId);
+        if (brief === undefined) {
+          // The stub only knows how to generate a brief for the fixture task; every
+          // browser test posts for that one.
+          throw new Error(`Task brief stub has no answer for ${groupId}`);
+        }
+        return Promise.resolve(brief);
       },
       cleanupSelectedGroups: (groupIds) => {
         groupIds.forEach((groupId) => deletedLogGroups.add(groupId));

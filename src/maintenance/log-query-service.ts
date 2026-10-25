@@ -66,6 +66,9 @@ export interface LogGroupPage {
   readonly total: number;
 }
 
+/** How one request's price stands: measured, still waiting, or known to have no price. */
+export type LogPricingStatus = "pending" | "priced" | "unpriced";
+
 export interface LogListItem {
   readonly end_to_end_speed_tps?: number;
   readonly cost?: LogRequestCost;
@@ -92,7 +95,7 @@ export interface LogRequestCost {
   readonly amount: string | null;
   readonly currency: "CNY";
   readonly reason: string | null;
-  readonly status: "pending" | "priced" | "unpriced";
+  readonly status: LogPricingStatus;
 }
 
 export interface LogGroupLogs {
@@ -105,15 +108,45 @@ export interface LogGroupLogs {
   readonly total: number;
 }
 
+/**
+ * The pricing block a record detail carries. The matched rule and the measured usage are
+ * stored as they arrived, so the block stays open; only the columns this project wrote are
+ * named. Money stays in `cost_nano_cny` as text to keep precision.
+ */
+export type LogRecordPricing = Readonly<Record<string, unknown>>;
+
 export interface LogRecordDetail {
   readonly id: string;
   readonly pending: boolean;
+  /** The client's request body, kept as the arbitrary JSON it is. */
   readonly request: unknown;
   readonly request_meta: Readonly<Record<string, unknown>>;
+  /** The upstream answer, kept as the arbitrary JSON it is. */
   readonly response: unknown;
   readonly response_meta: Readonly<Record<string, unknown>>;
-  readonly pricing?: unknown;
+  /** Null when the row carries no pricing block at all. */
+  readonly pricing: LogRecordPricing | null;
+  /** The measured generation window; only a finished record carries it. */
+  readonly decode_window_ms?: number;
 }
+
+/** The fields the summary prompt asks the model for. */
+export interface HistorySummaryFields {
+  /** The model may omit any of these; the console has a fallback for each. */
+  readonly title?: unknown;
+  readonly overview?: unknown;
+  /** Stage segments; always an array, because `parseSummaryPayload` refuses anything else. */
+  readonly segments?: readonly unknown[];
+  readonly decisions?: unknown;
+  readonly issues?: unknown;
+}
+
+/**
+ * A stored smart summary. The payload is the summary model's own JSON kept verbatim, so
+ * keys this model does not name stay readable through the open half; only the fields the
+ * prompt asks for are declared. Undefined means no summary exists for that record.
+ */
+export type HistorySummary = HistorySummaryFields & Record<string, unknown>;
 
 export class LogQueryService {
   readonly #logRoots: () => readonly string[];
@@ -272,41 +305,35 @@ export class LogQueryService {
     return undefined;
   }
 
-  async summarizeRecord(recordId: string, config: SummaryModelConfig): Promise<unknown> {
+  async summarizeRecord(
+    recordId: string,
+    config: SummaryModelConfig,
+  ): Promise<HistorySummary | undefined> {
     if (this.#summarizing.has(recordId))
       throw conflict("A summary is already being generated for this record.");
     this.#summarizing.add(recordId);
     try {
       const detail = this.getRecordDetail(recordId);
-      if (!detail) return undefined;
+      // No detail means no such record anywhere: the caller answers 404 rather than
+      // pretending a summary was made.
+      if (detail === undefined) return undefined;
       const input = JSON.stringify(prepareSummaryRequest(detail.request));
       const instruction =
         "请将输入按连续编号区间归纳为阶段摘要，不要逐条复述。严格输出 JSON：{title,overview,segments:[{range,summary,key_points,evidence}],decisions,issues}。每个 segment 的 range 使用如 1-6、7-12 的连续区间，evidence 填引用的消息编号。";
       const content = await this.#requestSummaryModel(config, instruction, input);
-      let result: unknown;
-      try {
-        result = JSON.parse(content);
-      } catch {
-        const match = /```json\s*([\s\S]*?)```/u.exec(content);
-        const jsonText = match?.[1];
-        if (jsonText === undefined)
-          throw summaryModelFailure("The summary model returned text that is not JSON.");
-        result = JSON.parse(jsonText);
-      }
-      if (
-        !result ||
-        typeof result !== "object" ||
-        !Array.isArray((result as { segments?: unknown }).segments)
-      )
-        throw summaryModelFailure("The summary model did not return the expected JSON shape.");
-      this.saveSummary(recordId, result, config.model);
-      return result;
+      const summary = parseSummaryPayload(content);
+      this.saveSummary(recordId, summary, config.model);
+      return summary;
     } finally {
       this.#summarizing.delete(recordId);
     }
   }
 
-  getSummary(recordId: string): unknown {
+  /**
+   * The stored summary for a record, or undefined when none was ever generated. A root
+   * that does not hold the record answers "no row" and is skipped without a log line.
+   */
+  getSummary(recordId: string): HistorySummary | undefined {
     for (const root of this.#configuredRoots()) {
       const db = new TrafficRepository(root);
       try {
@@ -315,7 +342,12 @@ export class LogQueryService {
             "SELECT summary_json FROM history_summaries WHERE record_id = ? AND status = 'ready'",
           )
           .get(recordId) as { summary_json?: string } | undefined;
-        if (row?.summary_json) return JSON.parse(row.summary_json);
+        const summaryJson = row?.summary_json;
+        if (summaryJson) {
+          const parsed: unknown = JSON.parse(summaryJson);
+          // Anything that is not an object cannot be a summary; the console shows it as absent.
+          return isRecord(parsed) ? parsed : undefined;
+        }
       } catch (error) {
         // A missing row is the expected answer for a root that does not hold this
         // record; reaching here means the query itself failed and is worth naming.
@@ -339,7 +371,7 @@ export class LogQueryService {
    * key violation. A failure in the owning root is reported instead of dropped, because
    * the caller would otherwise show a summary that was never stored.
    */
-  private saveSummary(recordId: string, result: unknown, model: string): void {
+  private saveSummary(recordId: string, result: HistorySummary, model: string): void {
     let lastError: unknown;
     for (const root of this.#configuredRoots()) {
       const db = new TrafficRepository(root);
@@ -392,17 +424,9 @@ export class LogQueryService {
       try {
         const row = repository.getTaskBrief(groupId);
         if (row === undefined) continue;
-        const text = string(row["brief_text"]);
-        if (text === "") continue;
-        const context = parseBriefContext(row["context_json"]);
-        return {
-          task_id: groupId,
-          text,
-          ...(context === undefined ? {} : { context }),
-          model: optionalString(row["model"]),
-          generated_at: string(row["updated_at"]),
-          source_record_id: optionalString(row["source_record_id"]),
-        };
+        // An empty brief_text is the "never generated" answer, so the next root is asked.
+        if (string(row["brief_text"]) === "") continue;
+        return taskBriefFromRow(row, groupId);
       } catch (error) {
         // A root without this task answers "no row", which the code above already skips.
         // Reaching here means the read itself failed.
@@ -480,22 +504,17 @@ export class LogQueryService {
         // references tasks(id), so writing it elsewhere is a foreign key
         // violation that would leave the brief in the wrong directory.
         if (!repository.hasTask(groupId)) continue;
-        const row = repository.saveTaskBrief(
+        return taskBriefFromRow(
+          repository.saveTaskBrief(
+            groupId,
+            text,
+            model,
+            sourceRecordId,
+            TASK_BRIEF_PROMPT_VERSION,
+            contextJson,
+          ),
           groupId,
-          text,
-          model,
-          sourceRecordId,
-          TASK_BRIEF_PROMPT_VERSION,
-          contextJson,
         );
-        return {
-          task_id: groupId,
-          text,
-          ...(Object.keys(facts).length === 0 ? {} : { context: { ...facts } }),
-          model: optionalString(row["model"]) ?? model,
-          generated_at: string(row["updated_at"]),
-          source_record_id: sourceRecordId,
-        };
       } catch (error) {
         lastError = error;
         this.#logger.warn("Task brief save failed", {
@@ -811,6 +830,28 @@ function causeOf(error: unknown): unknown {
   return error instanceof Error ? error.cause : undefined;
 }
 
+/**
+ * The boundary between the summary model's raw text and the stored summary model. The
+ * payload is kept exactly as the model wrote it - nothing is renamed, normalized or dropped -
+ * so only the shape the prompt requires is checked here. A fenced block is accepted because
+ * models that were told to emit strict JSON still wrap it.
+ */
+function parseSummaryPayload(content: string): HistorySummary {
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(content);
+  } catch {
+    const match = /```json\s*([\s\S]*?)```/u.exec(content);
+    const jsonText = match?.[1];
+    if (jsonText === undefined)
+      throw summaryModelFailure("The summary model returned text that is not JSON.");
+    parsed = JSON.parse(jsonText);
+  }
+  if (!isRecord(parsed) || !Array.isArray(parsed["segments"]))
+    throw summaryModelFailure("The summary model did not return the expected JSON shape.");
+  return parsed;
+}
+
 function briefParagraph(content: string): string {
   let text = content.trim();
   const fenced = /```(?:json|text)?\s*([\s\S]*?)```/u.exec(text);
@@ -931,6 +972,23 @@ function parseBriefContext(value: unknown): Record<string, string> | undefined {
   return Object.keys(facts).length === 0 ? undefined : facts;
 }
 
+/**
+ * The one place a `task_briefs` row becomes the brief the console shows. Callers first
+ * drop a row whose `brief_text` is empty, which is how a generation that never finished
+ * reads back; everything else here is present by construction.
+ */
+function taskBriefFromRow(row: Readonly<RepositoryRecord>, groupId: string): TaskBrief {
+  const context = parseBriefContext(row["context_json"]);
+  return {
+    task_id: groupId,
+    text: string(row["brief_text"]),
+    ...(context === undefined ? {} : { context }),
+    model: optionalString(row["model"]),
+    generated_at: string(row["updated_at"]),
+    source_record_id: optionalString(row["source_record_id"]),
+  };
+}
+
 function groupsWithPreviews(
   repository: TrafficRepository,
   tasks: readonly RepositoryRecord[],
@@ -970,7 +1028,7 @@ function recordDetail(record: Readonly<RepositoryRecord>): LogRecordDetail {
     pending,
     request: record["request_body"] ?? null,
     response: record["response_body"] ?? null,
-    pricing: record["pricing"] ?? null,
+    pricing: isRecord(record["pricing"]) ? record["pricing"] : null,
     ...(pending
       ? {}
       : {

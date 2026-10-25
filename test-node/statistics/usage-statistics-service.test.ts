@@ -76,9 +76,7 @@ describe("UsageStatisticsService", () => {
     expect(overview.byTarget[0]).toMatchObject({ id: "a", requests: 11, tasks: 1 });
     const point = trend.points[0];
     expect(point).toMatchObject({ requests: 11, tasks: 1 });
-    expect(point?.["by_model"]).toEqual([
-      expect.objectContaining({ id: "m", requests: 11, tasks: 1 }),
-    ]);
+    expect(point?.by_model).toEqual([expect.objectContaining({ id: "m", requests: 11, tasks: 1 })]);
   });
 
   it("filters trend rows by target and model", () => {
@@ -127,8 +125,8 @@ describe("UsageStatisticsService", () => {
     expect(overview.byTarget).toHaveLength(10);
     const firstPoint = trend.points[0];
     if (firstPoint === undefined) throw new Error("First trend point is missing");
-    expect(overview.byTarget.reduce((sum, row) => sum + Number(row["value"]), 0)).toBe(
-      Number(firstPoint["input"]),
+    expect(overview.byTarget.reduce((sum, row) => sum + Number(row.value), 0)).toBe(
+      Number(firstPoint.input),
     );
   });
 
@@ -169,7 +167,7 @@ describe("UsageStatisticsService", () => {
     const firstPoint = result.points[0];
     if (firstPoint === undefined) throw new Error("First trend point is missing");
     expect(firstPoint).toMatchObject({ bucket: "2026-09-13", input: "7" });
-    expect(firstPoint["by_model"]).toEqual(
+    expect(firstPoint.by_model).toEqual(
       expect.arrayContaining([
         expect.objectContaining({ id: "m1", input: "3" }),
         expect.objectContaining({ id: "m2", input: "4" }),

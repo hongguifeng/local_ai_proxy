@@ -1375,6 +1375,117 @@ describe("LogQueryService error classification and diagnostics", () => {
       },
     ]);
   });
+
+  // [AI-07] The summary payload is the model's own JSON: the service stores and returns it
+  // unchanged, and refuses only what the prompt did not ask for.
+  it("[AI-07] stores and reads back the summary payload unchanged", async () => {
+    const root = await mkdtemp(path.join(os.tmpdir(), "llm-proxy-summary-payload-"));
+    temporaryDirectories.push(root);
+    seedTaskRecord(root, "summary-task", "summary-record");
+    const service = new LogQueryService([root]);
+    const modelPayload = {
+      title: "Build stages",
+      overview: "Six stages; build was the longest.",
+      segments: [
+        { range: "1-6", summary: "install and build", key_points: ["install"], evidence: [1, 6] },
+      ],
+      decisions: ["keep the image"],
+      issues: [],
+      // A key this project never asked for, which has to survive the round trip.
+      model_note: "written by the model",
+    };
+    vi.stubGlobal("fetch", () =>
+      Promise.resolve(
+        chatResponse(
+          JSON.stringify({
+            choices: [{ message: { content: JSON.stringify(modelPayload) } }],
+          }),
+        ),
+      ),
+    );
+    try {
+      const summary = await service.summarizeRecord("summary-record", summaryConfig);
+      expect(summary).toEqual(modelPayload);
+      expect(service.getSummary("summary-record")).toEqual(modelPayload);
+      const db = new Database(path.join(root, "traffic.db"));
+      try {
+        const stored = db
+          .prepare("SELECT summary_json FROM history_summaries WHERE record_id = 'summary-record'")
+          .get() as { summary_json: string } | undefined;
+        if (stored === undefined) throw new Error("The summary was not stored.");
+        expect(JSON.parse(stored.summary_json)).toEqual(modelPayload);
+      } finally {
+        db.close();
+      }
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+
+  it("[AI-07] accepts a fenced summary answer and stores the JSON inside it", async () => {
+    const root = await mkdtemp(path.join(os.tmpdir(), "llm-proxy-summary-fenced-"));
+    temporaryDirectories.push(root);
+    seedTaskRecord(root, "summary-task", "summary-record");
+    const service = new LogQueryService([root]);
+    vi.stubGlobal("fetch", () =>
+      Promise.resolve(
+        chatResponse(
+          JSON.stringify({
+            choices: [
+              {
+                message: {
+                  content:
+                    '```json\n{"title":"t","overview":"o","segments":[],"decisions":[],"issues":[]}\n```',
+                },
+              },
+            ],
+          }),
+        ),
+      ),
+    );
+    try {
+      const summary = await service.summarizeRecord("summary-record", summaryConfig);
+      expect(summary?.segments).toEqual([]);
+      expect(summary?.title).toBe("t");
+      expect(service.getSummary("summary-record")).toEqual(summary);
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+
+  it("[AI-07] refuses an answer that is not the expected JSON shape and stores nothing", async () => {
+    const root = await mkdtemp(path.join(os.tmpdir(), "llm-proxy-summary-shape-"));
+    temporaryDirectories.push(root);
+    seedTaskRecord(root, "summary-task", "summary-record");
+    const service = new LogQueryService([root]);
+
+    const content = (text: string): Response =>
+      chatResponse(JSON.stringify({ choices: [{ message: { content: text } }] }));
+
+    vi.stubGlobal("fetch", () => Promise.resolve(content("plain prose")));
+    try {
+      await expect(service.summarizeRecord("summary-record", summaryConfig)).rejects.toMatchObject({
+        name: "ApplicationError",
+        code: "upstream_error",
+        statusCode: 502,
+        message: "The summary model returned text that is not JSON.",
+      });
+    } finally {
+      vi.unstubAllGlobals();
+    }
+
+    vi.stubGlobal("fetch", () => Promise.resolve(content('{"overview":"x"}')));
+    try {
+      await expect(service.summarizeRecord("summary-record", summaryConfig)).rejects.toMatchObject({
+        code: "upstream_error",
+        message: "The summary model did not return the expected JSON shape.",
+      });
+    } finally {
+      vi.unstubAllGlobals();
+    }
+
+    expect(service.getSummary("summary-record")).toBeUndefined();
+  });
 });
 
 function seedPricedRecord(root: string, taskId: string, target: string, costNanoCny: string): void {
