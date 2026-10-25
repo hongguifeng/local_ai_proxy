@@ -1,5 +1,7 @@
 import { z } from "zod";
 
+import type { PreservedConfigFields } from "./config-preservation.js";
+
 const MAX_PORT = 65_535;
 
 const targetUrlSchema = z
@@ -121,7 +123,7 @@ export const targetConfigSchema = z
     }
   });
 
-export type TargetConfig = z.infer<typeof targetConfigSchema>;
+export type TargetConfig = z.infer<typeof targetConfigSchema> & PreservedConfigFields;
 
 export const summaryModelConfigSchema = z.object({
   disable_reasoning: z.boolean().default(true),
@@ -259,7 +261,7 @@ export const proxyConfigFileSchema = z
     }
   });
 
-export type ProxyPair = z.infer<typeof proxyPairSchema>;
+export type ProxyPair = z.infer<typeof proxyPairSchema> & PreservedConfigFields;
 export type ProxyConfigFile = z.infer<typeof proxyConfigFileSchema>;
 
 function isValidTargetUrl(value: string): boolean {

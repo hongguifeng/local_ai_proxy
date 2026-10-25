@@ -1,7 +1,15 @@
+import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import os from "node:os";
+import path from "node:path";
+
 import { afterEach, describe, expect, it } from "vitest";
 
 import { applicationHealth, createAdminServer } from "../../src/admin/index.js";
-import { createDefaultProxyPair } from "../../src/config/index.js";
+import {
+  ConfigRepository,
+  createDefaultProxyPair,
+  materializeProxyConfigFile,
+} from "../../src/config/index.js";
 import {
   ProxyListenConflictError,
   ProxyManager,
@@ -9,9 +17,15 @@ import {
 } from "../../src/proxy/index.js";
 
 const servers: ReturnType<typeof createAdminServer>[] = [];
+const temporaryDirectories: string[] = [];
 
 afterEach(async () => {
   await Promise.all(servers.splice(0).map(async (server) => server.close()));
+  await Promise.all(
+    temporaryDirectories
+      .splice(0)
+      .map(async (directory) => rm(directory, { recursive: true, force: true })),
+  );
 });
 
 describe("GET /api/pairs", () => {
@@ -87,6 +101,155 @@ describe("GET /api/pairs", () => {
     expect(pairService.replacements).toEqual([[submitted]]);
   });
 
+  it("[AI-25] round-trips legacy keys through the API and persisted JSON", async () => {
+    const directory = await mkdtemp(path.join(os.tmpdir(), "llm-proxy-ai25-pairs-"));
+    temporaryDirectories.push(directory);
+    const configPath = path.join(directory, "proxies.json");
+    const legacyPair = {
+      id: "legacy-pair",
+      name: "Legacy pair",
+      enabled: false,
+      listen_host: "127.0.0.1",
+      listen_port: 0,
+      upstream_url: "https://legacy.example/v1",
+      model_mapping_mode: "disabled",
+      default_model: "",
+      default_upstream_model: "",
+      preserve_route_model: false,
+      allow_unnamed_model: false,
+      unknown_model_policy: "reject",
+      unknown_param_mode: "strip",
+      unknown_param_paths: [],
+      stream_keepalive_interval_seconds: 0,
+      target_retry_limit: 2,
+      target_retry_backoff_milliseconds: 250,
+      failover_reuse_connection: true,
+      target_connect_timeout_milliseconds: 1_000,
+      target_first_byte_timeout_milliseconds: 10_000,
+      target_idle_chunk_timeout_milliseconds: 30_000,
+      target_headers: ["X-Legacy: yes"],
+      strip_request_fields: "temperature",
+      inject_request_fields: "",
+      log_root: "legacy-logs",
+      redact_logs: true,
+      model_mappings: [{ listen: "legacy", upstream: "legacy-upstream" }],
+    };
+    await writeFile(configPath, JSON.stringify({ pairs: [legacyPair] }), "utf8");
+    const repository = new ConfigRepository(configPath, path.join(directory, "logs"));
+    const manager = new ProxyManager(await repository.load(), repository, {
+      logRootBaseDirectory: directory,
+    });
+    const server = createAdminServer({
+      getHealth: () => applicationHealth("running"),
+      pairService: manager,
+    });
+    servers.push(server);
+
+    const legacyUnknownKeys = [
+      "upstream_url",
+      "model_mapping_mode",
+      "default_model",
+      "default_upstream_model",
+      "preserve_route_model",
+      "allow_unnamed_model",
+      "unknown_model_policy",
+      "unknown_param_mode",
+      "unknown_param_paths",
+      "stream_keepalive_interval_seconds",
+      "target_retry_limit",
+      "target_retry_backoff_milliseconds",
+      "failover_reuse_connection",
+      "target_connect_timeout_milliseconds",
+      "target_first_byte_timeout_milliseconds",
+      "target_idle_chunk_timeout_milliseconds",
+      "target_headers",
+      "strip_request_fields",
+      "inject_request_fields",
+      "log_root",
+      "redact_logs",
+      "model_mappings",
+    ];
+
+    const beforeSave = await server.inject({ method: "GET", url: "/api/pairs" });
+    expect(beforeSave.statusCode).toBe(200);
+    const loadedPair = (JSON.parse(beforeSave.body) as { pairs: Record<string, unknown>[] })
+      .pairs[0];
+    if (loadedPair === undefined) throw new Error("Legacy pair was not returned.");
+    expect(loadedPair).toMatchObject({
+      upstream_url: legacyPair.upstream_url,
+      model_mapping_mode: legacyPair.model_mapping_mode,
+      target_retry_limit: legacyPair.target_retry_limit,
+      log_root: legacyPair.log_root,
+      redact_logs: legacyPair.redact_logs,
+      model_mappings: legacyPair.model_mappings,
+    });
+    for (const key of legacyUnknownKeys) {
+      expect(loadedPair[key]).toEqual(Reflect.get(legacyPair, key));
+    }
+    expect((loadedPair["targets"] as Record<string, unknown>[])[0]?.["log_root"]).toBe(
+      path.join(directory, "logs"),
+    );
+
+    const submitted = {
+      ...loadedPair,
+      running: true,
+      actual_listen_port: 4567,
+      expanded: true,
+      targets: (loadedPair["targets"] as Record<string, unknown>[]).map((target) => ({
+        ...target,
+        expanded: true,
+      })),
+    };
+    const saved = await server.inject({
+      method: "PUT",
+      url: "/api/pairs",
+      payload: { pairs: [submitted] },
+    });
+    expect(saved.statusCode).toBe(200);
+    const savedPair = (JSON.parse(saved.body) as { pairs: Record<string, unknown>[] }).pairs[0];
+    if (savedPair === undefined) throw new Error("Saved pair was not returned.");
+    expect(savedPair).toMatchObject({
+      upstream_url: legacyPair.upstream_url,
+      model_mapping_mode: legacyPair.model_mapping_mode,
+      target_retry_limit: legacyPair.target_retry_limit,
+      log_root: legacyPair.log_root,
+      redact_logs: legacyPair.redact_logs,
+      model_mappings: legacyPair.model_mappings,
+    });
+    for (const key of legacyUnknownKeys) {
+      expect(savedPair[key]).toEqual(Reflect.get(legacyPair, key));
+    }
+    expect(savedPair["expanded"]).toBeUndefined();
+    expect((savedPair["targets"] as Record<string, unknown>[])[0]?.["expanded"]).toBeUndefined();
+
+    const persisted = JSON.parse(await readFile(configPath, "utf8")) as {
+      pairs: Record<string, unknown>[];
+    };
+    expect(persisted.pairs[0]).toMatchObject({
+      upstream_url: legacyPair.upstream_url,
+      model_mapping_mode: legacyPair.model_mapping_mode,
+      target_retry_limit: legacyPair.target_retry_limit,
+      log_root: legacyPair.log_root,
+      redact_logs: legacyPair.redact_logs,
+      model_mappings: legacyPair.model_mappings,
+    });
+    for (const key of legacyUnknownKeys) {
+      expect(persisted.pairs[0]?.[key]).toEqual(Reflect.get(legacyPair, key));
+    }
+    expect(persisted.pairs[0]?.["running"]).toBeUndefined();
+    expect(persisted.pairs[0]?.["actual_listen_port"]).toBeUndefined();
+    expect(persisted.pairs[0]?.["expanded"]).toBeUndefined();
+    expect(
+      (persisted.pairs[0]?.["targets"] as Record<string, unknown>[])[0]?.["expanded"],
+    ).toBeUndefined();
+
+    const reloaded = materializeProxyConfigFile(await repository.load());
+    expect(reloaded.pairs[0]).toMatchObject({
+      upstream_url: legacyPair.upstream_url,
+      log_root: legacyPair.log_root,
+      targets: [{ log_root: path.join(directory, "logs") }],
+    });
+  });
   it("rejects invalid model prices before replacing the running configuration", async () => {
     const invalid = createDefaultProxyPair("");
     const manager = new ProxyManager({ pairs: [invalid] }, { save: () => Promise.resolve() });

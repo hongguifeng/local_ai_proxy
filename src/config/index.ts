@@ -51,6 +51,9 @@ export {
 } from "./defaults.js";
 export {
   ensureAtLeastOneTarget,
+  materializeProxyConfigFile,
+  materializeProxyPair,
+  materializeTargetConfig,
   normalizeDefaultTargetId,
   normalizeInjectRequestFields,
   normalizeLoadBalancerGroups,
@@ -62,6 +65,15 @@ export {
   normalizeTargetConfig,
   runtimeLogRoot,
 } from "./config-normalizer.js";
+export {
+  CONTROL_PLANE_CONFIG_KEYS,
+  PAIR_CONFIG_KEYS,
+  PRESERVED_CONFIG_FIELDS,
+  TARGET_CONFIG_KEYS,
+  type JsonConfigObject,
+  type JsonConfigValue,
+  type PreservedConfigFields,
+} from "./config-preservation.js";
 export {
   ConfigLoadError,
   ConfigRepository,

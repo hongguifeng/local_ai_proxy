@@ -13,7 +13,7 @@ import path from "node:path";
 import { randomUUID } from "node:crypto";
 
 import type { ProxyConfigFile } from "./config-schema.js";
-import { normalizeProxyConfigFile } from "./config-normalizer.js";
+import { materializeProxyConfigFile, normalizeProxyConfigFile } from "./config-normalizer.js";
 import { ConfigValidationError, type ConfigFieldError } from "./config-validation.js";
 import { createDefaultProxyPair, DEFAULT_LOG_ROOT } from "./defaults.js";
 
@@ -121,7 +121,7 @@ export class ConfigRepository {
 
   async save(value: ProxyConfigFile): Promise<void> {
     const config = normalizeProxyConfigFile(value, this.#defaultLogRoot);
-    const text = `${JSON.stringify(config, null, 2)}\n`;
+    const text = `${JSON.stringify(materializeProxyConfigFile(config), null, 2)}\n`;
     await this.#backupExistingConfigOnce();
     await this.#writeThroughSiblingTempFile(text);
   }

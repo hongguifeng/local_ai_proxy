@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 
 import {
   ensureAtLeastOneTarget,
+  materializeProxyConfigFile,
   normalizeDefaultTargetId,
   normalizeInjectRequestFields,
   normalizeLoadBalancerGroups,
@@ -155,6 +156,47 @@ describe("price configuration normalization", () => {
   });
 });
 
+describe("legacy configuration field preservation", () => {
+  it("[AI-25] keeps unknown pair and target JSON fields while filtering UI state", () => {
+    const source = {
+      pairs: [
+        {
+          id: "legacy-pair",
+          name: "Legacy",
+          enabled: false,
+          listen_host: "127.0.0.1",
+          listen_port: 1234,
+          targets: [
+            {
+              ...createDefaultTarget("logs"),
+              legacy_target_option: { mode: "compat" },
+              expanded: true,
+            },
+          ],
+          default_target_id: "target-1",
+          legacy_pair_option: ["keep", 1],
+          running: true,
+          actual_listen_port: 4321,
+        },
+      ],
+    };
+
+    const materialized = materializeProxyConfigFile(normalizeProxyConfigFile(source));
+    const materializedPair = materialized.pairs[0];
+    if (materializedPair === undefined) throw new Error("Preserved pair was not returned.");
+    const materializedTarget = materializedPair.targets[0];
+    if (materializedTarget === undefined) throw new Error("Preserved target was not returned.");
+    const pairValues = materializedPair as Record<string, unknown>;
+    const targetValues = materializedTarget as Record<string, unknown>;
+    expect(materializedPair).toMatchObject({
+      legacy_pair_option: ["keep", 1],
+      targets: [{ legacy_target_option: { mode: "compat" } }],
+    });
+    expect(pairValues["running"]).toBeUndefined();
+    expect(pairValues["actual_listen_port"]).toBeUndefined();
+    expect(targetValues["expanded"]).toBeUndefined();
+  });
+});
 describe("normalizeDefaultTargetId", () => {
   const first = createDefaultTarget();
   const second = { ...createDefaultTarget(), id: "target-2", name: "Second" };
