@@ -1,0 +1,14 @@
+# Search scope for agents and ripgrep-style tools.
+#
+# ripgrep already honours .gitignore, but a plain `grep -r` does not, and these
+# directories hold hundreds of megabytes of generated or runtime output that
+# would otherwise drown a code search. Keep this list in step with .gitignore.
+logs/
+node_modules/
+release/
+dist-node/
+dist-electron/
+coverage/
+test-results/
+.ui-check/
+.pi/

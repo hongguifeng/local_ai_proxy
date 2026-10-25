@@ -591,6 +591,8 @@ ZIP 当前整体在内存中生成后一次性返回。
 
 ### 13.1 CLI
 
+> 本节与 13.2 描述的是 Python 基线的命令行形态。现行入口是 `node --enable-source-maps dist-node/src/main.js`（`run.bat` 执行的也是这条命令，便携 exe 解压后同样如此）；下面参数表里的参数名与环境变量仍然有效。
+
 ```text
 python -m llm_proxy
 ```
@@ -624,7 +626,7 @@ CLI 默认延迟 0.5 秒打开管理页面；Ctrl+C 后停止管理端和全部�
 
 Node.js 重构不可能保持 Python import 兼容，但应在新的 npm package 中导出有实际复用价值的 TypeScript 模块，例如 config、routing、request transform、stream summary 和应用启动函数。是否把底层 listener/repository 作为正式公共 API，应在发布前明确，避免无意形成新的长期兼容负担。
 
-项目还包含 `examples/responses_client.py`，演示 OpenAI Python SDK 指向 `http://localhost:1234/v1`。其中注释引用了当前 CLI 不存在的 `--target-url` 参数，重构时应改为 Node/OpenAI SDK 示例，并通过 Web UI 或配置文件设置上游。
+项目现在包含 `examples/responses_client.mjs`，用 Node 版 OpenAI SDK 指向 `http://127.0.0.1:1234/v1`；原先演示 Python SDK 的 `responses_client.py` 已在重构中删除，上游地址改由 Web UI 或配置文件设置。
 
 ## 14. 非功能特性与当前限制
 

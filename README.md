@@ -160,6 +160,17 @@ npm run package:electron:portable
 
 `electron-builder.env` 默认使用 7z 压缩级别 1，优先缩短构建时间。本机对比打包阶段从级别 3 的约 21 秒降至约 14 秒，exe 从约 100 MiB 增至约 107 MiB；实际时间取决于硬件、缓存和下载情况。若更重视体积，可在 PowerShell 中设置 `$env:ELECTRON_BUILDER_COMPRESSION_LEVEL = '3'`（或更高，最高 9）后构建；使用 `Remove-Item Env:ELECTRON_BUILDER_COMPRESSION_LEVEL` 恢复项目默认值。只需本地调试时，`npm run package:electron:dir` 可跳过 exe 压缩，直接运行 `release/win-unpacked/LLM Proxy.exe`。
 
+### 维护命令
+
+| 命令 | 作用 | 什么时候用 |
+| --- | --- | --- |
+| `npm run test:watch` | Vitest 监听模式（就是直接跑 `vitest`） | 反复跑与改动相关的用例 |
+| `npm run test:coverage` | 带 V8 覆盖率的完整测试，报告写进 `coverage/` | 想确认某段代码到底有没有被测到 |
+| `npm run compact:traffic -- <源日志根> <目标日志根>` | 重建 `traffic.db` 并写 checkpoint，报出前后字节数 | 日志库变大、需要回收空间。两个目录参数必须给，直接跑会抛 `Usage: ...` |
+| `npm run smoke:database` | 在临时目录里用 `TrafficRepository` 写读一遗数据库 | 重建过原生模块或改过持久化之后；这是验证 SQLite ABI 状态最快的方式 |
+| `npm run checksums` | 对 `release/` 里的 `.exe`/`.zip` 算 SHA-256 并写出清单 | 发布或核对产物 |
+| `npm run package:cli` | 构建并打出 `release/llm-proxy-cli-<版本>.zip` | 只需要命令行版本时 |
+
 ## 常见用法
 
 ### 连接本地模型
