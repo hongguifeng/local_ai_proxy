@@ -1350,8 +1350,22 @@ describe("LogQueryService error classification and diagnostics", () => {
     breaker.exec("DROP TABLE history_summaries; DROP TABLE task_briefs");
     breaker.close();
 
-    expect(service.getSummary("summary-record")).toBeUndefined();
-    expect(service.getTaskBrief("summary-task")).toBeUndefined();
+    expect(() => service.getSummary("summary-record")).toThrow(
+      expect.objectContaining({
+        name: "ApplicationError",
+        code: "storage_error",
+        statusCode: 500,
+        message: "The summary could not be read.",
+      }),
+    );
+    expect(() => service.getTaskBrief("summary-task")).toThrow(
+      expect.objectContaining({
+        name: "ApplicationError",
+        code: "storage_error",
+        statusCode: 500,
+        message: "The task brief could not be read.",
+      }),
+    );
     expect(warnings).toEqual([
       {
         message: "Summary read failed",

@@ -1,6 +1,6 @@
 # 面向 AI 持续开发的优化 TODO
 
-基线：`14ae4de`，应用版本 0.4.10。原始清单为 24 项；AI-25 后扩展为 25 项。当前状态：17 / 25 项完成（AI-01～AI-17）。
+基线：`14ae4de`，应用版本 0.4.10。原始清单为 24 项；AI-25 后扩展为 25 项。当前状态：19 / 25 项完成（AI-01～AI-18、AI-25）。
 
 本文是本轮优化的执行清单和验收依据。它把代码审查中的发现拆成独立任务，供本地 AI 按依赖顺序实施。历史设计和旧 TODO 只作为背景材料；执行时应复核当前源码。
 
@@ -125,13 +125,13 @@ P0 是已复现的功能缺陷；P1 是契约、文档和后端基础；P2 是�
 | [x]  | AI-15 | P2     | 分离产品、测试与工具编译    | 无                                                                                                                                                                     | 已完成 |
 | [x]  | AI-16 | P2     | 固化 ABI 和交付冒烟流程     | AI-15                                                                                                                                                                  | 已完成 |
 | [x]  | AI-17 | P2     | 建立前端模块构建入口        | AI-08、AI-15                                                                                                                                                           | 已完成 |
-| [ ]  | AI-18 | P2     | 模块化代理配置与负载均衡    | AI-17                                                                                                                                                                  | 未开始 |
+| [x]  | AI-18 | P2     | 模块化代理配置与负载均衡    | AI-17                                                                                                                                                                  | 已完成 |
 | [ ]  | AI-19 | P2     | 模块化历史、详情和指标      | AI-11、AI-17、AI-18                                                                                                                                                    | 未开始 |
 | [ ]  | AI-20 | P2     | 收紧 UI 类型与 DOM 合同     | AI-18、AI-19                                                                                                                                                           | 未开始 |
 | [ ]  | AI-21 | P2     | 统一渲染输入和缓存失效      | AI-19、AI-20                                                                                                                                                           | 未开始 |
 | [ ]  | AI-22 | P2     | 建立组件样式归属            | AI-18、AI-19、AI-21                                                                                                                                                    | 未开始 |
 | [ ]  | AI-23 | P2     | 整理 skills 并固化操作入口  | AI-04、AI-14、AI-16、AI-20、AI-21、AI-22                                                                                                                               | 未开始 |
-| [ ]  | AI-25 | P2     | 保留旧配置里未建模的键      | AI-08                                                                                                                                                                  | 未开始 |
+| [x]  | AI-25 | P2     | 保留旧配置里未建模的键      | AI-08                                                                                                                                                                  | 已完成 |
 | [ ]  | AI-24 | P2     | 综合验收与文档收口          | AI-01、AI-02、AI-03、AI-04、AI-05、AI-06、AI-07、AI-08、AI-09、AI-10、AI-11、AI-12、AI-13、AI-14、AI-15、AI-16、AI-17、AI-18、AI-19、AI-20、AI-21、AI-22、AI-23、AI-25 | 未开始 |
 
 ## 5. 任务明细
@@ -375,10 +375,10 @@ P0 是已复现的功能缺陷；P1 是契约、文档和后端基础；P2 是�
 
 入口：[代理配置](../src/admin/static/02-proxy-config.js)、[负载均衡](../src/admin/static/03-load-balancing.js)、[事件装配](../src/admin/static/09-wiring.js)。
 
-- [ ] 为代理配置和负载均衡分别明确状态所有者、初始化和销毁操作。
-- [ ] 用显式操作连接 API、表单和轮询，限制跨模块直接写状态。
-- [ ] 把事件监听、语言更新和轮询生命周期收敛到功能模块。
-- [ ] 测试未保存输入在语言切换、轮询和状态刷新时保持。
+- [x] 为代理配置和负载均衡分别明确状态所有者、初始化和销毁操作。
+- [x] 用显式操作连接 API、表单和轮询，限制跨模块直接写状态。
+- [x] 把事件监听、语言更新和轮询生命周期收敛到功能模块。
+- [x] 测试未保存输入在语言切换、轮询和状态刷新时保持。
 
 验收：排序、模型映射、价格、成员选择、指标刷新及配置保存均保持。重复初始化不增加监听器或定时器，切换页面后正确停止不需要的轮询。
 
@@ -474,10 +474,10 @@ P0 是已复现的功能缺陷；P1 是契约、文档和后端基础；P2 是�
 
 本项以前置 AI-08 已明确 API 契约边界为基础；AI-18 负责前端模块化，不是配置归一化和写回的必要前置。AI-24 只有在本项及其余独立任务完成后才能进行综合验收。
 
-- [ ] `normalizeProxyPair` 与 `validateProxyConfigFile` 不再静默丢掉本模型未建模的键，而是保留它们并能经 `PUT /api/pairs` 往返读回。
-- [ ] 区分“旧应用写下的键”与“控制台自己的运行时键”（`running`、`actual_listen_port`、`expanded`），后者不得被写进保存文件。
-- [ ] 确实要丢的键给出可理解的诊断，而不是静默删除。
-- [ ] 用一条真实往返测试钉住最终去向：写入 27 个键的旧扁平 pair，其未建模键在 `/api/pairs` 与保存文件里必须被明确断言，而不是靠“没报错”默认。
+- [x] `normalizeProxyPair` 与 `validateProxyConfigFile` 不再静默丢掉本模型未建模的键，而是保留它们并能经 `PUT /api/pairs` 往返读回。
+- [x] 区分“旧应用写下的键”与“控制台自己的运行时键”（`running`、`actual_listen_port`、`expanded`），后者不得被写进保存文件。
+- [x] 确实要丢的键给出可理解的诊断，而不是静默删除。
+- [x] 用一条真实往返测试钉住最终去向：写入 27 个键的旧扁平 pair，其未建模键在 `/api/pairs` 与保存文件里必须被明确断言，而不是靠“没报错”默认。
 
 验收：未建模键不再静默丢失；UI 运行时键不进入保存文件；旧扁平 pair 的已建模值（如 `log_root`）仍按现行规则落到 `targets[0]` 的绝对路径。
 
@@ -525,11 +525,12 @@ P0 是已复现的功能缺陷；P1 是契约、文档和后端基础；P2 是�
 - [x] AI-11～13：查询、模型生成和存储职责明确，历史迁移结果稳定。
 - [x] AI-14：操作序列和流式边界有回归测试，时序问题有定位记录。
 - [x] AI-15～16：产品构建、测试检查、ABI 与交付验证入口明确可重复。
-- [ ] AI-17～20：前端通过模块边界协作，过渡桥接清除，严格检查生效。
+- [x] AI-17～18：前端构建入口、代理配置和负载均衡模块边界已建立，轮询、保存与销毁行为保持。
+- [ ] AI-19～20：历史/详情/指标模块化及 UI 类型与 DOM 合同仍未完成。
 - [ ] AI-21：渲染与缓存输入一致，刷新和大正文体验保持。
 - [ ] AI-22：组件样式归属明确，层叠与像素验证无意外变化。
 - [ ] AI-23：skills 内容简明且有效，固定操作由工具承担。
-- [ ] AI-25：旧配置里未建模的键不再被静默丢弃，控制台自己的运行时键不会被写进保存文件。
+- [x] AI-25：旧配置里未建模的键不再被静默丢弃，控制台自己的运行时键不会被写进保存文件。
 - [ ] AI-24：完整检查、截图核验、portable 构建与隔离冒烟有实际记录。
 
 ## 9. 单项完成记录模板
@@ -867,4 +868,32 @@ UI 截图、性能或迁移结果（适用时）：
 - 子代理写交付链前问了三个决定，全部由编排方裁了；依据是编排方从 main 自己量的，不是信它转述：`src/admin/routes/static-files.ts` 实测只有 3 条路由（第 12、18、24 行：`/`、`/static/app.css`、`/static/app.js`），`src/admin/static-assets.ts:46` 是按 `new URL("./static/<name>", import.meta.url)` 在自身旁边读资源，`scripts/copy_static_assets.ts` 会删掉 `dist-node/src/admin/static` 里源码已经没有的任何东西。所以它说“原生 ESM 分文件必须在被禁文件里加一条路由”是对的。
 - **形态**：批准——把模块打成一个经典脚本块、拼进 `/static/app.js`。不新增路由（第四条路由就得改 `static-files.ts`，那不是它的地盘），`/static/app.js` 仍是浏览器唯一 URL，这样所有拦 `**/static/app.js` 的探针继续有效。它那个解析期论点编排方认同（经典脚本的顶层语句在解析时就同步跑，排在任何 deferred 模块脚本之前），所以生成块必须排在拼接**最前**、`09-wiring.js` 之前，并要求 `static-source.test.ts` 把这个位置也和作者顺序一起钉住。
 - **位置**：选 A（只住 `dist-node`，零 ignore 文件改动，走现有 `dist-node/src/**/*` 打包项），但补上了它推理里缺的那一条：编排方查了 `test-node/ui/admin-ui-server.ts:486`——UI 服务传的是 `staticAssets: await loadAdminStaticAssets()`，而这个解析器读的是 `import.meta.url` 旁边，在 tsx 下那是 `src/admin/static`、**不是** `dist-node`。所以按 A，凡是从源码跑 dev、或者单跑 `npx vitest run test-node/ui`，bridge 就是不存在。因此要求：bundler 必须在 dev 之前（`predev` 或 dev 脚本内）和在 UI 套件之前（`pretest:ui` 或 fixture 装配里）跑；缺 bridge 必须在构建/lint/装配期响亮报错，绝不允许在请求期变成空脚本或部分脚本；再加一条测试证明服务出去的 `/static/app.js` 里真含那块。不得住进 `dist-node/src/admin/static`（`built-static-assets.test.ts` 正好拿那个路径当陈旧残留种下去，`copy_static_assets` 的陈旧守卫会跟它打），并且不许动 `copy_static_assets.ts`。B（生成物进源码目录 + 改两个不归它的 ignore 文件 + 撞陈旧守卫）和 C（把服务的浏览器资源住在 lint 草稿目录里，还要赌 electron-builder 的 `dist-node/scripts/**/*` 能不能匹配点目录）否掉。
-- **esbuild**：要求显式声明进 `devDependencies`（用哪个版本就钉哪个版本）并提交 `package-lock.json`，交回时报 `npm ls esbuild` 要显示它是直接依赖而不是传递依赖；没声明就用传递拷贝，tsx 或 vite 一升级就断。`devDependencies` 不会被 electron-builder 打进包，产物体积不动。
+- **esbuild**：要求显式声明进 `devDependencies`（用哪个版本就钉哪个）并提交 `package-lock.json`，交回时报 `npm ls esbuild` 要显示它是直接依赖而不是传递依赖；没声明就用传递拷贝，tsx 或 vite 一升级就断。`devDependencies` 不会被 electron-builder 打进包，产物体积不动。
+
+### AI-25 完成记录
+
+- 状态：已完成
+- 实际变更：新增配置保留元数据边界，归一化后的 pair 和 target 通过非枚举 symbol 保存未知 JSON 字段；materialization、配置校验、管理 API、保存和 reload 都重新发出这些字段。保留范围限制为递归 JSON 值，建模字段不重复保存，`running`、`actual_listen_port`、`expanded`、`prices_expanded`、`price_test_model` 和 `catalog_rate` 等控制面字段不会写回配置文件。
+- 修改文件：`src/config/config-normalizer.ts`、`src/config/config-preservation.ts`、`src/config/config-repository.ts`、`src/config/config-schema.ts`、`src/config/config-validation.ts`、`src/config/index.ts`、`src/proxy/proxy-runtime-registry.ts`、`test-node/admin/pairs.test.ts`、`test-node/admin/response-schema-openness.test.ts`、`test-node/config/config-normalizer.test.ts`。
+- 前置任务与现状复核：AI-08 已明确开放 API 字段边界；修复前 config normalization 和 validation 会让未知 pair/target 字段在 API round trip 与保存时消失。AI-18 不属于本项必要前置。
+- 关键设计选择及理由：未知字段不并入内部 typed model，而附着在隐藏的 preservation metadata 上；materialization 时只恢复字符串键，避免改变 modeled validation。控制面字段用显式名单过滤。preservation map 使用 null prototype，合法 JSON 键 `__proto__` 也能安全往返。
+- 实际验证命令与结果：focused config/admin suite 为 24 文件、216 tests passed；`__proto__` 和 nested target 回归共 39 tests passed；`npm run lint`、`npm run typecheck`、`npx prettier --check .`、`git diff --check` 均通过。独立 review 发现并已修复 `__proto__` 丢失和 nested target 覆盖缺口。
+- 新增/更新的测试及任务 ID：`test-node/config/config-normalizer.test.ts` 新增 `[AI-25]` 的 `__proto__` 回归；`test-node/admin/pairs.test.ts` 新增 `[AI-25]` 的嵌套 target 字段 GET、PUT、保存 JSON 和 fresh reload 往返断言；`test-node/admin/response-schema-openness.test.ts` 更新开放响应验证。
+- UI 截图、性能或迁移结果：不适用；未改变 UI、数据库 schema 或代理数据面。
+- 便携版构建与冒烟结果：writer lane 已完成 focused validation，但 follow-up 阶段按约定未重复运行 portable packaging；合并后的统一 portable build、ABI probe 和 delivery smoke 仍由父侧交付门禁执行。
+- 与本清单的偏差、剩余事项：控制面字段是有意过滤并由显式名单定义；来自配置文件或 JSON API 的值均属于递归 JSON 值，无法出现 `undefined` 等非 JSON 未建模值。最终 portable 交付验证不在本次 lane follow-up 内重复执行。
+- 提交 SHA：`59fb939`、`c7fc962`；合并提交：`e32411e`
+
+### AI-18 完成记录
+
+- 状态：已完成
+- 实际变更：将代理配置和负载均衡的状态、表单操作、语言监听、轮询和销毁逻辑迁入独立模块；保留编号 classic-script adapter 和 AI-19 的 history/detail/statistics 边界。新增共享 request helper，同时合并每请求 caller signal 与模块 lifecycle signal。保存按钮在接管焦点前捕获 proxy-grid control，未改变配置成功保存后恢复 input、textarea、select 的焦点与非空选择。
+- 修改文件：`src/admin/static/01-core.js`、`src/admin/static/02-proxy-config.js`、`src/admin/static/03-load-balancing.js`、`src/admin/static/04-history-logs.js`、`src/admin/static/07-statistics.js`、`src/admin/static/09-wiring.js`、`src/admin/static/entry.js`、`src/admin/static/modules/load-balancing.js`、`src/admin/static/modules/proxy-config.js`、`src/admin/static/modules/request.js`、`test-node/admin/static-bridge.test.ts`、`test-node/admin/static-source.test.ts`、`test-node/ui/admin-ui-load-balancing.test.ts`、`test-node/ui/admin-ui-proxy.test.ts`。
+- 前置任务与现状复核：AI-17 已建立模块构建入口；AI-19 的历史、详情、JSON 面板、统计和指标迁移未在本项移动。审查过程中发现取消和 Save button 路径的 focused tests 没有覆盖完整生产接线，随后在 `e73c594` 中补齐。
+- 关键设计选择及理由：模块内部拥有自己的 lifecycle 和状态，adapter 只提供 shared UI services 与 API；LB polling 在模块内部组合 caller/lifecycle cancellation，并在 finally 移除 abort listeners。Save path 在 pointer/focus transition 前保存 control，避免 button focus 覆盖原控件。
+- 实际验证命令与结果：AI-18 worktree focused proxy/LB UI tests 为 2 文件、47 tests passed；合并后独立 `npm run check` 通过，format、lint、typecheck、module checks 全通过，135 test files passed、1 skipped，1212 tests passed、2 skipped。首轮全量曾出现两个并发 UI teardown timeout，statistics 与 page-error 单文件重跑分别 9/9、2/2 通过，第二轮完整 check 通过。maintenance read-failure test 的陈旧断言同步改为断言 `storage_error`。
+- 新增/更新的测试及任务 ID：`admin-ui-load-balancing.test.ts` 覆盖真实 adapter/bootstrap 的 caller、lifecycle 和 disposal cancellation；`admin-ui-proxy.test.ts` 点击真实 `#saveProxies`，覆盖 input、textarea、select 与选择方向；静态 bridge/source tests 更新模块入口合同。
+- UI 截图、性能或迁移结果：proxy/LB 中英文视觉 baseline captures byte-identical；未改变数据库 schema、代理数据面或 UI 产品布局。
+- 便携版构建与冒烟结果：`npm run build && npm run rebuild:electron && npx electron-builder -w portable --publish never` 通过；Electron ABI probe 真实 query 通过（NODE_MODULE_VERSION 143）；`npm run smoke:delivery` 的 unpacked payload 与 portable wrapper 均 health 就绪、代理 200、logs total 1、traffic.db 生成并 clean exit。完成后已 `npm rebuild better-sqlite3` 并用 Node ABI probe 真实 query 恢复 Node 测试环境（NODE_MODULE_VERSION 137）。
+- 与本清单的偏差、剩余事项：仍保留 numbered classic-script adapter，按 AI-19 计划继续清除；生产共享 API 仍由 adapter 注入，模块不直接读 classic global。首轮并发 teardown timeout 作为测试资源抖动记录，单文件和第二轮全量均通过。
+- 提交 SHA：`0686321`、`6c56351`、`e73c594`；合并提交：`1543f9b`
