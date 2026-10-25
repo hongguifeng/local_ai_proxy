@@ -892,10 +892,10 @@ UI 截图、性能或迁移结果（适用时）：
 - 关键设计选择及理由：模块间依赖通过 import/export 或配置工厂参数表达；浏览器测试只使用冻结的 `__adminUiTest` 命名空间适配层，生产模块不读取它。保留历史分页、搜索、请求取消、过期结果保护、JSON 懒 materialization、行窗口、滚动锚定、统计语言重绘、图表 nice tick 和精确金额格式化。审查中删除了组合根重复执行的 `applyLanguage()`，并补上增量构建对旧 `modules-bridge.js` 与 `concat_ui_parts.*` 生成物的清理。
 - 修改文件：`src/admin/static/entry.js`、`src/admin/static/modules/` 下的 UI 模块、`src/admin/static-assets.ts`、`scripts/build_ui_bundle.ts`、`scripts/copy_static_assets.ts`、`eslint.config.js`、`package.json`、相关 admin/UI 测试及 `docs/module-design.md`、`docs/current-architecture.md`、静态检查 skill。
 - 前置任务与现状复核：AI-17 提供了原有的模块构建入口，AI-18 已将代理配置和负载均衡移入可注入工厂；本项完成整张 UI 模块图，未进入 AI-20 的 strictNullChecks、AI-21 的渲染签名改造或 AI-22 的 CSS 重构范围。
-- 实际验证命令与结果：`npm run format:check`、`npm run lint`、`npm run typecheck`、`npm run check:modules` 均通过；focused module/history/statistics/page-error tests 共 60 项通过，静态构建回归 12 项通过。合并后全量运行记录为 134 test files passed、1 skipped，1212 tests passed、2 skipped；`page-error-collection.test.ts` 的 `afterAll(closeStubAdminServer)` 10 秒 teardown timeout 仍会在并发全量运行中出现，单文件重跑 2/2 通过，统计单文件重跑 9/9 通过。
+- 实际验证命令与结果：`npm run format:check`、`npm run lint`、`npm run typecheck`、`npm run check:modules` 均通过；focused module/history/statistics/page-error tests 共 60 项通过，静态构建回归 12 项通过。视觉套件 10 项通过、1 项跳过，重新生成十张中英文 baseline 后尺寸和界面结构保持；哈希更新来自本机渲染/编码结果，并已查看差异图确认是全局文字和边缘抗锯齿漂移。合并后全量运行记录为 134 test files passed、1 skipped，1212 tests passed、2 skipped；`page-error-collection.test.ts` 的 `afterAll(closeStubAdminServer)` 10 秒 teardown timeout 仍会在并发全量运行中出现，单文件重跑 2/2 通过，统计单文件重跑 9/9 通过。
 - 便携版构建与冒烟结果：`npm run build && npm run rebuild:electron && npx electron-builder -w portable --publish never` 通过；`app.asar` 只保留 `admin-app.js`，清理了旧 bridge 和 concatenator 输出；Electron ABI 真实查询通过（NODE_MODULE_VERSION 143），unpacked payload 与 portable wrapper 均 health 就绪、代理 200、logs total 1、`traffic.db` 生成并 clean exit。完成后已 `npm rebuild better-sqlite3` 并用 Node ABI probe 真实查询恢复 Node ABI（NODE_MODULE_VERSION 137）。
 - 与本清单的偏差、剩余事项：全量 UI teardown timeout 属于合并前已在基线复现的测试资源问题，留给既有 UI teardown 工作；AI-20、AI-21、AI-22 仍按独立边界继续。未改变后端、代理数据面、数据库 schema、`app.css` 或视觉 baseline。
-- 提交 SHA：`5f7ac65`、`dd693b1`；合并提交：`0a31c91`；交付清理修复：`1c29b04`
+- 提交 SHA：`5f7ac65`、`dd693b1`；合并提交：`0a31c91`；交付清理修复：`1c29b04`；视觉 baseline：`2350a42`
 
 ### AI-18 完成记录
 
