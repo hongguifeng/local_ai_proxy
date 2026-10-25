@@ -517,6 +517,16 @@ CSS_CENSUS=1 CSS_CENSUS_OUT=census.json npx vitest run test-node/ui/admin-ui-css
 
 
 
+### 4.8 DOM 查询的空值真实性
+
+`$`、`qs`、`qsOn`、`asElement`、`closestFrom`、`closestOn`、`parentOf` 现在都声明为 `UiElement | null`，因为 DOM 就是这么返回的。之前声明非空是在替代码说谎。
+
+`tsconfig.ui.json` 关着 `strictNullChecks`，所以这个联合类型会被折叠：改声明不会新增报错，也不会新增检查能力。`qs("#missing").value.trim()` 今天依然类型干净。九个脚本里有 325 处 DOM 查询，只有 55 处写了 `?.`。
+
+声明的意义在下一步。实测同一个 `tsconfig.ui.json` 加 `strictNullChecks: true`：改声明之前 207 个错，改之后 614 个（TS2531 203、TS18047 196），等于 407 处原本不可见的空值崩溃点变成了可诊断。全量 `strict: true` 从 889 涨到 1296。
+
+所以“要不要开”是一个独立决定，不是改声明能解决的：开起来要处理 614 处，收益是把最常见的 UI 崩溃变成编译期错误。复测方法写在 `static-checks-and-split` 技能里。
+
 ## 5. 当前数据模型
 
 ### 5.1 配置聚合

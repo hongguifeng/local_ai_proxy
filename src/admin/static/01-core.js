@@ -852,18 +852,24 @@ const state = {
  * reduce the intersection to `never` because `type` has conflicting types across
  * the HTML element interfaces, and every use then reports "Property ... does not
  * exist on type 'never'".
+ *
+ * The lookup helpers below are declared as returning `UiElement | null` because that
+ * is what the DOM actually returns. tsconfig.ui.json runs with strictNullChecks off,
+ * which collapses that union, so a missing element still produces no diagnostic: the
+ * crash path `qs("#missing").value.trim()` type-checks clean today. Turning the flag on
+ * was measured at 207 errors in these nine scripts, which is a separate decision.
  * @typedef {HTMLElement & Partial<HTMLInputElement> & Partial<HTMLTextAreaElement> & Partial<HTMLDialogElement> & Partial<HTMLDetailsElement>} UiElement
  */
 /**
  * @param {string} id
- * @returns {UiElement}
+ * @returns {UiElement | null}
  */
-const $ = (id) => /** @type {UiElement} */ (document.getElementById(id));
+const $ = (id) => /** @type {UiElement | null} */ (document.getElementById(id));
 /**
  * @param {string} selector
- * @returns {UiElement}
+ * @returns {UiElement | null}
  */
-const qs = (selector) => /** @type {UiElement} */ (document.querySelector(selector));
+const qs = (selector) => /** @type {UiElement | null} */ (document.querySelector(selector));
 /**
  * @param {string} selector
  * @returns {UiElement[]}
@@ -880,40 +886,41 @@ const qsaOn = (root, selector) =>
 /**
  * @param {Element} root
  * @param {string} selector
- * @returns {UiElement}
+ * @returns {UiElement | null}
  */
-const qsOn = (root, selector) => /** @type {UiElement} */ (root.querySelector(selector));
+const qsOn = (root, selector) => /** @type {UiElement | null} */ (root.querySelector(selector));
 /**
  * Event handlers get `EventTarget`, which has none of the DOM members this UI
  * uses. This is a type-level cast: it returns the very same object.
  * @param {EventTarget | null} target
- * @returns {UiElement}
+ * @returns {UiElement | null}
  */
-const asElement = (target) => /** @type {UiElement} */ (target);
+const asElement = (target) => /** @type {UiElement | null} */ (target);
 /**
  * closest() is typed to return Element, but every node this UI finds is used as
  * a control afterwards, so the lookup helper carries the useful type.
  * @param {EventTarget | null} target
  * @param {string} selector
- * @returns {UiElement}
+ * @returns {UiElement | null}
  */
 const closestFrom = (target, selector) =>
-  /** @type {UiElement} */ (asElement(target)?.closest?.(selector) ?? null);
+  /** @type {UiElement | null} */ (asElement(target)?.closest?.(selector) ?? null);
 /**
  * Same reason as closestFrom, for a lookup that starts from a known element.
  * The optional chain is kept so a null root or a node without closest() still
  * yields null instead of throwing, exactly like the call sites it replaced.
  * @param {Element | null | undefined} root
  * @param {string} selector
- * @returns {UiElement}
+ * @returns {UiElement | null}
  */
-const closestOn = (root, selector) => /** @type {UiElement} */ (root?.closest?.(selector) ?? null);
+const closestOn = (root, selector) =>
+  /** @type {UiElement | null} */ (root?.closest?.(selector) ?? null);
 /**
  * parentElement is typed as Element, which again hides the members this UI needs.
  * @param {Element | null | undefined} el
- * @returns {UiElement}
+ * @returns {UiElement | null}
  */
-const parentOf = (el) => /** @type {UiElement} */ (el?.parentElement ?? null);
+const parentOf = (el) => /** @type {UiElement | null} */ (el?.parentElement ?? null);
 /**
  * A failed API call carries the field paths of a rejected configuration.
  * @typedef {Error & { issues?: unknown }} ApiError
