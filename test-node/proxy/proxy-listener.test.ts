@@ -5,7 +5,7 @@ import { readFileSync } from "node:fs";
 import { mkdtemp, readdir, rm } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
-import { createGzip, gunzipSync, gzipSync } from "node:zlib";
+import { createGzip, gunzipSync, gzipSync, type Gzip } from "node:zlib";
 
 import { describe, expect, it } from "vitest";
 
@@ -1198,6 +1198,8 @@ describe("ProxyListener", () => {
     "measures generated chunks and excludes trailing bookkeeping (buffered=%s)",
     async (buffered) => {
       const finalRecords: Readonly<Record<string, unknown>>[] = [];
+      const delivery = createDeliveryObserver();
+      let gateFailure: unknown;
       const upstream = http.createServer((_request, response) => {
         response.writeHead(200, { "content-type": "text/event-stream" });
         const delta = (value: string): string =>
@@ -1207,19 +1209,31 @@ describe("ProxyListener", () => {
             delta: value,
           })}\n\n`;
         response.write('data: {"type":"response.created","response":{"id":"resp_1"}}\n\n');
-        setTimeout(() => {
-          response.write(buffered ? delta("{") + delta("}") : delta("{"));
-          setTimeout(() => {
-            if (!buffered) response.write(delta("}"));
-            setTimeout(
-              () =>
-                response.end(
-                  'data: {"type":"response.completed","response":{"usage":{"output_tokens":10}}}\n\n',
-                ),
-              80,
-            );
-          }, 30);
-        }, 30);
+        response.write(buffered ? delta("{") + delta("}") : delta("{"));
+        // Later phases are released when the earlier bytes have been observed to
+        // arrive, never when a timer expires: see the measured note on the
+        // compressed-SSE case for why the timers were removed.
+        void (async () => {
+          await withinDeadline(
+            delivery.sawText('"delta":"{"'),
+            DELIVERY_GATE_MS,
+            "the opening delta never reached the client",
+          );
+          if (!buffered) {
+            response.write(delta("}"));
+          }
+          await withinDeadline(
+            delivery.sawText('"delta":"}"'),
+            DELIVERY_GATE_MS,
+            "the closing delta never reached the client",
+          );
+          response.end(
+            'data: {"type":"response.completed","response":{"usage":{"output_tokens":10}}}\n\n',
+          );
+        })().catch((error: unknown) => {
+          gateFailure = error;
+          response.end();
+        });
       });
       const upstreamPort = await listenServer(upstream);
       const trafficLog: TrafficLogWriter = {
@@ -1250,22 +1264,57 @@ describe("ProxyListener", () => {
         onRequest: (request, response, context) => pipeline.handle(request, response, context),
       });
       const address = await listener.start();
-      expect(await requestText(address.port, "/toolstream")).toMatchObject({ status: 200 });
+      expect(await requestText(address.port, "/toolstream", { delivery })).toMatchObject({
+        status: 200,
+      });
+      expect(gateFailure).toBeUndefined();
       expect(finalRecords[0]?.["first_token_ms"]).toEqual(expect.any(Number));
+      expect(Number(finalRecords[0]?.["first_token_ms"])).toBeGreaterThan(0);
       expect(Number(finalRecords[0]?.["first_token_ms"])).toBeLessThanOrEqual(
         Number(finalRecords[0]?.["duration_ms"]),
       );
-      expect(Number(finalRecords[0]?.["first_token_ms"])).toBeLessThan(
-        Number(finalRecords[0]?.["duration_ms"]) * 0.8,
-      );
+      // Measured reason for dropping the `first_token_ms < duration_ms * 0.8` threshold this
+      // case inherited: once the timer delays were replaced by delivery gates the whole
+      // request became 2.1 - 8.4 ms, and the first token landed at 67% of it when buffered
+      // and 77% when not. A fixed fraction of a request that short is a coin flip (4 of 14
+      // runs failed on it). What the threshold stood in for - the first token was measured
+      // while the stream was still delivering, and the trailing bookkeeping did not extend
+      // the window - is now said with observed events: the generated deltas were assembled
+      // into the tool call, while the usage below them was read from the completed event.
+      expect(finalRecords[0]).toMatchObject({
+        response: {
+          body: {
+            stream_summary: {
+              event_count: 4,
+              done_seen: false,
+              response_tool_calls: [{ arguments: "{}", item_id: "fc_1" }],
+              usage: { output_tokens: 10 },
+              response: { id: "resp_1" },
+            },
+          },
+        },
+      });
       const windowMs = Number(finalRecords[0]?.["decode_window_ms"]);
-      if (buffered) expect(windowMs).toBe(0);
-      else {
-        expect(windowMs).toBeGreaterThanOrEqual(20);
+      if (buffered) {
+        // Both deltas arrived in one write, so the log observed them together.
+        expect(windowMs).toBe(0);
+      } else {
+        // Measured reason for these structural assertions: the old thresholds
+        // (`windowMs >= 20`, and a `- 50` margin against the measured request)
+        // were satisfied by timer delays of 30 ms and 80 ms, and a throwaway
+        // probe (`.ai14-scratch/probe_window.ts`, deleted) showed a 60 ms
+        // event-loop block collapses every pending timer into the resuming tick,
+        // which took the compressed case's window from 47.0 ms to 1.2 ms. A
+        // delay proves nothing about ordering when the loop is starved, so the
+        // window now has to be produced by delivery the gate actually observed:
+        // the closing delta was released only after the client received the
+        // opening one, so the two generated chunks were observed apart.
+        expect(windowMs).toBeGreaterThan(0);
+        // Trailing bookkeeping is excluded because the usage event was released
+        // only after the closing delta arrived: the window is therefore shorter
+        // than the whole measured request, whatever its length.
         expect(windowMs).toBeLessThan(
-          Number(finalRecords[0]?.["duration_ms"]) -
-            Number(finalRecords[0]?.["first_token_ms"]) -
-            50,
+          Number(finalRecords[0]?.["duration_ms"]) - Number(finalRecords[0]?.["first_token_ms"]),
         );
       }
       await listener.close();
@@ -1280,6 +1329,8 @@ describe("ProxyListener", () => {
       'data: {"choices":[{"index":0,"delta":{},"finish_reason":"stop"}],"usage":{"prompt_tokens":100,"completion_tokens":8,"prompt_tokens_details":{"cached_tokens":40}}}\n\n',
       "data: [DONE]\n\n",
     ];
+    const delivery = createDeliveryObserver();
+    let gateFailure: unknown;
     const upstream = http.createServer((_request, response) => {
       response.writeHead(200, {
         "content-type": "text/event-stream; charset=utf-8",
@@ -1290,13 +1341,16 @@ describe("ProxyListener", () => {
       gzip.on("data", (chunk: Buffer) => response.write(chunk));
       gzip.on("end", () => response.end());
       gzip.write(plainEvents[0]);
-      gzip.flush();
-      setTimeout(() => {
-        for (const event of plainEvents.slice(1)) {
-          gzip.write(event);
-        }
-        gzip.end();
-      }, 40);
+      // The rest of the stream is released only after zlib reports the flush
+      // finished and the client has received those bytes, so the phase boundary
+      // is a delivery event instead of a timer that can lose the race with the
+      // flush callback.
+      void releaseAfterDelivery(gzip, response, delivery, plainEvents.slice(1)).catch(
+        (error: unknown) => {
+          gateFailure = error;
+          response.end();
+        },
+      );
     });
     const upstreamPort = await listenServer(upstream);
     let markFinished: ((record: Readonly<Record<string, unknown>>) => void) | undefined;
@@ -1344,15 +1398,37 @@ describe("ProxyListener", () => {
       address.port,
       "/v1/chat/completions",
       Buffer.from(JSON.stringify({ model: "gzipped-sse-model", stream: true, messages: [] })),
+      delivery,
     );
     expect(client.status).toBe(200);
     expect(client.headers["content-encoding"]).toBe("gzip");
+    // A gate that never opened means the response was buffered whole; that is
+    // reported here instead of surfacing as a Vitest timeout.
+    expect(gateFailure).toBeUndefined();
+    // The first compressed chunk reached the client on its own, so the proxy
+    // forwarded the first event before the rest of the stream was written.
+    expect(delivery.receivedCount()).toBeGreaterThanOrEqual(2);
     // The client still receives the encoded stream and can decode it itself.
     expect(gunzipSync(client.raw).toString("utf8")).toBe(plainEvents.join(""));
 
     const record = await finishedRecord;
     expect(record["first_token_ms"]).toEqual(expect.any(Number));
-    expect(Number(record["decode_window_ms"])).toBeGreaterThanOrEqual(20);
+    // Measured reason for these structural assertions replacing the old
+    // `decode_window_ms >= 20`: a throwaway probe (`.ai14-scratch/probe_window.ts`,
+    // deleted) ran this fixture with a synchronous event-loop block after the
+    // phase-2 timer was armed. With the old timer fixture the window fell from
+    // 47.0 ms (no block) to 3.5 ms at a 41 ms block, 3.4 ms at 45 ms, 5.1 ms at
+    // 100 ms and 3.1 ms at 200 ms - the flush callback and the expired timer are
+    // resumed in the same tick, so the log observed every event together and the
+    // threshold measured a race, not a streamed response. With the delivery gate
+    // the same probe reported 45-49 ms with no block and 2.9-5.2 ms after a
+    // 150 ms block, and the window is never zero because the remaining events
+    // are only written once the first chunk is already in the client's hands.
+    // The gap is therefore caused by delivery, so the assertions state order:
+    // the first event was observed strictly before the response finished, and
+    // the decoded events did not all land in one observation.
+    expect(Number(record["first_token_ms"])).toBeLessThan(Number(record["duration_ms"]));
+    expect(Number(record["decode_window_ms"])).toBeGreaterThan(0);
     expect(record["response"]).toMatchObject({
       status: 200,
       headers: { "content-encoding": ["gzip"] },
@@ -1756,6 +1832,143 @@ describe("ProxyListener", () => {
   });
 });
 
+/** How long a fixture may wait for the delivery event that releases its next phase. */
+const DELIVERY_GATE_MS = 5_000;
+
+interface DeliveryWaiter {
+  isReady: (chunkCount: number, body: string) => boolean;
+  resolve: () => void;
+}
+
+interface DeliveryObserver {
+  /** Record one downstream chunk, called from the client's "data" handler. */
+  note(chunk: Buffer): void;
+  /** Chunks the client received, in arrival order. */
+  received(): Buffer[];
+  /** How many chunks the client received so far. */
+  receivedCount(): number;
+  /** Resolves once the client received at least `count` chunks. */
+  arrived(count: number): Promise<void>;
+  /** Resolves once the accumulated body contains `marker`. */
+  sawText(marker: string): Promise<void>;
+}
+
+/**
+ * Downstream delivery as an observable event.
+ *
+ * A fixture that splits a response into phases must know when the previous
+ * bytes actually reached the client, because that is the only fact that proves
+ * the proxy forwarded them. Waiting for a timer instead assumes the compressor
+ * callback wins the race, and a starved event loop resumes the callback and the
+ * expired timer in one tick - which is what made the compressed-SSE case fail
+ * intermittently. The observer turns "the client has received this much" into
+ * a promise the fixture can release on.
+ */
+function createDeliveryObserver(): DeliveryObserver {
+  const chunks: Buffer[] = [];
+  const waiters: DeliveryWaiter[] = [];
+  const releaseReady = (): void => {
+    const body = Buffer.concat(chunks).toString("utf8");
+    for (let index = waiters.length - 1; index >= 0; index -= 1) {
+      const waiter = waiters[index];
+      if (waiter?.isReady(chunks.length, body)) {
+        waiters.splice(index, 1);
+        waiter.resolve();
+      }
+    }
+  };
+  const waitFor = (isReady: (chunkCount: number, body: string) => boolean): Promise<void> => {
+    if (isReady(chunks.length, Buffer.concat(chunks).toString("utf8"))) {
+      return Promise.resolve();
+    }
+    return new Promise((resolve) => {
+      waiters.push({ isReady, resolve });
+    });
+  };
+  return {
+    note(chunk: Buffer): void {
+      chunks.push(chunk);
+      releaseReady();
+    },
+    received(): Buffer[] {
+      return [...chunks];
+    },
+    receivedCount(): number {
+      return chunks.length;
+    },
+    arrived(count: number): Promise<void> {
+      return waitFor((chunkCount) => chunkCount >= count);
+    },
+    sawText(marker: string): Promise<void> {
+      return waitFor((_chunkCount, body) => body.includes(marker));
+    },
+  };
+}
+
+/**
+ * Bound a delivery gate so a stalled fixture fails with its own message instead
+ * of running up to the Vitest timeout. A gate that never opened is exactly what
+ * a response buffered whole looks like.
+ */
+function withinDeadline(gate: Promise<void>, deadlineMs: number, unmet: string): Promise<void> {
+  return new Promise((resolve, reject) => {
+    const timer = setTimeout(() => {
+      reject(new Error(unmet));
+    }, deadlineMs);
+    timer.unref();
+    void gate.then(
+      () => {
+        clearTimeout(timer);
+        resolve();
+      },
+      (error: unknown) => {
+        clearTimeout(timer);
+        reject(error instanceof Error ? error : new Error(unmet));
+      },
+    );
+  });
+}
+
+/**
+ * Resolves when zlib emitted every byte written to the compressor before the
+ * call. The measured order is `data` events first, flush callback last, so this
+ * is a real observable: the compressed bytes of a phase are already handed to
+ * the response when it resolves.
+ */
+function compressorFlushed(compressor: Gzip): Promise<void> {
+  return new Promise((resolve, reject) => {
+    compressor.once("error", reject);
+    compressor.flush(() => {
+      compressor.removeListener("error", reject);
+      resolve();
+    });
+  });
+}
+
+/**
+ * Write the remaining SSE events only after the compressed bytes of the first
+ * event left the compressor and reached the client. Ordering then rests on two
+ * observed events instead of on the guess that a timer wins the race with the
+ * compressor callback.
+ */
+async function releaseAfterDelivery(
+  gzip: Gzip,
+  response: http.ServerResponse,
+  delivery: DeliveryObserver,
+  remainingEvents: readonly string[],
+): Promise<void> {
+  await compressorFlushed(gzip);
+  await withinDeadline(
+    delivery.arrived(1),
+    DELIVERY_GATE_MS,
+    "the first compressed chunk never reached the client",
+  );
+  for (const event of remainingEvents) {
+    gzip.write(event);
+  }
+  gzip.end();
+}
+
 function requestText(
   port: number,
   path: string,
@@ -1764,6 +1977,8 @@ function requestText(
     readonly body?: string;
     readonly chunks?: readonly string[];
     readonly headers?: Readonly<Record<string, string>>;
+    /** Records every downstream chunk so a fixture can release on delivery. */
+    readonly delivery?: DeliveryObserver;
   } = {},
 ): Promise<{ status: number; body: string }> {
   return new Promise((resolve, reject) => {
@@ -1782,7 +1997,10 @@ function requestText(
       },
       (response) => {
         const chunks: Buffer[] = [];
-        response.on("data", (chunk: Buffer) => chunks.push(chunk));
+        response.on("data", (chunk: Buffer) => {
+          chunks.push(chunk);
+          options.delivery?.note(chunk);
+        });
         response.on("end", () => {
           resolve({
             status: response.statusCode ?? 0,
@@ -1938,6 +2156,8 @@ function requestWithAcceptEncoding(
   port: number,
   requestPath: string,
   body: Buffer,
+  /** Records every downstream chunk so a fixture can release on delivery. */
+  delivery?: DeliveryObserver,
 ): Promise<{ status: number; raw: Buffer; headers: http.IncomingHttpHeaders }> {
   return new Promise((resolve, reject) => {
     const request = http.request(
@@ -1954,7 +2174,10 @@ function requestWithAcceptEncoding(
       },
       (response) => {
         const chunks: Buffer[] = [];
-        response.on("data", (chunk: Buffer) => chunks.push(chunk));
+        response.on("data", (chunk: Buffer) => {
+          chunks.push(chunk);
+          delivery?.note(chunk);
+        });
         response.once("end", () =>
           resolve({
             status: response.statusCode ?? 0,

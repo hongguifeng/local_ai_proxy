@@ -47,6 +47,48 @@ export let page: Page;
 export let server: ReturnType<typeof createAdminServer>;
 export let baseUrl: string;
 
+/**
+ * Every page this suite creates reports its unhandled script errors.
+ *
+ * Before the listener existed, a page that threw while a test drove it looked like a
+ * passing test: Chromium printed the error to its console and nothing read it, so a
+ * render that died halfway could still pass on whatever the page had drawn before it
+ * died. The listener is attached where the page is created - the only place a page is
+ * created in this suite - so every file in this directory is covered by the same rule,
+ * and `closeTestPage` raises what was collected before the page goes away, so the
+ * failure names the test that caused it and carries the message and the stack.
+ */
+export interface RecordedPageError {
+  readonly message: string;
+  readonly stack: string;
+}
+
+let recordedPageErrors: RecordedPageError[] = [];
+
+/** Unhandled page errors recorded against the page the current test is driving. */
+export function unhandledPageErrors(): readonly RecordedPageError[] {
+  return recordedPageErrors;
+}
+
+function recordPageError(error: Error): void {
+  recordedPageErrors.push({ message: error.message, stack: error.stack ?? error.message });
+}
+
+/** Raise every recorded error, so a broken page cannot be reported as a passing test. */
+function assertNoUnhandledPageErrors(): void {
+  const collected = recordedPageErrors;
+  recordedPageErrors = [];
+  if (collected.length === 0) {
+    return;
+  }
+  const reported = collected
+    .map((recorded, index) => `${index + 1}. ${recorded.message}\n${recorded.stack}`)
+    .join("\n\n");
+  throw new Error(
+    `The page threw ${collected.length} unhandled script error(s) while the test ran:\n\n${reported}`,
+  );
+}
+
 export async function startStubAdminServer(): Promise<void> {
   // The page this suite drives is the product page, so it needs the generated module
   // bridge. A lone `npx vitest run test-node/ui` does not go through the pretest hook
@@ -513,12 +555,20 @@ export async function startStubAdminServer(): Promise<void> {
 export async function resetStubAdminServer(): Promise<void> {
   resetFixtureData();
   page = await browser.newPage();
+  recordedPageErrors = [];
+  page.on("pageerror", recordPageError);
   await page.addInitScript(() => {
     localStorage.setItem("llmProxyLanguage", "en");
   });
 }
 
 export async function closeTestPage(): Promise<void> {
+  // Drain the page's task queue first. A script that throws from a timer or a microtask
+  // may have raised its error a moment before this hook runs, and the report travels back
+  // over the same ordered connection as the command below, so a round trip the browser
+  // answers only after its queued work cannot return before an earlier exception.
+  await page.evaluate(() => new Promise((resolve) => setTimeout(resolve, 0)));
+  assertNoUnhandledPageErrors();
   await page.close();
 }
 

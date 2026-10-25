@@ -57,14 +57,24 @@ describe("[AI-16] packaged smoke launch conditions", () => {
       }
     }
     expect(violations).toEqual([]);
-    const harness = await readFile(new URL("smoke_harness.ts", SCRIPT_DIRECTORY), "utf8");
-    for (const variable of [
-      "LLM_PROXY_DATA_DIR",
-      "LLM_PROXY_SMOKE_EXIT_FILE",
-      "LLM_PROXY_STARTUP_ERROR_FILE",
-    ]) {
-      expect(harness).toContain(variable);
-    }
+    const harnessText = await readFile(new URL("smoke_harness.ts", SCRIPT_DIRECTORY), "utf8");
+    const harness = ts.createSourceFile(
+      "smoke_harness.ts",
+      harnessText,
+      ts.ScriptTarget.ES2024,
+      true,
+      ts.ScriptKind.TS,
+    );
+    // The variables have to be handed to the child as environment keys, not merely
+    // mentioned somewhere: a comment or a string would satisfy a text search while
+    // leaving the smoke without its exit signal and its startup-error report.
+    expect(objectLiteralArgumentKeys(harness, "startTrackedChild")).toEqual(
+      expect.arrayContaining([
+        "LLM_PROXY_DATA_DIR",
+        "LLM_PROXY_SMOKE_EXIT_FILE",
+        "LLM_PROXY_STARTUP_ERROR_FILE",
+      ]),
+    );
   });
 
   it("[AI-16] keeps the wrapper and payload smokes as separate entry points that delegate", async () => {
@@ -77,8 +87,18 @@ describe("[AI-16] packaged smoke launch conditions", () => {
     expect(scripts["smoke:delivery"]).toBe("npm run smoke:payload && npm run smoke:artifact");
     for (const name of DELEGATING_SCRIPTS) {
       const text = await readFile(new URL(name, SCRIPT_DIRECTORY), "utf8");
-      expect(text).not.toContain("spawn(");
-      expect(text).toContain("runPackagedSmoke");
+      const source = ts.createSourceFile(
+        name,
+        text,
+        ts.ScriptTarget.ES2024,
+        true,
+        ts.ScriptKind.TS,
+      );
+      // A delegating entry point launches nothing itself: it hands the work to the
+      // harness. Reading calls out of the tree means the check fails when a spawn
+      // is added, and does not fail because the word appears in prose.
+      expect(collectSpawnCalls(source)).toEqual([]);
+      expect(calledNames(source)).toContain("runPackagedSmoke");
     }
   });
 
@@ -195,6 +215,50 @@ describe("[AI-16] delivery entry points", () => {
     expect(scripts["abi:check"]).toBe("npm run abi:node && npm run abi:electron");
   });
 });
+
+/** Names called anywhere in a module, whether plain or reached through a member. */
+function calledNames(source: ts.SourceFile): string[] {
+  const names: string[] = [];
+  const visit = (node: ts.Node): void => {
+    if (ts.isCallExpression(node)) {
+      const callee = node.expression;
+      if (ts.isIdentifier(callee)) {
+        names.push(callee.text);
+      } else if (ts.isPropertyAccessExpression(callee)) {
+        names.push(callee.name.text);
+      }
+    }
+    ts.forEachChild(node, visit);
+  };
+  visit(source);
+  return names;
+}
+
+/** Property names written into an object literal argument of the named call. */
+function objectLiteralArgumentKeys(source: ts.SourceFile, name: string): string[] {
+  const keys: string[] = [];
+  const visit = (node: ts.Node): void => {
+    if (
+      ts.isCallExpression(node) &&
+      ts.isIdentifier(node.expression) &&
+      node.expression.text === name
+    ) {
+      for (const argument of node.arguments) {
+        if (!ts.isObjectLiteralExpression(argument)) {
+          continue;
+        }
+        for (const property of argument.properties) {
+          if (ts.isPropertyAssignment(property)) {
+            keys.push(property.name.getText());
+          }
+        }
+      }
+    }
+    ts.forEachChild(node, visit);
+  };
+  visit(source);
+  return keys;
+}
 
 function collectSpawnCalls(source: ts.SourceFile): ts.CallExpression[] {
   const calls: ts.CallExpression[] = [];

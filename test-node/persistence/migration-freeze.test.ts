@@ -1,9 +1,11 @@
 import path from "node:path";
 import { readdir, readFile } from "node:fs/promises";
+import ts from "typescript";
 
 import Database from "better-sqlite3";
 import { describe, expect, it } from "vitest";
 
+import { parseModuleReferences } from "../../scripts/module-edges.js";
 import { responseTokenCounts } from "../../src/proxy/records.js";
 import {
   frozenResponseTokenCounts,
@@ -157,12 +159,28 @@ describe("[AI-13] the frozen v5 token conversion", () => {
       new URL("../../src/persistence/schema-v5.ts", import.meta.url),
       "utf8",
     );
-    const specifiers = [...source.matchAll(/from "([^"]+)"/g)].map((match) => match[1]);
+    const MODULE_NAME = "src/persistence/schema-v5.ts";
+    const references = parseModuleReferences(source, MODULE_NAME);
 
     // Nothing outside this directory: the upgrade must not load code another task is rewriting.
-    expect(specifiers).toEqual(["./body-storage.js", "./database.js"]);
-    expect(source).not.toContain("../proxy");
-    expect(source).toContain("frozenResponseTokenCounts(payload)");
+    expect(references.map((reference) => reference.specifier)).toEqual([
+      "./body-storage.js",
+      "./database.js",
+    ]);
+    expect(references.filter((reference) => !reference.specifier.startsWith("./"))).toEqual([]);
+
+    // The migration runs the frozen copy and never the live protocol helper. The old
+    // `toContain("frozenResponseTokenCounts(payload)")` could not tell those apart:
+    // `responseTokenCounts(payload)` is written in this file's own comment, so a text
+    // search proved nothing about which function actually runs. Reading the call tree
+    // does, and it also proves the type-only import is the only reason `./database.js`
+    // appears at all.
+    const called = calledNames(source, MODULE_NAME);
+    expect(called).toContain("frozenResponseTokenCounts");
+    expect(called).not.toContain("responseTokenCounts");
+    expect(
+      references.filter((reference) => !reference.typeOnly).map((reference) => reference.specifier),
+    ).toEqual(["./body-storage.js"]);
   });
 
   /**
@@ -188,9 +206,10 @@ describe("[AI-13] the frozen v5 token conversion", () => {
     const imports: Record<string, string[]> = {};
     for (const file of migrationFiles) {
       const source = await readFile(new URL(file, migrationDirectory), "utf8");
-      imports[file] = [...source.matchAll(/from "([^"]+)"/g)]
-        .map((match) => match[1])
-        .filter((specifier): specifier is string => specifier !== undefined);
+      // The same AST reader `npm run check:modules` uses. A regex over `from "..."`
+      // misses a specifier written across several lines and counts a commented-out
+      // import as a dependency; this reader sees what the runtime actually loads.
+      imports[file] = parseModuleReferences(source, file).map((reference) => reference.specifier);
     }
 
     expect(imports).toEqual({
@@ -210,3 +229,28 @@ describe("[AI-13] the frozen v5 token conversion", () => {
     });
   });
 });
+
+/** Names a module calls, read out of the syntax tree instead of out of its text. */
+function calledNames(sourceText: string, moduleName: string): string[] {
+  const sourceFile = ts.createSourceFile(
+    moduleName,
+    sourceText,
+    ts.ScriptTarget.ES2024,
+    true,
+    ts.ScriptKind.TS,
+  );
+  const names: string[] = [];
+  const visit = (node: ts.Node): void => {
+    if (ts.isCallExpression(node)) {
+      const callee = node.expression;
+      if (ts.isIdentifier(callee)) {
+        names.push(callee.text);
+      } else if (ts.isPropertyAccessExpression(callee)) {
+        names.push(callee.name.text);
+      }
+    }
+    ts.forEachChild(node, visit);
+  };
+  visit(sourceFile);
+  return names;
+}
