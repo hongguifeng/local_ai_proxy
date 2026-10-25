@@ -7,6 +7,7 @@ import { afterEach, describe, expect, it } from "vitest";
 import { TaskMatcher, type TaskAssignment } from "../../src/logging/index.js";
 import { TrafficRepository } from "../../src/persistence/index.js";
 import { requestContextKeys, taskIdentity } from "../../src/proxy/index.js";
+import type { TrafficFinishedEvent, TrafficHeaderMap } from "../../src/proxy/index.js";
 
 const temporaryDirectories: string[] = [];
 
@@ -23,27 +24,41 @@ afterEach(async () => {
 function trafficRecord(
   id: string,
   payload: unknown,
-  headers: Record<string, string[]>,
+  headers: TrafficHeaderMap,
   requestPath = "/v1/responses",
-) {
+): TrafficFinishedEvent {
   return {
+    event: "request_finished",
     id,
     timestamp: "2026-07-18T10:00:01.000+08:00",
+    started_timestamp: "2026-07-18T10:00:00.000+08:00",
+    duration_ms: 1_000,
+    client: { host: "127.0.0.1", port: 54_321 },
+    target: {
+      id: "target-a",
+      name: "Target A",
+      scheme: "https",
+      host: "api.example.com",
+      port: 443,
+      path: requestPath,
+    },
     request: {
       method: "POST",
       path: requestPath,
+      body_pending: false,
       headers,
-      body: { size_bytes: 0, text: JSON.stringify(payload) },
+      body: { size_bytes: 0, base64: "", text: JSON.stringify(payload) },
     },
     response: {
       status: 200,
-      body: { size_bytes: 0, text: JSON.stringify({ id: `resp-${id}` }) },
+      headers: {},
+      body: { size_bytes: 0, base64: "", text: JSON.stringify({ id: `resp-${id}` }) },
     },
   };
 }
 
 function persist(repository: TrafficRepository, assignment: TaskAssignment, requestId: string) {
-  const taskId = assignment.task["id"];
+  const taskId = assignment.task.id;
   if (typeof taskId !== "string") {
     throw new Error("Task assignment is missing a string task ID.");
   }
@@ -71,7 +86,7 @@ function assignAndPersist(
   matcher: TaskMatcher,
   requestId: string,
   payload: unknown,
-  headers: Record<string, string[]>,
+  headers: TrafficHeaderMap,
 ): TaskAssignment {
   const assignment = matcher.assign(trafficRecord(requestId, payload, headers));
   if (assignment === undefined) {
@@ -82,7 +97,7 @@ function assignAndPersist(
 }
 
 function taskId(assignment: TaskAssignment): string {
-  const id = assignment.task["id"];
+  const id = assignment.task.id;
   if (typeof id !== "string") {
     throw new Error("Task is missing an id.");
   }

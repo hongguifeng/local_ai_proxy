@@ -82,7 +82,7 @@ describe("ProxyListener", () => {
     });
     const trafficLog: TrafficLogWriter = {
       write(record) {
-        if (record["event"] === "request_finished") {
+        if (record.event === "request_finished") {
           finishRecord?.(record);
         }
         return Promise.resolve();
@@ -1126,7 +1126,7 @@ describe("ProxyListener", () => {
     const upstreamPort = await listenServer(upstream);
     const trafficLog: TrafficLogWriter = {
       write(record) {
-        if (record["event"] === "request_finished") {
+        if (record.event === "request_finished") {
           finalRecords.push(record);
         }
         return Promise.resolve();
@@ -1224,7 +1224,7 @@ describe("ProxyListener", () => {
       const upstreamPort = await listenServer(upstream);
       const trafficLog: TrafficLogWriter = {
         write(record) {
-          if (record["event"] === "request_finished") finalRecords.push(record);
+          if (record.event === "request_finished") finalRecords.push(record);
           return Promise.resolve();
         },
         update: () => Promise.resolve(),
@@ -1305,7 +1305,7 @@ describe("ProxyListener", () => {
     });
     const trafficLog: TrafficLogWriter = {
       write(record) {
-        if (record["event"] === "request_finished") markFinished?.(record);
+        if (record.event === "request_finished") markFinished?.(record);
         return Promise.resolve();
       },
       update: () => Promise.resolve(),
@@ -1413,7 +1413,7 @@ describe("ProxyListener", () => {
     });
     const trafficLog: TrafficLogWriter = {
       write(record) {
-        if (record["event"] === "request_finished") markFinished?.(record);
+        if (record.event === "request_finished") markFinished?.(record);
         return Promise.resolve();
       },
       update: () => Promise.resolve(),
@@ -1490,7 +1490,7 @@ describe("ProxyListener", () => {
     const plainRecords: Readonly<Record<string, unknown>>[] = [];
     const trafficLog: TrafficLogWriter = {
       write(record) {
-        if (record["event"] === "request_finished") plainRecords.push(record);
+        if (record.event === "request_finished") plainRecords.push(record);
         return Promise.resolve();
       },
       update: () => Promise.resolve(),
@@ -1542,7 +1542,7 @@ describe("ProxyListener", () => {
     const upstreamPort = await listenServer(upstream);
     const trafficLog: TrafficLogWriter = {
       write(record) {
-        if (record["event"] === "request_finished") {
+        if (record.event === "request_finished") {
           finishRecord?.(record);
         }
         return Promise.resolve();
@@ -1617,7 +1617,7 @@ describe("ProxyListener", () => {
     });
     const trafficLog: TrafficLogWriter = {
       write(record) {
-        if (record["event"] === "request_finished") {
+        if (record.event === "request_finished") {
           finishRecord?.(record);
         }
         return Promise.resolve();
@@ -1714,7 +1714,7 @@ describe("ProxyListener", () => {
     const upstreamPort = await listenServer(upstream);
     const trafficLog: TrafficLogWriter = {
       write(record) {
-        if (record["event"] === "request_finished") {
+        if (record.event === "request_finished") {
           finalRecords.push(record);
         }
         return Promise.resolve();

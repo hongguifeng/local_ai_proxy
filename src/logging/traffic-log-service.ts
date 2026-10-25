@@ -1,15 +1,18 @@
-import { TrafficRepository, type RepositoryRecord } from "../persistence/index.js";
+import { TrafficRepository } from "../persistence/index.js";
 import {
   bodyJsonValue,
   displayEndpoint,
   endpointKind,
-  redactRecord,
+  redactEvent,
   requestMessageCount,
   responseTokenCount,
   responseTokenCounts,
+  type TrafficRecordEvent,
+  type TrafficTargetInfo,
 } from "../proxy/index.js";
-import { isRecord, stableJsonStringify, StructuredLogger } from "../shared/index.js";
+import { stableJsonStringify, StructuredLogger } from "../shared/index.js";
 import { TaskMatcher } from "./task-matcher.js";
+import type { TrafficRecordWrite } from "./traffic-record-write.js";
 import { type SerialWriteQueue, writeQueueForLogRoot } from "./write-queue.js";
 
 export interface TrafficLogServiceOptions {
@@ -42,11 +45,11 @@ export class TrafficLogService {
       logRoot === null || logRoot === undefined ? undefined : writeQueueForLogRoot(logRoot);
   }
 
-  async write(record: Readonly<RepositoryRecord>): Promise<void> {
+  async write(record: Readonly<TrafficRecordEvent>): Promise<void> {
     await this.#enqueue(record);
   }
 
-  async update(record: Readonly<RepositoryRecord>): Promise<void> {
+  async update(record: Readonly<TrafficRecordEvent>): Promise<void> {
     await this.#enqueue(record);
   }
 
@@ -62,19 +65,19 @@ export class TrafficLogService {
     return this.#closePromise;
   }
 
-  async #enqueue(record: Readonly<RepositoryRecord>): Promise<void> {
+  async #enqueue(record: Readonly<TrafficRecordEvent>): Promise<void> {
     if (this.#writeQueue === undefined || this.#closed) {
       return;
     }
     try {
       await this.#writeQueue.enqueue(() => this.#save(record));
     } catch (error) {
+      // The record and the root say which write failed and where; the error names stay
+      // next to the cause so the failing layer is identifiable without the body itself.
       this.#logger.warn("Traffic log write failed", {
-        // The record and the root say which write failed and where; the error names stay
-        // next to the cause so the failing layer is identifiable without the body itself.
         phase: "traffic_log_write",
-        event: record["event"],
-        record_id: record["id"],
+        event: record.event,
+        record_id: record.id,
         task_id: record["task_id"],
         log_root: this.#logRoot,
         error_type: errorName(error),
@@ -83,36 +86,31 @@ export class TrafficLogService {
     }
   }
 
-  #save(record: Readonly<RepositoryRecord>): void {
+  #save(record: Readonly<TrafficRecordEvent>): void {
     const repository = this.#repository;
     const taskMatcher = this.#taskMatcher;
     if (repository === undefined || taskMatcher === undefined) {
       return;
     }
-    const recordToWrite = this.#redactLogs ? redactRecord(record) : record;
+    const recordToWrite = this.#redactLogs ? redactEvent(record) : record;
     const assignment = taskMatcher.assign(recordToWrite);
     if (assignment === undefined) {
       return;
     }
-    const taskId = assignment.task["id"];
-    if (typeof taskId !== "string") {
-      throw new Error("Task assignment is missing a string task ID.");
-    }
-    const request = mapping(recordToWrite["request"]);
-    const response = mapping(recordToWrite["response"]);
-    const target = mapping(recordToWrite["target"]);
+    const taskId = assignment.task.id;
+    const request = recordToWrite.request;
+    const target = recordToWrite.target;
     const resolvedTargetUrl = targetUrl(target);
-    const client = mapping(recordToWrite["client"]);
-    const proxy = mapping(recordToWrite["proxy"]);
-    const pricing = mapping(recordToWrite["pricing"]);
-    const endpoint = displayEndpoint(stringValue(request["path"]));
+    const endpoint = displayEndpoint(request.path);
     const kind = endpointKind(endpoint);
-    const originalRequestBody = bodyValue(request["body"]);
-    const hasUpstreamBody = isRecord(request["upstream_body"]);
-    const requestBody = hasUpstreamBody ? bodyValue(request["upstream_body"]) : originalRequestBody;
+    const originalRequestBody = bodyJsonValue(request.body);
+    const requestBody =
+      request.upstream_body === undefined
+        ? originalRequestBody
+        : bodyJsonValue(request.upstream_body);
     const tokenCounts = responseTokenCounts(assignment.responsePayload, kind);
     const distinctOriginalBody =
-      hasUpstreamBody &&
+      request.upstream_body !== undefined &&
       stableJsonStringify(originalRequestBody) !== stableJsonStringify(requestBody)
         ? originalRequestBody
         : undefined;
@@ -121,45 +119,44 @@ export class TrafficLogService {
         ...assignment.task,
         ...(resolvedTargetUrl === "" ? {} : { target: resolvedTargetUrl }),
       });
-      repository.upsertRecord({
-        id: stringValue(recordToWrite["id"]),
+      const recordWrite: TrafficRecordWrite = {
+        id: recordToWrite.id,
         task_id: taskId,
         sequence: assignment.sequence,
-        event: stringValue(recordToWrite["event"]) || "request_finished",
-        timestamp: stringValue(recordToWrite["timestamp"]),
-        started_at:
-          stringValue(recordToWrite["started_timestamp"]) ||
-          stringValue(recordToWrite["timestamp"]),
-        duration_ms: recordToWrite["duration_ms"],
-        first_token_ms: recordToWrite["first_token_ms"],
-        decode_window_ms: recordToWrite["decode_window_ms"],
-        proxy_id: proxy["id"],
-        proxy_name: proxy["name"],
-        client_host: client["host"],
-        client_port: client["port"],
-        target_id: target["id"],
-        target_name: target["name"],
+        event: recordToWrite.event,
+        timestamp: recordToWrite.timestamp,
+        started_at: recordToWrite.started_timestamp || recordToWrite.timestamp,
+        duration_ms: recordToWrite.duration_ms,
+        first_token_ms: recordToWrite.first_token_ms,
+        decode_window_ms: recordToWrite.decode_window_ms,
+        proxy_id: recordToWrite.proxy?.id,
+        proxy_name: recordToWrite.proxy?.name,
+        client_host: recordToWrite.client.host,
+        client_port: recordToWrite.client.port,
+        target_id: target.id,
+        target_name: target.name,
         target_url: resolvedTargetUrl,
-        method: stringValue(request["method"]),
-        path: stringValue(request["path"]),
+        method: request.method,
+        path: request.path,
         endpoint,
-        status: response["status"],
-        error: recordToWrite["error"],
+        status: recordToWrite.response?.status,
+        error: recordToWrite.error,
         message_count: requestMessageCount(kind, requestBody),
         token_count: responseTokenCount(assignment.responsePayload),
         request_token_count: tokenCounts.request,
         response_token_count: tokenCounts.response,
-        pricing,
-        request_headers: mapping(request["headers"]),
-        response_headers: mapping(response["headers"]),
+        pricing: recordToWrite.pricing,
+        request_headers: request.headers,
+        response_headers: recordToWrite.response?.headers ?? {},
         request_body: requestBody,
         original_request_body: distinctOriginalBody,
         response_body: assignment.responsePayload,
-        model_route: request["model_route"],
-        stripped_fields: listValue(request["stripped_fields"]),
-        injected_fields: listValue(request["injected_fields"]),
-        added_upstream_headers: listValue(request["added_upstream_headers"]),
-      });
+        model_route: request.model_route,
+        stripped_fields: request.stripped_fields ?? [],
+        injected_fields: request.injected_fields ?? [],
+        added_upstream_headers: request.added_upstream_headers ?? [],
+      };
+      repository.upsertRecord(recordWrite);
       for (const responseId of assignment.responseIds) {
         repository.upsertResponseLink(responseId, taskId);
       }
@@ -171,52 +168,16 @@ export class TrafficLogService {
   }
 }
 
-function mapping(value: unknown): Readonly<Record<string, unknown>> {
-  return isRecord(value) ? value : {};
-}
-
-function stringValue(value: unknown): string {
-  return typeof value === "string" || typeof value === "number" ? String(value) : "";
-}
-
-function listValue(value: unknown): readonly unknown[] {
-  return Array.isArray(value) ? [...(value as unknown[])] : [];
-}
-
-function targetUrl(target: Readonly<Record<string, unknown>>): string {
-  const scheme = stringValue(target["scheme"]);
-  const host = stringValue(target["host"]);
-  const port = stringValue(target["port"]);
-  if (scheme === "" || host === "" || port === "") {
+/** The upstream address as one string, or empty when the target block is incomplete. */
+function targetUrl(target: Readonly<TrafficTargetInfo>): string {
+  const port = String(target.port);
+  if (target.scheme === "" || target.host === "" || port === "") {
     return "";
   }
-  return `${scheme}://${host}:${port}${stringValue(target["path"])}`;
+  return `${target.scheme}://${target.host}:${port}${target.path}`;
 }
 
 /** The name of an error, or `UnknownError` when it is not an `Error`. */
 function errorName(error: unknown): string {
   return error instanceof Error ? error.name : "UnknownError";
-}
-
-function bodyValue(value: unknown): unknown {
-  if (!isRecord(value)) {
-    return null;
-  }
-  const sizeBytes = value["size_bytes"];
-  const text = value["text"];
-  return typeof sizeBytes === "number" && typeof text === "string"
-    ? bodyJsonValue({
-        size_bytes: sizeBytes,
-        text,
-        ...(typeof value["captured_bytes"] === "number"
-          ? { captured_bytes: value["captured_bytes"] }
-          : {}),
-        ...(typeof value["sha256"] === "string" ? { sha256: value["sha256"] } : {}),
-        ...(value["truncated"] === true ? { truncated: true } : {}),
-        ...(typeof value["truncation_reason"] === "string"
-          ? { truncation_reason: value["truncation_reason"] }
-          : {}),
-        ...(isRecord(value["stream_summary"]) ? { stream_summary: value["stream_summary"] } : {}),
-      })
-    : null;
 }

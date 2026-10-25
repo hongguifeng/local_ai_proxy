@@ -15,7 +15,8 @@ import {
   responseIdsFromBody,
   userMessagesPrefixMatches,
   type EndpointKind,
-  type RequestHeaderMap,
+  type ResponseLogPayload,
+  type TrafficRecordEvent,
 } from "../proxy/index.js";
 import {
   createRequestId,
@@ -24,9 +25,10 @@ import {
   safeIdentifierPart,
   stableJsonStringify,
 } from "../shared/index.js";
+import type { TrafficTaskWrite } from "./traffic-record-write.js";
 
 export interface TaskAssignment {
-  readonly task: Readonly<RepositoryRecord>;
+  readonly task: Readonly<TrafficTaskWrite>;
   readonly sequence: number;
   readonly kind: EndpointKind;
   readonly requestPayload: unknown;
@@ -57,21 +59,18 @@ export class TaskMatcher {
     this.#now = options.now ?? localNowIso;
   }
 
-  assign(record: Readonly<RepositoryRecord>): TaskAssignment | undefined {
-    const request = record["request"];
-    if (!isRecord(request)) {
-      return undefined;
-    }
-    const requestId = stringValue(record["id"]);
+  assign(record: Readonly<TrafficRecordEvent>): TaskAssignment | undefined {
+    const request = record.request;
+    const requestId = record.id;
     if (requestId === "") {
       return undefined;
     }
-    const kind = endpointKind(requestPath(request));
-    if (request["body_pending"] === true) {
+    const kind = endpointKind(request.path);
+    if (request.body_pending) {
       const task = this.#pendingTask(record, requestId, kind);
       return {
         task,
-        sequence: this.#sequenceForRecord(requestId, stringValue(task["id"])),
+        sequence: this.#sequenceForRecord(requestId, task.id),
         kind,
         requestPayload: {},
         responsePayload: null,
@@ -81,9 +80,9 @@ export class TaskMatcher {
       };
     }
 
-    const requestPayload = bodyPayload(request["body"]);
-    const response = record["response"];
-    const responsePayload = isRecord(response) ? bodyPayload(response["body"]) : null;
+    const requestPayload = bodyPayload(request.body);
+    const responsePayload =
+      record.response === undefined ? null : bodyPayload(record.response.body);
     const contextKeys = isRecord(requestPayload) ? this.#contextKeys(requestPayload, record) : [];
     const requestTask = this.#existingTask(requestId);
     const continuationTask =
@@ -114,7 +113,7 @@ export class TaskMatcher {
     );
     return {
       task,
-      sequence: this.#sequenceForRecord(requestId, stringValue(task["id"])),
+      sequence: this.#sequenceForRecord(requestId, task.id),
       kind,
       requestPayload,
       responsePayload,
@@ -125,7 +124,7 @@ export class TaskMatcher {
   }
 
   #continuationTask(
-    record: Readonly<RepositoryRecord>,
+    record: Readonly<TrafficRecordEvent>,
     kind: EndpointKind,
     payload: unknown,
     contextKeys: readonly string[],
@@ -143,7 +142,7 @@ export class TaskMatcher {
   }
 
   #taskForPreviousResponse(
-    record: Readonly<RepositoryRecord>,
+    record: Readonly<TrafficRecordEvent>,
     kind: EndpointKind,
     payload: unknown,
   ): RepositoryRecord | undefined {
@@ -163,7 +162,7 @@ export class TaskMatcher {
 
   #taskForContextKeys(
     contextKeys: readonly string[],
-    record: Readonly<RepositoryRecord>,
+    record: Readonly<TrafficRecordEvent>,
     kind: EndpointKind,
     payload: unknown,
   ): RepositoryRecord | undefined {
@@ -181,7 +180,7 @@ export class TaskMatcher {
 
   #staticBoundariesMatch(
     task: Readonly<RepositoryRecord>,
-    record: Readonly<RepositoryRecord>,
+    record: Readonly<TrafficRecordEvent>,
     kind: EndpointKind,
     payload: unknown,
     includeUserBoundary: boolean,
@@ -190,7 +189,7 @@ export class TaskMatcher {
       return false;
     }
     const endpoint = task["endpoint"];
-    if (typeof endpoint === "string" && endpoint !== "" && endpoint !== recordRequestPath(record)) {
+    if (typeof endpoint === "string" && endpoint !== "" && endpoint !== record.request.path) {
       return false;
     }
     const requestedModel = isRecord(payload) ? (payload["model"] ?? null) : null;
@@ -209,11 +208,11 @@ export class TaskMatcher {
   }
 
   #bestHeuristicTask(
-    record: Readonly<RepositoryRecord>,
+    record: Readonly<TrafficRecordEvent>,
     kind: EndpointKind,
     payload: unknown,
   ): RepositoryRecord | undefined {
-    const recordTime = timestampMilliseconds(record["timestamp"]) ?? this.#nowMilliseconds();
+    const recordTime = timestampMilliseconds(record.timestamp) ?? this.#nowMilliseconds();
     let bestTask: RepositoryRecord | undefined;
     let bestAge = Number.POSITIVE_INFINITY;
     for (const task of this.#repository.recentTasks()) {
@@ -251,10 +250,10 @@ export class TaskMatcher {
 
   #contextKeys(
     payload: Readonly<Record<string, unknown>>,
-    record: Readonly<RepositoryRecord>,
+    record: Readonly<TrafficRecordEvent>,
   ): string[] {
     return mergeLegacyContextKeys(
-      requestContextKeys(payload, requestHeaders(record)),
+      requestContextKeys(payload, record.request.headers),
       legacyRecordContextKeys(record),
     );
   }
@@ -269,13 +268,13 @@ export class TaskMatcher {
   }
 
   #pendingTask(
-    record: Readonly<RepositoryRecord>,
+    record: Readonly<TrafficRecordEvent>,
     requestId: string,
     kind: EndpointKind,
-  ): RepositoryRecord {
+  ): TrafficTaskWrite {
     const existing = this.#existingTask(requestId);
     if (existing?.["pending_request_only"] === true) {
-      return existing;
+      return { ...existing, id: stringValue(existing["id"]) };
     }
     return {
       ...this.#newTask(record, kind),
@@ -287,31 +286,31 @@ export class TaskMatcher {
 
   #promotePending(
     task: Readonly<RepositoryRecord>,
-    record: Readonly<RepositoryRecord>,
+    record: Readonly<TrafficRecordEvent>,
     kind: EndpointKind,
-  ): RepositoryRecord {
+  ): TrafficTaskWrite {
     return {
       ...task,
+      id: stringValue(task["id"]),
       pending_request_only: false,
       kind,
-      endpoint: recordRequestPath(record),
+      endpoint: record.request.path,
       anchor: taskAnchor(record),
       match_confidence: 1,
     };
   }
 
-  #newTask(record: Readonly<RepositoryRecord>, kind: EndpointKind): RepositoryRecord {
+  #newTask(record: Readonly<TrafficRecordEvent>, kind: EndpointKind): TrafficTaskWrite {
     const now = this.#now();
-    const request = record["request"];
-    const payload = isRecord(request) ? bodyPayload(request["body"]) : null;
+    const payload = bodyPayload(record.request.body);
     const model = isRecord(payload) ? payload["model"] : undefined;
     return {
       id: this.#createId(),
       kind,
       anchor: taskAnchor(record),
-      started_at: record["started_timestamp"] ?? record["timestamp"] ?? now,
-      last_seen_at: latestTimestamp(now, record["timestamp"]),
-      endpoint: recordRequestPath(record),
+      started_at: record.started_timestamp || record.timestamp || now,
+      last_seen_at: latestTimestamp(now, record.timestamp),
+      endpoint: record.request.path,
       match_strategy_version: TASK_MATCH_STRATEGY_VERSION,
       ...(typeof model === "string" && model !== "" ? { model } : {}),
       fingerprints: requestFingerprints(kind, payload),
@@ -327,29 +326,29 @@ export class TaskMatcher {
 
   #updatedTask(
     task: Readonly<RepositoryRecord>,
-    record: Readonly<RepositoryRecord>,
+    record: Readonly<TrafficRecordEvent>,
     requestId: string,
     kind: EndpointKind,
     payload: unknown,
     responsePayload: unknown,
-  ): RepositoryRecord {
+  ): TrafficTaskWrite {
     const taskId = stringValue(task["id"]);
     const now = this.#now();
-    const observedAt = latestTimestamp(now, task["last_seen_at"], record["timestamp"]);
-    const response = record["response"];
-    const status = isRecord(response) ? response["status"] : undefined;
+    const observedAt = latestTimestamp(now, task["last_seen_at"], record.timestamp);
+    const status = record.response?.status;
     const model = isRecord(payload) ? payload["model"] : undefined;
     const existingRecord = this.#repository.getRecord(requestId);
     const responseIds = responseIdsFromBody(responsePayload);
     const hasResponse = (status !== null && status !== undefined) || responseIds.length > 0;
     return {
       ...task,
+      id: taskId,
       pending_request_only: false,
       kind,
-      endpoint: recordRequestPath(record),
+      endpoint: record.request.path,
       last_seen_at: observedAt,
       ...(hasResponse
-        ? { last_response_at: latestTimestamp(now, task["last_response_at"], record["timestamp"]) }
+        ? { last_response_at: latestTimestamp(now, task["last_response_at"], record.timestamp) }
         : {}),
       ...(typeof model === "string" && model !== "" ? { model } : {}),
       fingerprints: requestFingerprints(kind, payload),
@@ -362,38 +361,8 @@ export class TaskMatcher {
   }
 }
 
-function bodyPayload(value: unknown): unknown {
-  if (!isRecord(value)) {
-    return null;
-  }
-  const sizeBytes = value["size_bytes"];
-  const text = value["text"];
-  if (typeof sizeBytes !== "number" || typeof text !== "string") {
-    return null;
-  }
-  return bodyJsonValue({
-    size_bytes: sizeBytes,
-    text,
-    ...(typeof value["captured_bytes"] === "number"
-      ? { captured_bytes: value["captured_bytes"] }
-      : {}),
-    ...(typeof value["sha256"] === "string" ? { sha256: value["sha256"] } : {}),
-    ...(value["truncated"] === true ? { truncated: true } : {}),
-    ...(typeof value["truncation_reason"] === "string"
-      ? { truncation_reason: value["truncation_reason"] }
-      : {}),
-    ...(isRecord(value["stream_summary"]) ? { stream_summary: value["stream_summary"] } : {}),
-  } satisfies Parameters<typeof bodyJsonValue>[0]);
-}
-
-function recordRequestPath(record: Readonly<RepositoryRecord>): string {
-  const request = record["request"];
-  return isRecord(request) ? requestPath(request) : "";
-}
-
-function requestHeaders(record: Readonly<RepositoryRecord>): RequestHeaderMap | undefined {
-  const headers = nestedValue(record, "request", "headers");
-  return isRecord(headers) ? headers : undefined;
+function bodyPayload(body: ResponseLogPayload): unknown {
+  return bodyJsonValue(body);
 }
 
 /** Boundary fingerprints as stored on a task row, with non-string values dropped. */
@@ -420,12 +389,8 @@ function legacyRecordContextKeys(record: Readonly<RepositoryRecord>): string[] {
   return keys;
 }
 
-function requestPath(request: Readonly<Record<string, unknown>>): string {
-  return typeof request["path"] === "string" ? request["path"] : "";
-}
-
-function taskAnchor(record: Readonly<RepositoryRecord>): string {
-  return `req-${stringValue(record["id"]).slice(0, 12)}`;
+function taskAnchor(record: Readonly<TrafficRecordEvent>): string {
+  return `req-${record.id.slice(0, 12)}`;
 }
 
 function stringValue(value: unknown): string {

@@ -2,10 +2,8 @@ import type { IncomingMessage, ServerResponse } from "node:http";
 import { once } from "node:events";
 import { performance } from "node:perf_hooks";
 
-import type { RepositoryRecord } from "../persistence/index.js";
 import type { LoadBalancerGroup } from "../config/index.js";
 import { loadBalancerMemberModelId, loadBalancerMemberTargetIds } from "../config/index.js";
-import { isRecord } from "../shared/index.js";
 import {
   completeRequestPricing,
   freezeRequestPricing,
@@ -41,12 +39,20 @@ import { endpointKind, responseIdsFromBody } from "./records.js";
 import { requestModelFromBody, rewriteRequestModel, selectTargetByModel } from "./routing.js";
 import type { LoadBalancer, LoadBalancerReservation, LoadSample } from "./load-balancer.js";
 import { taskIdentity, type TaskIdentity } from "./task-identity.js";
+import {
+  finishedEvent,
+  pendingResponseEvent,
+  receivedEvent,
+  type TrafficModelRoute,
+  type TrafficRecordEvent,
+  type TrafficRequestDraft,
+} from "./traffic-event.js";
 import { joinTargetPath } from "./target.js";
 import { openUpstreamResponse } from "./upstream-forwarder.js";
 
 export interface TrafficLogWriter {
-  write(record: Readonly<RepositoryRecord>): Promise<void>;
-  update(record: Readonly<RepositoryRecord>): Promise<void>;
+  write(record: Readonly<TrafficRecordEvent>): Promise<void>;
+  update(record: Readonly<TrafficRecordEvent>): Promise<void>;
 }
 
 export interface ProxyPipelineTarget {
@@ -163,9 +169,7 @@ export class ProxyRequestPipeline {
       throw new Error("Proxy request pipeline lost its configured target.");
     }
     if (this.#options.targets.length === 1) {
-      await target.trafficLog.write(
-        eventRecord(this.#initialRecord(request, context, target), "request_received", 0),
-      );
+      await target.trafficLog.write(receivedEvent(this.#initialRecord(request, context, target)));
     }
     let requestBody: Buffer;
     try {
@@ -212,7 +216,7 @@ export class ProxyRequestPipeline {
           targetName: activeTarget.name,
         },
       );
-      const baseRecord: RepositoryRecord = {
+      const baseRecord: TrafficRequestDraft = {
         ...withRequestDetails(
           this.#initialRecord(request, context, activeTarget),
           requestBody,
@@ -224,9 +228,9 @@ export class ProxyRequestPipeline {
         pricing: pendingRequestPricing(pricingContext),
       };
       if (this.#options.targets.length > 1) {
-        await activeTarget.trafficLog.write(eventRecord(baseRecord, "request_received", 0));
+        await activeTarget.trafficLog.write(receivedEvent(baseRecord));
       }
-      await activeTarget.trafficLog.update(eventRecord(baseRecord, "request_pending_response", 0));
+      await activeTarget.trafficLog.update(pendingResponseEvent(baseRecord));
       let responseCapture = new ResponseLogCapture(false, this.#options.responseCapture);
       let responseStatus: number;
       let responseHeaders: Record<string, string[]>;
@@ -343,32 +347,31 @@ export class ProxyRequestPipeline {
           });
           response.end(request.method === "HEAD" ? undefined : badGatewayBody);
         }
-        baseRecord["error"] = formatUpstreamError(error);
+        baseRecord.error = formatUpstreamError(error);
       }
       // Freeze transport timing before parsing, disk spooling and pricing work.
       const durationMs = elapsedMilliseconds(context);
-      baseRecord["decode_window_ms"] =
+      baseRecord.decode_window_ms =
         firstTokenMs !== undefined && lastGeneratedMs !== undefined
           ? Math.max(0, lastGeneratedMs - firstTokenMs)
           : 0;
       const responseBody: ResponseLogPayload = await responseCapture.finalize();
       const responsePayload = responseJson(responseBody);
-      baseRecord["pricing"] = completeRequestPricing(
+      baseRecord.pricing = completeRequestPricing(
         pricingContext,
         endpointKind(request.url ?? "/"),
         responsePayload,
         responseCapture.usageCapture,
       );
       await activeTarget.trafficLog.write(
-        eventRecord(
+        finishedEvent(
           baseRecord,
-          "request_finished",
-          durationMs,
           {
             status: responseStatus,
             headers: responseHeaders,
             body: responseBody,
           },
+          durationMs,
           firstTokenMs,
         ),
       );
@@ -465,7 +468,7 @@ export class ProxyRequestPipeline {
     const durationMs = elapsedMilliseconds(context);
     const requestModel = requestModelFromBody(requestBody);
     const text = `No usable node in load balancing group ${error.group.id} (${error.group.name}).`;
-    const baseRecord: RepositoryRecord = {
+    const baseRecord: TrafficRequestDraft = {
       ...withRequestDetails(
         this.#initialRecord(request, context, host),
         requestBody,
@@ -491,9 +494,9 @@ export class ProxyRequestPipeline {
       ),
       error: text,
     };
-    const requestBlock = isRecord(baseRecord["request"]) ? baseRecord["request"] : {};
-    requestBlock["model_route"] = {
-      ...(isRecord(requestBlock["model_route"]) ? requestBlock["model_route"] : {}),
+    const requestBlock = baseRecord.request;
+    requestBlock.model_route = {
+      ...requestBlock.model_route,
       route_mode: "load_balance",
       load_balance: {
         group_id: error.group.id,
@@ -507,18 +510,15 @@ export class ProxyRequestPipeline {
         logged_by: host.id,
       },
     };
-    baseRecord["request"] = requestBlock;
     await host.trafficLog.write(
-      eventRecord(
+      finishedEvent(
         baseRecord,
-        "request_finished",
-        durationMs,
         {
           status: 503,
           headers: { "content-type": ["text/plain; charset=utf-8"] },
           body: bytesPayload(Buffer.from(text, "utf8")),
         },
-        undefined,
+        durationMs,
       ),
     );
   }
@@ -589,7 +589,7 @@ export class ProxyRequestPipeline {
     request: IncomingMessage,
     context: ProxyRequestContext,
     target: ProxyPipelineTarget,
-  ): RepositoryRecord {
+  ): TrafficRequestDraft {
     const requestPath = request.url ?? "/";
     return {
       id: context.id,
@@ -671,43 +671,20 @@ function responseJson(payload: ResponseLogPayload): unknown {
   }
 }
 
-function eventRecord(
-  baseRecord: Readonly<RepositoryRecord>,
-  event: string,
-  durationMs: number,
-  response: Readonly<RepositoryRecord> = {
-    status: null,
-    headers: {},
-    body: bytesPayload(new Uint8Array()),
-  },
-  firstTokenMs?: number,
-): RepositoryRecord {
-  return {
-    ...baseRecord,
-    event,
-    duration_ms: durationMs,
-    ...(firstTokenMs === undefined ? {} : { first_token_ms: firstTokenMs }),
-    response,
-  };
-}
-
 function withRequestDetails(
-  record: Readonly<RepositoryRecord>,
+  record: Readonly<TrafficRequestDraft>,
   requestBody: Uint8Array,
   upstreamBody: Uint8Array,
   selection: PipelineTargetSelection,
   strippedFields: readonly string[],
   injectedFields: readonly string[],
-): RepositoryRecord {
-  const request = record["request"];
+): TrafficRequestDraft {
   const transformed =
     selection.upstreamModel !== undefined || strippedFields.length > 0 || injectedFields.length > 0;
   return {
     ...record,
     request: {
-      ...(typeof request === "object" && request !== null && !Array.isArray(request)
-        ? request
-        : {}),
+      ...record.request,
       body: bytesPayload(requestBody),
       body_pending: false,
       ...(transformed ? { upstream_body: bytesPayload(upstreamBody) } : {}),
@@ -731,7 +708,7 @@ function withRequestDetails(
 }
 
 /** Short load balancing fields for `request.model_route`; candidate detail stays in runtime state. */
-function loadBalanceRoute(loadBalance: LoadBalanceSelection | undefined): Record<string, unknown> {
+function loadBalanceRoute(loadBalance: LoadBalanceSelection | undefined): TrafficModelRoute {
   if (loadBalance === undefined) {
     return {};
   }
@@ -795,7 +772,7 @@ function isConnectionPhaseError(error: unknown): boolean {
 
 /** Point the stored route and target at the node that served the request after a switch. */
 function applyFailoverRoute(
-  baseRecord: RepositoryRecord,
+  baseRecord: TrafficRequestDraft,
   servedTarget: ProxyPipelineTarget,
   fromTargetId: string,
   selection: PipelineTargetSelection,
@@ -808,11 +785,9 @@ function applyFailoverRoute(
   if (loadBalance === undefined) {
     return;
   }
-  const targetBlock = isRecord(baseRecord["target"]) ? baseRecord["target"] : {};
-  const requestBlock = isRecord(baseRecord["request"]) ? baseRecord["request"] : {};
-  const requestPath = typeof requestBlock["path"] === "string" ? requestBlock["path"] : "/";
-  baseRecord["target"] = {
-    ...targetBlock,
+  const requestPath = baseRecord.request.path;
+  baseRecord.target = {
+    ...baseRecord.target,
     id: servedTarget.id,
     name: servedTarget.name,
     scheme: servedTarget.targetScheme,
@@ -820,32 +795,34 @@ function applyFailoverRoute(
     port: servedTarget.targetPort,
     path: joinTargetPath(servedTarget.targetBasePath, requestPath),
   };
-  const modelRoute = isRecord(requestBlock["model_route"]) ? requestBlock["model_route"] : {};
+  const modelRoute = baseRecord.request.model_route;
   const decision = loadBalance.reservation.decision;
-  requestBlock["model_route"] = {
-    ...modelRoute,
-    target_id: servedTarget.id,
-    target_name: servedTarget.name,
-    // The answering node may forward under another model name than the planned one.
-    ...(forwarded.upstreamModel === undefined ? {} : { upstream_model: forwarded.upstreamModel }),
-    load_balance: {
-      ...(isRecord(modelRoute["load_balance"]) ? modelRoute["load_balance"] : {}),
-      decision: "failover",
-      failover_from: fromTargetId,
-      load: decision.load,
-      ...(decision.kvUsage === undefined ? {} : { kv_usage: decision.kvUsage }),
-      ...(decision.metricsSource === undefined ? {} : { metrics_source: decision.metricsSource }),
+  baseRecord.request = {
+    ...baseRecord.request,
+    model_route: {
+      ...modelRoute,
+      target_id: servedTarget.id,
+      target_name: servedTarget.name,
+      // The answering node may forward under another model name than the planned one.
+      ...(forwarded.upstreamModel === undefined ? {} : { upstream_model: forwarded.upstreamModel }),
+      load_balance: {
+        ...modelRoute?.load_balance,
+        decision: "failover",
+        failover_from: fromTargetId,
+        load: decision.load,
+        ...(decision.kvUsage === undefined ? {} : { kv_usage: decision.kvUsage }),
+        ...(decision.metricsSource === undefined ? {} : { metrics_source: decision.metricsSource }),
+      },
     },
+    // The retry sent its own body: what was written is what the answering node received.
+    upstream_body: bytesPayload(forwarded.transformed.body),
+    ...(forwarded.transformed.strippedFields.length > 0
+      ? { stripped_fields: forwarded.transformed.strippedFields }
+      : {}),
+    ...(forwarded.transformed.injectedFields.length > 0
+      ? { injected_fields: forwarded.transformed.injectedFields }
+      : {}),
   };
-  // The retry sent its own body: what was written is what the answering node received.
-  requestBlock["upstream_body"] = bytesPayload(forwarded.transformed.body);
-  if (forwarded.transformed.strippedFields.length > 0) {
-    requestBlock["stripped_fields"] = forwarded.transformed.strippedFields;
-  }
-  if (forwarded.transformed.injectedFields.length > 0) {
-    requestBlock["injected_fields"] = forwarded.transformed.injectedFields;
-  }
-  baseRecord["request"] = requestBlock;
 }
 
 function incomingHeaders(request: IncomingMessage): Record<string, string[]> {

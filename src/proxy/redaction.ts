@@ -1,3 +1,7 @@
+import type { BytePayload } from "./payload.js";
+import type { ResponseLogPayload, TruncatedResponseLogPayload } from "./response-log-capture.js";
+import type { TrafficHeaderMap, TrafficRecordEvent, TrafficRequestInfo } from "./traffic-event.js";
+
 export const REDACTED = "[redacted]";
 
 export const SENSITIVE_HEADER_NAMES: ReadonlySet<string> = new Set([
@@ -18,13 +22,13 @@ export const SENSITIVE_JSON_KEYS: ReadonlySet<string> = new Set([
   "secret",
 ]);
 
-export function redactHeaders(headers: Readonly<Record<string, unknown>>): Record<string, unknown> {
+export function redactHeaders(headers: TrafficHeaderMap): TrafficHeaderMap {
   return Object.fromEntries(
     Object.entries(headers).map(([name, value]) => {
       if (!SENSITIVE_HEADER_NAMES.has(name.toLowerCase())) {
-        return [name, value];
+        return [name, [...value]];
       }
-      return [name, Array.isArray(value) ? value.map(() => REDACTED) : REDACTED];
+      return [name, value.map(() => REDACTED)];
     }),
   );
 }
@@ -44,42 +48,67 @@ export function redactJsonValue(value: unknown): unknown {
   );
 }
 
-export function redactBody(body: Readonly<Record<string, unknown>>): Record<string, unknown> {
-  const redacted = { ...body };
-  const text = redacted["text"];
-  if (typeof text !== "string" || text === "") {
-    return redacted;
+/**
+ * Rewrite a stored body so its JSON credentials are gone. A truncated body keeps its own
+ * shape because it carries no base64 to clear.
+ */
+export function redactBody(body: BytePayload): BytePayload;
+export function redactBody(body: TruncatedResponseLogPayload): TruncatedResponseLogPayload;
+export function redactBody(body: ResponseLogPayload): ResponseLogPayload;
+export function redactBody(body: ResponseLogPayload): ResponseLogPayload {
+  const text = body.text;
+  if (text === "") {
+    return body;
   }
   let parsed: unknown;
   try {
     parsed = JSON.parse(text);
   } catch {
-    return redacted;
+    return body;
   }
   const redactedText = JSON.stringify(redactJsonValue(parsed));
-  redacted["text"] = redactedText;
-  redacted["base64"] = "";
-  redacted["size_bytes"] = Buffer.byteLength(redactedText, "utf8");
-  return redacted;
+  return "base64" in body
+    ? {
+        ...body,
+        text: redactedText,
+        base64: "",
+        size_bytes: Buffer.byteLength(redactedText, "utf8"),
+      }
+    : { ...body, text: redactedText, size_bytes: Buffer.byteLength(redactedText, "utf8") };
 }
 
-export function redactRecord(record: Readonly<Record<string, unknown>>): Record<string, unknown> {
-  const redacted = structuredClone(record);
-  for (const sectionName of ["request", "response"] as const) {
-    const section = redacted[sectionName];
-    if (!isRecord(section)) {
-      continue;
-    }
-    if (isRecord(section["headers"])) {
-      section["headers"] = redactHeaders(section["headers"]);
-    }
-    if (isRecord(section["body"])) {
-      section["body"] = redactBody(section["body"]);
-    }
-    if (isRecord(section["upstream_body"])) {
-      section["upstream_body"] = redactBody(section["upstream_body"]);
-    }
+/**
+ * A copy of a lifecycle event with credentials removed from headers and bodies. The copy
+ * is deep so a later edit of the stored form never reaches the bytes still being forwarded.
+ */
+export function redactEvent(record: TrafficRecordEvent): TrafficRecordEvent {
+  const copy = structuredClone(record);
+  const request = redactRequestBlock(copy.request);
+  switch (copy.event) {
+    case "request_received":
+      return { ...copy, request };
+    case "request_pending_response":
+      return { ...copy, request };
+    case "request_finished":
+      return {
+        ...copy,
+        request,
+        response: {
+          ...copy.response,
+          headers: redactHeaders(copy.response.headers),
+          body: redactBody(copy.response.body),
+        },
+      };
   }
-  return redacted;
 }
-import { isRecord } from "../shared/index.js";
+
+function redactRequestBlock(request: TrafficRequestInfo): TrafficRequestInfo {
+  return {
+    ...request,
+    headers: redactHeaders(request.headers),
+    body: redactBody(request.body),
+    ...(request.upstream_body === undefined
+      ? {}
+      : { upstream_body: redactBody(request.upstream_body) }),
+  };
+}

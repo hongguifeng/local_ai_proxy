@@ -10,6 +10,7 @@ import {
   type TaskAssignment,
 } from "../../src/logging/index.js";
 import { TrafficRepository } from "../../src/persistence/index.js";
+import type { TrafficFinishedEvent } from "../../src/proxy/index.js";
 
 const temporaryDirectories: string[] = [];
 
@@ -103,7 +104,7 @@ describe("TaskAssignment", () => {
 
     const repeated = matcher.assign(trafficRecord("request-1", false, { model: "gpt-5" }));
     expect(repeated).toMatchObject({ task: { id: "task-pending" }, sequence: 1 });
-    expect(repeated?.task["request_count"]).toBe(1);
+    expect(repeated?.task.request_count).toBe(1);
     repository.close();
   });
 
@@ -145,7 +146,7 @@ describe("TaskAssignment", () => {
     if (followupPending === undefined) {
       throw new Error("Follow-up pending request was not assigned.");
     }
-    expect(followupPending.task["id"]).toBe("pending-match-task-2");
+    expect(followupPending.task.id).toBe("pending-match-task-2");
     persistAssignment(repository, followupPending, "pending-match-request-2");
 
     const followupFinished = matcher.assign(
@@ -238,6 +239,7 @@ describe("TaskAssignment", () => {
         path: "/v1/responses",
         body: {
           size_bytes: 0,
+          base64: "",
           text: JSON.stringify({
             model: "gpt-5",
             conversation: { id: "conversation-1" },
@@ -270,7 +272,7 @@ describe("TaskAssignment", () => {
       ...followupRecord,
       request: {
         ...followupRecord.request,
-        headers: { "x-claude-code-session-id": "claude-session-1" },
+        headers: { "x-claude-code-session-id": ["claude-session-1"] },
       },
     });
     expect(followup).toMatchObject({ task: { id: "context-task-1" }, sequence: 2 });
@@ -380,7 +382,7 @@ describe("TaskAssignment", () => {
         input: [{ role: "user", content: "continue" }],
       }),
     );
-    expect(changed?.task["id"]).toBe("boundary-task-2");
+    expect(changed?.task.id).toBe("boundary-task-2");
     repository.close();
   });
 
@@ -436,7 +438,7 @@ describe("TaskAssignment", () => {
         "/v1/chat/completions",
       ),
     );
-    expect([changedModel, changedPath, changedKind].map((item) => item?.task["id"])).toEqual([
+    expect([changedModel, changedPath, changedKind].map((item) => item?.task.id)).toEqual([
       "identity-task-2",
       "identity-task-3",
       "identity-task-4",
@@ -481,7 +483,7 @@ describe("TaskAssignment", () => {
         ),
         timestamp,
       };
-      expect(matcher.assign(followupRecord)?.task["id"]).toBe(expectedTaskId);
+      expect(matcher.assign(followupRecord)?.task.id).toBe(expectedTaskId);
       repository.close();
     }
   });
@@ -548,8 +550,8 @@ describe("TaskAssignment", () => {
         "/v1/chat/completions",
       ),
     );
-    expect(continuation?.task["id"]).toBe("prefix-task-1");
-    expect(changedHistory?.task["id"]).toBe("prefix-task-2");
+    expect(continuation?.task.id).toBe("prefix-task-1");
+    expect(changedHistory?.task.id).toBe("prefix-task-2");
     repository.close();
   });
 
@@ -594,8 +596,8 @@ describe("TaskAssignment", () => {
         "/v1/chat/completions",
       ),
     );
-    expect(duplicate?.task["id"]).toBe("continuation-task-2");
-    expect(changedConversation?.task["id"]).toBe("continuation-task-1");
+    expect(duplicate?.task.id).toBe("continuation-task-2");
+    expect(changedConversation?.task.id).toBe("continuation-task-1");
     repository.close();
   });
 
@@ -640,7 +642,8 @@ describe("TaskAssignment", () => {
       timestamp: "2026-07-18T10:01:00.000+08:00",
       response: {
         status: null,
-        body: { size_bytes: 0, text: "{}" },
+        headers: {},
+        body: { size_bytes: 0, base64: "", text: "{}" },
       },
     };
     const pending = matcher.assign(pendingRecord);
@@ -760,29 +763,49 @@ function trafficRecord(
   bodyPending: boolean,
   payload: unknown,
   requestPath = "/v1/responses",
-) {
+): TestEvent {
   return {
+    event: "request_finished",
     id,
     timestamp: "2026-07-18T10:00:01.000+08:00",
+    started_timestamp: "2026-07-18T10:00:00.000+08:00",
+    duration_ms: 1_000,
+    client: { host: "127.0.0.1", port: 54_321 },
+    target: {
+      id: "target-a",
+      name: "Target A",
+      scheme: "https",
+      host: "api.example.com",
+      port: 443,
+      path: requestPath,
+    },
     request: {
       method: "POST",
       path: requestPath,
+      headers: {},
       body_pending: bodyPending,
-      body: { size_bytes: 0, text: JSON.stringify(payload) },
+      body: { size_bytes: 0, base64: "", text: JSON.stringify(payload) },
     },
     response: {
       status: 200,
-      body: { size_bytes: 0, text: JSON.stringify({ id: `resp-${id}` }) },
+      headers: {},
+      body: { size_bytes: 0, base64: "", text: JSON.stringify({ id: `resp-${id}` }) },
     },
   };
 }
+
+/**
+ * A finished event the matcher can spread and extend. Keys the fixture adds on top stay
+ * available because the model lets older callers attach names it does not declare.
+ */
+type TestEvent = TrafficFinishedEvent;
 
 function persistAssignment(
   repository: TrafficRepository,
   assignment: TaskAssignment,
   requestId: string,
 ): void {
-  const taskId = assignment.task["id"];
+  const taskId = assignment.task.id;
   if (typeof taskId !== "string") {
     throw new Error("Task assignment is missing a string task ID.");
   }

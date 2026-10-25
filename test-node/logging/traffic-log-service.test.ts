@@ -7,6 +7,7 @@ import Database from "better-sqlite3";
 
 import { TrafficLogService, writeQueueForLogRoot } from "../../src/logging/index.js";
 import { TrafficRepository } from "../../src/persistence/index.js";
+import type { TrafficFinishedEvent } from "../../src/proxy/index.js";
 
 const temporaryDirectories: string[] = [];
 
@@ -20,8 +21,8 @@ afterEach(async () => {
 
 describe("TrafficLogService redaction", () => {
   it.each([
-    [true, "[redacted]", "[redacted]"],
-    [false, "secret-api-key", "Bearer secret-api-key"],
+    [true, "[redacted]", ["[redacted]"]],
+    [false, "secret-api-key", ["Bearer secret-api-key"]],
   ])(
     "applies redaction only when enabled (%s)",
     async (redactLogs, expectedApiKey, expectedHeader) => {
@@ -45,8 +46,8 @@ describe("TrafficLogService redaction", () => {
 describe("disabled TrafficLogService", () => {
   it("makes write, update, and close safe no-ops without a log root", async () => {
     const service = new TrafficLogService(null, { redactLogs: true });
-    await expect(service.write({ id: "disabled-write" })).resolves.toBeUndefined();
-    await expect(service.update({ id: "disabled-update" })).resolves.toBeUndefined();
+    await expect(service.write(trafficRecord("disabled-write"))).resolves.toBeUndefined();
+    await expect(service.update(trafficRecord("disabled-update"))).resolves.toBeUndefined();
     await expect(service.close()).resolves.toBeUndefined();
     await expect(service.close()).resolves.toBeUndefined();
   });
@@ -124,7 +125,8 @@ describe("TrafficLogService record mapping", () => {
       request: {
         method: "POST",
         path: "/v1/responses/?trace=1",
-        headers: { "content-type": "application/json" },
+        body_pending: false,
+        headers: { "content-type": ["application/json"] },
         body: {
           size_bytes: 0,
           base64: "",
@@ -137,14 +139,14 @@ describe("TrafficLogService record mapping", () => {
             ],
           }),
         },
-        model_route: { requested: "alias", upstream: "gpt-5" },
+        model_route: { requested_model: "alias", upstream_model: "gpt-5" },
         stripped_fields: ["temperature"],
         injected_fields: ["stream"],
         added_upstream_headers: ["authorization"],
       },
       response: {
         status: 200,
-        headers: { "content-type": "application/json" },
+        headers: { "content-type": ["application/json"] },
         body: {
           size_bytes: 0,
           base64: "",
@@ -180,7 +182,7 @@ describe("TrafficLogService record mapping", () => {
       token_count: 42,
       request_token_count: 30,
       response_token_count: 12,
-      model_route: { requested: "alias", upstream: "gpt-5" },
+      model_route: { requested_model: "alias", upstream_model: "gpt-5" },
       stripped_fields: ["temperature"],
       injected_fields: ["stream"],
       added_upstream_headers: ["authorization"],
@@ -285,17 +287,27 @@ describe("per-log-root write queue", () => {
   });
 });
 
-function trafficRecord(id: string) {
+function trafficRecord(id: string): TrafficFinishedEvent {
   return {
+    event: "request_finished",
     id,
     timestamp: "2026-07-18T11:00:00.000+08:00",
     started_timestamp: "2026-07-18T10:59:59.000+08:00",
-    event: "request_finished",
     duration_ms: 1_000,
+    client: { host: "127.0.0.1", port: 54_321 },
+    target: {
+      id: "target-a",
+      name: "Target A",
+      scheme: "https",
+      host: "api.example.com",
+      port: 443,
+      path: "/v1/responses",
+    },
     request: {
       method: "POST",
       path: "/v1/responses",
-      headers: { Authorization: "Bearer secret-api-key" },
+      body_pending: false,
+      headers: { Authorization: ["Bearer secret-api-key"] },
       body: {
         size_bytes: 0,
         base64: "",
