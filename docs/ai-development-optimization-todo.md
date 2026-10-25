@@ -120,7 +120,7 @@ P0 是已复现的功能缺陷；P1 是契约、文档和后端基础；P2 是�
 | [x]  | AI-10 | P1     | 消除运行时依赖环            | AI-06                                                                                                                                                           | 已完成 |
 | [ ]  | AI-11 | P1     | 分离模型调用与日志查询      | AI-01、AI-05、AI-07、AI-10                                                                                                                                      | 在办   |
 | [x]  | AI-12 | P1     | 按职责拆分持久化访问        | AI-06、AI-07、AI-10                                                                                                                                             | 已完成 |
-| [ ]  | AI-13 | P1     | 稳定历史迁移依赖            | AI-03、AI-10、AI-12                                                                                                                                             | 在办   |
+| [x]  | AI-13 | P1     | 稳定历史迁移依赖            | AI-03、AI-10、AI-12                                                                                                                                             | 已完成 |
 | [ ]  | AI-14 | P1     | 补齐场景测试并稳定时序验证  | AI-01、AI-02、AI-05、AI-08、AI-09                                                                                                                               | 未开始 |
 | [x]  | AI-15 | P2     | 分离产品、测试与工具编译    | 无                                                                                                                                                              | 已完成 |
 | [x]  | AI-16 | P2     | 固化 ABI 和交付冒烟流程     | AI-15                                                                                                                                                           | 已完成 |
@@ -306,10 +306,10 @@ P0 是已复现的功能缺陷；P1 是契约、文档和后端基础；P2 是�
 
 入口：[迁移入口](../src/persistence/database.ts)、[schema v5](../src/persistence/schema-v5.ts)、[迁移校验](../scripts/validate_migration.ts)。
 
-- [ ] 审查每次迁移引用的当前业务函数，列出可能随新功能变化的依赖。
-- [ ] 将需要历史稳定语义的转换固化为迁移专用实现或稳定版本的纯函数。
-- [ ] 保留必要的历史转换代码，不能为统一目录而改写既有数据含义。
-- [ ] 验证旧 fixture 到最新版本、重复打开、失败回滚和关系一致性。
+- [x] 审查每次迁移引用的当前业务函数，列出可能随新功能变化的依赖。
+- [x] 将需要历史稳定语义的转换固化为迁移专用实现或稳定版本的纯函数。
+- [x] 保留必要的历史转换代码，不能为统一目录而改写既有数据含义。
+- [x] 验证旧 fixture 到最新版本、重复打开、失败回滚和关系一致性。
 
 验收：修改当前协议解析能力不会隐式改变旧库升级结果。迁移测试覆盖关键转换值和数据关系，版本常量仍与实际结构一致。
 
@@ -774,3 +774,16 @@ UI 截图、性能或迁移结果（适用时）：
 - 写进 AI-11 包里的实测事实：`src/maintenance/log-query-service.ts` 共 1,340 行，协议路径选择内联在 537–541 行（`/responses`、`/v1/messages`、`/chat/completions`）、headers 在 544–549 行（`x-api-key` 加 `anthropic-version: 2023-06-01`）、超时是第 595 行的 `AbortSignal.timeout(config.timeout_ms)`，第 868 行还有一处 `anthropic-version`；`parseSummaryPayload`（825 行）拒绝任何不是 `segments` 数组的载荷，`prepareSummaryRequest` 在 1259 行、第 321 行是输入 `JSON.stringify`；`src/proxy/target-check.ts` 把同样三套协议又建了一遍（headers 在 64、70、84 行，URL 在第 102 行）——AI-11 第三条要收的就是这份重复。AI-12 刚重写过这个文件的存储半边（三处裸 SQL 已换成 `repository.historySummaryJson / hasRecord / saveHistorySummary`），所以包里明写：站在这个基础上干，别把裸 SQL 弄回去。
 - 写进 AI-13 包里的实测事实：整套迁移里今天只有一处依赖活代码，就是上面那个 `schema-v5`；`pricing-store.ts` 是持久层里唯一另一处向外引用（引 `src/pricing` 的钱数算术），它是 AI-12 新增的存储模块而不是迁移，所以要求它明确写清这算不算历史稳定性风险。13 个迁移模块 `schema-v1..v13`；`database.ts` 169 行逐个引 `SCHEMA_Vn_MIGRATION`；`scripts/validate_migration.ts` 72 行导出 `validateMigrationDatabase(logRoot)`；`CURRENT_SCHEMA_VERSION` 为 13、迁移 `1..13`、新库报 `schema_version 13` 与 15 张表、`schema_meta` 是键值表；`test-node/persistence/database.test.ts` 在两处钉版本号并列表名，真要提版本就得同时改这两处和表清单（还有 TS1508：正则字面量里的裸 `}` 得转义成 `\}`）；已有的迁移测试是 database、migration-validation、real-data-rehearsal、migration-benchmark、rollback-doc、compact-traffic-database 六份。
 - 本轮新加进两边任务包的一条规则：全量套件在事件循环饥饿下会让 `test-node/proxy/proxy-listener.test.ts` 那条 `decode_window_ms >= 20` 偶发实得 1 ms 左右（夹具的 40 ms 定时器与 gzip flush 回调挤进同一 tick），单独跑那个文件是 32/32；要求命中时只重跑单文件并报告规律，不许靠削弱断言去“修”它。这条是第三轮刚踩过的。
+
+### AI-13 完成记录
+
+- 状态：**已完成**，handoff 完整交回，由编排方验收。lane 提交 `b4d7a04`（把 v5 的 token 转换冻在迁移里）、`778df9f`（把整张迁移依赖清单钉成断言）、`588a79d`（两条 AGENTS 规则），squash 合并进 main 为 `f3803e9`，**零冲突**，5 个文件 `+1036/-2`。
+- 审计结论（它写的，我核过代码）：13 个迁移模块里只有 `schema-v5` 依赖活协议代码（`responseTokenCounts`）；v3 和 v5 对 `body-storage.ts` 的绑定是**有意保留**的——v3 只是表示形式搬家、正文逐字不变（它的测试拿升级前的内联文本与升级后 `loadRecordBody` 的返回逐字比对），而存下来的 chunk 自带 `codec` 和 `raw_size`、自描述，把写入器冻住反而会让历史升级产出今天读不了的格式；`pricing-store.ts` 引用 `../pricing` 被明写为“查询侧的活引用、不是迁移、不构成升级风险”。这份审计现在是 `migration-freeze.test.ts` 里的一条断言，所以它不会过时。
+- 编排方自己核的事实：`schema-v5.ts` 第 1 行只剩 `./body-storage.js`，第 2 行是 type-only 的 `./database.js`，第 136 行调自己的 `frozenResponseTokenCounts(payload)`，整个文件搜不到 `../proxy`；整套迁移模块加 `database.ts` 向持久层外部的 import 实测 **0** 处。`check:modules` 在 lane 报 `123 / 277 / 88 / 0 环 0 越界`，合并后的 main 报 `123 / 277 / 88`——比合并前的 `278` 正好少一条运行时边，就是 `schema-v5 → proxy/records` 这一条，别的什么都没动。typecheck（两份）/lint/prettier exit 全 0。我在 lane 里复现的组：persistence `10 文件 80/80`、logging 43、maintenance 43、admin 106、statistics 8、app 19、cli 16、docs 27，全 exit 0；合并后 main 上 persistence 仍 `10 文件 80/80`。
+- 断言审计：`git diff 7ecedcd..HEAD -- test-node/` 删除断言 **0 行**，`it.skip|only|todo` 新增 **0**，新增 3 个测试文件（migration-freeze / migration-live-drift / migration-conversions）；声明测试数 `901 → 914`（+13）、测试文件 `121 → 124`（+3），Vitest 运行时数 57 → 80 是因为其中一个 `it.each` 按 11 种 usage 形状展开。金额精度没动：`cost_nano_cny` 列仍是 INTEGER，读出来是文本 `"41125000"`。
+- fixture 我用只读的 Python `sqlite3` 独立验过（没用原生模块）：`fixtures/parity/database/comprehensive/traffic.db` 155,648 字节、`schema_version` 为 `'1'`、11 个表条目、6 条记录、5 个 task、records 表里只有 `token_count` 一列带 token 字样——与它钉的数字逐项吻合。
+- 那条“故意改活路径”的测试我逐行读过：它用 `vi.mock` 把 `src/proxy/protocol/analysis.js` 里的 `isPythonTruthy` 换成“空对象也算 present”，**不去改 AI-11 的文件**；于是活路径对 `{stream_summary:{usage:{}}, usage:{input_tokens:5,output_tokens:2}}` 的答案变成 `undefined/undefined`，而真跑过 v1–v4 的库升级到 v5 之后存下来的仍是 `5` 和 `2`，再开一次还是 `5` 和 `2`。这正是验收要的“改当前协议解析不会隐式改变旧库升级结果”。回滚也有三条真失败路径：v5 抛错后停在版本 1 且 `record_search` 还在、内联正文还在；坏 codec 让真回填停在半路，停在版本 4、没有 token 列、没有半写入的行；缺 `record_search` 让真 v3 转换停住，版本 1 里一个 v3 该建的表都没有。
+- 迁移基准我自己跑了一次（`npm run benchmark:migration`，先 build、Node ABI 实查询在前）：`databaseBytes 2,330,624` 与 `backupBytes 2,330,624` **字节相同**，与它报的两边数字一模一样，`backupDurationMs 32.27`，落在它报的区间内（前 39.99/43.67、后 34.86/36.86），没有变慢；它的 A/B 方法是用 `git checkout <base> -- <file>` 只还原那一个文件再还原回来，不需要第二个检出，这条方法我写进了 AGENTS 的事实里。
+- V-P（它自己跑的，这轮网络是通的、没用 electronDist 兑底）：build → rebuild:electron → `npx electron-builder -w portable --publish never` exit 0；解开包 health **1077 ms**、便携壳 **4706 ms**、两者代理 200、`GET /api/logs` 200 `total 1`、`traffic.db` 生成、退出码 0、端口释放；它还用 `@electron/asar` 把包里的 `dist-node/src/persistence/schema-v5.js` 读出来看过：只有一个运行时 import（`./body-storage.js`）、没有 `../proxy`、里面确实调 `frozenResponseTokenCounts(payload)`。合并后的集成 V-P 仍然欠着，等 AI-11 落地后对合并状态一次性跑。
+- 它没动 `docs/current-architecture.md` 并且理由站得住（它这个改动没让模块图里任何一行变错）；`scripts/validate_migration.ts` 也没动，理由是那个脚本只数行、抽样、数孤儿，碰不到业务函数，把报告面扩大只会撞掉 `migration-validation.test.ts` 里的一个 `toEqual` 而买不到任务要的东西。`AGENTS.md` `+2` 行 `-0` 行（迁移测试播种要先于搬走那些行的迁移；比对重构与基线不用第二次检出）。
+- 遗留风险（它写的，我认了）：`migration-freeze.test.ts` 引 `src/proxy/records.ts`、`migration-live-drift.test.ts` mock `src/proxy/protocol/analysis.ts`，两者都是 AI-11 正在重排的文件——AI-11 一旦搬家或改名，这两处的 import/mock 路径会在合并时断，这是**故意耦合**，修的是路径而不是冻住的那份拷贝；若 AI-11 改了 no-kind 路径的**行为**，parity 测试会响而升级结果不动，正确处置是保留冻结拷贝并记下漂移，不是去追它。另外它认了“Unsupported body chunk codec”这句文案与失败路径测试的耦合、重新生成 fixture 就得同步改钉住的计数、以及这里没演练真实的 14 GB 库（那是编排方要是想跑才跑的活）。
