@@ -118,7 +118,7 @@ P0 是已复现的功能缺陷；P1 是契约、文档和后端基础；P2 是�
 | [x]  | AI-08 | P1     | API schema 与客户端契约统一 | AI-07、AI-04、AI-15、AI-18、AI-19、AI-20、AI-21                                                                                                                 | 已完成 |
 | [x]  | AI-09 | P1     | 完整应用的服务装配约束      | AI-01、AI-02、AI-07、AI-08                                                                                                                                      | 已完成 |
 | [x]  | AI-10 | P1     | 消除运行时依赖环            | AI-06                                                                                                                                                           | 已完成 |
-| [ ]  | AI-11 | P1     | 分离模型调用与日志查询      | AI-01、AI-05、AI-07、AI-10                                                                                                                                      | 在办   |
+| [x]  | AI-11 | P1     | 分离模型调用与日志查询      | AI-01、AI-05、AI-07、AI-10                                                                                                                                      | 已完成 |
 | [x]  | AI-12 | P1     | 按职责拆分持久化访问        | AI-06、AI-07、AI-10                                                                                                                                             | 已完成 |
 | [x]  | AI-13 | P1     | 稳定历史迁移依赖            | AI-03、AI-10、AI-12                                                                                                                                             | 已完成 |
 | [ ]  | AI-14 | P1     | 补齐场景测试并稳定时序验证  | AI-01、AI-02、AI-05、AI-08、AI-09                                                                                                                               | 未开始 |
@@ -278,11 +278,11 @@ P0 是已复现的功能缺陷；P1 是契约、文档和后端基础；P2 是�
 
 入口：[LogQueryService](../src/maintenance/log-query-service.ts)、[总结模型测试装配](../src/app/runtime.ts)、[目标测试](../src/proxy/target-check.ts)。
 
-- [ ] 提取总结模型客户端，统一三种协议的 URL、headers、超时和响应读取。
-- [ ] 提取摘要/简介生成服务，明确缓存、并发保护和存储职责。
-- [ ] 连接测试与正式调用共享协议构造能力，保留各自不同的业务参数。
-- [ ] 输入整理、提示词和响应解析分别提供可独立验证的边界。
-- [ ] 保持已有提示词版本与缓存语义；确需改变时单独记录原因。
+- [x] 提取总结模型客户端，统一三种协议的 URL、headers、超时和响应读取。
+- [x] 提取摘要/简介生成服务，明确缓存、并发保护和存储职责。
+- [x] 连接测试与正式调用共享协议构造能力，保留各自不同的业务参数。
+- [x] 输入整理、提示词和响应解析分别提供可独立验证的边界。
+- [x] 保持已有提示词版本与缓存语义；确需改变时单独记录原因。
 
 验收：查询服务不再承担上游 HTTP 请求构造。三种协议、非法响应、超时、并发生成和最新配置读取均有测试，测试不调用真实付费上游。
 
@@ -520,7 +520,7 @@ P0 是已复现的功能缺陷；P1 是契约、文档和后端基础；P2 是�
 - [x] AI-06～08：自有日志和 API 数据有具体契约，嵌套字段受验证。
 - [x] AI-09：完整应用遗漏服务接线时有确定失败反馈。
 - [x] AI-10：运行时依赖环消除，并有有效的自动检查。
-- [ ] AI-11～13：查询、模型生成和存储职责明确，历史迁移结果稳定。
+- [x] AI-11～13：查询、模型生成和存储职责明确，历史迁移结果稳定。
 - [ ] AI-14：操作序列和流式边界有回归测试，时序问题有定位记录。
 - [x] AI-15～16：产品构建、测试检查、ABI 与交付验证入口明确可重复。
 - [ ] AI-17～20：前端通过模块边界协作，过渡桥接清除，严格检查生效。
@@ -774,6 +774,21 @@ UI 截图、性能或迁移结果（适用时）：
 - 写进 AI-11 包里的实测事实：`src/maintenance/log-query-service.ts` 共 1,340 行，协议路径选择内联在 537–541 行（`/responses`、`/v1/messages`、`/chat/completions`）、headers 在 544–549 行（`x-api-key` 加 `anthropic-version: 2023-06-01`）、超时是第 595 行的 `AbortSignal.timeout(config.timeout_ms)`，第 868 行还有一处 `anthropic-version`；`parseSummaryPayload`（825 行）拒绝任何不是 `segments` 数组的载荷，`prepareSummaryRequest` 在 1259 行、第 321 行是输入 `JSON.stringify`；`src/proxy/target-check.ts` 把同样三套协议又建了一遍（headers 在 64、70、84 行，URL 在第 102 行）——AI-11 第三条要收的就是这份重复。AI-12 刚重写过这个文件的存储半边（三处裸 SQL 已换成 `repository.historySummaryJson / hasRecord / saveHistorySummary`），所以包里明写：站在这个基础上干，别把裸 SQL 弄回去。
 - 写进 AI-13 包里的实测事实：整套迁移里今天只有一处依赖活代码，就是上面那个 `schema-v5`；`pricing-store.ts` 是持久层里唯一另一处向外引用（引 `src/pricing` 的钱数算术），它是 AI-12 新增的存储模块而不是迁移，所以要求它明确写清这算不算历史稳定性风险。13 个迁移模块 `schema-v1..v13`；`database.ts` 169 行逐个引 `SCHEMA_Vn_MIGRATION`；`scripts/validate_migration.ts` 72 行导出 `validateMigrationDatabase(logRoot)`；`CURRENT_SCHEMA_VERSION` 为 13、迁移 `1..13`、新库报 `schema_version 13` 与 15 张表、`schema_meta` 是键值表；`test-node/persistence/database.test.ts` 在两处钉版本号并列表名，真要提版本就得同时改这两处和表清单（还有 TS1508：正则字面量里的裸 `}` 得转义成 `\}`）；已有的迁移测试是 database、migration-validation、real-data-rehearsal、migration-benchmark、rollback-doc、compact-traffic-database 六份。
 - 本轮新加进两边任务包的一条规则：全量套件在事件循环饥饿下会让 `test-node/proxy/proxy-listener.test.ts` 那条 `decode_window_ms >= 20` 偶发实得 1 ms 左右（夹具的 40 ms 定时器与 gzip flush 回调挤进同一 tick），单独跑那个文件是 32/32；要求命中时只重跑单文件并报告规律，不许靠削弱断言去“修”它。这条是第三轮刚踩过的。
+
+### AI-11 完成记录
+
+- 状态：**已完成（子代理超时）**。编排层报的是 `Error: Subagent timed out after 3000000ms.` 且“Saved output: unavailable”，但 lane 里的工作完整活着：3 个提交 `877e76b`（连接测试与正式调用共享协议构造）、`cc1d42d`（把摘要模型调用从查询服务里拿出去）、`9c33861`（两条 AGENTS 事实），审查时 `git status --short` 行数实测 **0**、`.scratch-ai11` 已删。squash 合并进 main 为 `ef33d7b`，**零冲突**，21 个文件 `+3020/-733`。
+- 它是怎么没的（编排方自己查的，不是猜的）：V-P 冒烟其实早就跑完了——`/tmp/smoke1.txt` 最后一行是 `app exited cleanly: true`，health 在 **813 ms** 应答，`traffic.db` 开了，三种协议路径 `/v1/chat/completions`、`/v1/responses`、`/v1/messages` 全在 upstream 调用日志里；但那个夹具服务把 Node 事件循环撑住不退出，tsx 就不退出，bash 调用永不返回，子代理把剩下的预算全花在等一个不会回来的命令上。编排方只杀了 **PID 41688**（子代理自己的脚本进程，占着 39533），tsx 与 npx 随后自己退了，39531/39532/39533 实测全空闲，用户实例全程没碰（18085 上始终 3 个进程）。教训已写进包：**冒烟脚本打完最后一行却不退出，就会把子代理的 bash 调用钉死**，夹具服务要 `unref` 或者查完就 `process.exit`。
+- V-P 证据是编排方直读日志文件采的，不是采信它的转述：`status_code` 统计 **404×2、409×1、502×6**，超时真在 **1019.63 ms** 中断（日志里那句 `aborted due to timeout`），应用干净退出。
+- 编排方在 lane 里复现的门：typecheck（两份）exit 0 / `0 error TS`、lint exit 0、prettier exit 0、`check:modules` exit 0 `131 / 296 / 94 / 0 环 / 0 越界`；分组：maintenance `8 文件 112`、app `4 文件 21`、admin `16 文件 106`、docs `11 文件 27`、proxy `32 文件 444`、ui `93 passed + 2 个原有 skip`（5 文件过 + 1 skip，与以前一致）。
+- **合并后的集成全量 `npm run check` exit 0**（三轮以来第一次全量跑）：`Test Files 129 passed | 1 skipped (130)`、`Tests 1169 passed | 2 skipped (1171)`、`FAIL` 行 0；`check:modules` 报 `131 / 295 / 94 / 0 环 / 0 越界`——295 等于 lane 的 296 减去 AI-13 冻住那条边，两个不同的改动方向在同一个数字上对上了。
+- 测试台账：声明数 `901 (7ecedcd) → 914 (AI-13) → 1000 (AI-11, +86)`，测试文件 `121 → 124 → 130`；删除断言 **0** 行、`it.skip|only|todo` 新增 **0**。Vitest 运行时 1171 > 声明 1000 是 `it.each` 展开造成的——它 handoff 里“声明数与 Vitest 完全相等”这句话对 proxy 组是错的（声明 327 vs 运行时 444），但它报的声明数字本身对。
+- 代码层面编排方自己核的：`log-query-service.ts` 从 1,340 行降到 **758 行**，`fetch(` / `new URL(` / `joinTargetPath` 在里面命中 **0** 次；`admin-services.ts` 251 → **186** 行；新叶子 `src/proxy/api-request.ts` 128 行管三种协议的路径/鉴权头/URL/体形状；`summary-model-client.ts` 215 行管 URL/headers/超时/响应读取；`log-query-service` 把 `summarizeRecord / getSummary / getTaskBrief / generateTaskBrief / testSummaryModel` 全部委派出去。提示词版本仍是摘要 `v1` / 简介 `v2`，缓存键与“模型多写的键原样存活”语义没动。
+- 并发保护是真有测试的，不是 handoff 里的一句话：`summary-generation-service.test.ts` 第 254 与 452 行、`log-query-service.test.ts` 第 1250 行都钉 `code: "conflict"` + `statusCode: 409`，而且那个文件开头第 31 行是 `Promise.all`，注释写的是“被拒的第二个调用者看到的正是存下来的那段文本”——任务包要求的“两个并发请求不会都打上游、第二个看到的是存好的摘要”就落在这。
+- 唯一一处行为变化（目标地址已经写了协议路径时不再叠第二遍，`/v1/chat/completions/chat/completions` → `/v1/chat/completions`）被两个测试钉住：`target-check.test.ts:209` 与 `summary-model-client.test.ts:210` 都是 `asks a target whose address already names the endpoint`，与真实转发的 `joinTargetPath` 一致——编排方接受这处故意偏差。V-B 那个 180 次比对 / 174 字节相同我没重跑，钉住它的测试与构造代码我读了。
+- AI-13 那条故意留的耦合接住了：`git diff 7ecedcd..HEAD` 里根本没有 `src/proxy/records.ts` 和 `src/proxy/protocol/analysis.*`，合并后全量套件里 `migration-freeze / migration-live-drift / migration-conversions` 都跑了且绿。
+- `AGENTS.md` `+2` 行 `-0` 行（读/写工具会把开头的 `/tmp/...` 解到当前盘而不是 shell 的 `/tmp`；证明重构后上游请求字节相同不需要付费上游，`git show <base>:<path>` 把改前的文件取出来跟当前版本比对）；`docs/current-architecture.md` 改了 **2** 行（proxy 行和 maintenance 行）——包里只许改 1 行，这算个小偏差，但两行都是它自己改动的准确反映。
+- 遗留风险（它报的，我认了）：超时与网络失败现在共用同一句对外文案（这是从旧代码里保留下来的，不是新引入的）；并发保护只在单进程内有效；UI 基线没动（UI 套件绿，skip 数与之前相同）。下一轮集成 V-P 会盖住 AI-11、AI-17 和 AI-09 那笔还欠着的 V-P，对合并后的最终状态一次性跑。
 
 ### AI-13 完成记录
 
