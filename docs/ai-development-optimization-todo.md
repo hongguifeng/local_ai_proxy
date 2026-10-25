@@ -568,7 +568,7 @@ UI 截图、性能或迁移结果（适用时）：
 - UI 截图、性能或迁移结果：本项不改 UI，未跑基线重生成；`src/admin/static` 与 `app.css` 无改动，`doc/ui_*.png` 与基线文档未改。
 - 便携版构建与冒烟结果：`npm run build && npm run rebuild:electron && npx electron-builder -w portable --publish never` 通过；`npm run smoke:delivery` 两段全过——unpacked payload health 529 ms、proxy 200、`GET /api/logs?limit=5` total 1、`traffic.db` 4,096 字节、exit 0；portable wrapper health 2,609 ms、同样 proxy 200、logs total 1、`traffic.db` 生成、exit 0。检查 `release/win-unpacked/resources/app.asar`：3,158 个条目，不含 `.agents`，SKILL 文档 0 个；打包后的 `package.json` 由 electron-builder 重写成运行时清单（只留 name/version/private/description/main/type/engines/license/dependencies），所以新增的 `check:skills` 脚本不进产物、也不改变载荷。之后 `npm rebuild better-sqlite3` 并用 `npm run abi:node` 真实查询确认已恢复 Node ABI（NODE_MODULE_VERSION 137）。
 - 与本清单的偏差、剩余事项：一、`AGENTS.md` 里「每次任务后构建便携版」仍保留并按本条执行；本项只动文档与 `package.json` 脚本，载荷内容不变。二、全量 `npm run check` 的 10 秒超时是既有并发问题（AI-22 记录已记，AI-24 需一并复核），本项未改断言或加重试。三、`docs/module-design.md` 与 `docs/software-functional-specification.md` 未做整文件 Prettier 重排；本轮只保证 `current-architecture.md` 与本文继续通过显式 ignore-path 检查。四、`design-doc-readability` 没有固定命令入口：仓库是 Node-only（`test-node/docs/node-only-repository.test.ts` 禁止 `.py`），可读性测量仍是按需的一次性脚本，skill 里明确写了这一点而没有造常驻工具。
-- 提交 SHA：本提交（见本条记录所在提交）。
+- 提交 SHA：`e02aa74`（skill、skills 契约测试、AGENTS.md、`package.json` 与两份文档的同一次提交；本段完成记录与 SHA 回填另起一次文档提交，与 AI-22 的做法一致）。
 
 ### AI-22 完成记录
 
