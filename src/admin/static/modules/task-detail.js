@@ -610,8 +610,8 @@ function taskBriefFactsHtml(context) {
     )
     .join("")}</div>`;
 }
-function taskBriefCardHtml(groupId) {
-  const brief = state.taskBrief && state.taskBrief.id === groupId ? state.taskBrief : null;
+function taskBriefCardHtml(groupId, taskBrief = state.taskBrief) {
+  const brief = taskBrief && taskBrief.id === groupId ? taskBrief : null;
   const data = brief ? brief.data : null;
   const text = data ? String(data.text || "") : "";
   const facts = data ? taskBriefFactsHtml(data.context) : "";
@@ -684,24 +684,30 @@ async function regenerateTaskBrief() {
   }
   renderTaskPricingPanel();
 }
-function taskPricingRenderSignature(groupId, data, openGroups) {
-  // Mirror the render's own series lookup: a series that belongs to another
-  // task is not drawn, so it must not hold the signature either.
+function taskPricingRenderInput(groupId, data, openGroups) {
   const seriesPoints = (series) =>
     series !== null && series !== undefined && series.id === groupId ? series.points : null;
-  const series = (points) => (points || []).map((point) => JSON.stringify(point)).join(",");
-  return [
-    state.language,
+  return {
+    language: state.language,
     groupId,
-    JSON.stringify(data),
-    JSON.stringify(state.taskBrief),
-    state.activeTaskGroup ? activeTaskGroupSignature(state.activeTaskGroup) : "",
-    series(seriesPoints(state.taskTokenSeries)),
-    series(seriesPoints(state.taskCostSeries)),
-    series(seriesPoints(state.taskOutputTokenSeries)),
-    Object.keys(openGroups).sort().join(","),
-  ].join("#");
+    data,
+    brief: state.taskBrief,
+    activeTaskGroup: state.activeTaskGroup,
+    tokenSeries: seriesPoints(state.taskTokenSeries),
+    costSeries: seriesPoints(state.taskCostSeries),
+    outputTokenSeries: seriesPoints(state.taskOutputTokenSeries),
+    openGroups: Object.keys(openGroups)
+      .sort()
+      .reduce((result, key) => {
+        result[key] = Boolean(openGroups[key]);
+        return result;
+      }, {}),
+  };
 }
+function taskPricingRenderSignature(input) {
+  return JSON.stringify(input);
+}
+
 export function renderTaskPricingPanel() {
   const panel = $("pricingPanel");
   const detail = $("detail");
@@ -714,28 +720,34 @@ export function renderTaskPricingPanel() {
     state.taskPricingRendered = "";
     return;
   }
-  if (!pricing || pricing.id !== active || pricing.loading || pricing.data === null) {
-    panel.innerHTML = `<div class="pricing-panel-head"><strong>${escapeHtml(t("taskPricing"))}</strong><button type="button" data-close-pricing>${escapeHtml(t("close"))}</button></div><p>${escapeHtml(t("loading"))}</p>`;
-    state.taskPricingRendered = "";
-    return;
-  }
-  if (pricing.error) {
+  // A deleted task has no pricing data, so handle the explicit error before the
+  // data-null loading guard; otherwise deletion would remain stuck on "Loading".
+  if (pricing && pricing.id === active && pricing.error) {
     const deleted = pricing.error === "deleted";
     panel.innerHTML = `<div class="pricing-panel-head"><strong>${escapeHtml(t("taskPricing"))}</strong><button type="button" data-close-pricing>${escapeHtml(t("close"))}</button></div><p>${escapeHtml(deleted ? t("taskDeleted") : t("pricingUnavailable"))}</p>${deleted ? "" : `<button type="button" data-retry-pricing>${escapeHtml(t("retry"))}</button>`}`;
     state.taskPricingRendered = "";
     return;
   }
-  const data = pricing.data;
-  const openGroups = state.pricingGroupOpen[active] || {};
-  const presentModels = new Set((data.groups || []).map((group) => group.billing_model || "—"));
-  Object.keys(openGroups).forEach((model) => {
-    if (!presentModels.has(model)) delete openGroups[model];
+  if (!pricing || pricing.id !== active || pricing.loading || pricing.data === null) {
+    panel.innerHTML = `<div class="pricing-panel-head"><strong>${escapeHtml(t("taskPricing"))}</strong><button type="button" data-close-pricing>${escapeHtml(t("close"))}</button></div><p>${escapeHtml(t("loading"))}</p>`;
+    state.taskPricingRendered = "";
+    return;
+  }
+  const pricingData = pricing.data;
+  const savedOpenGroups = state.pricingGroupOpen[active] || {};
+  const presentModels = new Set(
+    (pricingData.groups || []).map((group) => group.billing_model || "—"),
+  );
+  Object.keys(savedOpenGroups).forEach((model) => {
+    if (!presentModels.has(model)) delete savedOpenGroups[model];
   });
-  if (Object.keys(openGroups).length === 0) delete state.pricingGroupOpen[active];
+  if (Object.keys(savedOpenGroups).length === 0) delete state.pricingGroupOpen[active];
   // The panel draws one chart point per request, so rebuilding it is the most
   // expensive render on the page; a refresh round-trip that returned the same
   // numbers keeps the existing DOM instead of drawing it again.
-  const signature = taskPricingRenderSignature(active, data, openGroups);
+  const renderInput = taskPricingRenderInput(active, pricingData, savedOpenGroups);
+  const { data, openGroups } = renderInput;
+  const signature = taskPricingRenderSignature(renderInput);
   if (signature === state.taskPricingRendered) {
     // The values stay on screen, but a narrower window can still make the model
     // name overflow, so the shrink-to-fit pass runs even on a skipped rebuild.
@@ -760,7 +772,7 @@ export function renderTaskPricingPanel() {
   };
   const durationText = formatDuration(data.active_request_ms);
   const totalDurationText = formatDuration(data.total_request_ms);
-  const group = state.activeTaskGroup;
+  const group = renderInput.activeTaskGroup;
   const decodeSpeed = group ? formatDecodeSpeed(group.decode_speed_tps) : "";
   const decodeSpeedTip = `${t("avgDecodeSpeed")}: ${t("avgDecodeSpeedTip")}`;
   const statCard = (label, value, sub, title, accent) =>
@@ -827,22 +839,14 @@ export function renderTaskPricingPanel() {
   const summaryCard = `<section class="task-summary">${targetLine}<div class="task-stat-cards">${taskStats.join("")}</div></section>`;
   // The task brief is its own card at the very top of the panel, above the
   // fact grid: it is free-form prose, so it does not fit the stat-card shape.
-  const briefCard = taskBriefCardHtml(active);
-  const tokenSeries =
-    state.taskTokenSeries && state.taskTokenSeries.id === active
-      ? state.taskTokenSeries.points
-      : null;
+  const briefCard = taskBriefCardHtml(renderInput.groupId, renderInput.brief);
+  const tokenSeries = renderInput.tokenSeries;
   const tokenChart = `<h3 class="section-token">${escapeHtml(t("tokenTrend"))}</h3>${tokenSeries === null ? `<p>${escapeHtml(t("loading"))}</p>` : taskTokenChartHtml(tokenSeries)}<p class="pricing-note">${escapeHtml(t("tokenTrendNote"))}</p>`;
-  const costSeries =
-    state.taskCostSeries && state.taskCostSeries.id === active ? state.taskCostSeries.points : null;
+  const costSeries = renderInput.costSeries;
   const costChart = `<h3 class="section-cost">${escapeHtml(t("costTrend"))}</h3>${costSeries === null ? `<p>${escapeHtml(t("loading"))}</p>` : taskCostChartHtml(costSeries)}<p class="pricing-note">${escapeHtml(t("costTrendNote"))}</p>`;
-  const outputTokenSeries =
-    state.taskOutputTokenSeries && state.taskOutputTokenSeries.id === active
-      ? state.taskOutputTokenSeries.points
-      : null;
+  const outputTokenSeries = renderInput.outputTokenSeries;
   const outputTokenChart = `<h3 class="section-output">${escapeHtml(t("outputTokenTrend"))}</h3>${outputTokenSeries === null ? `<p>${escapeHtml(t("loading"))}</p>` : taskOutputTokenChartHtml(outputTokenSeries)}<p class="pricing-note">${escapeHtml(t("outputTokenTrendNote"))}</p>`;
   panel.innerHTML = `<div class="pricing-panel-head"><strong>${escapeHtml(t("taskPricing"))}</strong><button type="button" data-close-pricing>${escapeHtml(t("close"))}</button></div>${briefCard}${summaryCard}${data.priced_request_count ? taskBreakdownTableHtml(data.breakdown, pricingDecimalFromNano(data.cost_nano_cny)) : `<p>${escapeHtml(reasons || t("unpriced"))}</p>`}<p class="pricing-note">${escapeHtml(t("taskWholeScope"))}</p>${costChart}${tokenChart}${outputTokenChart}<h3 class="section-groups">${escapeHtml(t("priceGroups"))}</h3>${groups || `<p>${escapeHtml(t("unpriced"))}</p>`}`;
-  fitTaskSummaryValues(panel);
   fitTaskSummaryValues(panel);
 }
 function loadTaskTokenSeries(groupId, signal) {
@@ -967,25 +971,6 @@ function updateRequestPricingButton() {
   button.title =
     available && state.requestPricingOpen ? t("hideCostDetails") : t("showCostDetails");
   button.setAttribute("aria-expanded", String(available && state.requestPricingOpen));
-}
-
-/**
- * The render signature of the list snapshot this panel mirrors. It reads exactly the
- * fields `syncActiveTaskGroup` copies, plus the language, so a counter that moved in the
- * list rebuilds the panel and an unchanged snapshot skips the rebuild.
- * @param {{ id: string, started_at?: unknown, last_activity_at?: unknown, model?: unknown, request_count?: unknown, decode_speed_tps?: unknown }} snapshot
- * @returns {string}
- */
-function activeTaskGroupSignature(snapshot) {
-  return [
-    state.language,
-    snapshot.id,
-    snapshot.started_at,
-    snapshot.last_activity_at,
-    snapshot.model,
-    snapshot.request_count,
-    snapshot.decode_speed_tps,
-  ].join("#");
 }
 
 /**

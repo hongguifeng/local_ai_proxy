@@ -1,6 +1,6 @@
 # 面向 AI 持续开发的优化 TODO
 
-基线：`14ae4de`，应用版本 0.4.10。原始清单为 24 项；AI-25 后扩展为 25 项。当前状态：20 / 25 项完成（AI-01～AI-19、AI-25）。
+基线：`14ae4de`，应用版本 0.4.10。原始清单为 24 项；AI-25 后扩展为 25 项。当前状态：22 / 25 项完成（AI-01～AI-21、AI-25）。
 
 本文是本轮优化的执行清单和验收依据。它把代码审查中的发现拆成独立任务，供本地 AI 按依赖顺序实施。历史设计和旧 TODO 只作为背景材料；执行时应复核当前源码。
 
@@ -128,7 +128,7 @@ P0 是已复现的功能缺陷；P1 是契约、文档和后端基础；P2 是�
 | [x]  | AI-18 | P2     | 模块化代理配置与负载均衡    | AI-17                                                                                                                                                                  | 已完成 |
 | [x]  | AI-19 | P2     | 模块化历史、详情和指标      | AI-11、AI-17、AI-18                                                                                                                                                    | 已完成 |
 | [x]  | AI-20 | P2     | 收紧 UI 类型与 DOM 合同     | AI-18、AI-19                                                                                                                                                           | 已完成 |
-| [ ]  | AI-21 | P2     | 统一渲染输入和缓存失效      | AI-19、AI-20                                                                                                                                                           | 未开始 |
+| [x]  | AI-21 | P2     | 统一渲染输入和缓存失效      | AI-19、AI-20                                                                                                                                                           | 已完成 |
 | [ ]  | AI-22 | P2     | 建立组件样式归属            | AI-18、AI-19、AI-21                                                                                                                                                    | 未开始 |
 | [ ]  | AI-23 | P2     | 整理 skills 并固化操作入口  | AI-04、AI-14、AI-16、AI-20、AI-21、AI-22                                                                                                                               | 未开始 |
 | [x]  | AI-25 | P2     | 保留旧配置里未建模的键      | AI-08                                                                                                                                                                  | 已完成 |
@@ -417,11 +417,11 @@ P0 是已复现的功能缺陷；P1 是契约、文档和后端基础；P2 是�
 
 入口：[历史签名](../src/admin/static/modules/history.js)、[任务面板签名](../src/admin/static/modules/task-detail.js)、[JSON 渲染](../src/admin/static/modules/json-pane.js)。
 
-- [ ] 为历史区块和任务面板定义明确的渲染输入模型。
-- [ ] 缓存判断和模板渲染使用同一个输入，减少独立手写依赖清单。
-- [ ] 记录 JSON 测量、宽度变化、展开恢复和视口预填充的失效条件。
-- [ ] 增加字段变化、语言变化和过期响应的渲染回归测试。
-- [ ] 同时验证数据未变化时不发生无意义重建。
+- [x] 为历史区块和任务面板定义明确的渲染输入模型。
+- [x] 缓存判断和模板渲染使用同一个输入，减少独立手写依赖清单。
+- [x] 记录 JSON 测量、宽度变化、展开恢复和视口预填充的失效条件。
+- [x] 增加字段变化、语言变化和过期响应的渲染回归测试。
+- [x] 同时验证数据未变化时不发生无意义重建。
 
 验收：状态变化后立即显示；原节点保留、展开、选择和滚动位置符合现有行为。大正文不因取消缓存而重新冻结页面。
 
@@ -529,7 +529,7 @@ P0 是已复现的功能缺陷；P1 是契约、文档和后端基础；P2 是�
 - [x] AI-17～18：前端构建入口、代理配置和负载均衡模块边界已建立，轮询、保存与销毁行为保持。
 - [x] AI-19：历史、详情、JSON 面板、统计和指标已迁移到单一 ES module graph，旧编号脚本和过渡 bridge 已移除。
 - [x] AI-20：完整 UI 图已启用 strictNullChecks 与 exactOptionalPropertyTypes，状态/API/异步合同与具体 DOM 查询已迁移，并通过编译器负例和真实浏览器初始化测试。
-- [ ] AI-21：渲染与缓存输入一致，刷新和大正文体验保持。
+- [x] AI-21：渲染与缓存输入一致，刷新和大正文体验保持。
 - [ ] AI-22：组件样式归属明确，层叠与像素验证无意外变化。
 - [ ] AI-23：skills 内容简明且有效，固定操作由工具承担。
 - [x] AI-25：旧配置里未建模的键不再被静默丢弃，控制台自己的运行时键不会被写进保存文件。
@@ -871,6 +871,17 @@ UI 截图、性能或迁移结果（适用时）：
 - **形态**：批准——把模块打成一个经典脚本块、拼进 `/static/app.js`。不新增路由（第四条路由就得改 `static-files.ts`，那不是它的地盘），`/static/app.js` 仍是浏览器唯一 URL，这样所有拦 `**/static/app.js` 的探针继续有效。它那个解析期论点编排方认同（经典脚本的顶层语句在解析时就同步跑，排在任何 deferred 模块脚本之前），所以生成块必须排在拼接**最前**、`09-wiring.js` 之前，并要求 `static-source.test.ts` 把这个位置也和作者顺序一起钉住。
 - **位置**：选 A（只住 `dist-node`，零 ignore 文件改动，走现有 `dist-node/src/**/*` 打包项），但补上了它推理里缺的那一条：编排方查了 `test-node/ui/admin-ui-server.ts:486`——UI 服务传的是 `staticAssets: await loadAdminStaticAssets()`，而这个解析器读的是 `import.meta.url` 旁边，在 tsx 下那是 `src/admin/static`、**不是** `dist-node`。所以按 A，凡是从源码跑 dev、或者单跑 `npx vitest run test-node/ui`，bridge 就是不存在。因此要求：bundler 必须在 dev 之前（`predev` 或 dev 脚本内）和在 UI 套件之前（`pretest:ui` 或 fixture 装配里）跑；缺 bridge 必须在构建/lint/装配期响亮报错，绝不允许在请求期变成空脚本或部分脚本；再加一条测试证明服务出去的 `/static/app.js` 里真含那块。不得住进 `dist-node/src/admin/static`（`built-static-assets.test.ts` 正好拿那个路径当陈旧残留种下去，`copy_static_assets` 的陈旧守卫会跟它打），并且不许动 `copy_static_assets.ts`。B（生成物进源码目录 + 改两个不归它的 ignore 文件 + 撞陈旧守卫）和 C（把服务的浏览器资源住在 lint 草稿目录里，还要赌 electron-builder 的 `dist-node/scripts/**/*` 能不能匹配点目录）否掉。
 - **esbuild**：要求显式声明进 `devDependencies`（用哪个版本就钉哪个）并提交 `package-lock.json`，交回时报 `npm ls esbuild` 要显示它是直接依赖而不是传递依赖；没声明就用传递拷贝，tsx 或 vite 一升级就断。`devDependencies` 不会被 electron-builder 打进包，产物体积不动。
+
+### AI-21 完成记录
+
+- 状态：已完成
+- 实际变更：历史区块从一次投影后的摘要、行内容、翻译标签和交互状态输入生成签名与模板，不再保留原始 group 引用；任务面板由同一次捕获的 data、brief、active group、三组 series 和模型展开状态驱动签名与输出。历史刷新比较补入 decode speed，避免仅此字段变化时丢弃新数据。
+- JSON 失效合同：正文、tree/format 模式、语言和渲染时宽度共同决定输入；未变输入保留节点，lazy 隐藏字段变化也会重建并恢复展开/滚动状态。ResizeObserver 和展开按钮在写 DOM 前维护宽度缓存，splitter 本身不重建树；新宽度供后续渲染和 lazy fill 使用。固定字体的文本固有宽度与 pane 宽度无关，按文本复用并保留容量上限，不因两侧 pane 宽度不同反复清空；所有缺失探针批量测量，已有探针不再重复测量。lazy fill 的行数估算移到 children DOM 写入之前；替换或 materialization 后仅标记行窗口缓存失效。
+- 修改文件：`src/admin/static/modules/history.js`、`src/admin/static/modules/task-detail.js`、`src/admin/static/modules/json-pane.js`、`test-node/ui/admin-ui-history.test.ts`、`.agents/skills/render-internals/SKILL.md`、本文件。
+- 新增回归：5 个 [AI-21] 浏览器用例，明确断言同值刷新保留节点、仅 decode speed 或任务 data 变化重建、语言变化保留选择和模型展开、lazy 隐藏正文更新、JSON 同值展开保留与宽度重建、materialization 不读取 pane 宽度且写 children 后无 offset 测量、延迟详情响应不覆盖新选择、任务消失后晚到响应不复活面板。既有测试继续覆盖 pending、任务简介、JSON 展开/滚动恢复、滚动锚定和行窗口。
+- 实际验证：history suite 38 tests passed；同时运行 admin static-source 与 skills 合同测试。`npm run lint`、`npm run typecheck`、`npx prettier --check .`、`git diff --check`；UI baseline regeneration 为 10 passed / 1 skipped，生成图片及哈希与提交版本相同，完整检查了中英文历史和任务面板图片。
+- 数据规模与方法：新增 lazy 夹具含 1,600 个字符串叶子；现有 large history 为 100 groups，large group 为 200 records，row-window 为 1,885 rows。通过 Playwright 节点身份、内容、展开状态、scrollTop/rect、lazy 状态以及布局 getter 探针验证；未增加时间门槛。
+- 范围与剩余事项：未修改 CSS 或 UI 文案；按本次明确要求不执行 portable packaging。宽度更新不自动重排已经渲染的字符串，下一次 pane 渲染才按新宽度决定折叠显示；这是保留 splitter 无重建行为的既有合同。AI-20 仍独立进行。
 
 ### AI-25 完成记录
 

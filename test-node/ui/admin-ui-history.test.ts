@@ -35,6 +35,229 @@ afterEach(closeTestPage);
 afterAll(closeStubAdminServer);
 
 describe("admin UI history page", { timeout: UI_TEST_TIMEOUT_MS }, () => {
+  it("[AI-21] preserves unchanged section nodes and rebuilds displayed fields and language", async () => {
+    await loadAdminPage();
+    await page.locator('[data-tab="logs"]').click();
+    await expectPage(page.locator(".log-group")).toHaveCount(4);
+    await page.locator("#autoRefreshLogs").uncheck();
+    const section = page.locator('.log-group:has([data-group-id="task-one"])');
+    const original = await section.elementHandle();
+    const neighbor = await page.locator(".log-group").nth(1).elementHandle();
+    const refresh = async () => {
+      await page.locator("#refreshLogs").click();
+      await expectPage(page.locator("#logListProgress")).toBeHidden();
+    };
+    await refresh();
+    expect(await original.evaluate((node) => node.isConnected)).toBe(true);
+    await page.route("**/api/logs?**", async (route) => {
+      const response = await route.fetch();
+      const data = (await response.json()) as { groups: Record<string, unknown>[] };
+      data.groups = data.groups.map((group) =>
+        group["id"] === "task-one" ? { ...group, decode_speed_tps: 17.5 } : group,
+      );
+      await route.fulfill({ response, json: data });
+    });
+    await refresh();
+    await expectPage(section.locator(".log-group-decode-speed")).toHaveText("17.5t/s");
+    expect(await original.evaluate((node) => node.isConnected)).toBe(false);
+    expect(await neighbor.evaluate((node) => node.isConnected)).toBe(true);
+    await section.locator("[data-select-group]").check();
+    const beforeLanguage = await section.elementHandle();
+    await page.locator("#languageSelect").selectOption("zh");
+    expect(await beforeLanguage.evaluate((node) => node.isConnected)).toBe(false);
+    await expectPage(section.locator("[data-select-group]")).toBeChecked();
+    await expectPage(section.locator(".log-request-count")).not.toContainText("requests");
+  });
+
+  it("[AI-21] keeps task DOM on equal refresh and rebuilds data while preserving model expansion", async () => {
+    await loadAdminPage();
+    await page.locator('[data-tab="logs"]').click();
+    await page.locator("#autoRefreshLogs").uncheck();
+    await page.locator('[data-group-id="task-one"]').click();
+    const panel = page.locator("#pricingPanel");
+    await expectPage(panel.locator(".output-token-chart .token-chart-dot")).toHaveCount(3);
+    const model = panel.locator("details[data-price-group-model]");
+    await model.locator("summary").click();
+    await expectPage(model).toHaveJSProperty("open", true);
+    // The first refresh records the newly opened group in the render snapshot.
+    const refresh = async () => {
+      await Promise.all([
+        page.waitForResponse((response) =>
+          response.url().endsWith("/task-one/pricing/output-tokens"),
+        ),
+        page.locator("#refreshLogs").click(),
+      ]);
+      await expectPage(page.locator("#logListProgress")).toBeHidden();
+      // All three independent series must have settled before taking node identity.
+      await expectPage(panel.locator(".token-chart .token-chart-dot")).toHaveCount(5);
+      await expectPage(panel.locator(".cost-chart .token-chart-dot")).toHaveCount(3);
+    };
+    await refresh();
+    const original = await panel.locator(".task-summary").elementHandle();
+    await refresh();
+    expect(await original.evaluate((node) => node.isConnected)).toBe(true);
+    await page.route("**/api/log-groups/task-one/pricing", async (route) => {
+      const response = await route.fetch();
+      const data = (await response.json()) as Record<string, unknown>;
+      await route.fulfill({ response, json: { ...data, target: "changed-target" } });
+    });
+    await refresh();
+    await expectPage(panel.locator(".task-summary-target-value")).toHaveText("changed-target");
+    expect(await original.evaluate((node) => node.isConnected)).toBe(false);
+    await expectPage(model).toHaveJSProperty("open", true);
+    await page.locator("#languageSelect").selectOption("zh");
+    await expectPage(panel.locator(".pricing-panel-head")).not.toContainText("Task details");
+    await expectPage(model).toHaveJSProperty("open", true);
+  });
+
+  it("[AI-21] invalidates changed lazy JSON, retains equal input, and fills without reading pane width", async () => {
+    await openRecordDetail("record-two");
+    await page.locator("#autoRefreshLogs").uncheck();
+    await page.evaluate(`
+      const stringLength = Math.floor(document.getElementById('requestJson').clientWidth / 9);
+      window.__ai21Apply = (text) => {
+        const children = Object.fromEntries(Array.from({length: 1600}, (_, i) => ['key' + i, text.padEnd(stringLength, 'x')]));
+        window.__adminUiTest.applySelectedLogDetail(
+          {request: {branch: {leaf: children}}, response: null}, {resetView: false});
+      };
+      window.__ai21Apply('first-value');
+    `);
+    const lazy = page.locator('#requestJson [data-json-lazy="1"]').first();
+    await expectPage(lazy).toHaveCount(1);
+    await page.evaluate(`
+      window.__ai21WidthReads = [];
+      window.__ai21LateMeasurements = [];
+      let childrenWritten = false;
+      const children = document.querySelector('#requestJson [data-json-lazy] > .json-children');
+      const html = Object.getOwnPropertyDescriptor(Element.prototype, 'innerHTML');
+      Object.defineProperty(children, 'innerHTML', {configurable: true, get() { return html.get.call(this); }, set(value) {
+        html.set.call(this, value);
+        childrenWritten = true;
+      }});
+      const offsets = ['offsetWidth', 'offsetHeight'].map((name) => {
+        const descriptor = Object.getOwnPropertyDescriptor(HTMLElement.prototype, name);
+        Object.defineProperty(HTMLElement.prototype, name, {...descriptor, get() {
+          if (childrenWritten && new Error().stack.includes('materializeJsonNode'))
+            window.__ai21LateMeasurements.push(name);
+          return descriptor.get.call(this);
+        }});
+        return [name, descriptor];
+      });
+      window.__ai21RestoreOffsets = () => offsets.forEach(([name, descriptor]) =>
+        Object.defineProperty(HTMLElement.prototype, name, descriptor));
+      const pane = document.getElementById('requestJson');
+      const getter = Object.getOwnPropertyDescriptor(Element.prototype, 'clientWidth').get;
+      Object.defineProperty(pane, 'clientWidth', {configurable: true, get() {
+        window.__ai21WidthReads.push(new Error().stack);
+        return getter.call(this);
+      }});
+      pane.querySelector('[data-json-lazy="1"]').open = true;
+    `);
+    await expectPage(lazy).toHaveAttribute("data-json-lazy-done", "1");
+    await expectPage(page.locator("#requestJson")).toContainText("first-value");
+    expect(
+      await page.evaluate(
+        `window.__ai21WidthReads.filter((stack) => stack.includes('materializeJsonNode')).length`,
+      ),
+    ).toBe(0);
+    expect(await page.evaluate("window.__ai21LateMeasurements")).toEqual([]);
+    await page.evaluate("window.__ai21RestoreOffsets()");
+    const filled = await lazy.elementHandle();
+    await page.evaluate(`window.__ai21Apply('first-value')`);
+    expect(await filled.evaluate((node) => node.isConnected)).toBe(true);
+    await expectPage(lazy).toHaveJSProperty("open", true);
+    // Only a hidden leaf changes: initial lazy markup is otherwise byte-identical.
+    await page.evaluate(`window.__ai21Apply('second-value')`);
+    await expectPage(page.locator("#requestJson")).toContainText("second-value");
+    await expectPage(page.locator("#requestJson")).not.toContainText("first-value");
+    expect(await filled.evaluate((node) => node.isConnected)).toBe(false);
+    await expectPage(page.locator("#requestJson [data-json-lazy]").first()).toHaveJSProperty(
+      "open",
+      true,
+    );
+    await page.evaluate(`delete document.getElementById('requestJson').clientWidth`);
+    const beforeResize = await lazy.elementHandle();
+    await page.evaluate(`document.getElementById('requestJson').style.width = '100px'`);
+    await page.evaluate(`window.__ai21Apply('second-value')`);
+    expect(await beforeResize.evaluate((node) => node.isConnected)).toBe(false);
+    await expectPage(page.locator("#requestJson .json-str-detail").first()).toBeAttached();
+    await expectPage(page.locator("#requestJson [data-json-lazy]").first()).toHaveJSProperty(
+      "open",
+      true,
+    );
+  });
+
+  it("[AI-21] ignores a delayed detail response after a different record is selected", async () => {
+    await openRecordDetail("record-two");
+    await page.locator("#autoRefreshLogs").uncheck();
+    let release: (() => void) | undefined;
+    const gate = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    let requested: (() => void) | undefined;
+    const started = new Promise<void>((resolve) => {
+      requested = resolve;
+    });
+    await page.route("**/api/logs/record-one", async (route) => {
+      requested?.();
+      await gate;
+      await route.fulfill({ json: { request: { model: "stale-response" }, response: null } });
+    });
+    await page.locator('[data-log-id="record-one"]').click();
+    await started;
+    await page.locator('[data-log-id="record-two"]').click();
+    await expectPage(page.locator('[data-log-id="record-two"]')).toHaveClass(/active/);
+    const delivered = page.waitForResponse((response) =>
+      response.url().endsWith("/api/logs/record-one"),
+    );
+    release?.();
+    await delivered;
+    // Drain the response continuation before checking that it cannot replace the pane.
+    await page.evaluate(() => new Promise((resolve) => setTimeout(resolve, 0)));
+    await expectPage(page.locator("#requestJson")).not.toContainText("stale-response");
+    await expectPage(page.locator('[data-log-id="record-two"]')).toHaveClass(/active/);
+  });
+
+  it("[AI-21] expires an open task when its group disappears and keeps late responses out", async () => {
+    await loadAdminPage();
+    await page.locator('[data-tab="logs"]').click();
+    await page.locator("#autoRefreshLogs").uncheck();
+    await page.locator('[data-group-id="task-one"]').click();
+    const panel = page.locator("#pricingPanel");
+    await expectPage(panel.locator(".output-token-chart .token-chart-dot")).toHaveCount(3);
+    let release: (() => void) | undefined;
+    const gate = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    let requested: (() => void) | undefined;
+    const started = new Promise<void>((resolve) => {
+      requested = resolve;
+    });
+    let handled: (() => void) | undefined;
+    const completed = new Promise<void>((resolve) => {
+      handled = resolve;
+    });
+    await page.route("**/api/log-groups/task-one/pricing", async (route) => {
+      requested?.();
+      await gate;
+      await route.fulfill({ json: { target: "expired-target" } }).catch(() => undefined);
+      handled?.();
+    });
+    await page.locator("#refreshLogs").click();
+    await started;
+    deletedLogGroups.add("task-one");
+    await page.locator("#refreshLogs").click();
+    await expectPage(panel).toContainText("deleted");
+    const expired = await panel.locator("p").elementHandle();
+    release?.();
+    await completed;
+    await page.evaluate(() => new Promise((resolve) => setTimeout(resolve, 0)));
+    await expectPage(panel).not.toContainText("expired-target");
+    expect(await expired.evaluate((node) => node.isConnected)).toBe(true);
+    await panel.locator("[data-close-pricing]").click();
+    await expectPage(panel).toBeHidden();
+  });
+
   it("searches only after the search button is clicked", async () => {
     await loadAdminPage();
     await Promise.all([
