@@ -1,5 +1,22 @@
 import { escapeHtml } from "./text.js";
 
+/** Forward both cancellation owners without relying on AbortSignal.any(). */
+export async function requestWithCancellation(request, url, options, lifecycleSignal) {
+  const signals = [...new Set([lifecycleSignal, options.signal].filter(Boolean))];
+  if (signals.length < 2) return request(url, { ...options, signal: signals[0] });
+  const controller = new AbortController();
+  const abort = () => controller.abort();
+  for (const signal of signals) {
+    if (signal.aborted) abort();
+    else signal.addEventListener("abort", abort, { once: true });
+  }
+  try {
+    return await request(url, { ...options, signal: controller.signal });
+  } finally {
+    for (const signal of signals) signal.removeEventListener("abort", abort);
+  }
+}
+
 /** Owns the editable proxy configuration and connection-test dialog. The classic
  * adapter supplies shared UI services; no feature reads the classic script scope. */
 export function createProxyConfig({
@@ -29,7 +46,8 @@ export function createProxyConfig({
   let lifecycle = null;
   let unregisterPanels = [];
   let languageDraft = null;
-  const api = (url, options = {}) => request(url, { ...options, signal: lifecycle?.signal });
+  const api = (url, options = {}) =>
+    requestWithCancellation(request, url, options, lifecycle?.signal);
   const listen = (target, type, listener, options = {}) =>
     target.addEventListener(
       type,
@@ -439,7 +457,9 @@ export function createProxyConfig({
     collectPairs();
     if (formSignature() === submittedForm) {
       state.pairs = data.pairs;
+      const activeControl = captureActiveControl();
       renderPairs();
+      restoreActiveControl(activeControl);
     }
     toast(t("savedConfig"));
   }
@@ -665,6 +685,26 @@ export function createProxyConfig({
     $("targetCheckDialog").showModal();
   }
 
+  function captureActiveControl() {
+    const controls = qsa("#proxyGrid input, #proxyGrid textarea, #proxyGrid select");
+    const index = controls.indexOf(document.activeElement);
+    if (index < 0) return null;
+    const input = controls[index];
+    return {
+      index,
+      start: input.selectionStart,
+      end: input.selectionEnd,
+      direction: input.selectionDirection,
+    };
+  }
+  function restoreActiveControl(active) {
+    if (!active) return;
+    const input = qsa("#proxyGrid input, #proxyGrid textarea, #proxyGrid select")[active.index];
+    if (!input) return;
+    input.focus({ preventScroll: true });
+    if (active.start !== null && active.start !== undefined)
+      input.setSelectionRange(active.start, active.end, active.direction);
+  }
   function formSignature() {
     return JSON.stringify(
       qsa("#proxyGrid input, #proxyGrid textarea, #proxyGrid select").map((input) => [

@@ -1068,4 +1068,38 @@ describe("admin UI proxy page", { timeout: UI_TEST_TIMEOUT_MS }, () => {
     await expectPage(name).toHaveValue("Later unsaved draft");
     await expectPage(mapping).toHaveValue("  draft-model  =>  upstream-model  ");
   });
+  it("preserves active controls and non-collapsed selections after an unchanged save", async () => {
+    await loadAdminPage();
+    await page.locator("[data-add-lb-group]").click();
+    await page.locator('[data-field="name"]').fill("Selected proxy name");
+    await page
+      .locator('[data-target-field="model_mappings"]')
+      .fill("draft-model => upstream-model");
+    for (const selector of [
+      '[data-field="name"]',
+      '[data-target-field="model_mappings"]',
+      '[data-lb-field="strategy"]',
+    ]) {
+      const control = page.locator(selector);
+      await control.focus();
+      await control.evaluate((element) => {
+        if (element instanceof HTMLInputElement || element instanceof HTMLTextAreaElement) {
+          element.setSelectionRange(3, 9, "backward");
+        }
+      });
+      // Saving through the feature operation leaves the form control active while
+      // the response commits; clicking Save would move focus to that button first.
+      await page.evaluate("proxyConfig.save();");
+      await expectPage(control).toBeFocused();
+      if (selector !== '[data-lb-field="strategy"]') {
+        expect(
+          await control.evaluate((element) =>
+            element instanceof HTMLInputElement || element instanceof HTMLTextAreaElement
+              ? [element.selectionStart, element.selectionEnd, element.selectionDirection]
+              : [],
+          ),
+        ).toEqual([3, 9, "backward"]);
+      }
+    }
+  });
 });
