@@ -1,8 +1,11 @@
+import { optionalId } from "./dom.js";
+import { optionalTyped } from "./dom.js";
+import { requiredTyped } from "./dom.js";
 // LLM Proxy admin UI -- usage statistics page: overview cards, trend chart, breakdown, export.
 // ES module: imports the shared bootstrap (./core.js) and the display helpers; the page is
 // rendered on demand and re-rendered in place when the language changes.
 
-import { $, asElement, qsa, registerLanguagePanel, state, toast } from "./core.js";
+import { $, qsa, registerLanguagePanel, state, toast } from "./core.js";
 import { formatCurrencyAmount, pricingAmount } from "./money.js";
 import { pricingDecimalFromNano } from "./numbers.js";
 import { escapeHtml } from "./text.js";
@@ -17,7 +20,7 @@ registerLanguagePanel(
       .then(() => loadStatistics())
       .catch((error) => toast(error.message));
   },
-  () => Boolean($("statsOverview")?.innerHTML),
+  () => Boolean($("statsOverview").innerHTML),
 );
 
 // The chart geometry this page used to own (nice axis scale, mean line, peak label and
@@ -28,40 +31,69 @@ export async function loadStatistics() {
   const requestId = ++statisticsRequestId;
   const metricState = state.statisticsMetrics || (state.statisticsMetrics = {});
   // Distribution legends retain the pie-legend class contract for downstream themes.
-  const selectedBreakdown = $("statsBreakdown")?.value || "model";
+  const selectedBreakdown = optionalTyped("#statsBreakdown", HTMLSelectElement)?.value || "model";
   const trendMetric =
-    metricState.trend || $("statsMetricTrend")?.value || $("statsMetric")?.value || "token";
+    metricState.trend ||
+    optionalTyped("#statsMetricTrend", HTMLSelectElement)?.value ||
+    requiredTyped("#statsMetric", HTMLSelectElement).value ||
+    "token";
   const targetMetric =
-    metricState.target || $("statsMetricTarget")?.value || $("statsMetric")?.value || "token";
+    metricState.target ||
+    optionalTyped("#statsMetricTarget", HTMLSelectElement)?.value ||
+    requiredTyped("#statsMetric", HTMLSelectElement).value ||
+    "token";
   const modelMetric =
-    metricState.model || $("statsMetricModel")?.value || $("statsMetric")?.value || "token";
-  const selectedGranularity = $("statsGranularity")?.value || "auto";
-  const selectedTarget = $("statsTarget")?.value || "";
-  const selectedModel = $("statsModel")?.value || "";
+    metricState.model ||
+    optionalTyped("#statsMetricModel", HTMLSelectElement)?.value ||
+    requiredTyped("#statsMetric", HTMLSelectElement).value ||
+    "token";
+  const selectedGranularity = statisticsSelectValue("statsGranularity") || "auto";
+  const selectedTarget = statisticsSelectValue("statsTarget") || "";
+  const selectedModel = statisticsSelectValue("statsModel") || "";
   const defaultTargetOption = `<option value="">${state.language === "en" ? "All targets" : "全部转发地址"}</option>`;
   const defaultModelOption = `<option value="">${state.language === "en" ? "All models" : "全部模型"}</option>`;
-  const targetOptions = $("statsTarget")?.innerHTML || defaultTargetOption;
-  const modelOptions = $("statsModel")?.innerHTML || defaultModelOption;
+  const targetOptions =
+    optionalTyped("#statsTarget", HTMLSelectElement)?.innerHTML || defaultTargetOption;
+  const modelOptions =
+    optionalTyped("#statsModel", HTMLSelectElement)?.innerHTML || defaultModelOption;
   if (state.language === "en") {
-    $("statsTarget")?.querySelector('option[value=""]')?.replaceChildren("All targets");
-    $("statsModel")?.querySelector('option[value=""]')?.replaceChildren("All models");
-    $("statsGranularity")?.querySelector('option[value="day"]')?.replaceChildren("Daily");
-    $("statsGranularity")?.querySelector('option[value="week"]')?.replaceChildren("Weekly");
-    $("statsGranularity")?.querySelector('option[value="month"]')?.replaceChildren("Monthly");
-    $("statsGranularity")?.querySelector('option[value="auto"]')?.replaceChildren("Auto");
+    optionalTyped("#statsTarget", HTMLSelectElement)
+      ?.querySelector('option[value=""]')
+      ?.replaceChildren("All targets");
+    optionalTyped("#statsModel", HTMLSelectElement)
+      ?.querySelector('option[value=""]')
+      ?.replaceChildren("All models");
+    optionalTyped("#statsGranularity", HTMLSelectElement)
+      ?.querySelector('option[value="day"]')
+      ?.replaceChildren("Daily");
+    optionalTyped("#statsGranularity", HTMLSelectElement)
+      ?.querySelector('option[value="week"]')
+      ?.replaceChildren("Weekly");
+    optionalTyped("#statsGranularity", HTMLSelectElement)
+      ?.querySelector('option[value="month"]')
+      ?.replaceChildren("Monthly");
+    optionalTyped("#statsGranularity", HTMLSelectElement)
+      ?.querySelector('option[value="auto"]')
+      ?.replaceChildren("Auto");
   }
   $("statsUnpricedNote").textContent = "";
   $("statsOverview").innerHTML = `<div class="stats-loading">${
     state.language === "en" ? "Loading..." : "加载中…"
   }</div>`;
   const now = new Date();
-  if ($("statsFollowNow")?.checked && $("statsTo")) $("statsTo").value = statsLocalInput(now);
-  const from = $("statsFrom").value
-    ? new Date($("statsFrom").value)
+  if (
+    requiredTyped("#statsFollowNow", HTMLInputElement).checked &&
+    requiredTyped("#statsTo", HTMLInputElement)
+  )
+    requiredTyped("#statsTo", HTMLInputElement).value = statsLocalInput(now);
+  const from = requiredTyped("#statsFrom", HTMLInputElement).value
+    ? new Date(requiredTyped("#statsFrom", HTMLInputElement).value)
     : new Date(now.getTime() - 7 * 86400000);
-  const to = $("statsTo").value ? new Date($("statsTo").value) : now;
+  const to = requiredTyped("#statsTo", HTMLInputElement).value
+    ? new Date(requiredTyped("#statsTo", HTMLInputElement).value)
+    : now;
   const iso = (d) => d.toISOString();
-  const extra = `${$("statsTarget")?.value ? `&targetId=${encodeURIComponent($("statsTarget").value)}` : ""}${$("statsModel")?.value ? `&model=${encodeURIComponent($("statsModel").value)}` : ""}`;
+  const extra = `${statisticsSelectValue("statsTarget") ? `&targetId=${encodeURIComponent(statisticsSelectValue("statsTarget"))}` : ""}${statisticsSelectValue("statsModel") ? `&model=${encodeURIComponent(statisticsSelectValue("statsModel"))}` : ""}`;
   const timezoneOffset = -new Date().getTimezoneOffset();
   const overview = (metric) =>
     fetch(
@@ -79,7 +111,7 @@ export async function loadStatistics() {
     overview(modelMetric),
   ]);
   if (requestId !== statisticsRequestId) return;
-  const statisticsOptions = state.statisticsOptions || {};
+  const statisticsOptions = state.statisticsOptions || { targets: [], models: [] };
   // The options endpoint may be the only source of choices (its DOM write lands
   // before these selects exist on first render), so fall back to overview rows.
   const targetSource =
@@ -514,28 +546,33 @@ export async function loadStatistics() {
             )
             .join("")
     }</div><div class="trend-chart">${trendYaxis}<div class="trend-bars">${trendGrid}${trendContent}</div></div><table><thead><tr>${headers.map((h) => `<th>${h}</th>`).join("")}</tr></thead><tbody>${trendPoints.map((p) => `<tr><td>${p.bucket}</td><td>${p.requests}</td><td>${p.tasks}</td><td title="${fullNumber(p.input)}">${compactNumber(p.input)}</td><td title="${fullNumber(p.output)}">${compactNumber(p.output)}</td><td title="${fullNumber(p.cache_read)}">${compactNumber(p.cache_read)}</td><td title="${fullNumber(p.cache_write)}">${compactNumber(p.cache_write)}</td><td>${formatCurrencyAmount(pricingDecimalFromNano(p.cost))}</td><td>${p.unpriced ?? 0}</td></tr>`).join("")}</tbody></table></section>`;
-  $("statsBreakdown").value = breakdown;
-  $("statsTarget").value = selectedTarget;
-  $("statsModel").value = selectedModel;
-  $("statsGranularity").value = selectedGranularity;
-  $("statsMetricTrend")?.addEventListener("change", (event) => {
-    metricState.trend = asElement(event.target).value;
+  const breakdownControl = optionalTyped("#statsBreakdown", HTMLSelectElement);
+  if (breakdownControl) breakdownControl.value = breakdown;
+  setStatisticsSelectValue("statsTarget", selectedTarget);
+  setStatisticsSelectValue("statsModel", selectedModel);
+  setStatisticsSelectValue("statsGranularity", selectedGranularity);
+  optionalTyped("#statsMetricTrend", HTMLSelectElement)?.addEventListener("change", (event) => {
+    if (event.target instanceof HTMLSelectElement) metricState.trend = event.target.value;
     loadStatistics().catch(showStatisticsError);
   });
-  $("statsMetricTarget")?.addEventListener("change", (event) => {
-    metricState.target = asElement(event.target).value;
+  optionalTyped("#statsMetricTarget", HTMLSelectElement)?.addEventListener("change", (event) => {
+    if (event.target instanceof HTMLSelectElement) metricState.target = event.target.value;
     loadStatistics().catch(showStatisticsError);
   });
-  $("statsMetricModel")?.addEventListener("change", (event) => {
-    metricState.model = asElement(event.target).value;
+  optionalTyped("#statsMetricModel", HTMLSelectElement)?.addEventListener("change", (event) => {
+    if (event.target instanceof HTMLSelectElement) metricState.model = event.target.value;
     loadStatistics().catch(showStatisticsError);
   });
-  $("statsTarget")?.addEventListener("change", () => loadStatistics().catch(showStatisticsError));
-  $("statsModel")?.addEventListener("change", () => loadStatistics().catch(showStatisticsError));
-  $("statsGranularity")?.addEventListener("change", () =>
+  optionalTyped("#statsTarget", HTMLSelectElement)?.addEventListener("change", () =>
     loadStatistics().catch(showStatisticsError),
   );
-  $("statsBreakdown")?.addEventListener("change", () =>
+  optionalTyped("#statsModel", HTMLSelectElement)?.addEventListener("change", () =>
+    loadStatistics().catch(showStatisticsError),
+  );
+  optionalTyped("#statsGranularity", HTMLSelectElement)?.addEventListener("change", () =>
+    loadStatistics().catch(showStatisticsError),
+  );
+  optionalTyped("#statsBreakdown", HTMLSelectElement)?.addEventListener("change", () =>
     loadStatistics().catch(showStatisticsError),
   );
 }
@@ -544,44 +581,62 @@ function showStatisticsError(error) {
     `<div class="stats-error">${error.message} <button id="retryStatistics">${
       state.language === "en" ? "Retry" : "重试"
     }</button></div>`;
-  $("retryStatistics")?.addEventListener("click", () =>
+  optionalTyped("#retryStatistics", HTMLButtonElement)?.addEventListener("click", () =>
     loadStatistics().catch(showStatisticsError),
   );
   toast(error.message);
 }
 export async function loadStatisticsOptions() {
-  const to = $("statsTo")?.value ? new Date($("statsTo").value) : new Date();
-  const from = $("statsFrom")?.value
-    ? new Date($("statsFrom").value)
+  const to = requiredTyped("#statsTo", HTMLInputElement).value
+    ? new Date(requiredTyped("#statsTo", HTMLInputElement).value)
+    : new Date();
+  const from = requiredTyped("#statsFrom", HTMLInputElement).value
+    ? new Date(requiredTyped("#statsFrom", HTMLInputElement).value)
     : new Date(to.getTime() - 7 * 86400000);
   const localInput = (value) => {
     const d = new Date(value);
     const pad = (n) => String(n).padStart(2, "0");
     return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
   };
-  if ($("statsFrom") && !$("statsFrom").value) $("statsFrom").value = localInput(from);
-  if ($("statsTo") && !$("statsTo").value) $("statsTo").value = localInput(to);
-  const targetParam = $("statsTarget")?.value
-    ? `&targetId=${encodeURIComponent($("statsTarget").value)}`
+  if (
+    requiredTyped("#statsFrom", HTMLInputElement) &&
+    !requiredTyped("#statsFrom", HTMLInputElement).value
+  )
+    requiredTyped("#statsFrom", HTMLInputElement).value = localInput(from);
+  if (
+    requiredTyped("#statsTo", HTMLInputElement) &&
+    !requiredTyped("#statsTo", HTMLInputElement).value
+  )
+    requiredTyped("#statsTo", HTMLInputElement).value = localInput(to);
+  const targetParam = statisticsSelectValue("statsTarget")
+    ? `&targetId=${encodeURIComponent(statisticsSelectValue("statsTarget"))}`
     : "";
   const data = await fetch(
     `/api/usage-statistics/options?from=${encodeURIComponent(from.toISOString())}&to=${encodeURIComponent(to.toISOString())}${targetParam}`,
   ).then((r) => r.json());
   state.statisticsOptions = data;
-  const selectedTarget = $("statsTarget")?.value || "";
-  const selectedModel = $("statsModel")?.value || "";
-  if ($("statsTarget"))
-    $("statsTarget").innerHTML =
+  const selectedTarget = statisticsSelectValue("statsTarget") || "";
+  const selectedModel = statisticsSelectValue("statsModel") || "";
+  if (optionalTyped("#statsTarget", HTMLSelectElement))
+    requiredTyped("#statsTarget", HTMLSelectElement).innerHTML =
       `<option value="">${state.language === "en" ? "All targets" : "全部转发地址"}</option>` +
       data.targets.map((x) => `<option value="${x.id}">${x.name}</option>`).join("");
-  if ($("statsModel"))
-    $("statsModel").innerHTML =
+  if (optionalTyped("#statsModel", HTMLSelectElement))
+    requiredTyped("#statsModel", HTMLSelectElement).innerHTML =
       `<option value="">${state.language === "en" ? "All models" : "全部模型"}</option>` +
       data.models.map((x) => `<option value="${x}">${x}</option>`).join("");
-  if ($("statsTarget")?.querySelector(`option[value="${CSS.escape(selectedTarget)}"]`))
-    $("statsTarget").value = selectedTarget;
-  if ($("statsModel")?.querySelector(`option[value="${CSS.escape(selectedModel)}"]`))
-    $("statsModel").value = selectedModel;
+  if (
+    optionalTyped("#statsTarget", HTMLSelectElement)?.querySelector(
+      `option[value="${CSS.escape(selectedTarget)}"]`,
+    )
+  )
+    setStatisticsSelectValue("statsTarget", selectedTarget);
+  if (
+    optionalTyped("#statsModel", HTMLSelectElement)?.querySelector(
+      `option[value="${CSS.escape(selectedModel)}"]`,
+    )
+  )
+    setStatisticsSelectValue("statsModel", selectedModel);
 }
 function statsLocalInput(value) {
   const d = new Date(value);
@@ -595,7 +650,7 @@ function statsLocalInput(value) {
  * @returns {void}
  */
 export function mountStatistics() {
-  $("refreshStatistics")?.addEventListener("click", () =>
+  requiredTyped("#refreshStatistics", HTMLButtonElement).addEventListener("click", () =>
     loadStatistics().catch(showStatisticsError),
   );
   qsa("[data-stats-range]").forEach((button) =>
@@ -606,69 +661,87 @@ export function mountStatistics() {
         days === 0
           ? new Date(to.getFullYear(), to.getMonth(), to.getDate())
           : new Date(to.getTime() - days * 86400000);
-      $("statsFrom").value = statsLocalInput(from);
-      $("statsTo").value = statsLocalInput(to);
+      requiredTyped("#statsFrom", HTMLInputElement).value = statsLocalInput(from);
+      requiredTyped("#statsTo", HTMLInputElement).value = statsLocalInput(to);
       qsa("[data-stats-range]").forEach((item) => item.classList.toggle("active", item === button));
       loadStatisticsOptions()
         .then(() => loadStatistics())
         .catch(showStatisticsError);
     }),
   );
-  $("statsFollowNow")?.addEventListener("change", () => {
-    if ($("statsFollowNow").checked) {
-      $("statsTo").value = statsLocalInput(new Date());
+  requiredTyped("#statsFollowNow", HTMLInputElement).addEventListener("change", () => {
+    if (requiredTyped("#statsFollowNow", HTMLInputElement).checked) {
+      requiredTyped("#statsTo", HTMLInputElement).value = statsLocalInput(new Date());
       loadStatistics().catch(showStatisticsError);
     }
   });
-  $("exportStatistics")?.addEventListener("click", () => {
+  requiredTyped("#exportStatistics", HTMLButtonElement).addEventListener("click", () => {
     const now = new Date();
-    const from = $("statsFrom").value
-      ? new Date($("statsFrom").value)
+    const from = requiredTyped("#statsFrom", HTMLInputElement).value
+      ? new Date(requiredTyped("#statsFrom", HTMLInputElement).value)
       : new Date(now.getTime() - 7 * 86400000);
-    const to = $("statsTo").value ? new Date($("statsTo").value) : now;
+    const to = requiredTyped("#statsTo", HTMLInputElement).value
+      ? new Date(requiredTyped("#statsTo", HTMLInputElement).value)
+      : now;
     const params = new URLSearchParams({
       from: from.toISOString(),
       to: to.toISOString(),
-      granularity: $("statsGranularity")?.value || "day",
+      granularity: statisticsSelectValue("statsGranularity") || "day",
       timezoneOffset: String(-new Date().getTimezoneOffset()),
     });
-    if ($("statsTarget")?.value) params.set("targetId", $("statsTarget").value);
-    if ($("statsModel")?.value) params.set("model", $("statsModel").value);
+    if (statisticsSelectValue("statsTarget"))
+      params.set("targetId", statisticsSelectValue("statsTarget"));
+    if (statisticsSelectValue("statsModel"))
+      params.set("model", statisticsSelectValue("statsModel"));
     window.open(`/api/usage-statistics/export?${params.toString()}`, "_blank");
   });
-  $("statsMetric")?.addEventListener("change", () =>
+  requiredTyped("#statsMetric", HTMLSelectElement).addEventListener("change", () =>
     loadStatistics().catch((e) => toast(e.message)),
   );
-  $("statsTarget")?.addEventListener("change", () =>
+  optionalTyped("#statsTarget", HTMLSelectElement)?.addEventListener("change", () =>
     loadStatisticsOptions()
       .then(() => loadStatistics())
       .catch(showStatisticsError),
   );
-  $("statsModel")?.addEventListener("change", () =>
+  optionalTyped("#statsModel", HTMLSelectElement)?.addEventListener("change", () =>
     loadStatistics().catch((e) => toast(e.message)),
   );
-  $("statsGranularity")?.addEventListener("change", () =>
+  optionalTyped("#statsGranularity", HTMLSelectElement)?.addEventListener("change", () =>
     loadStatistics().catch((e) => toast(e.message)),
   );
-  $("statsBreakdown")?.addEventListener("change", () =>
+  optionalTyped("#statsBreakdown", HTMLSelectElement)?.addEventListener("change", () =>
     loadStatistics().catch((e) => toast(e.message)),
   );
-  $("applyStatsFilters")?.addEventListener("click", () => {
+  optionalId("applyStatsFilters")?.addEventListener("click", () => {
     loadStatisticsOptions()
       .then(() => loadStatistics())
       .catch(showStatisticsError);
   });
-  $("resetStatsFilters")?.addEventListener("click", () => {
+  optionalId("resetStatsFilters")?.addEventListener("click", () => {
     const now = new Date();
-    $("statsFrom").value = statsLocalInput(new Date(now.getTime() - 7 * 86400000));
-    $("statsTo").value = statsLocalInput(now);
-    $("statsMetricTrend") && ($("statsMetricTrend").value = "token");
-    $("statsMetricTarget") && ($("statsMetricTarget").value = "token");
-    $("statsMetricModel") && ($("statsMetricModel").value = "token");
-    $("statsGranularity") && ($("statsGranularity").value = "auto");
-    $("statsBreakdown") && ($("statsBreakdown").value = "model");
-    $("statsTarget") && ($("statsTarget").value = "");
-    $("statsModel") && ($("statsModel").value = "");
+    requiredTyped("#statsFrom", HTMLInputElement).value = statsLocalInput(
+      new Date(now.getTime() - 7 * 86400000),
+    );
+    requiredTyped("#statsTo", HTMLInputElement).value = statsLocalInput(now);
+    {
+      const control = optionalTyped("#statsMetricTrend", HTMLSelectElement);
+      if (control) control.value = "token";
+    }
+    {
+      const control = optionalTyped("#statsMetricTarget", HTMLSelectElement);
+      if (control) control.value = "token";
+    }
+    {
+      const control = optionalTyped("#statsMetricModel", HTMLSelectElement);
+      if (control) control.value = "token";
+    }
+    setStatisticsSelectValue("statsGranularity", "auto");
+    {
+      const control = optionalTyped("#statsBreakdown", HTMLSelectElement);
+      if (control) control.value = "model";
+    }
+    setStatisticsSelectValue("statsTarget", "");
+    setStatisticsSelectValue("statsModel", "");
     state.statisticsMetrics = { trend: "token", target: "token", model: "token" };
     qsa("[data-stats-range]").forEach((item) =>
       item.classList.toggle("active", item.dataset.statsRange === "7"),
@@ -677,12 +750,24 @@ export function mountStatistics() {
       .then(() => loadStatistics())
       .catch(showStatisticsError);
   });
-  $("statsFrom")?.addEventListener("change", () => {
+  requiredTyped("#statsFrom", HTMLInputElement).addEventListener("change", () => {
     loadStatisticsOptions().catch((e) => toast(e.message));
     loadStatistics().catch((e) => toast(e.message));
   });
-  $("statsTo")?.addEventListener("change", () => {
+  requiredTyped("#statsTo", HTMLInputElement).addEventListener("change", () => {
     loadStatisticsOptions().catch((e) => toast(e.message));
     loadStatistics().catch((e) => toast(e.message));
   });
+}
+
+/** Chart filters are absent before their owning cards have rendered.
+ * @param {string} id @returns {string}
+ */
+function statisticsSelectValue(id) {
+  return optionalTyped("#" + CSS.escape(id), HTMLSelectElement)?.value ?? "";
+}
+/** @param {string} id @param {string} value */
+function setStatisticsSelectValue(id, value) {
+  const control = optionalTyped("#" + CSS.escape(id), HTMLSelectElement);
+  if (control) control.value = value;
 }

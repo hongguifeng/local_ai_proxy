@@ -1,3 +1,4 @@
+import { detailsOn, optionalTyped, requiredTyped } from "./dom.js";
 // LLM Proxy admin UI -- JSON tree pane: lazy materialization, line-width probes, row windowing,
 // metadata pane and the pane toolbar it drives.
 // ES module: imports the shared bootstrap (./core.js) and the display helpers; the history
@@ -208,7 +209,11 @@ export function mountJsonPanes() {
       "toggle",
       (event) => {
         const detail = asElement(event.target);
-        if (detail instanceof HTMLElement && detail.open && detail.dataset.jsonLazy === "1") {
+        if (
+          detail instanceof HTMLDetailsElement &&
+          detail.open &&
+          detail.dataset.jsonLazy === "1"
+        ) {
           enqueueJsonMaterialize($(key + "Json"), detail);
         }
         schedulePaneButtonsUpdate(key);
@@ -218,10 +223,10 @@ export function mountJsonPanes() {
     $(key + "Json").addEventListener("click", (event) => {
       const summary = closestFrom(event.target, "summary");
       const detail =
-        summary && summary.parentElement.matches("details.json-node")
+        summary?.parentElement && summary.parentElement.matches("details.json-node")
           ? summary.parentElement
           : null;
-      if (detail) {
+      if (detail && summary) {
         const container = $(key + "Json");
         const naturalTop = jsonContentOffset(container, detail);
         const visualTop =
@@ -250,6 +255,7 @@ export function mountJsonPanes() {
   qsa("[data-wrap]").forEach((button) =>
     button.addEventListener("click", () => {
       const key = button.dataset.wrap;
+      if (!key) throw new Error("Missing pane data attribute");
       state.wrap[key] = !state.wrap[key];
       renderJsonPane(key, { preserveView: true });
     }),
@@ -265,9 +271,10 @@ export function mountJsonPanes() {
   qsa("[data-expand]").forEach((button) =>
     button.addEventListener("click", () => {
       const key = button.dataset.expand;
+      if (!key) throw new Error("Missing pane data attribute");
       state.tree[key] = true;
-      if (qsaOn($(key + "Json"), "details").length === 0) renderJsonPane(key);
-      const details = qsaOn($(key + "Json"), "details:not(.json-str-detail)");
+      if (detailsOn($(key + "Json"), "details").length === 0) renderJsonPane(key);
+      const details = detailsOn($(key + "Json"), "details:not(.json-str-detail)");
       const allOpen = details.length > 0 && details.every((detail) => detail.open);
       if (allOpen) {
         details.forEach((detail) => {
@@ -309,6 +316,7 @@ export function mountJsonPanes() {
   qsa("[data-format]").forEach((button) =>
     button.addEventListener("click", () => {
       const key = button.dataset.format;
+      if (!key) throw new Error("Missing pane data attribute");
       state.formatStrings[key] = !state.formatStrings[key];
       renderJsonPane(key, { preserveView: true });
     }),
@@ -449,7 +457,7 @@ function jsonNodePathAttr(path) {
 }
 function collectJsonPaneViewState(el) {
   const nodeState = new Map();
-  qsaOn(el, "details[data-json-node-path]").forEach((detail) => {
+  detailsOn(el, "details[data-json-node-path]").forEach((detail) => {
     const body = detail.classList.contains("json-str-detail")
       ? qsOn(detail, ".json-str-body")
       : null;
@@ -463,7 +471,7 @@ function collectJsonPaneViewState(el) {
 }
 function restoreJsonPaneViewState(el, viewState) {
   if (!viewState) return;
-  qsaOn(el, "details[data-json-node-path]").forEach((detail) => {
+  detailsOn(el, "details[data-json-node-path]").forEach((detail) => {
     const saved = viewState.nodeState.get(detail.dataset.jsonNodePath);
     if (!saved) return;
     detail.open = saved.open;
@@ -783,7 +791,9 @@ export function updateResponseTiming() {
     meta.decode_window_ms !== undefined && meta.decode_window_ms !== null
       ? positiveNumber(meta.decode_window_ms)
       : measured
-        ? durationMs - tokenMs
+        ? durationMs === undefined
+          ? undefined
+          : durationMs - tokenMs
         : undefined;
   if (durationMs !== undefined) {
     const inputTokens = positiveNumber(meta.request_token_count) ?? 0;
@@ -811,7 +821,7 @@ export function updateResponseTiming() {
   element.hidden = parts.length === 0;
 }
 function updateMetaButton(key) {
-  const button = qs(`[data-meta="${key}"]`);
+  const button = optionalTyped(`[data-meta="${key}"]`, HTMLButtonElement);
   if (!button) return;
   const available = hasMetadata(state.meta[key]);
   button.disabled = !available;
@@ -819,11 +829,17 @@ function updateMetaButton(key) {
   button.title = available && state.metaOpen[key] ? t("hideMetadata") : t("showMetadata");
 }
 function updatePaneButtons(key) {
-  qs(`[data-wrap="${key}"]`).classList.toggle("active", state.wrap[key]);
-  qs(`[data-format="${key}"]`).classList.toggle("active", state.formatStrings[key]);
+  requiredTyped(`[data-wrap="${key}"]`, HTMLButtonElement).classList.toggle(
+    "active",
+    state.wrap[key],
+  );
+  requiredTyped(`[data-format="${key}"]`, HTMLButtonElement).classList.toggle(
+    "active",
+    state.formatStrings[key],
+  );
   const expandBtn = qs(`[data-expand="${key}"]`);
   if (expandBtn) {
-    const details = qsaOn($(key + "Json"), "details:not(.json-str-detail)");
+    const details = detailsOn($(key + "Json"), "details:not(.json-str-detail)");
     const allOpen = details.length > 0 && details.every((detail) => detail.open);
     expandBtn.classList.toggle("active", !allOpen);
   }
@@ -831,7 +847,7 @@ function updatePaneButtons(key) {
 function updateExpandButton(key) {
   const button = qs(`[data-expand="${key}"]`);
   if (!button) return;
-  const details = qsaOn($(key + "Json"), "details:not(.json-str-detail)");
+  const details = detailsOn($(key + "Json"), "details:not(.json-str-detail)");
   const allOpen = details.length > 0 && details.every((detail) => detail.open);
   button.title = allOpen ? t("collapseJson") : t("expandJson");
 }

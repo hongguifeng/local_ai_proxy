@@ -123,7 +123,7 @@
 
 `npm run build` 用 `tsconfig.build.json` 只把 `src`、`electron` 和 `scripts` 编译进 `dist-node`，随后复制静态资源并生成 UI bundle：
 测试实现不进产品产物，也不参与打包。`npm run typecheck` 用 `tsconfig.json` 检查产品、测试和
-工具，再用 `tsconfig.ui.json` 检查九个浏览器脚本，所以测试里的类型错误照样能让 `npm run check`
+工具，再用 `tsconfig.ui.json` 对完整浏览器 ESM 图执行 `checkJs`、`strictNullChecks` 与 `exactOptionalPropertyTypes` 检查，所以测试里的类型错误照样能让 `npm run check`
 失败，但不会改变产品编译。`electron-builder.yml` 的 `files` 按这三棵编译树逐项列出，输出目录里
 残留的其他文件进不了包。
 

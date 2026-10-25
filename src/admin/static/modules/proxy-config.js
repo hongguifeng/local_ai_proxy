@@ -1,9 +1,12 @@
+import { controlsOn, optionalTyped, requiredTyped } from "./dom.js";
 import { escapeHtml } from "./text.js";
 
 import { requestWithCancellation } from "./request.js";
 
 /** Owns the editable proxy configuration and connection-test dialog. The composition
- * root supplies shared UI services; this factory reads no global and no sibling scope. */
+ * root supplies shared UI services; this factory reads no global and no sibling scope.
+ * @param {import("../../ui-contracts.js").ProxyConfigServices} services
+ */
 export function createProxyConfig({
   $,
   qs,
@@ -22,16 +25,21 @@ export function createProxyConfig({
   loadBalancing,
 }) {
   const state = {
-    pairs: [],
-    targetCheckModelsNotice: null,
-    targetCheckModelOptions: [],
-    targetCheckModelFilter: null,
+    pairs: /** @type {import("../../ui-contracts.js").EditablePair[]} */ ([]),
+    targetCheckModelsNotice:
+      /** @type {{kind: string, count?: number, durationMs?: number, truncated?: boolean, error?: string} | null} */ (
+        null
+      ),
+    targetCheckModelOptions: /** @type {string[]} */ ([]),
+    targetCheckModelFilter: /** @type {string | null} */ (null),
     targetCheckModelActive: -1,
   };
+  /** @type {AbortController | null} */
   let lifecycle = null;
   let unregisterPanels = [];
   let languageDraft = null;
   let saveControl = null;
+  /** @template {import("../../ui-contracts.js").ApiPath} Path @param {Path} url @param {RequestInit} [options] */
   const api = (url, options = {}) =>
     requestWithCancellation(request, url, options, lifecycle?.signal);
   const listen = (target, type, listener, options = {}) =>
@@ -45,9 +53,13 @@ export function createProxyConfig({
       },
       {
         ...(typeof options === "boolean" ? { capture: options } : options),
-        signal: lifecycle.signal,
+        signal: activeLifecycle().signal,
       },
     );
+  function activeLifecycle() {
+    if (lifecycle === null) throw new Error("UI surface is not initialized");
+    return lifecycle;
+  }
   function configIssueText(error) {
     const issues = error && error.issues;
     if (!Array.isArray(issues) || issues.length === 0) {
@@ -73,6 +85,7 @@ export function createProxyConfig({
     model_prices: [],
     expanded: false,
   });
+  /** @returns {import("../../ui-contracts.js").EditablePair} */
   const newPair = () => {
     const target = newTarget();
     return {
@@ -80,6 +93,7 @@ export function createProxyConfig({
       name: t("newProxy"),
       enabled: false,
       running: false,
+      actual_listen_port: null,
       listen_host: "127.0.0.1",
       listen_port: 1234,
       access_log: false,
@@ -196,8 +210,9 @@ export function createProxyConfig({
   function collectPairs() {
     qsa(".proxy-card").forEach((card) => {
       const pair = state.pairs[Number(card.dataset.index)];
-      qsaOn(card, "[data-field]").forEach((input) => {
+      controlsOn(card, "[data-field]").forEach((input) => {
         const field = input.dataset.field;
+        if (field === undefined) throw new Error("Missing form field attribute");
         /** @type {string | number | string[]} */
         let value = input.value;
         if (field === "listen_port") value = Number(value);
@@ -212,8 +227,9 @@ export function createProxyConfig({
       });
       qsaOn(card, ".target-card").forEach((targetCard) => {
         const target = pairTargets(pair)[Number(targetCard.dataset.targetIndex)];
-        qsaOn(targetCard, "[data-target-field]").forEach((input) => {
+        controlsOn(targetCard, "[data-target-field]").forEach((input) => {
           const field = input.dataset.targetField;
+          if (field === undefined) throw new Error("Missing form field attribute");
           /** @type {string | string[] | { listen: string; upstream: string }[]} */
           let value = input.value;
           if (field === "target_headers")
@@ -238,18 +254,22 @@ export function createProxyConfig({
         });
         target.model_prices = qsaOn(targetCard, "[data-price-index]").map((rule) => {
           const value = {};
-          qsaOn(rule, "[data-price-field]").forEach((input) => {
+          controlsOn(rule, "[data-price-field]").forEach((input) => {
             value[input.dataset.priceField] = input.value;
           });
           return value;
         });
-        target.price_test_model = qsOn(targetCard, "[data-price-test]")?.value || "";
-        target.catalog_rate = qsOn(targetCard, "[data-catalog-rate]")?.value || "1";
-        target.prices_expanded = qsOn(targetCard, ".model-prices")?.open || false;
-        if (qsOn(targetCard, "[data-default-target]")?.checked) pair.default_target_id = target.id;
-        const enabledInput = qsOn(targetCard, "[data-target-enabled]");
+        target.price_test_model =
+          optionalTyped("[data-price-test]", HTMLInputElement, targetCard)?.value || "";
+        target.catalog_rate =
+          optionalTyped("[data-catalog-rate]", HTMLInputElement, targetCard)?.value || "1";
+        target.prices_expanded =
+          optionalTyped(".model-prices", HTMLDetailsElement, targetCard)?.open || false;
+        if (optionalTyped("[data-default-target]", HTMLInputElement, targetCard)?.checked)
+          pair.default_target_id = target.id;
+        const enabledInput = optionalTyped("[data-target-enabled]", HTMLInputElement, targetCard);
         target.enabled = enabledInput ? enabledInput.checked : true;
-        const redactInput = qsOn(targetCard, "[data-redact-logs]");
+        const redactInput = optionalTyped("[data-redact-logs]", HTMLInputElement, targetCard);
         target.redact_logs = redactInput ? redactInput.checked : false;
       });
       pair.load_balancers = loadBalancing.collectGroups(card, pair.load_balancers || []);
@@ -293,7 +313,8 @@ export function createProxyConfig({
   }
   function startTargetDrag(event) {
     const handle = closestFrom(event.target, "[data-drag-target]");
-    if (!handle || handle.disabled || event.button !== 0) return;
+    if (!handle || (handle instanceof HTMLButtonElement && handle.disabled) || event.button !== 0)
+      return;
     const card = closestOn(handle, ".target-card");
     const row = closestOn(card, ".targets-row");
     if (!card || !row || qsaOn(row, ".target-card").length < 2) return;
@@ -315,10 +336,11 @@ export function createProxyConfig({
     };
   }
   function nearestTargetCard(row, dragged, x, y) {
+    /** @type {HTMLElement | null} */
     let nearest = null;
     let bestDistance = Infinity;
-    qsaOn(row, ".target-card").forEach((card) => {
-      if (card === dragged) return;
+    for (const card of qsaOn(row, ".target-card")) {
+      if (card === dragged) continue;
       const rect = card.getBoundingClientRect();
       const distance = Math.hypot(
         Math.max(rect.left - x, 0, x - rect.right),
@@ -328,7 +350,7 @@ export function createProxyConfig({
         bestDistance = distance;
         nearest = card;
       }
-    });
+    }
     return nearest;
   }
   // A row of cards can be a horizontal grid or a single-column stack (narrow screens);
@@ -421,7 +443,7 @@ export function createProxyConfig({
     const pairCard = closestOn(row, ".proxy-card");
     const pairIndex = Number(pairCard?.dataset.index ?? -1);
     const pair = state.pairs[pairIndex];
-    if (!pair) return;
+    if (!pair || !card) return;
     const index = Number(card.dataset.targetIndex);
     collectPairs();
     const targets = pairTargets(pair);
@@ -445,14 +467,16 @@ export function createProxyConfig({
       state.pairs = data.pairs;
       const activeControl =
         captureActiveControl() ||
-        (document.activeElement === $("saveProxies") ? previousControl : null);
+        (document.activeElement === requiredTyped("#saveProxies", HTMLButtonElement)
+          ? previousControl
+          : null);
       renderPairs();
       restoreActiveControl(activeControl);
     }
     toast(t("savedConfig"));
   }
-  const targetCheckStart = $("targetCheckStart");
-  const targetCheckModelsButton = $("targetCheckModels");
+  const targetCheckStart = requiredTyped("#targetCheckStart", HTMLButtonElement);
+  const targetCheckModelsButton = requiredTyped("#targetCheckModels", HTMLButtonElement);
   // The suggestions the dialog offers before (and after a failed) model list pull.
   const defaultTargetCheckModels = [
     "gpt-4o-mini",
@@ -463,10 +487,10 @@ export function createProxyConfig({
     "qwen-plus",
     "deepseek-chat",
   ];
-  const targetCheckModelInput = $("targetCheckModel");
-  const targetCheckModelCaret = $("targetCheckModelCaret");
+  const targetCheckModelInput = requiredTyped("#targetCheckModel", HTMLInputElement);
+  const targetCheckModelCaret = requiredTyped("#targetCheckModelCaret", HTMLButtonElement);
   const targetCheckModelPop = $("targetCheckModelPop");
-  const targetCheckModelPicker = targetCheckModelPop.closest(".target-check-model-picker");
+  const targetCheckModelPicker = requiredTyped(".target-check-model-picker", HTMLElement);
 
   /** Offers a new set of ids; an open list is rebuilt so the change is visible. */
   function applyTargetCheckModelOptions(models) {
@@ -591,9 +615,9 @@ export function createProxyConfig({
     notice.textContent = success
       ? t("fetchModelsOk")
           .replace("{count}", String(fact.count))
-          .replace("{duration}", `${Math.round(fact.durationMs)} ms`) +
+          .replace("{duration}", `${Math.round(fact.durationMs ?? 0)} ms`) +
         (fact.truncated ? t("fetchModelsNotListed") : "")
-      : t("fetchModelsFail").replace("{error}", fact.error);
+      : t("fetchModelsFail").replace("{error}", fact.error ?? "");
     notice.hidden = false;
   }
   function modelPriceRuleHtml(target, index) {
@@ -654,11 +678,12 @@ export function createProxyConfig({
     return new RegExp(`^${escaped}$`).test(model);
   }
   function openTargetCheckDialog(target) {
-    $("targetCheckUrl").value = target.target_url || "";
-    $("targetCheckApiType").value = "chat";
-    $("targetCheckApiKey").value = target.target_api_key || "";
+    requiredTyped("#targetCheckUrl", HTMLInputElement).value = target.target_url || "";
+    requiredTyped("#targetCheckApiType", HTMLSelectElement).value = "chat";
+    requiredTyped("#targetCheckApiKey", HTMLInputElement).value = target.target_api_key || "";
     const mappings = target.model_mappings || [];
-    $("targetCheckModel").value = mappings[mappings.length - 1]?.upstream || "";
+    requiredTyped("#targetCheckModel", HTMLInputElement).value =
+      mappings[mappings.length - 1]?.upstream || "";
     const result = $("targetCheckResult");
     result.hidden = true;
     result.textContent = "";
@@ -670,66 +695,87 @@ export function createProxyConfig({
     renderTargetCheckModelsNotice();
     targetCheckModelsButton.disabled = false;
     targetCheckModelsButton.textContent = t("fetchModels");
-    $("targetCheckDialog").showModal();
+    requiredTyped("#targetCheckDialog", HTMLDialogElement).showModal();
   }
 
   function captureActiveControl(element = document.activeElement) {
-    const controls = qsa("#proxyGrid input, #proxyGrid textarea, #proxyGrid select");
+    const controls = controlsOn(
+      document,
+      "#proxyGrid input, #proxyGrid textarea, #proxyGrid select",
+    );
+    if (!(
+      element instanceof HTMLInputElement ||
+      element instanceof HTMLTextAreaElement ||
+      element instanceof HTMLSelectElement
+    ))
+      return null;
     const index = controls.indexOf(element);
     if (index < 0) return null;
     const input = controls[index];
     return {
       index,
-      start: input.selectionStart,
-      end: input.selectionEnd,
-      direction: input.selectionDirection,
+      start: input instanceof HTMLSelectElement ? null : input.selectionStart,
+      end: input instanceof HTMLSelectElement ? null : input.selectionEnd,
+      direction: input instanceof HTMLSelectElement ? null : input.selectionDirection,
     };
   }
   function restoreActiveControl(active) {
     if (!active) return;
-    const input = qsa("#proxyGrid input, #proxyGrid textarea, #proxyGrid select")[active.index];
+    const input = controlsOn(document, "#proxyGrid input, #proxyGrid textarea, #proxyGrid select")[
+      active.index
+    ];
     if (!input) return;
     input.focus({ preventScroll: true });
-    if (active.start !== null && active.start !== undefined)
+    if (
+      !(input instanceof HTMLSelectElement) &&
+      active.start !== null &&
+      active.start !== undefined
+    )
       input.setSelectionRange(active.start, active.end, active.direction);
   }
   function formSignature() {
     return JSON.stringify(
-      qsa("#proxyGrid input, #proxyGrid textarea, #proxyGrid select").map((input) => [
-        input.value,
-        input.checked,
-      ]),
+      controlsOn(document, "#proxyGrid input, #proxyGrid textarea, #proxyGrid select").map(
+        (input) => [input.value, input instanceof HTMLInputElement ? input.checked : undefined],
+      ),
     );
   }
   function captureLanguageDraft() {
     collectPairs();
-    languageDraft = qsa("#proxyGrid input, #proxyGrid textarea, #proxyGrid select").map(
-      (input) => ({
-        value: input.value,
-        checked: input.checked,
-        type: input.type,
-        focused: input === document.activeElement,
-        start: input.selectionStart,
-        end: input.selectionEnd,
-      }),
-    );
+    languageDraft = controlsOn(
+      document,
+      "#proxyGrid input, #proxyGrid textarea, #proxyGrid select",
+    ).map((input) => ({
+      value: input.value,
+      checked: input instanceof HTMLInputElement ? input.checked : false,
+      type: input.type,
+      focused: input === document.activeElement,
+      start: input instanceof HTMLSelectElement ? null : input.selectionStart,
+      end: input instanceof HTMLSelectElement ? null : input.selectionEnd,
+    }));
   }
   function renderLanguageDraft() {
     renderPairs();
-    qsa("#proxyGrid input, #proxyGrid textarea, #proxyGrid select").forEach((input, index) => {
-      const draft = languageDraft?.[index];
-      if (!draft) return;
-      input.value = draft.value;
-      if (input.tagName === "INPUT") {
-        input.checked = draft.checked;
-        input.type = draft.type;
-      }
-      if (draft.focused) {
-        input.focus({ preventScroll: true });
-        if (draft.start !== null && draft.start !== undefined)
-          input.setSelectionRange(draft.start, draft.end);
-      }
-    });
+    controlsOn(document, "#proxyGrid input, #proxyGrid textarea, #proxyGrid select").forEach(
+      (input, index) => {
+        const draft = languageDraft?.[index];
+        if (!draft) return;
+        input.value = draft.value;
+        if (input instanceof HTMLInputElement) {
+          input.checked = draft.checked;
+          input.type = draft.type;
+        }
+        if (draft.focused) {
+          input.focus({ preventScroll: true });
+          if (
+            !(input instanceof HTMLSelectElement) &&
+            draft.start !== null &&
+            draft.start !== undefined
+          )
+            input.setSelectionRange(draft.start, draft.end);
+        }
+      },
+    );
     languageDraft = null;
     loadBalancing.refreshCards();
   }
@@ -745,7 +791,7 @@ export function createProxyConfig({
           renderTargetCheckModelsNotice();
           renderTargetCheckModelPop();
         },
-        () => Boolean($("targetCheckDialog")?.open),
+        () => Boolean(requiredTyped("#targetCheckDialog", HTMLDialogElement)?.open),
       ),
     ];
     loadBalancing.init({
@@ -766,39 +812,42 @@ export function createProxyConfig({
     listen(window, "pointerup", endTargetDrag);
     listen(window, "pointercancel", endTargetDrag);
     listen(window, "blur", () => cancelTargetDrag());
-    listen($("addProxy"), "click", () => {
+    listen(requiredTyped("#addProxy", HTMLButtonElement), "click", () => {
       collectPairs();
       state.pairs.push(newPair());
       renderPairs();
     });
-    listen($("saveProxies"), "pointerdown", () => {
+    listen(requiredTyped("#saveProxies", HTMLButtonElement), "pointerdown", () => {
       saveControl = captureActiveControl();
     });
     listen($("proxyGrid"), "focusout", (event) => {
-      if (event.relatedTarget === $("saveProxies"))
+      if (event.relatedTarget === requiredTyped("#saveProxies", HTMLButtonElement))
         saveControl = captureActiveControl(event.target);
     });
-    listen($("saveProxies"), "click", () => {
+    listen(requiredTyped("#saveProxies", HTMLButtonElement), "click", () => {
       const previousControl = saveControl;
       saveControl = null;
       return savePairs(previousControl).catch((e) => toast(configIssueText(e)));
     });
     listen($("proxyGrid"), "click", (event) => {
+      const targetElement = asElement(event.target);
+      if (!targetElement) return;
       const card = closestFrom(event.target, ".proxy-card");
       if (!card) return;
       const pair = state.pairs[Number(card.dataset.index)];
       if (loadBalancing.handleClick(event, Number(card.dataset.index))) return;
       if (
-        asElement(event.target).matches(
+        targetElement.matches(
           "[data-add-price], [data-price-remove], [data-price-up], [data-price-down]",
         )
       ) {
         collectPairs();
         const targetCard = closestFrom(event.target, ".target-card");
+        if (!targetCard) throw new Error("Required UI ancestor not found: .target-card");
         const target = pairTargets(pair)[Number(targetCard.dataset.targetIndex)];
         const rules = target.model_prices || (target.model_prices = []);
         const index = Number(closestFrom(event.target, "[data-price-index]")?.dataset.priceIndex);
-        if (asElement(event.target).matches("[data-add-price]")) {
+        if (asElement(event.target)?.matches("[data-add-price]")) {
           rules.push({
             model_pattern: "",
             price_multiplier: "1",
@@ -807,26 +856,25 @@ export function createProxyConfig({
             cache_read_per_million: "",
             cache_write_per_million: "",
           });
-        } else if (asElement(event.target).matches("[data-price-remove]")) {
+        } else if (targetElement.matches("[data-price-remove]")) {
           rules.splice(index, 1);
-        } else if (asElement(event.target).matches("[data-price-up]") && index > 0) {
+        } else if (targetElement.matches("[data-price-up]") && index > 0) {
           [rules[index - 1], rules[index]] = [rules[index], rules[index - 1]];
-        } else if (
-          asElement(event.target).matches("[data-price-down]") &&
-          index < rules.length - 1
-        ) {
+        } else if (targetElement.matches("[data-price-down]") && index < rules.length - 1) {
           [rules[index], rules[index + 1]] = [rules[index + 1], rules[index]];
         }
         target.prices_expanded = true;
         renderPairs();
         return;
       }
-      if (asElement(event.target).matches("[data-fetch-catalog-prices]")) {
+      if (targetElement.matches("[data-fetch-catalog-prices]")) {
         collectPairs();
         const targetCard = closestFrom(event.target, ".target-card");
+        if (!targetCard) throw new Error("Required UI ancestor not found: .target-card");
         const target = pairTargets(pair)[Number(targetCard.dataset.targetIndex)];
-        target.catalog_rate = qsOn(targetCard, "[data-catalog-rate]")?.value || "1";
-        const button = asElement(event.target);
+        target.catalog_rate =
+          optionalTyped("[data-catalog-rate]", HTMLInputElement, targetCard)?.value || "1";
+        const button = requiredTyped("[data-fetch-catalog-prices]", HTMLButtonElement, targetCard);
         button.disabled = true;
         api("/api/model-prices/import", {
           method: "POST",
@@ -871,7 +919,7 @@ export function createProxyConfig({
           });
         return;
       }
-      if (asElement(event.target).matches("[data-add-target]")) {
+      if (targetElement.matches("[data-add-target]")) {
         collectPairs();
         const target = newTarget();
         pairTargets(pair).push(target);
@@ -879,27 +927,32 @@ export function createProxyConfig({
         renderPairs();
         return;
       }
-      if (asElement(event.target).matches("[data-toggle-target-options]")) {
+      if (targetElement.matches("[data-toggle-target-options]")) {
         collectPairs();
         const targetCard = closestFrom(event.target, ".target-card");
+        if (!targetCard) throw new Error("Required UI ancestor not found: .target-card");
         const target = pairTargets(pair)[Number(targetCard.dataset.targetIndex)];
         target.expanded = !target.expanded;
         renderPairs();
         return;
       }
-      if (asElement(event.target).matches("[data-toggle-api-key]")) {
+      if (targetElement.matches("[data-toggle-api-key]")) {
         const field = closestFrom(event.target, ".secret-field");
-        const input = field ? qsOn(field, "[data-target-field='target_api_key']") : null;
+        const input = field
+          ? optionalTyped("[data-target-field='target_api_key']", HTMLInputElement, field)
+          : null;
         if (!input) return;
         const visible = input.type === "text";
         input.type = visible ? "password" : "text";
-        asElement(event.target).classList.toggle("active", !visible);
-        asElement(event.target).title = t(visible ? "showApiKey" : "hideApiKey");
+        targetElement.classList.toggle("active", !visible);
+        targetElement.title = t(visible ? "showApiKey" : "hideApiKey");
         return;
       }
-      if (asElement(event.target).matches("[data-copy-api-key]")) {
+      if (targetElement.matches("[data-copy-api-key]")) {
         const field = closestFrom(event.target, ".secret-field");
-        const input = field ? qsOn(field, "[data-target-field='target_api_key']") : null;
+        const input = field
+          ? optionalTyped("[data-target-field='target_api_key']", HTMLInputElement, field)
+          : null;
         if (!input) return;
         navigator.clipboard.writeText(input.value || "").then(
           () => toast(t("copiedApiKey")),
@@ -907,23 +960,26 @@ export function createProxyConfig({
         );
         return;
       }
-      if (asElement(event.target).matches("[data-check-target]")) {
+      if (targetElement.matches("[data-check-target]")) {
         collectPairs();
         const targetCard = closestFrom(event.target, ".target-card");
+        if (!targetCard) throw new Error("Required UI ancestor not found: .target-card");
         const target = pairTargets(pair)[Number(targetCard.dataset.targetIndex)];
         openTargetCheckDialog(target);
         return;
       }
-      if (asElement(event.target).matches("[data-metrics-target]")) {
+      if (targetElement.matches("[data-metrics-target]")) {
         collectPairs();
         const targetCard = closestFrom(event.target, ".target-card");
+        if (!targetCard) throw new Error("Required UI ancestor not found: .target-card");
         const target = pairTargets(pair)[Number(targetCard.dataset.targetIndex)];
         openTargetMetricsDialog(target);
         return;
       }
-      if (asElement(event.target).matches("[data-remove-target]")) {
+      if (targetElement.matches("[data-remove-target]")) {
         collectPairs();
         const targetCard = closestFrom(event.target, ".target-card");
+        if (!targetCard) throw new Error("Required UI ancestor not found: .target-card");
         const targets = pairTargets(pair);
         if (targets.length <= 1) return;
         const removed = targets.splice(Number(targetCard.dataset.targetIndex), 1)[0];
@@ -932,7 +988,7 @@ export function createProxyConfig({
         renderPairs();
         return;
       }
-      if (asElement(event.target).matches("[data-remove]")) {
+      if (targetElement.matches("[data-remove]")) {
         collectPairs();
         state.pairs.splice(Number(card.dataset.index), 1);
         renderPairs();
@@ -1001,7 +1057,7 @@ export function createProxyConfig({
       if (event.key === "Escape") closeTargetCheckModelPop();
     });
 
-    listen($("targetCheckModels"), "click", async () => {
+    listen(requiredTyped("#targetCheckModels", HTMLButtonElement), "click", async () => {
       if (targetCheckModelsButton.disabled) return;
       targetCheckModelsButton.disabled = true;
       targetCheckModelsButton.textContent = t("fetchingModels");
@@ -1011,14 +1067,14 @@ export function createProxyConfig({
         const data = await api("/api/target-models", {
           method: "POST",
           body: JSON.stringify({
-            targetUrl: $("targetCheckUrl").value,
-            apiKey: $("targetCheckApiKey").value,
+            targetUrl: requiredTyped("#targetCheckUrl", HTMLInputElement).value,
+            apiKey: requiredTyped("#targetCheckApiKey", HTMLInputElement).value,
           }),
         });
         const models = Array.isArray(data.models) ? data.models : [];
         if (data.ok && models.length > 0) {
           applyTargetCheckModelOptions(models);
-          const model = $("targetCheckModel");
+          const model = requiredTyped("#targetCheckModel", HTMLInputElement);
           if (!models.includes(model.value)) {
             model.value = models[0];
           }
@@ -1052,7 +1108,9 @@ export function createProxyConfig({
         targetCheckModelsButton.textContent = t("fetchModels");
       }
     });
-    listen($("targetCheckClose"), "click", () => $("targetCheckDialog").close());
+    listen(requiredTyped("#targetCheckClose", HTMLButtonElement), "click", () =>
+      requiredTyped("#targetCheckDialog", HTMLDialogElement).close(),
+    );
     listen($("targetCheckForm"), "submit", async (event) => {
       event.preventDefault();
       if (targetCheckStart.disabled) return;
@@ -1066,10 +1124,10 @@ export function createProxyConfig({
         const data = await api("/api/target-check", {
           method: "POST",
           body: JSON.stringify({
-            targetUrl: $("targetCheckUrl").value,
-            model: $("targetCheckModel").value,
-            apiType: $("targetCheckApiType").value,
-            apiKey: $("targetCheckApiKey").value,
+            targetUrl: requiredTyped("#targetCheckUrl", HTMLInputElement).value,
+            model: requiredTyped("#targetCheckModel", HTMLInputElement).value,
+            apiType: requiredTyped("#targetCheckApiType", HTMLSelectElement).value,
+            apiKey: requiredTyped("#targetCheckApiKey", HTMLInputElement).value,
           }),
         });
         const duration = `${Math.round(data.durationMs)} ms`;
@@ -1096,26 +1154,37 @@ export function createProxyConfig({
       }
     });
     listen($("proxyGrid"), "change", async (event) => {
-      if (asElement(event.target).matches("[data-lb-node], [data-lb-toggle], [data-lb-flag]")) {
+      const targetElement = asElement(event.target);
+      if (!targetElement) return;
+      if (targetElement.matches("[data-lb-node], [data-lb-toggle], [data-lb-flag]")) {
         loadBalancing.refreshCards();
         return;
       }
-      if (asElement(event.target).matches("[data-default-target]")) {
+      if (targetElement.matches("[data-default-target]")) {
         collectPairs();
         renderPairs();
         return;
       }
-      if (asElement(event.target).matches("[data-target-enabled]")) {
+      if (targetElement.matches("[data-target-enabled]")) {
         const targetCard = closestFrom(event.target, ".target-card");
-        targetCard?.classList.toggle("is-enabled-target", asElement(event.target).checked);
-        targetCard?.classList.toggle("is-disabled-target", !asElement(event.target).checked);
+        if (!targetCard) throw new Error("Required UI ancestor not found: .target-card");
+        targetCard?.classList.toggle(
+          "is-enabled-target",
+          targetElement instanceof HTMLInputElement && targetElement.checked,
+        );
+        targetCard?.classList.toggle(
+          "is-disabled-target",
+          !(targetElement instanceof HTMLInputElement && targetElement.checked),
+        );
         // Whether a member is disabled is part of a group's warnings.
         loadBalancing.refreshCards();
         return;
       }
-      if (!asElement(event.target).matches("[data-toggle]")) return;
-      const pairId = state.pairs[Number(closestFrom(event.target, ".proxy-card").dataset.index)].id;
-      const enabled = asElement(event.target).checked;
+      if (!targetElement.matches("[data-toggle]")) return;
+      const card = closestFrom(event.target, ".proxy-card");
+      if (!card) throw new Error("Required UI ancestor not found: .proxy-card");
+      const pairId = state.pairs[Number(card.dataset.index)].id;
+      const enabled = targetElement instanceof HTMLInputElement && targetElement.checked;
       await savePairs();
       const data = await api(`/api/pairs/${encodeURIComponent(pairId)}/enabled`, {
         method: "POST",
@@ -1129,7 +1198,7 @@ export function createProxyConfig({
       qsa(".proxy-card").forEach((card) => {
         if (state.pairs[Number(card.dataset.index)]?.id === pairId) {
           qsOn(card, ".status")?.classList.toggle("running", Boolean(pair.running));
-          qsOn(card, "[data-toggle]").checked = pair.enabled;
+          requiredTyped("[data-toggle]", HTMLInputElement, card).checked = pair.enabled;
         }
       });
     });
@@ -1141,19 +1210,22 @@ export function createProxyConfig({
         return;
       }
       const handle = closestFrom(event.target, "[data-drag-target]");
-      if (!handle || handle.disabled) return;
+      if (!handle || (handle instanceof HTMLButtonElement && handle.disabled)) return;
       const offset = { ArrowLeft: -1, ArrowUp: -1, ArrowRight: 1, ArrowDown: 1 }[event.key];
       if (offset === undefined) return;
       event.preventDefault();
       moveTargetCardByKey(handle, offset);
     });
     listen($("proxyGrid"), "input", (event) => {
-      if (asElement(event.target).matches("[data-lb-field]")) {
+      const targetElement = asElement(event.target);
+      if (!targetElement) return;
+      if (targetElement.matches("[data-lb-field]")) {
         loadBalancing.refreshCards();
         return;
       }
-      if (!asElement(event.target).matches("[data-price-field], [data-price-test]")) return;
+      if (!targetElement.matches("[data-price-field], [data-price-test]")) return;
       const targetCard = closestFrom(event.target, ".target-card");
+      if (!targetCard) throw new Error("Required UI ancestor not found: .target-card");
       if (targetCard) updateLocalPriceMatch(targetCard);
     });
   }

@@ -4,6 +4,43 @@
 // reaches into another feature's scope.
 
 import { configureDisplayLanguage } from "./display-locale.js";
+import {
+  $,
+  optionalId,
+  optionalTyped,
+  requiredTyped,
+  asElement,
+  closestFrom,
+  closestOn,
+  parentOf,
+  qsa,
+  qsaOn,
+  qs,
+  qsOn,
+  requiredDetails,
+  requiredDialog,
+  requiredElement,
+  requiredInput,
+} from "./dom.js";
+
+export {
+  $,
+  optionalId,
+  optionalTyped,
+  requiredTyped,
+  asElement,
+  closestFrom,
+  closestOn,
+  parentOf,
+  qsa,
+  qsaOn,
+  qs,
+  qsOn,
+  requiredDetails,
+  requiredDialog,
+  requiredElement,
+  requiredInput,
+};
 
 /** The i18n dictionary every label is looked up in; `t()` is the only reader. */
 const translations = {
@@ -804,6 +841,7 @@ const initialLanguage =
  * module instead; what stays here is the state more than one module reads: the list of log
  * groups, the selected record and its payload, and the language.
  */
+/** @type {import("../../ui-contracts.js").SharedUiState} */
 export const state = {
   language: translations[initialLanguage] ? initialLanguage : "en",
   logGroups: [],
@@ -849,96 +887,9 @@ export const state = {
   splitterDragging: false,
   refreshTimer: null,
 };
-/**
- * The admin UI treats every element it grabs by id as "whichever control this
- * actually is", so the accessor returns an intersection carrying the form, dialog
- * and details members the code uses.
- *
- * Each member must be its own Partial<>: writing Partial<A & B & ...> makes TS
- * reduce the intersection to `never` because `type` has conflicting types across
- * the HTML element interfaces, and every use then reports "Property ... does not
- * exist on type 'never'".
- *
- * The lookup helpers below are declared as returning `UiElement | null` because that
- * is what the DOM actually returns. tsconfig.ui.json runs with strictNullChecks off,
- * which collapses that union, so a missing element still produces no diagnostic: the
- * crash path `qs("#missing").value.trim()` type-checks clean today. Turning the flag on
- * was measured at 207 errors in these nine scripts, which is a separate decision.
- * @typedef {HTMLElement & Partial<HTMLInputElement> & Partial<HTMLTextAreaElement> & Partial<HTMLDialogElement> & Partial<HTMLDetailsElement>} UiElement
- */
-/**
- * @param {string} id
- * @returns {UiElement | null}
- */
-export const $ = (id) => /** @type {UiElement | null} */ (document.getElementById(id));
-/**
- * @param {string} selector
- * @returns {UiElement | null}
- */
-export const qs = (selector) => /** @type {UiElement | null} */ (document.querySelector(selector));
-/**
- * @param {string} selector
- * @returns {UiElement[]}
- */
-export const qsa = (selector) =>
-  /** @type {UiElement[]} */ (Array.from(document.querySelectorAll(selector)));
-/**
- * @param {Element} root
- * @param {string} selector
- * @returns {UiElement[]}
- */
-export const qsaOn = (root, selector) =>
-  /** @type {UiElement[]} */ (Array.from(root.querySelectorAll(selector)));
-/**
- * @param {Element} root
- * @param {string} selector
- * @returns {UiElement | null}
- */
-export const qsOn = (root, selector) =>
-  /** @type {UiElement | null} */ (root.querySelector(selector));
-/**
- * Event handlers get `EventTarget`, which has none of the DOM members this UI
- * uses. This is a type-level cast: it returns the very same object.
- * @param {EventTarget | null} target
- * @returns {UiElement | null}
- */
-export const asElement = (target) => /** @type {UiElement | null} */ (target);
-/**
- * closest() is typed to return Element, but every node this UI finds is used as
- * a control afterwards, so the lookup helper carries the useful type.
- * @param {EventTarget | null} target
- * @param {string} selector
- * @returns {UiElement | null}
- */
-export const closestFrom = (target, selector) =>
-  /** @type {UiElement | null} */ (asElement(target)?.closest?.(selector) ?? null);
-/**
- * Same reason as closestFrom, for a lookup that starts from a known element.
- * The optional chain is kept so a null root or a node without closest() still
- * yields null instead of throwing, exactly like the call sites it replaced.
- * @param {Element | null | undefined} root
- * @param {string} selector
- * @returns {UiElement | null}
- */
-export const closestOn = (root, selector) =>
-  /** @type {UiElement | null} */ (root?.closest?.(selector) ?? null);
-/**
- * parentElement is typed as Element, which again hides the members this UI needs.
- * @param {Element | null | undefined} el
- * @returns {UiElement | null}
- */
-export const parentOf = (el) => /** @type {UiElement | null} */ (el?.parentElement ?? null);
-/**
- * One field the server rejected, as `error.issues` names it.
- * @typedef {{ code: string, message: string, path: string }} ApiConfigIssue
- */
-/**
- * A failed API call. The server answers every error with `{ code, message }` inside
- * `error`, and adds `issues` when it rejected a configuration, so the thrown error carries
- * the same three things the wire does: `message` in the Error itself, `code` and `issues`
- * as the extra properties below.
- * @typedef {Error & { code?: string, issues?: readonly ApiConfigIssue[] }} ApiError
- */
+/** API errors returned by the admin server. */
+/** @typedef {{ code: string, message: string, path: string }} ApiConfigIssue */
+/** @typedef {Error & { code?: string, issues?: readonly ApiConfigIssue[] }} ApiError */
 export const t = (key) =>
   (translations[state.language] && translations[state.language][key]) ||
   translations.en[key] ||
@@ -949,6 +900,12 @@ export const toast = (text) => {
   el.classList.add("show");
   setTimeout(() => el.classList.remove("show"), 2400);
 };
+/**
+ * @template {import("../../ui-contracts.js").ApiPath} Path
+ * @param {Path} url
+ * @param {RequestInit} [options]
+ * @returns {Promise<import("../../ui-contracts.js").ApiResult<Path>>}
+ */
 export const api = async (url, options = {}) => {
   const requestOptions = {
     ...options,
@@ -964,22 +921,27 @@ export const api = async (url, options = {}) => {
    * `error.issues` added when a configuration is rejected.
    */
   const res = await fetch(url, requestOptions);
+  /** @type {unknown} */
   const data = await res.json().catch(() => ({}));
   if (!res.ok) {
+    const errorData = isRecord(data) ? data : {};
     const message =
-      typeof data.error === "string"
-        ? data.error
-        : data.error && typeof data.error.message === "string"
-          ? data.error.message
+      typeof errorData.error === "string"
+        ? errorData.error
+        : isRecord(errorData.error) && typeof errorData.error.message === "string"
+          ? errorData.error.message
           : res.statusText;
     const error = /** @type {ApiError} */ (new Error(message));
     // The answer's own code and field paths ride along, so a caller can name the failure
     // and point at the offending input instead of re-reading the message text.
-    if (data.error && typeof data.error.code === "string") error.code = data.error.code;
-    if (data.error && Array.isArray(data.error.issues)) error.issues = data.error.issues;
+    if (isRecord(errorData.error) && typeof errorData.error.code === "string")
+      error.code = errorData.error.code;
+    if (isRecord(errorData.error) && Array.isArray(errorData.error.issues)) {
+      error.issues = errorData.error.issues.filter(isConfigIssue);
+    }
     throw error;
   }
-  return data;
+  return /** @type {import("../../ui-contracts.js").ApiResult<Path>} */ (data);
 };
 /**
  * Applies the current language to every element that carries a `data-i18n*` attribute.
@@ -994,7 +956,7 @@ export function applyLanguage() {
   // language change, so no number is ever formatted before the locale is known.
   configureDisplayLanguage(state.language);
   document.documentElement.lang = state.language === "zh" ? "zh-CN" : "en";
-  $("languageSelect").value = state.language;
+  requiredTyped("#languageSelect", HTMLSelectElement).value = state.language;
   qsa("[data-i18n]").forEach((el) => {
     el.textContent = t(el.dataset.i18n);
   });
@@ -1002,7 +964,9 @@ export function applyLanguage() {
     el.title = t(el.dataset.i18nTitle);
   });
   qsa("[data-i18n-placeholder]").forEach((el) => {
-    el.placeholder = t(el.dataset.i18nPlaceholder);
+    if (el instanceof HTMLInputElement || el instanceof HTMLTextAreaElement) {
+      el.placeholder = t(el.dataset.i18nPlaceholder);
+    }
   });
 }
 /**
@@ -1053,4 +1017,18 @@ export function setLanguage(language) {
   localStorage.setItem("llmProxyLanguage", language);
   applyLanguage();
   rerenderLanguagePanels();
+}
+
+/** @param {unknown} value @returns {value is Record<string, unknown>} */
+export function isRecord(value) {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+/** @param {unknown} value @returns {value is ApiConfigIssue} */
+function isConfigIssue(value) {
+  return (
+    isRecord(value) &&
+    typeof value.code === "string" &&
+    typeof value.path === "string" &&
+    typeof value.message === "string"
+  );
 }

@@ -1,3 +1,4 @@
+import { optionalTyped } from "./dom.js";
 // LLM Proxy admin UI -- task detail panel: pricing summary, breakdown table, trend charts, task brief.
 // ES module: imports the shared bootstrap (./core.js), the display helpers and the chart
 // geometry; the history list opens this panel and refreshes it.
@@ -7,7 +8,6 @@ import {
   api,
   closestFrom,
   parentOf,
-  qs,
   qsa,
   qsOn,
   registerLanguagePanel,
@@ -78,6 +78,7 @@ function pricingPercentNumber(amount, totalAmount) {
   if (den === 0n) return null;
   return (Number(toScaled(n)) / Number(den)) * 100;
 }
+/** @param {unknown} amount @param {unknown} totalAmount @param {string | null} [kind] */
 function shareCellHtml(amount, totalAmount, kind = null) {
   const pct = pricingPercentNumber(amount, totalAmount);
   // The bar inherits the metric's semantic color (teal token shares, green
@@ -111,6 +112,7 @@ function pricingUsageTotalTokens(breakdown) {
     return sum + (Number.isFinite(value) ? value : 0);
   }, 0);
 }
+/** @param {unknown} breakdown @param {Record<string, string> | null} [price] @param {string | null} [totalAmount] */
 function pricingTableHtml(breakdown, price = null, totalAmount = null) {
   const rows = pricingBuckets
     .map(([usageKey, priceKey, label]) => {
@@ -128,7 +130,7 @@ export function renderRequestPricing() {
   const open = Boolean(pricing && state.requestPricingOpen);
   el.hidden = !open;
   updateRequestPricingButton();
-  if (!open) {
+  if (!open || !pricing) {
     el.innerHTML = "";
     return;
   }
@@ -156,6 +158,7 @@ function taskBreakdownTotalTokens(breakdown) {
     return sum + (Number.isFinite(value) ? value : 0);
   }, 0);
 }
+/** @param {unknown} breakdown @param {string | null} totalAmount @param {Record<string, string> | null} [price] */
 function taskBreakdownTableHtml(breakdown, totalAmount, price = null) {
   const priceHeader = price ? `<th>${escapeHtml(t("pricePerMillion"))}</th>` : "";
   const priceCell = (value) =>
@@ -538,7 +541,7 @@ function syncActiveTaskGroup(groupId) {
     last_activity_at: group.last_activity_at ?? null,
     model: group.model ?? null,
     request_count: group.request_count ?? null,
-    decode_speed_tps: group.decode_speed_tps ?? null,
+    decode_speed_tps: group.decode_speed_tps ?? undefined,
   };
   const previous = state.activeTaskGroup;
   if (previous && sameTaskGroupSnapshot(previous, next)) return false;
@@ -711,7 +714,7 @@ export function renderTaskPricingPanel() {
     state.taskPricingRendered = "";
     return;
   }
-  if (!pricing || pricing.id !== active || pricing.loading) {
+  if (!pricing || pricing.id !== active || pricing.loading || pricing.data === null) {
     panel.innerHTML = `<div class="pricing-panel-head"><strong>${escapeHtml(t("taskPricing"))}</strong><button type="button" data-close-pricing>${escapeHtml(t("close"))}</button></div><p>${escapeHtml(t("loading"))}</p>`;
     state.taskPricingRendered = "";
     return;
@@ -956,7 +959,7 @@ export async function refreshTaskPricingPanel() {
   await Promise.all([series, costSeries, outputTokenSeries]);
 }
 function updateRequestPricingButton() {
-  const button = qs('[data-pricing="response"]');
+  const button = optionalTyped('[data-pricing="response"]', HTMLButtonElement);
   if (!button) return;
   const available = Boolean(state.requestPricing);
   button.disabled = !available;
@@ -999,11 +1002,12 @@ export function mountTaskDetail() {
     const summary = closestFrom(event.target, "summary");
     if (summary && state.activeTaskPricing) {
       const details = parentOf(summary);
-      if (details && details.hasAttribute("data-price-group-model")) {
+      if (details instanceof HTMLDetailsElement && details.hasAttribute("data-price-group-model")) {
         const openGroups =
           state.pricingGroupOpen[state.activeTaskPricing] ||
           (state.pricingGroupOpen[state.activeTaskPricing] = {});
         const model = details.dataset.priceGroupModel;
+        if (model === undefined) throw new Error("Missing data-price-group-model");
         if (details.open) delete openGroups[model];
         else openGroups[model] = true;
         savePricingGroupOpenState();

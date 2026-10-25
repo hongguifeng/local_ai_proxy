@@ -88,9 +88,7 @@ describe("[AI-15] compile entries", () => {
     const uiConfig = await readTypeScriptConfig("tsconfig.ui.json");
     expect(uiConfig.compilerOptions?.moduleDetection).toBe("legacy");
     expect(uiConfig.compilerOptions?.checkJs, "the browser scripts must stay checked").toBe(true);
-    expect(uiConfig.compilerOptions?.strictNullChecks ?? false, "strictNullChecks stays off").toBe(
-      false,
-    );
+    expect(uiConfig.compilerOptions?.strictNullChecks, "the complete UI graph checks nullability").toBe(true);
   });
 
   it("[AI-15] packages only the trees the product build produces", async () => {
