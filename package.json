@@ -11,7 +11,7 @@
   "license": "UNLICENSED",
   "scripts": {
     "prebuild": "npm run rebuild:node",
-    "build": "tsc -p tsconfig.json && node dist-node/scripts/copy_static_assets.js",
+    "build": "tsc -p tsconfig.build.json && node dist-node/scripts/copy_static_assets.js",
     "benchmark:proxy": "npm run build && node --enable-source-maps dist-node/scripts/proxy_benchmark.js",
     "benchmark:migration": "npm run build && node --enable-source-maps dist-node/scripts/migration_benchmark.js",
     "compact:traffic": "npm run build && node --enable-source-maps dist-node/scripts/compact_traffic_database.js",

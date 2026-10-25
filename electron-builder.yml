@@ -3,8 +3,9 @@ productName: LLM Proxy
 directories:
   output: release
 files:
-  - dist-node/**/*
-  - "!dist-node/test-node/**/*"
+  - dist-node/src/**/*
+  - dist-node/electron/**/*
+  - dist-node/scripts/**/*
   - package.json
 asar: true
 asarUnpack:

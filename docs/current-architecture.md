@@ -101,7 +101,8 @@
 | 目的                      | 命令                                                                                            |
 | ------------------------- | ----------------------------------------------------------------------------------------------- |
 | 静态检查与全量测试        | `npm run check`                                                                                 |
-| 只跑类型检查              | `npm run typecheck`                                                                             |
+| 全量类型检查              | `npm run typecheck`                                                                             |
+| 只编译产品与打包工具      | `npm run build`                                                                                 |
 | UI 组装后的 lint 与类型   | `npm run lint:ui-assembly`、`npm run typecheck:ui`                                              |
 | 便携版打包                | `npm run build && npm run rebuild:electron && npx electron-builder -w portable --publish never` |
 | UI 基线重生成             | `npm run regen:ui-baselines`                                                                    |
@@ -112,6 +113,12 @@
 `npm rebuild better-sqlite3` 只在最终 Electron 重建之前跑一次；在 Electron 重建之后、打包之前
 再跑一次会让便携版带上 Node ABI 的模块并在启动时失败。Windows 上跑测试和基线命令请从大写
 盘符进入（`cd /D/...`）。
+
+`npm run build` 用 `tsconfig.build.json` 只把 `src`、`electron` 和 `scripts` 编译进 `dist-node`：
+测试实现不进产品产物，也不参与打包。`npm run typecheck` 用 `tsconfig.json` 检查产品、测试和
+工具，再用 `tsconfig.ui.json` 检查九个浏览器脚本，所以测试里的类型错误照样能让 `npm run check`
+失败，但不会改变产品编译。`electron-builder.yml` 的 `files` 按这三棵编译树逐项列出，输出目录里
+残留的其他文件进不了包。
 
 ## 8. 材料身份
 
