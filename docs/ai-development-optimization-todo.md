@@ -542,7 +542,7 @@ UI 截图、性能或迁移结果（适用时）：
 - UI 截图/性能：不适用，未改 UI。
 - 便携版构建与冒烟：`npm run build && npm run rebuild:electron && npx electron-builder -w portable --publish never` 通过；用 `release/win-unpacked/LLM Proxy.exe` + 临时配置/临时数据目录/空闲端口实验：PUT pairs 改名、PUT 总结模型后 GET `/api/pairs` 为 `edited-name`，GET 总结模型为 `summarizer`，落盘两处均为新值，退出码 0。
 - 与清单的偏差：无。
-- 提交 SHA：未提交
+- 提交 SHA：1a7300f
 
 ### AI-02 完成记录
 
@@ -556,7 +556,7 @@ UI 截图、性能或迁移结果（适用时）：
 - UI 截图/性能：未改 UI；统计页在空配置下从 404 变为空结果，现有 UI 测试使用 stub 服务，不受影响。
 - 便携版构建与冒烟：`npm run build && npm run rebuild:electron && npx electron-builder -w portable --publish never` 通过；用 unpacked exe + 临时配置/临时数据目录/空闲端口实验：无日志根时 overview/options/logs 均为 200 空结果；提交新日志根后新目录出现 `traffic.db`（4096 字节）、历史列表出现该任务、统计计入 `unpriced.no_matching_price = 1`；清空 `pairs` 后统计与列表回到空结果，退出码 0。
 - 与清单的偏差：无。未计价请求计入 `unpriced` 而不计入 `requests`，这是现有口径，本项未改变。
-- 提交 SHA：未提交
+- 提交 SHA：885b3aa
 
 ### AI-03 完成记录
 
@@ -570,7 +570,7 @@ UI 截图、性能或迁移结果（适用时）：
 - UI 截图/性能：不适用。
 - 便携版构建与冒烟：`npm run build && npm run rebuild:electron && npx electron-builder -w portable --publish never` 通过；用 unpacked exe + 临时配置/临时数据目录/空闲端口实验，日志接口 200，退出码 0；用 Python 标准库 sqlite3 读该次运行新建的 `traffic.db`：`schema_version` 为 13，表数量 15。
 - 与清单的偏差：无。未新增数据库迁移。
-- 提交 SHA：未提交
+- 提交 SHA：52f0075
 
 ### AI-04 完成记录
 
@@ -584,7 +584,7 @@ UI 截图、性能或迁移结果（适用时）：
 - UI 截图/性能：不适用，未改 UI。
 - 便携版构建与冒烟：`npm run build && npm run rebuild:electron && npx electron-builder -w portable --publish never` 通过；unpacked exe + 临时配置/临时数据目录/空闲端口：health 就绪，`/api/usage-statistics/overview?from&to` 返回 200 且顶层键为 `dataVersion,totals,byTarget,byModel,unpriced`，`/api/usage-statistics/trend` 200，`/api/logs?limit=5` 200 且 `total` 为 0，写退出文件后退出码 0。首轮冒烟把路径写成 `/api/statistics/overview` 收到 404，真实路径是 `/api/usage-statistics/overview`，不是回归。
 - 与清单的偏差：`docs/module-design.md` 与 `docs/software-functional-specification.md` 未做全文件 Prettier 重排。`.prettierignore` 把 `docs/`、`README.md`、`README.en.md` 排除在 `npm run format:check` 之外，对这两份既有文档整文件重排会产生 192 行和 144 行纯空白差异，掩盖本次真正的内容改动。因此 V-D 只对新增文档用显式 ignore-path 检查，历史文档保持原有表格风格；是否统一历史文档风格留给 AI-24 决定。
-- 提交 SHA：未提交
+- 提交 SHA：0c2ed10
 
 ### AI-05 完成记录
 
@@ -598,7 +598,7 @@ UI 截图、性能或迁移结果（适用时）：
 - UI 截图/性能：不适用，未改 UI。简报与摘要的错误提示由 UI 直接展示 `error.message`，现行文案仍是可理解的短句。
 - 便携版构建与冒烟：`npm run build && npm run rebuild:electron && npx electron-builder -w portable --publish never` 通过；unpacked exe + 临时配置/临时数据目录/空闲端口：先向已关闭的上游发一次真实代理请求得到 502 并生成任务，再配置指向已关闭端口的总结模型。未配置模型时 POST 简报返回 502 `task_brief_failed` 与“Summary model is not configured.”（与 `runtime.test.ts` 钉住的结论一致）；模型连不上时返回 502 `task_brief_failed` 与“The summary model could not be reached.”，响应不含 `sk-live-secret`；代理请求仍返回 502；写退出文件后退出码 0。存储与写入失败的阶段诊断由单元注入验证，打包实例无法安全注入。
 - 与清单的偏差：两处对外行为改变，均为有意。一、摘要或简报存不下时现在返回 500 `storage_failed`，不再静默成功；二、未预期的内部错误不再把原始异常文本回给浏览器，改为固定短句并在服务端记一条 warn。管理员代码 `storage_failed` 是新增值。日志写入失败仍只记日志、不影响代理响应（`traffic-log-service` 的隔离用例未改）。
-- 提交 SHA：未提交
+- 提交 SHA：8c6adb9
 
 ### AI-06 完成记录
 
@@ -612,4 +612,4 @@ UI 截图、性能或迁移结果（适用时）：
 - UI 截图、性能：不适用，未改 UI。日志写入路径未增加拷贝或序列化，单条记录的写入仍是一次 upsert。
 - 便携版构建与冒烟：`npm run build && npm run rebuild:electron && npx electron-builder -w portable --publish never` 通过（`building target=portable file=release\LLM-Proxy-0.4.10-x64-portable.exe`）。用 unpacked exe + 临时应用配置（只含 `admin.port`）+ 临时 pairs 文件（成员用绝对 `log_root`）+ 全新 `LLM_PROXY_DATA_DIR` + 三个空闲端口，另在本机起一个固定回退上游：一次真实 POST 得到 200 与 `resp-ai06-smoke`；`/api/logs` 的 `total` 为 1；`/api/log-groups/:id/logs` 返回该记录；`/api/logs/:id` 的 `request_meta` 含 `task_id`、`sequence: 1`、`duration_ms: 15.9`、`model_route: {"requested_model":"gpt-5","target_id":"fixture","target_name":"Fixture"}`，header 全为数组且 `Authorization` 为 `["[redacted]"]`，`response_meta` 含 `status: 200`、输入输出 token 与 `decode_window_ms`，`pricing` 为 `unpriced`/`no_matching_price`；统计 overview 顶层键仍为 `dataVersion,totals,byTarget,byModel,unpriced` 且 `unpriced.no_matching_price = 1`。写退出文件后退出码 0。用 Python 标准库 sqlite3 读该次运行的 `traffic.db`：`event` 为 `request_finished`，`task_id` 非空，`request_headers_json` 值是数组，`model_route_json` 为带类型键名，`schema_version` 为 13；`tasks` 表里该任务的 `match_strategy_version` 为 6、`anchor` 为 `req-f5c21ce13af7`。
 - 与本清单的偏差：一、过程中先加了一个 `redactUnknownHeaders()` 供未脱敏的字典行使用，全仓搜索确认无调用方后删除，避免留下无人使用的出口。二、`TrafficRecordEvent`、`TrafficRecordWrite` 仍保留 `Record<string, unknown>` 的一半，历史与导入回退的键因此仍走字典，本轮只收口本项目自有字段，不等于清单里“消除全部任意 JSON”。三、统计 overview 的 `totals` 只计已计价请求，未计价只进 `unpriced`，这是 AI-02 已记录的现有口径，本项未改。
-- 提交 SHA：未提交
+- 提交 SHA：f47b7dd
