@@ -347,7 +347,7 @@ describe("SummaryGenerationService", () => {
     ]);
   });
 
-  it("names the root when a cached summary cannot be read", async () => {
+  it("raises a storage error when a cached summary cannot be read", async () => {
     const root = await newRoot("summary-read-failure");
     seedTaskRecord(root, "summary-task", "summary-record");
     const { warnings, logger } = collectWarnings();
@@ -356,7 +356,15 @@ describe("SummaryGenerationService", () => {
     breaker.exec("DROP TABLE history_summaries");
     breaker.close();
 
-    expect(service.cachedSummary("summary-record")).toBeUndefined();
+    expect(() => service.cachedSummary("summary-record")).toThrow(
+      expect.objectContaining({
+        name: "ApplicationError",
+        code: "storage_error",
+        statusCode: 500,
+        message: "The summary could not be read.",
+        details: { phase: "history_summary_read", record_id: "summary-record" },
+      }),
+    );
     expect(warnings).toEqual([
       {
         message: "Summary read failed",
@@ -371,7 +379,7 @@ describe("SummaryGenerationService", () => {
     ]);
   });
 
-  it("shows a stored summary that is not an object as absent", async () => {
+  it("treats malformed stored summary JSON as a storage read failure", async () => {
     const root = await newRoot("summary-corrupt");
     seedTaskRecord(root, "summary-task", "summary-record");
     const db = new Database(path.join(root, "traffic.db"));
@@ -382,9 +390,90 @@ describe("SummaryGenerationService", () => {
     } finally {
       db.close();
     }
-    expect(
+    expect(() =>
       generationService(() => [root], new FakeGenerator()).cachedSummary("summary-record"),
-    ).toBe(undefined);
+    ).toThrow(
+      expect.objectContaining({
+        code: "storage_error",
+        details: { phase: "history_summary_read", record_id: "summary-record" },
+      }),
+    );
+  });
+
+  it("fails on a broken first root instead of hiding it behind a valid second root", async () => {
+    const firstRoot = await newRoot("read-roots-broken");
+    const secondRoot = await newRoot("read-roots-valid");
+    seedTaskRecord(firstRoot, "shared-task", "first-record");
+    seedTaskRecord(secondRoot, "shared-task", "second-record");
+    const second = new TrafficRepository(secondRoot);
+    second.saveHistorySummary({
+      recordId: "second-record",
+      summaryJson: JSON.stringify(summaryPayload),
+      model: "summary-model",
+      promptVersion: SUMMARY_PROMPT_VERSION,
+      createdAt: "2026-07-18T10:00:00.000Z",
+      updatedAt: "2026-07-18T10:00:00.000Z",
+    });
+    second.saveTaskBrief({
+      taskId: "shared-task",
+      briefText: "来自第二目录。",
+      model: "summary-model",
+      sourceRecordId: "second-record",
+      promptVersion: TASK_BRIEF_PROMPT_VERSION,
+      contextJson: null,
+    });
+    second.close();
+
+    const breaker = new Database(path.join(firstRoot, "traffic.db"));
+    breaker.exec("DROP TABLE history_summaries");
+    breaker.exec("DROP TABLE task_briefs");
+    breaker.close();
+
+    const service = generationService(() => [firstRoot, secondRoot], new FakeGenerator());
+    expect(() => service.cachedSummary("second-record")).toThrow(
+      expect.objectContaining({
+        code: "storage_error",
+        details: { phase: "history_summary_read", record_id: "second-record" },
+      }),
+    );
+    expect(() => service.cachedBrief("shared-task")).toThrow(
+      expect.objectContaining({
+        code: "storage_error",
+        details: { phase: "task_brief_read", task_id: "shared-task" },
+      }),
+    );
+  });
+
+  it("raises a storage error when a cached task brief cannot be read", async () => {
+    const root = await newRoot("brief-read-failure");
+    seedTaskRecord(root, "brief-task", "brief-record");
+    const { warnings, logger } = collectWarnings();
+    const service = generationService(() => [root], new FakeGenerator(), logger);
+    const breaker = new Database(path.join(root, "traffic.db"));
+    breaker.exec("DROP TABLE task_briefs");
+    breaker.close();
+
+    expect(() => service.cachedBrief("brief-task")).toThrow(
+      expect.objectContaining({
+        name: "ApplicationError",
+        code: "storage_error",
+        statusCode: 500,
+        message: "The task brief could not be read.",
+        details: { phase: "task_brief_read", task_id: "brief-task" },
+      }),
+    );
+    expect(warnings).toEqual([
+      {
+        message: "Task brief read failed",
+        context: {
+          phase: "task_brief_read",
+          task_id: "brief-task",
+          log_root: root,
+          error_type: "SqliteError",
+          cause_type: "UnknownError",
+        },
+      },
+    ]);
   });
 
   it("generates a brief from the newest request and caches it under the task id", async () => {

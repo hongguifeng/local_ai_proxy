@@ -497,6 +497,54 @@ describe("[AI-07] stored and absent generation results", () => {
     expect(absent.json()).toBeNull();
   });
 
+  it("maps cached summary and task brief storage reads to generic 500 errors", async () => {
+    const server = createAdminServer({
+      getHealth: () => applicationHealth("running"),
+      logService: {
+        listGroups: () => emptyGroupPage(),
+        getSummary: () =>
+          (() => {
+            throw storageError("The summary could not be read.", {
+              cause: new Error("cannot read C:\\private\\traffic.db"),
+              details: { phase: "history_summary_read", record_id: "record-secret" },
+            });
+          })(),
+        summarizeRecord: () => Promise.resolve(undefined),
+        getTaskBrief: () =>
+          (() => {
+            throw storageError("The task brief could not be read.", {
+              cause: new Error("cannot read C:\\private\\traffic.db"),
+              details: { phase: "task_brief_read", task_id: "task-secret" },
+            });
+          })(),
+        generateTaskBrief: () => Promise.resolve(taskBrief()),
+      },
+    });
+    servers.push(server);
+
+    const summary = await server.inject({
+      method: "GET",
+      url: "/api/logs/record-secret/summary",
+    });
+    expect(summary.statusCode).toBe(500);
+    expect(summary.json()).toEqual({
+      error: { code: "storage_error", message: "Internal server error." },
+    });
+    expect(summary.body).not.toContain("traffic.db");
+    expect(summary.body).not.toContain("record-secret");
+
+    const brief = await server.inject({
+      method: "GET",
+      url: "/api/log-groups/task-secret/brief",
+    });
+    expect(brief.statusCode).toBe(500);
+    expect(brief.json()).toEqual({
+      error: { code: "storage_error", message: "Internal server error." },
+    });
+    expect(brief.body).not.toContain("traffic.db");
+    expect(brief.body).not.toContain("task-secret");
+  });
+
   it("answers a summary for a record no root holds with record_not_found", async () => {
     const server = createAdminServer({
       getHealth: () => applicationHealth("running"),
