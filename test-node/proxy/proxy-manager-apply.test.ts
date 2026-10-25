@@ -2,7 +2,7 @@ import http from "node:http";
 
 import { describe, expect, it } from "vitest";
 
-import type { ProxyPair } from "../../src/config/index.js";
+import type { ProxyConfigFile, ProxyPair, SummaryModelConfig } from "../../src/config/index.js";
 import { ProxyManager, ProxyRuntimeRegistry } from "../../src/proxy/index.js";
 import type { ProxyConfigurationApplyError } from "../../src/proxy/index.js";
 
@@ -165,6 +165,138 @@ describe("ProxyManager configuration apply", () => {
     }
   });
 
+  it("[AI-01] updates the summary model without moving the listener", async () => {
+    const upstream = http.createServer((_request, response) => response.end("plain"));
+    const upstreamPort = await listen(upstream);
+    const registry = new ProxyRuntimeRegistry();
+    const pair = pairFixture(upstreamPort, "Before");
+    const runtime = await registry.startPair(pair);
+    const listenPort = runtime.actualListenPort ?? 0;
+    const saved: ProxyConfigFile[] = [];
+    const manager = new ProxyManager(
+      { pairs: [pair] },
+      {
+        save: (config) => {
+          saved.push(config);
+          return Promise.resolve();
+        },
+      },
+      { registry },
+    );
+
+    try {
+      const returned = await manager.updateSummaryModel(summaryFixture("summarizer"));
+      expect(returned.model).toBe("summarizer");
+      expect(manager.config.summary_model?.model).toBe("summarizer");
+      expect(manager.config.pairs[0]?.name).toBe("Before");
+      expect(manager.state).toBe("ready");
+      expect(manager.listPairs()[0]).toMatchObject({
+        name: "Before",
+        running: true,
+        actual_listen_port: listenPort,
+      });
+      await expect(requestText(listenPort, "/managed")).resolves.toBe("plain");
+      expect(saved[0]).toMatchObject({
+        pairs: [{ name: "Before" }],
+        summary_model: { model: "summarizer" },
+      });
+    } finally {
+      await manager.stopAll();
+      await close(upstream);
+    }
+  });
+
+  it("[AI-01] composes a queued summary update against the pairs committed before it ran", async () => {
+    const before = pairFixture(12_345, "Before");
+    const after = { ...before, name: "After", enabled: false };
+    const saved: ProxyConfigFile[] = [];
+    let releasePairSave: (() => void) | undefined;
+    const pairSave = new Promise<void>((resolve) => {
+      releasePairSave = resolve;
+    });
+    const manager = new ProxyManager(
+      { pairs: [before] },
+      {
+        save: (config) => {
+          saved.push(config);
+          return saved.length === 1 ? pairSave : Promise.resolve();
+        },
+      },
+    );
+
+    try {
+      // The pair write is still inside its save when the summary write arrives, so the
+      // summary patch has to be composed against the configuration the pair write commits.
+      const pairOperation = manager.replacePairs([after]);
+      const summaryOperation = manager.updateSummaryModel(summaryFixture("second"));
+      releasePairSave?.();
+      const [pairs, summaryModel] = await Promise.all([pairOperation, summaryOperation]);
+
+      expect(pairs[0]).toMatchObject({ name: "After" });
+      expect(summaryModel.model).toBe("second");
+      expect(manager.config.pairs[0]?.name).toBe("After");
+      expect(manager.config.summary_model?.model).toBe("second");
+      expect(saved[0]?.summary_model).toBeUndefined();
+      expect(saved[1]).toMatchObject({
+        pairs: [{ name: "After" }],
+        summary_model: { model: "second" },
+      });
+    } finally {
+      await manager.stopAll();
+    }
+  });
+
+  it("[AI-01] keeps the committed summary model when the save fails", async () => {
+    const pair = pairFixture(12_345, "Current pair");
+    const manager = new ProxyManager(
+      { pairs: [pair], summary_model: summaryFixture("first") },
+      { save: () => Promise.reject(new Error("save fixture failed")) },
+    );
+
+    await expect(manager.updateSummaryModel(summaryFixture("second"))).rejects.toMatchObject({
+      name: "ProxyConfigurationApplyError",
+      stage: "save",
+    } satisfies Partial<ProxyConfigurationApplyError>);
+    expect(manager.config.summary_model?.model).toBe("first");
+    expect(manager.state).toBe("ready");
+  });
+
+  it("[AI-01] rejects an invalid summary model before committing anything", () => {
+    const pair = pairFixture(12_345, "Current pair");
+    const saved: ProxyConfigFile[] = [];
+    const manager = new ProxyManager(
+      { pairs: [pair], summary_model: summaryFixture("first") },
+      {
+        save: (config) => {
+          saved.push(config);
+          return Promise.resolve();
+        },
+      },
+    );
+
+    expect(() =>
+      manager.updateSummaryModel({ ...summaryFixture("rejected"), timeout_ms: 500 }),
+    ).toThrow(expect.objectContaining({ code: "invalid_config" }));
+    expect(manager.config.summary_model?.model).toBe("first");
+    expect(saved).toEqual([]);
+    expect(manager.state).toBe("ready");
+  });
+
+  it("[AI-01] refuses writing the committed configuration as a mutable snapshot", () => {
+    const manager = new ProxyManager(
+      { pairs: [pairFixture(12_345, "Current pair")] },
+      {
+        save: () => Promise.resolve(),
+      },
+    );
+    const staleWrite = manager.config as { summary_model?: SummaryModelConfig };
+
+    expect(() => {
+      staleWrite.summary_model = summaryFixture("stale");
+    }).toThrow(TypeError);
+    expect(manager.config.summary_model).toBeUndefined();
+  });
+
   it("restores old config and runtime when saving the replacement fails", async () => {
     const firstUpstream = http.createServer((_request, response) => response.end("old"));
     const secondUpstream = http.createServer((_request, response) => response.end("new"));
@@ -201,6 +333,18 @@ describe("ProxyManager configuration apply", () => {
     }
   });
 });
+
+function summaryFixture(model: string): SummaryModelConfig {
+  return {
+    disable_reasoning: true,
+    api_type: "openai_chat",
+    target_url: "http://127.0.0.1:1235",
+    api_key: `key-for-${model}`,
+    model,
+    target_headers: [],
+    timeout_ms: 180_000,
+  };
+}
 
 function pairFixture(upstreamPort: number, name: string): ProxyPair {
   return {

@@ -44,8 +44,8 @@ export function createNodeApplication(options: NodeApplicationOptions): NodeAppl
   let address: AdminControlPlaneAddress | undefined;
   const application = new Application({
     start: async () => {
-      const config = await repository.load();
-      manager = new ProxyManager(config, repository, {
+      const loadedConfig = await repository.load();
+      manager = new ProxyManager(loadedConfig, repository, {
         logRootBaseDirectory: path.dirname(options.applicationConfigFile),
       });
       const currentManager = manager;
@@ -86,12 +86,12 @@ export function createNodeApplication(options: NodeApplicationOptions): NodeAppl
               cleanupOlderThan: logs.cleanupOlderThan.bind(logs),
               cleanupKeepLatest: logs.cleanupKeepLatest.bind(logs),
               summarizeRecord: (id: string) => {
-                const model = config.summary_model;
+                const model = currentManager.config.summary_model;
                 if (!model) return Promise.reject(new Error("Summary model is not configured."));
                 return logs.summarizeRecord(id, model);
               },
               generateTaskBrief: (groupId: string) => {
-                const model = config.summary_model;
+                const model = currentManager.config.summary_model;
                 if (!model) return Promise.reject(new Error("Summary model is not configured."));
                 return logs.generateTaskBrief(groupId, model);
               },
@@ -113,11 +113,10 @@ export function createNodeApplication(options: NodeApplicationOptions): NodeAppl
           }),
           modelCatalogService: { importModelPrices },
           summaryModelService: {
-            getConfig: () => config.summary_model,
+            getConfig: () => currentManager.config.summary_model,
             setConfig: async (value: SummaryModelConfig) => {
               const parsed = summaryModelConfigSchema.parse(value);
-              config.summary_model = parsed;
-              await currentManager.replaceConfig(config);
+              await currentManager.updateSummaryModel(parsed);
               return parsed;
             },
             testConfig: async (value: SummaryModelConfig) => {

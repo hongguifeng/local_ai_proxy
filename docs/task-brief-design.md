@@ -48,7 +48,7 @@ ALTER TABLE task_briefs ADD COLUMN context_json TEXT;
 - `GET /api/log-groups/:id/brief`：返回缓存的 `{task_id, text, context, model, generated_at, source_record_id}`，未生成时返回 `null`；`context` 只在确实提取到环境信息时出现。
 - `POST /api/log-groups/:id/brief`：生成并覆盖缓存。错误映射：任务不存在 `404 log_group_not_found`；同一任务并发生成 `409 task_brief_in_progress`；模型失败 `502 task_brief_failed`（错误消息不带上游密钥或请求体）。
 
-服务层在 `LogQueryService.generateTaskBrief(groupId, config)`，`runtime.ts` 负责注入 `config.summary_model`，未配置时以 `Summary model is not configured.` 失败（与单请求总结同一措辞，前端据此引导用户去设置）。
+服务层在 `LogQueryService.generateTaskBrief(groupId, config)`，`runtime.ts` 负责注入当前已提交的总结模型（`ProxyManager.config.summary_model`，见 AI-01），未配置时以 `Summary model is not configured.` 失败（与单请求总结同一措辞，前端据此引导用户去设置）。
 
 ## 5. 输入选择与结果清洗
 

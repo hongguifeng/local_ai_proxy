@@ -322,6 +322,64 @@ describe("createNodeApplication", () => {
     );
   });
 
+  it("[AI-01] keeps a saved pair edit when the summary model is applied afterwards", async () => {
+    const root = await mkdtemp(path.join(tmpdir(), "llm-proxy-app-"));
+    temporaryRoots.push(root);
+    const configFile = path.join(root, "proxies.json");
+    const pair = disabledPairFixture("Original");
+    await writeFile(configFile, JSON.stringify({ pairs: [pair] }));
+    const runtime = createNodeApplication({
+      applicationConfigFile: path.join(root, "llm-proxy.json"),
+      configFile,
+      logRoot: path.join(root, "logs"),
+      host: "127.0.0.1",
+      port: 0,
+    });
+    await runtime.application.start();
+    try {
+      const adminPort = runtime.address()?.port;
+      expect(adminPort).toBeTypeOf("number");
+      const base = `http://127.0.0.1:${adminPort}`;
+
+      // The pair edit and the summary save are separate admin writes. Neither may
+      // revert the other, so the second write must be composed against the
+      // configuration the first one committed.
+      const renamed = await fetch(`${base}/api/pairs`, {
+        method: "PUT",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ pairs: [{ ...pair, name: "edited-name" }] }),
+      });
+      expect(renamed.status).toBe(200);
+      const renamedBody = (await renamed.json()) as { pairs: { name: string }[] };
+      expect(renamedBody.pairs[0]?.name).toBe("edited-name");
+
+      const summarySaved = await fetch(`${base}/api/settings/summary-model`, {
+        method: "PUT",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify(summaryModelFixture()),
+      });
+      expect(summarySaved.status).toBe(200);
+
+      const pairsAfterSummary = await fetch(`${base}/api/pairs`);
+      const pairsBody = (await pairsAfterSummary.json()) as { pairs: { name: string }[] };
+      expect(pairsBody.pairs[0]?.name).toBe("edited-name");
+
+      const persisted = JSON.parse(await readFile(configFile, "utf8")) as {
+        pairs: { name: string }[];
+        summary_model?: Record<string, unknown>;
+      };
+      expect(persisted.pairs[0]?.name).toBe("edited-name");
+      expect(persisted.summary_model).toMatchObject(summaryModelFixture());
+
+      const readBack = await fetch(`${base}/api/settings/summary-model`);
+      expect(await readBack.json()).toMatchObject(summaryModelFixture());
+    } finally {
+      await runtime.application.stop();
+    }
+  });
+
+
+
   it("persists summary model settings when applying the configuration", async () => {
     const root = await mkdtemp(path.join(tmpdir(), "llm-proxy-app-"));
     temporaryRoots.push(root);
@@ -370,4 +428,44 @@ async function availablePort(): Promise<number> {
     server.close((error) => (error ? reject(error) : resolve())),
   );
   return address.port;
+}
+
+function disabledPairFixture(name: string, logRoot = "logs"): Record<string, unknown> {
+  return {
+    id: "managed-pair",
+    name,
+    enabled: false,
+    listen_host: "127.0.0.1",
+    listen_port: 0,
+    access_log: false,
+    default_target_id: "managed-target",
+    load_balancers: [],
+    targets: [
+      {
+        id: "managed-target",
+        name: "Managed target",
+        enabled: true,
+        target_url: "http://127.0.0.1:9",
+        target_api_key: "",
+        target_headers: [],
+        strip_request_fields: "",
+        inject_request_fields: "",
+        log_root: logRoot,
+        redact_logs: false,
+        model_mappings: [],
+      },
+    ],
+  };
+}
+
+function summaryModelFixture(): Record<string, unknown> {
+  return {
+    disable_reasoning: true,
+    api_type: "openai_chat",
+    target_url: "http://127.0.0.1:1236",
+    api_key: "summary-secret",
+    model: "summarizer",
+    target_headers: [],
+    timeout_ms: 180000,
+  };
 }

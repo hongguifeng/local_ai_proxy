@@ -5,6 +5,7 @@ import {
   type ProxyConfigFile,
   type ProxyPair,
   type PublicProxyPair,
+  type SummaryModelConfig,
 } from "../config/index.js";
 import { stableJsonStringify } from "../shared/index.js";
 import { ProxyRuntimeRegistry } from "./proxy-runtime-registry.js";
@@ -64,7 +65,7 @@ export class ProxyManager {
   readonly #repository: ProxyConfigSaver;
   readonly #registry: ProxyRuntimeRegistry;
   #applyQueue: Promise<void> = Promise.resolve();
-  #config: ProxyConfigFile;
+  #config: Readonly<ProxyConfigFile>;
   #state: ProxyManagerState = "ready";
 
   constructor(
@@ -72,7 +73,7 @@ export class ProxyManager {
     repository: ProxyConfigSaver,
     options: ProxyManagerOptions = {},
   ) {
-    this.#config = validateProxyConfigFile(config);
+    this.#config = Object.freeze(validateProxyConfigFile(config));
     this.#repository = repository;
     this.#registry = options.registry ?? new ProxyRuntimeRegistry();
     this.#logRootBaseDirectory = path.resolve(options.logRootBaseDirectory ?? process.cwd());
@@ -80,6 +81,16 @@ export class ProxyManager {
 
   get state(): ProxyManagerState {
     return this.#state;
+  }
+
+  /**
+   * The configuration that has been committed, including settings that are not proxy pairs.
+   * This is the single source of truth for the current configuration: the object is frozen so
+   * that a caller trying to write a section becomes an error instead of quietly becoming the
+   * baseline of the next apply.
+   */
+  get config(): Readonly<ProxyConfigFile> {
+    return this.#config;
   }
 
   /** The runtime registry, for read-only admin views of load balancing. */
@@ -112,13 +123,21 @@ export class ProxyManager {
     await this.#registry.stopAll();
   }
 
+  /**
+   * Replace the proxy pairs and keep every other section of the committed configuration. The
+   * replacement is composed against the configuration that is current when the queued operation
+   * runs, so a write queued behind another one cannot revert that earlier change.
+   */
   replacePairs(pairs: readonly ProxyPair[]): Promise<readonly PublicProxyPair[]> {
-    return this.applyConfiguration({ ...this.#config, pairs: [...pairs] });
+    return this.#enqueueConfigurationPatch((current) => ({ ...current, pairs: [...pairs] }));
   }
 
-  /** Apply the complete configuration, including non-proxy settings. */
-  replaceConfig(config: ProxyConfigFile): Promise<readonly PublicProxyPair[]> {
-    return this.applyConfiguration(config);
+  /** Update only the summary model, keeping every other section as currently committed. */
+  updateSummaryModel(summaryModel: SummaryModelConfig): Promise<SummaryModelConfig> {
+    return this.#enqueueConfigurationPatch((current) => ({
+      ...current,
+      summary_model: summaryModel,
+    })).then(() => summaryModel);
   }
 
   async setPairEnabled(pairId: string, enabled: boolean): Promise<PublicProxyPair> {
@@ -139,9 +158,28 @@ export class ProxyManager {
   }
 
   applyConfiguration(config: ProxyConfigFile): Promise<readonly PublicProxyPair[]> {
-    const validated = validateProxyConfigFile(config);
-    assertNoEnabledListenConflicts(validated.pairs);
+    const validated = prepareConfiguration(config);
     const operation = this.#applyQueue.then(() => this.#applyValidated(validated));
+    this.#applyQueue = operation.then(
+      () => undefined,
+      () => undefined,
+    );
+    return operation;
+  }
+
+  /**
+   * Queue a change to one section of the configuration. The patch is composed against the
+   * configuration committed when the queued operation actually runs, so an update of one
+   * section never carries an older copy of another section into the save.
+   */
+  #enqueueConfigurationPatch(
+    patch: (current: Readonly<ProxyConfigFile>) => ProxyConfigFile,
+  ): Promise<readonly PublicProxyPair[]> {
+    // An invalid patch fails before anything is queued, so nothing is committed or exposed.
+    prepareConfiguration(patch(this.#config));
+    const operation = this.#applyQueue.then(() =>
+      this.#applyValidated(prepareConfiguration(patch(this.#config))),
+    );
     this.#applyQueue = operation.then(
       () => undefined,
       () => undefined,
@@ -190,7 +228,7 @@ export class ProxyManager {
       stage = "save";
       failedPairId = undefined;
       await this.#repository.save(next);
-      this.#config = next;
+      this.#config = Object.freeze(next);
       this.#state = "ready";
       return this.listPairs();
     } catch (error) {
@@ -239,6 +277,12 @@ export class ProxyManager {
       })),
     };
   }
+}
+
+function prepareConfiguration(config: ProxyConfigFile): ProxyConfigFile {
+  const validated = validateProxyConfigFile(config);
+  assertNoEnabledListenConflicts(validated.pairs);
+  return validated;
 }
 
 export function resolveRuntimeLogRoot(
