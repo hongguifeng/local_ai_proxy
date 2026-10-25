@@ -1,3 +1,4 @@
+import { requiredTyped } from "./dom.js";
 // LLM Proxy admin UI -- request history: log group list, selection, detail prefetch, summaries.
 // ES module: imports the shared bootstrap (./core.js), the money display helpers, the JSON
 // panes it feeds, and the task-detail panel a group header opens.
@@ -194,7 +195,7 @@ async function cleanupLogs() {
 // Removes every task in the whole list (all pages, current search included)
 // whose group contains exactly one request.
 async function cleanupSingleRequestLogs() {
-  const button = $("cleanupSingleRequestLogs");
+  const button = requiredTyped("#cleanupSingleRequestLogs", HTMLButtonElement);
   if (button.disabled) return;
   button.disabled = true;
   button.textContent = t("cleaningSingleRequestLogs");
@@ -233,8 +234,8 @@ async function cleanupSingleRequestLogs() {
   }
 }
 function scheduleLogRefresh(delay = 3000) {
-  clearTimeout(state.refreshTimer);
-  if (!$("autoRefreshLogs").checked) return;
+  if (state.refreshTimer !== null) clearTimeout(state.refreshTimer);
+  if (!requiredTyped("#autoRefreshLogs", HTMLInputElement).checked) return;
   state.refreshTimer = setTimeout(() => {
     if (state.splitterDragging || document.hidden || !$("logs").classList.contains("active")) {
       scheduleLogRefresh(delay);
@@ -258,7 +259,7 @@ function allLogGroupsSelected() {
   );
 }
 function updateSelectAllLogsButton() {
-  $("selectAllLogs").textContent = t(
+  requiredTyped("#selectAllLogs", HTMLButtonElement).textContent = t(
     allLogGroupsSelected() ? "clearSelectedLogs" : "selectAllLogs",
   );
 }
@@ -693,6 +694,7 @@ function renderLogs() {
     const template = document.createElement("template");
     template.innerHTML = logGroupSectionHtml(group);
     const section = template.content.firstElementChild;
+    if (section === null) throw new Error("Log group template must contain an element");
     const existing = sections.get(id);
     if (existing !== undefined) list.replaceChild(section, existing);
     else list.insertBefore(section, qsOn(list, "[data-load-more]"));
@@ -713,7 +715,9 @@ function renderLogs() {
     if (tailHtml !== "") {
       const template = document.createElement("template");
       template.innerHTML = tailHtml;
-      list.appendChild(template.content.firstElementChild);
+      const tail = template.content.firstElementChild;
+      if (tail === null) throw new Error("Log tail template must contain an element");
+      list.appendChild(tail);
     }
   }
   // The reordering above can leave the "load more" button behind the sections.
@@ -858,6 +862,7 @@ function prefetchLogDetail(id) {
   // would be stale by the time the row is clicked; let the click read it fresh.
   const item = state.logs.find((log) => log.id === id);
   if (item && isPendingStatus(item.status)) return;
+  /** @type {{data: import("../../admin-schemas.js").AdminLogRecordDetail | undefined, bytes: number, promise: Promise<import("../../admin-schemas.js").AdminLogRecordDetail | void> | null}} */
   const entry = { data: undefined, bytes: 0, promise: null };
   logDetailPrefetch.set(id, entry);
   entry.promise = fetchLogDetail(id)
@@ -983,8 +988,8 @@ async function refreshSelectedLogDetail() {
   }
 }
 function runLogSearch() {
-  state.logQuery = $("logSearch").value.trim();
-  $("autoRefreshLogs").disabled = state.logQuery !== "";
+  state.logQuery = requiredTyped("#logSearch", HTMLInputElement).value.trim();
+  requiredTyped("#autoRefreshLogs", HTMLInputElement).disabled = state.logQuery !== "";
   state.logGroups = [];
   state.logs = [];
   state.logOffset = 0;
@@ -1005,8 +1010,8 @@ let hoverPrefetchTimer = null;
  * @returns {void}
  */
 export function mountHistory() {
-  $("summarizeRecord")?.addEventListener("click", async () => {
-    const button = $("summarizeRecord");
+  requiredTyped("#summarizeRecord", HTMLButtonElement)?.addEventListener("click", async () => {
+    const button = requiredTyped("#summarizeRecord", HTMLButtonElement);
     if (!state.selected) {
       toast("请先选择一条请求");
       return;
@@ -1045,33 +1050,43 @@ export function mountHistory() {
       button.textContent = "✨";
     }
   });
-  $("refreshLogs").addEventListener("click", () => loadLogs().catch((e) => toast(e.message)));
-  $("searchLogs").addEventListener("click", runLogSearch);
-  $("logSearch").addEventListener("keydown", (event) => {
+  requiredTyped("#refreshLogs", HTMLButtonElement).addEventListener("click", () =>
+    loadLogs().catch((e) => toast(e.message)),
+  );
+  requiredTyped("#searchLogs", HTMLButtonElement).addEventListener("click", runLogSearch);
+  requiredTyped("#logSearch", HTMLInputElement).addEventListener("keydown", (event) => {
     if (event.key === "Enter") runLogSearch();
   });
-  $("exportLogs").addEventListener("click", () => exportLogs().catch((e) => toast(e.message)));
-  $("cleanupLogs").addEventListener("click", () => cleanupLogs().catch((e) => toast(e.message)));
-  $("cleanupSingleRequestLogs").addEventListener("click", () =>
+  requiredTyped("#exportLogs", HTMLButtonElement).addEventListener("click", () =>
+    exportLogs().catch((e) => toast(e.message)),
+  );
+  requiredTyped("#cleanupLogs", HTMLButtonElement).addEventListener("click", () =>
+    cleanupLogs().catch((e) => toast(e.message)),
+  );
+  requiredTyped("#cleanupSingleRequestLogs", HTMLButtonElement).addEventListener("click", () =>
     cleanupSingleRequestLogs().catch((e) => toast(e.message)),
   );
-  $("summaryModelSettings").addEventListener("click", async () => {
+  requiredTyped("#summaryModelSettings", HTMLButtonElement).addEventListener("click", async () => {
     const current = await api("/api/settings/summary-model").catch(() => null);
     const base = current || {
       api_type: "openai_chat",
+      disable_reasoning: true,
       target_url: "",
       api_key: "",
       model: "",
       target_headers: [],
       timeout_ms: 180000,
     };
-    $("summaryApiType").value = base.api_type;
-    $("summaryDisableReasoning").checked = base.disable_reasoning !== false;
-    $("summaryUrl").value = base.target_url;
-    $("summaryModel").value = base.model;
-    $("summaryKey").value = base.api_key;
-    $("summaryHeaders").value = (base.target_headers || []).join("\n");
-    $("summaryTimeout").value = String(
+    requiredTyped("#summaryApiType", HTMLSelectElement).value = base.api_type;
+    requiredTyped("#summaryDisableReasoning", HTMLInputElement).checked =
+      base.disable_reasoning !== false;
+    requiredTyped("#summaryUrl", HTMLInputElement).value = base.target_url;
+    requiredTyped("#summaryModel", HTMLInputElement).value = base.model;
+    requiredTyped("#summaryKey", HTMLInputElement).value = base.api_key;
+    requiredTyped("#summaryHeaders", HTMLInputElement).value = (base.target_headers || []).join(
+      "\n",
+    );
+    requiredTyped("#summaryTimeout", HTMLInputElement).value = String(
       Math.max(1, Math.round(Number(base.timeout_ms || 180000) / 1000)),
     );
     $("summaryTestResult").hidden = true;
@@ -1085,26 +1100,35 @@ export function mountHistory() {
       method: "PUT",
       body: JSON.stringify({
         ...base,
-        disable_reasoning: $("summaryDisableReasoning").checked,
-        api_type: $("summaryApiType").value,
-        target_url: $("summaryUrl").value,
-        model: $("summaryModel").value,
-        api_key: $("summaryKey").value,
-        target_headers: $("summaryHeaders").value.split("\n").filter(Boolean),
-        timeout_ms: Number($("summaryTimeout").value) * 1000,
+        disable_reasoning: requiredTyped("#summaryDisableReasoning", HTMLInputElement).checked,
+        api_type: requiredTyped("#summaryApiType", HTMLSelectElement).value,
+        target_url: requiredTyped("#summaryUrl", HTMLInputElement).value,
+        model: requiredTyped("#summaryModel", HTMLInputElement).value,
+        api_key: requiredTyped("#summaryKey", HTMLInputElement).value,
+        target_headers: requiredTyped("#summaryHeaders", HTMLInputElement)
+          .value.split("\n")
+          .filter(Boolean),
+        timeout_ms: Number(requiredTyped("#summaryTimeout", HTMLInputElement).value) * 1000,
       }),
     });
     requiredDialog("summaryModelDialog").close();
     toast(t("summaryConfigSaved"));
   });
-  $("summaryCancel").addEventListener("click", () => requiredDialog("summaryModelDialog").close());
-  $("selectAllLogs").addEventListener("click", () => toggleSelectAllLogs());
-  $("autoRefreshLogs").addEventListener("change", () => scheduleLogRefresh(250));
+  requiredTyped("#summaryCancel", HTMLButtonElement).addEventListener("click", () =>
+    requiredDialog("summaryModelDialog").close(),
+  );
+  requiredTyped("#selectAllLogs", HTMLButtonElement).addEventListener("click", () =>
+    toggleSelectAllLogs(),
+  );
+  requiredTyped("#autoRefreshLogs", HTMLInputElement).addEventListener("change", () =>
+    scheduleLogRefresh(250),
+  );
   $("logItems").addEventListener("click", (event) => {
-    if (asElement(event.target).matches("[data-select-group]")) {
-      state.selectedLogGroups[asElement(event.target).dataset.selectGroup] = asElement(
-        event.target,
-      ).checked;
+    const target = event.target;
+    if (target instanceof HTMLInputElement && target.matches("[data-select-group]")) {
+      const groupId = target.dataset.selectGroup;
+      if (groupId === undefined) throw new Error("Missing data-select-group");
+      state.selectedLogGroups[groupId] = target.checked;
       updateSelectAllLogsButton();
       return;
     }
@@ -1129,7 +1153,7 @@ export function mountHistory() {
       loadMoreLogGroup(recordMore.dataset.loadMoreRecords).catch((e) => toast(e.message));
       return;
     }
-    if (asElement(event.target).matches("[data-load-more]"))
+    if (asElement(event.target)?.matches("[data-load-more]"))
       loadLogs({ append: true }).catch((e) => toast(e.message));
   });
   $("logItems").addEventListener("pointerover", (event) => {
@@ -1170,7 +1194,7 @@ export function mountHistory() {
     // reaches the delegated click handler above.
     showTaskPricing(group.dataset.groupId).catch((e) => toast(e.message));
   });
-  $("summaryTest").addEventListener("click", async () => {
+  requiredTyped("#summaryTest", HTMLButtonElement).addEventListener("click", async () => {
     const result = $("summaryTestResult");
     result.hidden = false;
     result.className = "target-check-result testing";
@@ -1179,13 +1203,15 @@ export function mountHistory() {
       const r = await api("/api/settings/summary-model/test", {
         method: "POST",
         body: JSON.stringify({
-          disable_reasoning: $("summaryDisableReasoning").checked,
-          api_type: $("summaryApiType").value,
-          target_url: $("summaryUrl").value,
-          model: $("summaryModel").value,
-          api_key: $("summaryKey").value,
-          target_headers: $("summaryHeaders").value.split("\n").filter(Boolean),
-          timeout_ms: Number($("summaryTimeout").value) * 1000,
+          disable_reasoning: requiredTyped("#summaryDisableReasoning", HTMLInputElement).checked,
+          api_type: requiredTyped("#summaryApiType", HTMLSelectElement).value,
+          target_url: requiredTyped("#summaryUrl", HTMLInputElement).value,
+          model: requiredTyped("#summaryModel", HTMLInputElement).value,
+          api_key: requiredTyped("#summaryKey", HTMLInputElement).value,
+          target_headers: requiredTyped("#summaryHeaders", HTMLInputElement)
+            .value.split("\n")
+            .filter(Boolean),
+          timeout_ms: Number(requiredTyped("#summaryTimeout", HTMLInputElement).value) * 1000,
         }),
       });
       result.className = `target-check-result ${r.ok ? "success" : "failure"}`;
@@ -1195,12 +1221,12 @@ export function mountHistory() {
       result.textContent = e.message || t("testFailedGeneric");
     }
   });
-  $("summaryClose").addEventListener("click", () => {
+  requiredTyped("#summaryClose", HTMLButtonElement).addEventListener("click", () => {
     requiredDialog("summaryPanel").close();
   });
-  $("summaryRegenerate").addEventListener("click", async () => {
+  requiredTyped("#summaryRegenerate", HTMLButtonElement).addEventListener("click", async () => {
     if (!state.selected) return;
-    const button = $("summaryRegenerate");
+    const button = requiredTyped("#summaryRegenerate", HTMLButtonElement);
     if (button.disabled) return;
     button.disabled = true;
     button.textContent = "生成中…";
@@ -1218,7 +1244,7 @@ export function mountHistory() {
       button.textContent = "重新生成";
     }
   });
-  $("summaryCopy").addEventListener("click", () =>
+  requiredTyped("#summaryCopy", HTMLButtonElement).addEventListener("click", () =>
     navigator.clipboard.writeText($("summaryContent").textContent || ""),
   );
 }

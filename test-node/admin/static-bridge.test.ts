@@ -175,7 +175,7 @@ describe("[AI-19] admin UI module graph", () => {
       // A feature module takes nothing from a global: shared state, i18n and the DOM
       // helpers all arrive through ./core.js, which owns the dictionary and is therefore
       // the one module allowed to declare it.
-      if (name === "core.js") continue;
+      if (name === "core.js" || name === "dom.js") continue;
       expect(code, name).not.toMatch(/^(?:async )?(?:function|const|let) translations\b/m);
       // The two config surfaces are the documented dependency-injection seam: the
       // composition root hands them every shared service, so they import none of it.

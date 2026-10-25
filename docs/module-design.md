@@ -550,13 +550,13 @@ CSS_CENSUS=1 CSS_CENSUS_OUT=census.json npx vitest run test-node/ui/admin-ui-css
 
 ### 4.8 DOM 查询的空值真实性
 
-`$`、`qs`、`qsOn`、`asElement`、`closestFrom`、`closestOn`、`parentOf` 现在都声明为 `UiElement | null`，因为 DOM 就是这么返回的。之前声明非空是在替代码说谎。
+完整前端 ESM 图现在由 `tsconfig.ui.json` 启用 `strictNullChecks` 与 `exactOptionalPropertyTypes` 检查。`$` 按 id 查询必需 HTML 节点，缺失时抛出带选择器的初始化错误；`qs`、`qsOn`、`optionalId` 和事件目标查询仍返回可空值。
 
-`tsconfig.ui.json` 关着 `strictNullChecks`，所以这个联合类型会被折叠：改声明不会新增报错，也不会新增检查能力。`qs("#missing").value.trim()` 今天依然类型干净。九个脚本里有 325 处 DOM 查询，只有 55 处写了 `?.`。
+控件使用 `requiredTyped` / `optionalTyped`，通过真实 DOM 构造器检查得到 input、select、textarea、dialog 或 details；表单集合保留 input/select/textarea 联合类型，访问 checked、selectionStart 等成员前按具体类收窄。不存在 UiElement/DomElement 交叉类型或查询结果的非空断言。统计卡片生成前没有筛选器，相关控件在初始化与选项加载阶段必须使用可选查询。
 
-声明的意义在下一步。实测同一个 `tsconfig.ui.json` 加 `strictNullChecks: true`：改声明之前 207 个错，改之后 614 个（TS2531 203、TS18047 196），等于 407 处原本不可见的空值崩溃点变成了可诊断。全量 `strict: true` 从 889 涨到 1296。
+`src/admin/ui-contracts.d.ts` 定义共享状态、可空异步面板、任务序列和 API 路径到服务端 DTO 的映射。api() 的成功结果只在 JSON 传输边界转换到对应 DTO；错误正文从 unknown 逐字段检查，保留合法的错误码和字段问题。这里没有声称对每个成功响应做运行时 schema 校验，也没有启用 noImplicitAny 等其余 strict 子选项。
 
-所以“要不要开”是一个独立决定，不是改声明能解决的：开起来要处理 614 处，收益是把最常见的 UI 崩溃变成编译期错误。复测方法写在 `static-checks-and-split` 技能里。
+`test-node/admin/ui-types.test.ts` 用真实 TypeScript 编译器验证完整图覆盖，并证明空值解引用、错误控件成员、无效 API 字段/路径和异步状态会被拒绝。`test-node/ui/admin-ui-dom-contracts.test.ts` 在 Chromium 中验证具体类型、可选节点、损坏页面初始化和统计错误恢复。维护入口见 `static-checks-and-split` 技能。
 
 ## 5. 当前数据模型
 

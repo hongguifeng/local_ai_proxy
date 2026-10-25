@@ -5,13 +5,15 @@
     "moduleResolution": "NodeNext",
     "moduleDetection": "legacy",
     "lib": ["ES2024", "DOM", "DOM.Iterable"],
-    "types": [],
+    "types": ["node"],
     "allowJs": true,
     "checkJs": true,
     "strict": false,
     "noEmit": true,
     "skipLibCheck": true,
-    "forceConsistentCasingInFileNames": true
+    "forceConsistentCasingInFileNames": true,
+    "strictNullChecks": true,
+    "exactOptionalPropertyTypes": true
   },
   "include": ["src/admin/static/*.js", "src/admin/static/modules/*.js"],
   "exclude": ["node_modules", "dist-node", "dist-electron", "coverage"]

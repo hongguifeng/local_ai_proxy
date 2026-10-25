@@ -6,6 +6,9 @@
 import { configureDisplayLanguage } from "./display-locale.js";
 import {
   $,
+  optionalId,
+  optionalTyped,
+  requiredTyped,
   asElement,
   closestFrom,
   closestOn,
@@ -22,6 +25,9 @@ import {
 
 export {
   $,
+  optionalId,
+  optionalTyped,
+  requiredTyped,
   asElement,
   closestFrom,
   closestOn,
@@ -835,6 +841,7 @@ const initialLanguage =
  * module instead; what stays here is the state more than one module reads: the list of log
  * groups, the selected record and its payload, and the language.
  */
+/** @type {import("../../ui-contracts.js").SharedUiState} */
 export const state = {
   language: translations[initialLanguage] ? initialLanguage : "en",
   logGroups: [],
@@ -894,9 +901,10 @@ export const toast = (text) => {
   setTimeout(() => el.classList.remove("show"), 2400);
 };
 /**
- * @param {string} url
+ * @template {import("../../ui-contracts.js").ApiPath} Path
+ * @param {Path} url
  * @param {RequestInit} [options]
- * @returns {Promise<any>}
+ * @returns {Promise<import("../../ui-contracts.js").ApiResult<Path>>}
  */
 export const api = async (url, options = {}) => {
   const requestOptions = {
@@ -913,22 +921,27 @@ export const api = async (url, options = {}) => {
    * `error.issues` added when a configuration is rejected.
    */
   const res = await fetch(url, requestOptions);
+  /** @type {unknown} */
   const data = await res.json().catch(() => ({}));
   if (!res.ok) {
+    const errorData = isRecord(data) ? data : {};
     const message =
-      typeof data.error === "string"
-        ? data.error
-        : data.error && typeof data.error.message === "string"
-          ? data.error.message
+      typeof errorData.error === "string"
+        ? errorData.error
+        : isRecord(errorData.error) && typeof errorData.error.message === "string"
+          ? errorData.error.message
           : res.statusText;
     const error = /** @type {ApiError} */ (new Error(message));
     // The answer's own code and field paths ride along, so a caller can name the failure
     // and point at the offending input instead of re-reading the message text.
-    if (data.error && typeof data.error.code === "string") error.code = data.error.code;
-    if (data.error && Array.isArray(data.error.issues)) error.issues = data.error.issues;
+    if (isRecord(errorData.error) && typeof errorData.error.code === "string")
+      error.code = errorData.error.code;
+    if (isRecord(errorData.error) && Array.isArray(errorData.error.issues)) {
+      error.issues = errorData.error.issues.filter(isConfigIssue);
+    }
     throw error;
   }
-  return data;
+  return /** @type {import("../../ui-contracts.js").ApiResult<Path>} */ (data);
 };
 /**
  * Applies the current language to every element that carries a `data-i18n*` attribute.
@@ -943,7 +956,7 @@ export function applyLanguage() {
   // language change, so no number is ever formatted before the locale is known.
   configureDisplayLanguage(state.language);
   document.documentElement.lang = state.language === "zh" ? "zh-CN" : "en";
-  $("languageSelect").value = state.language;
+  requiredTyped("#languageSelect", HTMLSelectElement).value = state.language;
   qsa("[data-i18n]").forEach((el) => {
     el.textContent = t(el.dataset.i18n);
   });
@@ -951,7 +964,9 @@ export function applyLanguage() {
     el.title = t(el.dataset.i18nTitle);
   });
   qsa("[data-i18n-placeholder]").forEach((el) => {
-    el.placeholder = t(el.dataset.i18nPlaceholder);
+    if (el instanceof HTMLInputElement || el instanceof HTMLTextAreaElement) {
+      el.placeholder = t(el.dataset.i18nPlaceholder);
+    }
   });
 }
 /**
@@ -1002,4 +1017,18 @@ export function setLanguage(language) {
   localStorage.setItem("llmProxyLanguage", language);
   applyLanguage();
   rerenderLanguagePanels();
+}
+
+/** @param {unknown} value @returns {value is Record<string, unknown>} */
+export function isRecord(value) {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+/** @param {unknown} value @returns {value is ApiConfigIssue} */
+function isConfigIssue(value) {
+  return (
+    isRecord(value) &&
+    typeof value.code === "string" &&
+    typeof value.path === "string" &&
+    typeof value.message === "string"
+  );
 }

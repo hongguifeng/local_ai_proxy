@@ -400,17 +400,18 @@ P0 是已复现的功能缺陷；P1 是契约、文档和后端基础；P2 是�
 
 ### AI-20：收紧 UI 类型与 DOM 合同
 
-入口：迁移后的前端模块、[UI 类型检查配置](../tsconfig.ui.json)、[严格 DOM 合同配置](../tsconfig.ui-dom.json)、[DOM 助手](../src/admin/static/modules/dom.js)。
+入口：迁移后的前端模块、[UI 类型检查配置](../tsconfig.ui.json)、[共享 UI 与 API 类型](../src/admin/ui-contracts.d.ts)、[DOM 助手](../src/admin/static/modules/dom.js)。
 
-- [x] 为 DOM 合同模块启用 strictNullChecks，并保留现有模块的兼容检查边界。
-- [x] 区分必需节点与可选节点；必需节点缺失时给出含选择器的错误。
-- [x] 通过具体元素类型访问 input、dialog、details 等成员，并在使用 dialog 的模块采用运行时类型检查。
-- [x] 将 DOM 查询边界和 API 错误形状用 JSDoc 明确标注。
-- [x] 移除共享助手中的 UiElement 名称和旧的空值吞并断言。
+- [x] 在完整 UI 模块图启用 strictNullChecks 与 exactOptionalPropertyTypes；删除只检查 DOM 叶模块的独立配置。
+- [x] 为共享状态、任务异步面板、指标状态和请求取消边界定义明确类型；配置工厂的依赖也保留真实 DOM 与 API 类型。
+- [x] 区分必需节点与可选节点；必需节点缺失时给出含选择器的错误。统计卡片生成前不存在的筛选器和可选按钮使用可选查询。
+- [x] 移除 UiElement/DomElement 结构交叉与查询断言；通过构造器校验取得具体 input、select、textarea、dialog、details 和表单集合。
+- [x] api() 按路径映射到服务端 DTO，错误正文先按 unknown 检查，再保留合法 code、message 和字段问题；不再返回 Promise<any>。
+- [x] 增加真实 Chromium 运行时测试：缺失必需节点、错误控件类型、可选控件、统计错误恢复和 API 错误正文；编译器负例钉住空值、控件、API 与异步状态合同。
 
-验收：严格 DOM 合同模块通过 strictNullChecks；不存在节点和错误控件类型在初始化时明确失败。现有业务模块保留其渐进式 JSDoc 检查范围，后续模块可按同一配置继续迁移。
+验收：完整 UI 图通过严格空值检查；不存在节点和错误控件类型在真实初始化时明确失败。模块图、页面内容和视觉基线保持原合同。本项没有声称启用 noImplicitAny 等其余 strict 子选项。
 
-验证：V-B、V-U；运行静态源检查、UI 类型检查及相关交互、空态、错误态和中英文测试。
+验证：V-B、V-U；执行 UI 与产品类型检查、全量 lint、静态源/模块图守卫、全部 UI 浏览器测试、基线重生成和便携版构建。实测：`npm run typecheck`、`npm run lint`、`npm run check:modules` 通过；静态/编译器/全部 UI/文档测试合计 159 通过、2 跳过（22 文件通过、1 跳过）。`npm run regen:ui-baselines` 的十张截图与提交前像素及哈希一致。`npm run build && npm run rebuild:electron && npx electron-builder -w portable --publish never` 通过；`npm run smoke:payload` 验证健康、代理 200、日志 API 200 与数据库落盘，正常退出。打包后恢复 Node ABI，并通过真实 SQLite 查询。
 
 ### AI-21：统一渲染输入和缓存失效
 
@@ -527,7 +528,7 @@ P0 是已复现的功能缺陷；P1 是契约、文档和后端基础；P2 是�
 - [x] AI-15～16：产品构建、测试检查、ABI 与交付验证入口明确可重复。
 - [x] AI-17～18：前端构建入口、代理配置和负载均衡模块边界已建立，轮询、保存与销毁行为保持。
 - [x] AI-19：历史、详情、JSON 面板、统计和指标已迁移到单一 ES module graph，旧编号脚本和过渡 bridge 已移除。
-- [x] AI-20：DOM 合同模块已启用 strictNullChecks，必需节点、具体控件类型和中英文静态合同已收口；其余 UI 模块按同一配置继续渐进迁移。
+- [x] AI-20：完整 UI 图已启用 strictNullChecks 与 exactOptionalPropertyTypes，状态/API/异步合同与具体 DOM 查询已迁移，并通过编译器负例和真实浏览器初始化测试。
 - [ ] AI-21：渲染与缓存输入一致，刷新和大正文体验保持。
 - [ ] AI-22：组件样式归属明确，层叠与像素验证无意外变化。
 - [ ] AI-23：skills 内容简明且有效，固定操作由工具承担。

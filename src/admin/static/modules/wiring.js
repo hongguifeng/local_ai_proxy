@@ -1,3 +1,4 @@
+import { requiredTyped } from "./dom.js";
 // LLM Proxy admin UI -- the page's composition root: builds the two config surfaces, mounts
 // every feature module's listeners, and runs the startup sequence once.
 // ES module: this is the only place that knows about all features at once; production code
@@ -90,14 +91,14 @@ export function startAdminUi() {
   mountJsonPanes();
   mountStatistics();
   mountMetrics();
-  $("languageSelect").addEventListener("change", (event) =>
-    setLanguage(asElement(event.target).value),
+  requiredTyped("#languageSelect", HTMLSelectElement).addEventListener("change", () =>
+    setLanguage(requiredTyped("#languageSelect", HTMLSelectElement).value),
   );
   qsa(".tab").forEach((tab) =>
     tab.addEventListener("click", () => {
       qsa(".tab, .view").forEach((el) => el.classList.remove("active"));
       tab.classList.add("active");
-      $(tab.dataset.tab).classList.add("active");
+      $(tab.dataset.tab || "").classList.add("active");
       loadBalancing.updatePolling();
       if (tab.dataset.tab === "logs") loadLogs().catch((e) => toast(e.message));
       if (tab.dataset.tab === "statistics")
@@ -162,7 +163,7 @@ export function startAdminUi() {
   (() => {
     const logsView = $("logs"),
       logSplitter = $("logSplitter"),
-      logList = qs(".log-list");
+      logList = requiredTyped(".log-list", HTMLElement);
     let dragging = false,
       previewFrame = 0,
       baseRect = null,

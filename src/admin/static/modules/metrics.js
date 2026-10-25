@@ -1,3 +1,4 @@
+import { requiredTyped } from "./dom.js";
 // LLM Proxy admin UI -- upstream metrics: Prometheus list, auto refresh, vLLM dashboard.
 // ES module: imports the shared bootstrap (./core.js), the display helpers and the status
 // label the list view reuses.
@@ -12,6 +13,9 @@ import { formatDuration } from "./time.js";
  * view live here rather than in the shared `state` object, because no other module reads
  * them and the dialog is disposed with the page.
  */
+/** @typedef {{name: string, value: string}} MetricLabel */
+/** @typedef {{name: string, type: string, help: string, samples: {labels: MetricLabel[], value: string}[]}} MetricFamily */
+/** @type {{url: string, apiKey: string, loading: boolean, error: string | null, text: string, truncated: boolean, status: number, durationMs: number, filter: string, view: string, openFamilies: Record<string, boolean>, families: MetricFamily[], familyByName: Map<string, MetricFamily>, refreshMs: number, refreshTimer: ReturnType<typeof setInterval> | null, refreshTicks: number, scrollY: {dashboard: number, list: number}}} */
 const metricsState = {
   url: "",
   apiKey: "",
@@ -48,6 +52,7 @@ registerLanguagePanel(
 const PROMETHEUS_COMMENT = /^#\s*(HELP|TYPE)\s+(\S+)(?:\s+(.*))?$/;
 const PROMETHEUS_SAMPLE = /^([A-Za-z_:][A-Za-z0-9_:]*)(?:\{([^}]*)\})?\s+(\S+)(?:\s+\d+)?$/;
 const PROMETHEUS_LABEL = /(\w+)="((?:[^"\\]|\\.)*)"/g;
+/** @param {string | undefined} text @returns {MetricLabel[]} */
 function parseMetricLabels(text) {
   if (text === undefined || text === "") return [];
   const labels = [];
@@ -62,8 +67,11 @@ function parseMetricLabels(text) {
 // Parse the Prometheus exposition format into metric families: HELP/TYPE
 // comments open or update a family, sample lines attach label sets and
 // values. Families keep file order so related vLLM metrics stay grouped.
+/** @param {string} text @returns {MetricFamily[]} */
 function parsePrometheusMetrics(text) {
+  /** @type {MetricFamily[]} */
   const families = [];
+  /** @type {Map<string, MetricFamily>} */
   const byName = new Map();
   const familyFor = (name) => {
     let family = byName.get(name);
@@ -497,7 +505,7 @@ function vllmDashboardHtml() {
       ? 0
       : sources.samples.reduce((sum, sample) => sum + Number(sample.value || 0), 0);
   let sourceHtml = "";
-  if (sourceTotal > 0) {
+  if (sources !== undefined && sourceTotal > 0) {
     const colors = {
       local_cache_hit: "var(--accent)",
       local_compute: "#e0a03a",
@@ -637,7 +645,8 @@ function renderMetricsDialog() {
   const dashboard = $("metricsDashboard");
   const list = $("metricsList");
   $("metricsDialogUrl").textContent = metricsState.url;
-  $("metricsRefresh").disabled = metricsState.loading || metricsState.url === "";
+  requiredTyped("#metricsRefresh", HTMLButtonElement).disabled =
+    metricsState.loading || metricsState.url === "";
   result.hidden = true;
   result.textContent = "";
   result.className = "target-check-result";
@@ -661,8 +670,11 @@ function renderMetricsDialog() {
   const view = isVllm ? metricsState.view : "list";
   dashboard.hidden = view !== "dashboard";
   list.hidden = view !== "list";
-  $("metricsViewDashboard").classList.toggle("primary", view === "dashboard");
-  $("metricsViewList").classList.toggle("primary", view === "list");
+  requiredTyped("#metricsViewDashboard", HTMLButtonElement).classList.toggle(
+    "primary",
+    view === "dashboard",
+  );
+  requiredTyped("#metricsViewList", HTMLButtonElement).classList.toggle("primary", view === "list");
   if (view === "dashboard") {
     dashboard.innerHTML = vllmDashboardHtml();
     return;
@@ -689,7 +701,7 @@ export function openTargetMetricsDialog(target) {
   metricsState.url = target.target_url || "";
   metricsState.apiKey = target.target_api_key || "";
   metricsState.filter = "";
-  $("metricsFilter").value = "";
+  requiredTyped("#metricsFilter", HTMLInputElement).value = "";
   metricsState.text = "";
   metricsState.families = [];
   metricsState.error = null;
@@ -702,7 +714,7 @@ export function openTargetMetricsDialog(target) {
   renderMetricsDialog();
   requiredDialog("metricsDialog").showModal();
   loadTargetMetrics();
-  const intervalSelect = $("metricsRefreshInterval");
+  const intervalSelect = requiredTyped("#metricsRefreshInterval", HTMLSelectElement);
   if (intervalSelect) startMetricsAutoRefresh(Number(intervalSelect.value) || 0);
   syncMetricsRefreshCountdown();
 }
@@ -795,25 +807,32 @@ function loadTargetMetrics(options = {}) {
  * @returns {void}
  */
 export function mountMetrics() {
-  $("metricsClose").addEventListener("click", () => requiredDialog("metricsDialog").close());
+  requiredTyped("#metricsClose", HTMLButtonElement).addEventListener("click", () =>
+    requiredDialog("metricsDialog").close(),
+  );
   requiredDialog("metricsDialog").addEventListener("close", stopMetricsAutoRefresh);
-  $("metricsRefresh").addEventListener("click", () => loadTargetMetrics());
-  $("metricsRefreshInterval")?.addEventListener("change", (event) => {
-    const select = event.target;
-    if (!(select instanceof HTMLSelectElement)) return;
-    startMetricsAutoRefresh(Number(select.value) || 0);
-    syncMetricsRefreshCountdown();
-  });
-  $("metricsViewDashboard").addEventListener("click", () => {
+  requiredTyped("#metricsRefresh", HTMLButtonElement).addEventListener("click", () =>
+    loadTargetMetrics(),
+  );
+  requiredTyped("#metricsRefreshInterval", HTMLSelectElement)?.addEventListener(
+    "change",
+    (event) => {
+      const select = event.target;
+      if (!(select instanceof HTMLSelectElement)) return;
+      startMetricsAutoRefresh(Number(select.value) || 0);
+      syncMetricsRefreshCountdown();
+    },
+  );
+  requiredTyped("#metricsViewDashboard", HTMLButtonElement).addEventListener("click", () => {
     metricsState.view = "dashboard";
     renderMetricsDialog();
   });
-  $("metricsViewList").addEventListener("click", () => {
+  requiredTyped("#metricsViewList", HTMLButtonElement).addEventListener("click", () => {
     metricsState.view = "list";
     renderMetricsDialog();
   });
-  $("metricsFilter").addEventListener("input", (event) => {
-    metricsState.filter = asElement(event.target).value;
+  requiredTyped("#metricsFilter", HTMLInputElement).addEventListener("input", () => {
+    metricsState.filter = requiredTyped("#metricsFilter", HTMLInputElement).value;
     renderMetricsDialog();
   });
   // The `toggle` event does not bubble, so family open/collapse state must be

@@ -1,7 +1,0 @@
-{
-  "extends": "./tsconfig.ui.json",
-  "compilerOptions": {
-    "strictNullChecks": true
-  },
-  "include": ["src/admin/static/modules/dom.js"]
-}

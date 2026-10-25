@@ -1,8 +1,11 @@
+import { controlsOn, optionalTyped } from "./dom.js";
 import { escapeHtml } from "./text.js";
 import { requestWithCancellation } from "./request.js";
 
 /** Owns LB presentation, member form collection, open cards and polling. Pair
- * configuration belongs to proxy-config: reads are snapshots, edits are operations. */
+ * configuration belongs to proxy-config: reads are snapshots, edits are operations.
+ * @param {import("../../ui-contracts.js").LoadBalancingServices} services
+ */
 export function createLoadBalancing({
   $,
   qs,
@@ -16,15 +19,21 @@ export function createLoadBalancing({
   api: request,
 }) {
   let operations;
+  /** @type {AbortController | null} */
   let lifecycle = null;
   let statusRequest = null;
+  /** @template {import("../../ui-contracts.js").ApiPath} Path @param {Path} url @param {RequestInit} [options] */
   const api = (url, options = {}) =>
     requestWithCancellation(request, url, options, lifecycle?.signal);
   const listen = (target, type, listener, options = {}) =>
     target.addEventListener(type, listener, {
       ...(typeof options === "boolean" ? { capture: options } : options),
-      signal: lifecycle.signal,
+      signal: activeLifecycle().signal,
     });
+  function activeLifecycle() {
+    if (lifecycle === null) throw new Error("UI surface is not initialized");
+    return lifecycle;
+  }
   function patternToRegex(pattern) {
     return pattern
       .split("*")
@@ -213,11 +222,11 @@ export function createLoadBalancing({
 
   /** Checked nodes plus whatever is typed in their model boxes, in configured order. */
   function lbCollectMembers(lbCard, previous) {
-    const checkedIds = qsaOn(lbCard, "[data-lb-node]")
-      .filter((input) => input.checked)
+    const checkedIds = controlsOn(lbCard, "[data-lb-node]")
+      .filter((input) => input instanceof HTMLInputElement && input.checked)
       .map((input) => input.dataset.lbNode);
     const typed = new Map(
-      qsaOn(lbCard, "[data-lb-member-model]").map((input) => [
+      controlsOn(lbCard, "[data-lb-member-model]").map((input) => [
         input.dataset.lbMemberModel,
         input.value.trim(),
       ]),
@@ -383,9 +392,10 @@ export function createLoadBalancing({
       cards.forEach((lbCard) => {
         const draft = drafts[Number(lbCard.dataset.lbIndex)];
         if (draft === undefined) return;
-        draft.model_pattern = qsOn(lbCard, "[data-lb-field='model_pattern']")?.value || "";
+        draft.model_pattern =
+          optionalTyped("[data-lb-field='model_pattern']", HTMLInputElement, lbCard)?.value || "";
         draft.members = lbCollectMembers(lbCard, draft.members);
-        const toggle = qsOn(lbCard, "[data-lb-toggle]");
+        const toggle = optionalTyped("[data-lb-toggle]", HTMLInputElement, lbCard);
         if (toggle !== null) draft.enabled = toggle.checked;
       });
       // Enabled flags live only in the DOM until a save collects them, so a member
@@ -393,7 +403,7 @@ export function createLoadBalancing({
       const shadowTargets = (pair.targets || []).map((item) => ({ ...item }));
       qsaOn(proxyCard, ".target-card").forEach((targetCard) => {
         const index = Number(targetCard.dataset.targetIndex);
-        const box = qsOn(targetCard, "[data-target-enabled]");
+        const box = optionalTyped("[data-target-enabled]", HTMLInputElement, targetCard);
         const target = shadowTargets[index];
         if (target !== undefined && box !== null) {
           target.enabled = box.checked;
@@ -454,7 +464,7 @@ export function createLoadBalancing({
   function handleLoadBalancerClick(event, pairIndex) {
     const pair = operations.getPairs()[pairIndex];
     const lbCard = closestFrom(event.target, ".lb-card");
-    if (asElement(event.target).matches("[data-add-lb-group]")) {
+    if (asElement(event.target)?.matches("[data-add-lb-group]")) {
       operations.addGroup(pairIndex, newLoadBalancerGroup());
       const created = qs(
         `.proxy-card[data-index="${pairIndex}"] .lb-card:last-of-type [data-lb-field='name']`,
@@ -467,7 +477,7 @@ export function createLoadBalancing({
       toggleLbPicker(pickerToggle.closest("[data-lb-picker]"));
       return true;
     }
-    if (lbCard && asElement(event.target).matches("[data-remove-lb]")) {
+    if (lbCard && asElement(event.target)?.matches("[data-remove-lb]")) {
       const group = (pair.load_balancers || [])[Number(lbCard.dataset.lbIndex)];
       if (group) forgetLbGroupOpen(pair, group);
       operations.removeGroup(pairIndex, Number(lbCard.dataset.lbIndex));
@@ -480,12 +490,14 @@ export function createLoadBalancing({
     qsaOn(card, ".lb-card").forEach((lbCard) => {
       const group = groups[Number(lbCard.dataset.lbIndex)];
       if (!group) return;
-      qsaOn(lbCard, "[data-lb-field]").forEach((input) => {
-        group[input.dataset.lbField] = input.value;
+      controlsOn(lbCard, "[data-lb-field]").forEach((input) => {
+        const field = input.dataset.lbField;
+        if (field === undefined) throw new Error("Missing data-lb-field");
+        group[field] = input.value;
       });
-      group.enabled = qsOn(lbCard, "[data-lb-toggle]")?.checked ?? true;
+      group.enabled = optionalTyped("[data-lb-toggle]", HTMLInputElement, lbCard)?.checked ?? true;
       ["metrics_enabled", "failover_enabled"].forEach((flag) => {
-        const input = qsOn(lbCard, `[data-lb-flag="${flag}"]`);
+        const input = optionalTyped(`[data-lb-flag="${flag}"]`, HTMLInputElement, lbCard);
         group[flag] = input ? input.checked : true;
       });
       group.members = lbCollectMembers(lbCard, group.members);
@@ -583,8 +595,9 @@ export function createLoadBalancing({
       $("proxyGrid"),
       "toggle",
       (event) => {
-        const details = asElement(event.target);
-        if (!details.classList || !details.classList.contains("lb-status")) return;
+        const details = event.target;
+        if (!(details instanceof HTMLDetailsElement) || !details.classList.contains("lb-status"))
+          return;
         const lbCard = closestOn(details, ".lb-card");
         if (!lbCard) return;
         const pair = operations.getPairs()[Number(lbCard.dataset.lbPair)];
