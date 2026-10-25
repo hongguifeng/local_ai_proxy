@@ -42,6 +42,7 @@ export async function buildAdminAppScript(
 ): Promise<string> {
   const outputDirectory = path.dirname(outputFile);
   await mkdir(outputDirectory, { recursive: true });
+  await rm(path.join(outputDirectory, "modules-bridge.js"), { force: true });
   const temporaryDirectory = await mkdtemp(path.join(outputDirectory, ".admin-app-"));
   const temporaryFile = path.join(temporaryDirectory, ADMIN_BUNDLE_FILE);
   try {
