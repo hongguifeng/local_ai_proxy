@@ -1,6 +1,6 @@
 # 面向 AI 持续开发的优化 TODO
 
-基线：`14ae4de`，应用版本 0.4.10。原始清单为 24 项；AI-25 后扩展为 25 项。当前状态：22 / 25 项完成（AI-01～AI-21、AI-25）。
+基线：`14ae4de`，应用版本 0.4.10。原始清单为 24 项；AI-25 后扩展为 25 项。当前状态：23 / 25 项完成（AI-01～AI-22、AI-25）。
 
 本文是本轮优化的执行清单和验收依据。它把代码审查中的发现拆成独立任务，供本地 AI 按依赖顺序实施。历史设计和旧 TODO 只作为背景材料；执行时应复核当前源码。
 
@@ -129,7 +129,7 @@ P0 是已复现的功能缺陷；P1 是契约、文档和后端基础；P2 是�
 | [x]  | AI-19 | P2     | 模块化历史、详情和指标      | AI-11、AI-17、AI-18                                                                                                                                                    | 已完成 |
 | [x]  | AI-20 | P2     | 收紧 UI 类型与 DOM 合同     | AI-18、AI-19                                                                                                                                                           | 已完成 |
 | [x]  | AI-21 | P2     | 统一渲染输入和缓存失效      | AI-19、AI-20                                                                                                                                                           | 已完成 |
-| [ ]  | AI-22 | P2     | 建立组件样式归属            | AI-18、AI-19、AI-21                                                                                                                                                    | 未开始 |
+| [x]  | AI-22 | P2     | 建立组件样式归属            | AI-18、AI-19、AI-21                                                                                                                                                    | 已完成 |
 | [ ]  | AI-23 | P2     | 整理 skills 并固化操作入口  | AI-04、AI-14、AI-16、AI-20、AI-21、AI-22                                                                                                                               | 未开始 |
 | [x]  | AI-25 | P2     | 保留旧配置里未建模的键      | AI-08                                                                                                                                                                  | 已完成 |
 | [ ]  | AI-24 | P2     | 综合验收与文档收口          | AI-01、AI-02、AI-03、AI-04、AI-05、AI-06、AI-07、AI-08、AI-09、AI-10、AI-11、AI-12、AI-13、AI-14、AI-15、AI-16、AI-17、AI-18、AI-19、AI-20、AI-21、AI-22、AI-23、AI-25 | 未开始 |
@@ -431,11 +431,11 @@ P0 是已复现的功能缺陷；P1 是契约、文档和后端基础；P2 是�
 
 入口：[app.css](../src/admin/static/app.css)、[层叠对拍测试](../test-node/ui/admin-ui-css-cascade.test.ts)、迁移后的组件模板。
 
-- [ ] 先选择一个明确组件边界，记录其实际生效规则和跨区域竞争。
-- [ ] 用组件命名或局部作用域逐项收敛样式，保持共享 token 清晰。
-- [ ] 检查 hover、focus、disabled、hidden、窄屏和中英文长文本。
-- [ ] 逐组件迁移，每步使用既有 computed-style 对拍和视觉检查。
-- [ ] 无意外视觉变化后再清理不可达覆盖规则。
+- [x] 先选择一个明确组件边界，记录其实际生效规则和跨区域竞争。
+- [x] 用组件命名或局部作用域逐项收敛样式，保持共享 token 清晰。
+- [x] 检查 hover、focus、disabled、hidden、窄屏和中英文长文本。
+- [x] 逐组件迁移，每步使用既有 computed-style 对拍和视觉检查。
+- [x] 无意外视觉变化后再清理不可达覆盖规则。
 
 验收：迁移组件的样式归属清楚，其他页面不受影响。只减少 important 数量或移动 SECTION 注释不算完成；不机械添加多层 layer。
 
@@ -530,7 +530,7 @@ P0 是已复现的功能缺陷；P1 是契约、文档和后端基础；P2 是�
 - [x] AI-19：历史、详情、JSON 面板、统计和指标已迁移到单一 ES module graph，旧编号脚本和过渡 bridge 已移除。
 - [x] AI-20：完整 UI 图已启用 strictNullChecks 与 exactOptionalPropertyTypes，状态/API/异步合同与具体 DOM 查询已迁移，并通过编译器负例和真实浏览器初始化测试。
 - [x] AI-21：渲染与缓存输入一致，刷新和大正文体验保持。
-- [ ] AI-22：组件样式归属明确，层叠与像素验证无意外变化。
+- [x] AI-22：组件样式归属明确，层叠与像素验证无意外变化。
 - [ ] AI-23：skills 内容简明且有效，固定操作由工具承担。
 - [x] AI-25：旧配置里未建模的键不再被静默丢弃，控制台自己的运行时键不会被写进保存文件。
 - [ ] AI-24：完整检查、截图核验、portable 构建与隔离冒烟有实际记录。
@@ -553,6 +553,20 @@ UI 截图、性能或迁移结果（适用时）：
 与本清单的偏差、剩余事项：
 提交 SHA：未提交 / 实际 SHA
 ```
+
+### AI-22 完成记录
+
+- 状态：已完成
+- 实际变更：把统计页筛选条收成 `app.css` 里第一个「组件块」。新增 `/* COMPONENT: statistics filter bar */` 与 `/* END COMPONENT: statistics filter bar */` 两行横幅，块内是原来分散在 `price catalog` 与 `statistics` 两个区块、17 段连续区间里的 45 条规则（118 条声明），保持原书写顺序与各自的 `@media` 条件。块外不得再出现这 10 个类名。同时删掉可证不可达的部分：19 条选择器只含已不存在的类（`.stats-select-grid`、`.stats-filter-data`、`.stats-filter-actions`）的整条规则，3 条把死类与活类混在同一条选择器里的规则，9 条每个声明都被同选择器、同上下文、更靠后的声明压住的规则，2 条与更宽上下文同值重复的声明，以及 8 处选择器列表里的死部分和 17 条被压住的声明；删除后空出的 `@media` 块一并清理。`.stats-overview` 的两条响应式规则只去掉其中的死选择器部分，属于另一个组件的声明原样保留。
+- 修改文件：`src/admin/static/app.css`、新增 `test-node/ui/admin-ui-css-ownership.test.ts`、`docs/module-design.md`（新增 §4.9）、本文件。
+- 前置任务与现状复核：AI-18、AI-19、AI-21 已把统计页的 DOM 与渲染输入固定下来，本次只动样式表；未进入 AI-23 的 skills 整理，也未开始 AI-24 的综合验收。复核时先跑到实测：原表 4,526 行、769 条规则、2,500 条声明、82 处 `!important`、26 个 `@media` 块；能命中筛选条 26 个元素的外部规则只有 6 条（`*`、`button, input, textarea, select`、`button`、`label`、`label span`、`input, textarea`），特异性 ≤ (0,0,2)。
+- 关键设计选择及理由：边界选 `.stats-filters` 及其后代 10 个类，因为它们在 `index.html` 里只出现于这一个组件，且筛选条自身宽度与断点独立。归属靠「块 + 静态扫描」而不是 `@layer`：层会改变特异性与层序的相对权重，而本区域的胜出靠特异性，加层必变像素（见 §4.6 的否决）。搬动必须先搬 `@media` 条件、并且把裁剪过的规则一起搬走；本轮先漏了这两项，sweep 直接报出 900 px 下 `.stats-filter-time` 从单列变回两列，修正后才归零。
+- 实际验证命令与结果：自建 sweep（临时文件，不入库）对 `.stats-filters` 及其 25 个后代/文本节点抓全部计算长属性加 `rect`/`textContent`，20 个宽度（1400…400）× 中英共 1,040 条快照，改动前后 **0 差异**；同一夹具跑两遍基线也是 0 差异，先证明探针本身确定。仓库裁判 `CSS_CANDIDATE=<基线表> npx vitest run test-node/ui/admin-ui-css-cascade.test.ts -t "candidate stylesheet"` 为 0 差异（4 视口 × 9 状态）。普查 `CSS_CENSUS=1` 从 767 条规则 / 790 类争夺对变为 735 / 777，按顺序决胜 4,986 → 4,608、按 `!important` 决胜 2,275 → 2,194、两条都带 `!important` 比顺序 309 → 201，按特异性决胜的 55,995 次不变。`npx vitest run test-node/ui/` 为 9 个文件、126 tests passed / 2 skipped；`static-source`、`static-assets`、`built-static-assets` 共 14 tests passed；`npm run format:check`、`npm run lint`、`npm run typecheck`、`npm run check:modules` 均通过；`npm test` 第二次全量运行为 138 test files passed、1 skipped，1,233 tests passed、2 skipped。第一次全量有 4 个 UI 文件在 `afterAll(closeStubAdminServer)` 的 10 秒上限上超时（包括本项新加的那个），四个文件单跑全绿；把本项新文件拿掉后在同一台机器上跑全量也出现 1 次同类 10 秒超时（`ui-types.test.ts` 的编译用例），所以这是并发满载下的既有超时，不是本次改动带来的失败。
+- 新增/更新的测试及任务 ID：`test-node/ui/admin-ui-css-ownership.test.ts` 8 条用例。7 条静态：横幅唯一且成对、块内/块外类名归属、扫描不漏项、同一「上下文 + 选择器 + 属性」只声明一次且不嵌套 at-rule、`!important` 集合与 18 条清单逐项相等、已删类不再出现在选择器与标记里、块内每个类都真在标记里。1 条浏览器：在 1400/900/700/520 px 四个视口读回生效布局（`display`、`grid-template-columns` 列数、`gap`、155 px 日期格、`16 px` 复选框、分隔符可见性等 60 项属性与 5 项列数），期望值就是合并前那份表产生的值。现场改错一个期望值确认该用例会红，再改回。
+- UI 截图、性能或迁移结果：`npm run regen:ui-baselines` 重生成 10 张基线，逐张 SHA-256 与 `docs/refactoring/ui-visual-baseline.md` 已登记值完全一致，图像未变，因此该文档无需改哈希；逐张看了统计页中英、代理英、负载均衡英、历史英、任务明细英，没有新出现的中文；视口 1278 px（宽于 1101 px）下筛选条仍是「标签在左、日期行在右」的两列布局。规模：声明 2,500 → 2,441、规则 769 → 737、`!important` 82 → 62（下降是删掉不可达规则的副作用，不是本次目标）、行数 4,526 → 4,421。
+- 便携版构建与冒烟结果：`npm run build && npm run rebuild:electron && npx electron-builder -w portable --publish never` 通过；`npm run abi:electron` 真实查询通过（NODE_MODULE_VERSION 143）。`npm run smoke:delivery` 两段全过：unpacked payload health 789 ms、proxy 200、`GET /api/logs?limit=5` total 1、`traffic.db` 4,096 字节；portable wrapper health 2,668 ms、同样 proxy 200、logs total 1、`traffic.db` 生成，两段 exit code 均 0。检查 `release/win-unpacked/resources/app.asar`：含 `COMPONENT: statistics filter bar` 横幅与 `END COMPONENT` 标记，已删除的 pass 注释字串出现 0 次。完成后已 `npm rebuild better-sqlite3` 并用 `npm run abi:node` 真实查询恢复 Node ABI（NODE_MODULE_VERSION 137）。
+- 与本清单的偏差、剩余事项：其余区域仍是累积层，本项只迁了一个组件；`!important` 仍保留 18 条，每一条都在与外部元素规则或同一块内更早的宽区间规则竞争，`admin-ui-css-ownership.test.ts` 把这 18 条钉成清单。section 头里的「n 条规则」计数已按实测重算（原来那组数字早就飘了），这是维护导航而不是交付内容。
+- 提交 SHA：见交付提交。
 
 ### AI-01 完成记录
 

@@ -2,7 +2,7 @@
   TABLE OF CONTENTS
 
   Search for "SECTION:" to reach these headers, in file order:
-  shared shell 27  →  proxy targets 16  →  price catalog 19  →  proxy targets 25  →  shared shell 11  →  request history 20  →  request history 11  →  request history 11  →  request history 11  →  request history 27  →  statistics 19  →  shared shell 17  →  request history 21  →  JSON pane 22  →  proxy targets 15  →  proxy targets 21  →  statistics 11  →  statistics 39  →  statistics 13  →  statistics 27  →  statistics 21  →  target metrics 16  →  target metrics 58  →  load balancing 47
+  shared shell 30  →  proxy targets 16  →  price catalog 43  →  proxy targets 25  →  shared shell 32  →  request history 31  →  request history 21  →  request history 16  →  request history 17  →  request history 47  →  statistics 19  →  shared shell 25  →  request history 21  →  JSON pane 43  →  proxy targets 20  →  proxy targets 23  →  statistics 13  →  statistics 46  →  statistics 9  →  statistics 45  →  statistics 72  →  target metrics 17  →  target metrics 58  →  load balancing 53
 
   This sheet is a cumulative stack of layout passes. The cascade resolves a
   property by importance first, then specificity, then source order, so the
@@ -10,10 +10,15 @@
   block nearest the markup, and not necessarily the last block that mentions
   the selector. Before deleting a repeated declaration, confirm it loses to a
   later declaration of the same selector, same context and same property.
+
+  An area that has been converted to a single owned pass is marked "COMPONENT:"
+  instead: its rules live in one block, no other block may name its classes, and
+  test-node/ui/admin-ui-css-ownership.test.ts pins the containment and the layout.
+  The statistics filter bar is the first such component.
 */
 
 :root {
-  /* SECTION: shared shell (27 rules) */
+  /* SECTION: shared shell (30 rules) */
   color-scheme: light;
   --bg: #f3f5f8;
   --panel: #ffffff;
@@ -280,7 +285,7 @@ body.drag-target-active {
   user-select: none;
 }
 .model-prices {
-  /* SECTION: price catalog (19 rules) */
+  /* SECTION: price catalog (43 rules) */
   border-top: 1px solid #b8c5d3;
   padding-top: 10px;
 }
@@ -399,26 +404,6 @@ body.drag-target-active {
   }
 }
 
-/* statistics third-pass compact layout */
-.stats-filters {
-  margin-bottom: 10px;
-}
-.stats-filter-label,
-.stats-date-row label,
-.stats-select-grid label {
-  font-size: 11px;
-}
-.stats-presets button {
-  font-size: 12px;
-}
-.stats-date-row input,
-.stats-select-grid select {
-  font-size: 12px;
-}
-.stats-filter-actions button {
-  min-height: 30px;
-  font-size: 12px;
-}
 .token-details {
   margin-top: 5px;
 }
@@ -428,39 +413,9 @@ body.drag-target-active {
 .trend-controls select {
   font-size: 12px;
 }
-@media (max-width: 1100px) {
-  .stats-date-row {
-    grid-template-columns: minmax(160px, 1fr) auto minmax(160px, 1fr) auto;
-  }
-}
-@media (max-width: 700px) {
-  .stats-date-row,
-  .stats-select-grid,
-  .stats-overview {
-    grid-template-columns: 1fr;
-  }
-  .stats-date-separator {
-    display: none;
-  }
-}
 
 /* final statistics density correction */
 @media (min-width: 601px) {
-  .stats-filters {
-    display: grid;
-    gap: 8px;
-  }
-  .stats-filter-time .stats-filter-label,
-  .stats-filter-data .stats-filter-label {
-    align-self: center;
-    white-space: nowrap;
-  }
-  .stats-select-grid {
-    gap: 6px;
-  }
-  .stats-filter-actions {
-    align-self: end;
-  }
   .stats-overview {
     gap: 8px;
   }
@@ -482,42 +437,7 @@ body.drag-target-active {
   }
 }
 
-/* hard size limits for statistics controls and cards */
-@media (min-width: 601px) {
-  .stats-date-row label {
-    width: 180px;
-  }
-  .stats-date-row input {
-    width: 180px !important;
-    min-width: 180px;
-    max-width: 180px;
-  }
-}
-
 /* second-pass compact statistics layout */
-.stats-filter-time {
-  grid-template-columns: auto 1fr;
-}
-.stats-filter-time .stats-filter-label {
-  grid-row: 1;
-}
-.stats-date-row {
-  grid-column: 1 / -1;
-}
-.stats-date-row input,
-.stats-select-grid select {
-  min-height: 32px;
-  padding: 5px 7px;
-}
-.stats-filter-data .stats-filter-label {
-  align-self: center;
-}
-.stats-filter-actions {
-  align-self: end;
-}
-.stats-filter-actions button {
-  padding: 5px 9px;
-}
 .stat-card-tokens {
   grid-column: span 2;
   grid-template-columns: 1fr auto;
@@ -544,18 +464,6 @@ body.drag-target-active {
   min-height: 30px;
   padding: 4px 7px;
   border-radius: 7px;
-}
-@media (max-width: 1100px) {
-  .stats-filter-time,
-  .stats-filter-data {
-    grid-template-columns: 1fr;
-  }
-  .stats-date-row {
-    grid-column: auto;
-  }
-  .stats-filter-data .stats-filter-label {
-    align-self: auto;
-  }
 }
 @media (max-width: 800px) {
   .stat-card-tokens {
@@ -721,7 +629,7 @@ body.drag-target-active {
   justify-self: end;
 }
 .status {
-  /* SECTION: shared shell (11 rules) */
+  /* SECTION: shared shell (32 rules) */
   width: 10px;
   height: 10px;
   border-radius: 50%;
@@ -905,7 +813,7 @@ label span {
 /* "clip" (not "hidden") keeps the section from becoming a scroll container,
    which is what lets the group header stick inside .log-items. */
 .log-group {
-  /* SECTION: request history (20 rules) */
+  /* SECTION: request history (31 rules) */
   border: 1px solid var(--line);
   border-radius: 8px;
   background: white;
@@ -1146,7 +1054,7 @@ label span {
   color: #a4b2c0;
 }
 .log-group-body {
-  /* SECTION: request history (11 rules) */
+  /* SECTION: request history (21 rules) */
   border-top: 1px solid var(--line);
   background: white;
 }
@@ -1253,7 +1161,7 @@ label span {
   color: #176b52;
 }
 .log-item-empty {
-  /* SECTION: request history (11 rules) */
+  /* SECTION: request history (16 rules) */
   align-self: center;
   color: var(--muted);
 }
@@ -1346,7 +1254,7 @@ label span {
    cell: the prose wraps, the generate button sits on the title line, and the
    card inherits the generic button look (only the size is trimmed here). */
 .pricing-panel > .task-brief {
-  /* SECTION: request history (11 rules) */
+  /* SECTION: request history (17 rules) */
   margin-top: 12px;
   padding: 12px 14px;
   border: 1px solid var(--line);
@@ -1461,7 +1369,7 @@ label span {
    amber model color and wraps (shrunk by fitTaskSummaryValues) at narrow
    widths. */
 .task-stat-cards .task-stat-model {
-  /* SECTION: request history (27 rules) */
+  /* SECTION: request history (47 rules) */
   grid-column: 1;
 }
 .task-stat-cards .task-stat-model strong {
@@ -1878,7 +1786,7 @@ label span {
   text-align: center;
 }
 .pricing-table {
-  /* SECTION: shared shell (17 rules) */
+  /* SECTION: shared shell (25 rules) */
   width: 100%;
   border-collapse: separate;
   border-spacing: 0;
@@ -2149,7 +2057,7 @@ label span {
   font-size: 12px;
 }
 .json-string.format-mode {
-  /* SECTION: JSON pane (22 rules) */
+  /* SECTION: JSON pane (43 rules) */
   white-space: pre-wrap;
   word-break: break-all;
   overflow-wrap: anywhere;
@@ -2388,7 +2296,7 @@ label span {
 
 #targetCheckDialog::backdrop,
 #summaryModelDialog::backdrop {
-  /* SECTION: proxy targets (15 rules) */
+  /* SECTION: proxy targets (20 rules) */
   background: rgba(23, 32, 42, 0.35);
 }
 
@@ -2538,7 +2446,7 @@ label span {
 }
 
 .target-check-model-caret {
-  /* SECTION: proxy targets (21 rules) */
+  /* SECTION: proxy targets (23 rules) */
   flex: 0 0 auto;
   width: 30px;
   height: 30px;
@@ -2703,7 +2611,7 @@ label span {
   font-size: 18px;
 }
 .stats-section-heading {
-  /* SECTION: statistics (11 rules) */
+  /* SECTION: statistics (13 rules) */
   display: flex;
   align-items: center;
   justify-content: space-between;
@@ -2718,49 +2626,6 @@ label span {
   display: block;
   margin-top: 4px;
   color: #667085;
-  font-size: 13px;
-}
-.stats-filters {
-  align-items: center;
-  flex-wrap: wrap;
-  background: #fff;
-}
-.stats-presets {
-  display: inline-flex;
-  gap: 4px;
-  padding: 3px;
-  border: 1px solid var(--border, #d9dee7);
-  border-radius: 8px;
-  background: #f8fafc;
-}
-.stats-filters > input[type="datetime-local"] {
-  flex: 1 1 280px;
-  min-width: 260px;
-}
-.stats-filters select,
-.stats-filters > input[type="datetime-local"] {
-  border-radius: 8px;
-}
-.stats-presets button {
-  border: 0;
-  background: transparent;
-  border-radius: 6px;
-  padding: 6px 9px;
-  color: #475467;
-  cursor: pointer;
-}
-.stats-presets button.active,
-.stats-presets button:hover {
-  background: #fff;
-  color: #1d4ed8;
-  box-shadow: 0 1px 3px #1018281f;
-}
-.stats-live {
-  display: inline-flex;
-  align-items: center;
-  gap: 4px;
-  white-space: nowrap;
-  color: #475467;
   font-size: 13px;
 }
 .stats-overview {
@@ -2819,7 +2684,7 @@ label span {
   border-bottom: 1px solid #eee;
 }
 .stats-trend {
-  /* SECTION: statistics (39 rules) */
+  /* SECTION: statistics (46 rules) */
   margin-top: 18px;
   overflow: auto;
 }
@@ -3040,78 +2905,7 @@ label span {
   display: inline-flex;
   gap: 8px;
 }
-.stats-filters {
-  /* SECTION: statistics (13 rules) */
-  display: grid;
-  gap: 18px;
-  margin: 0 0 18px;
-  padding: 18px;
-  border: 1px solid #dfe5ed;
-  border-radius: 14px;
-  box-shadow: 0 5px 16px #1d29390d;
-}
-.stats-filter-group {
-  display: grid;
-  gap: 10px;
-}
-.stats-filter-label {
-  color: #344054;
-  font-size: 12px;
-  font-weight: 700;
-  letter-spacing: 0.04em;
-  text-transform: uppercase;
-}
-.stats-presets {
-  flex-basis: auto;
-  width: fit-content;
-  max-width: 100%;
-}
-.stats-date-row {
-  display: grid;
-  grid-template-columns: minmax(220px, 1fr) auto minmax(220px, 1fr) auto;
-  gap: 10px;
-  align-items: end;
-}
-.stats-date-row label,
-.stats-select-grid label {
-  display: grid;
-  gap: 5px;
-  min-width: 0;
-  color: #667085;
-  font-size: 12px;
-  font-weight: 600;
-}
-.stats-date-separator {
-  padding-bottom: 9px;
-  color: #98a2b3;
-  font-size: 13px;
-}
-.stats-live {
-  align-self: end;
-  min-height: 36px;
-}
-.stats-select-grid {
-  display: grid;
-  grid-template-columns: repeat(5, minmax(130px, 1fr));
-  gap: 10px;
-}
-.stats-select-grid select,
-.stats-date-row input {
-  width: 100%;
-  min-height: 38px;
-  border-radius: 8px;
-  background: #fbfcfe;
-}
-.stats-filter-actions {
-  display: flex;
-  justify-content: flex-end;
-  gap: 8px;
-}
-.stats-filter-summary {
-  margin: -5px 0 16px;
-  color: #667085;
-  font-size: 13px;
-}
+/* SECTION: statistics (9 rules) */
 .stats-overview {
   grid-template-columns: repeat(4, minmax(0, 1fr));
   gap: 12px;
@@ -3164,7 +2958,7 @@ label span {
   box-shadow: none;
 }
 .distribution-card {
-  /* SECTION: statistics (27 rules) */
+  /* SECTION: statistics (45 rules) */
   padding: 18px;
 }
 .distribution-card h3 {
@@ -3306,24 +3100,11 @@ label span {
   font-variant-numeric: tabular-nums;
 }
 @media (max-width: 1100px) {
-  .stats-select-grid {
-    grid-template-columns: repeat(3, minmax(150px, 1fr));
-  }
   .stats-overview {
     grid-template-columns: repeat(3, minmax(0, 1fr));
   }
 }
 @media (max-width: 800px) {
-  .stats-date-row {
-    grid-template-columns: 1fr;
-  }
-  .stats-date-separator {
-    display: none;
-  }
-  .stats-live {
-    justify-self: start;
-  }
-  .stats-select-grid,
   .stats-overview {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
@@ -3336,38 +3117,16 @@ label span {
   .statistics-view {
     padding: 18px 12px;
   }
-  .stats-overview,
-  .stats-select-grid {
+  .stats-overview {
     grid-template-columns: 1fr;
   }
   .toolbar-actions {
     gap: 5px;
   }
-  .stats-filter-actions {
-    justify-content: stretch;
-  }
-  .stats-filter-actions button {
-    flex: 1;
-  }
 }
 
 /* final overrides for compact statistics */
 @media (min-width: 601px) {
-  .stats-filter-time {
-    flex-wrap: nowrap;
-  }
-  .stats-filter-time .stats-filter-label {
-    white-space: nowrap;
-  }
-  .stats-date-row {
-    min-width: 0;
-  }
-  .stats-filter-data {
-    flex-wrap: nowrap;
-  }
-  .stats-filter-data .stats-select-grid {
-    min-width: 0;
-  }
   .stats-overview {
     grid-template-columns: repeat(4, minmax(0, 1fr)) !important;
   }
@@ -3381,13 +3140,6 @@ label span {
 
 /* hard size limits for statistics controls and cards */
 @media (min-width: 601px) {
-  .stats-select-grid {
-    grid-template-columns: repeat(4, 150px) !important;
-    flex: 0 0 auto !important;
-  }
-}
-
-@media (min-width: 601px) {
   .stats-overview .stat-card-tokens > strong {
     overflow: visible;
     text-overflow: clip;
@@ -3397,55 +3149,6 @@ label span {
 
 /* statistics layout reset: aligned compact controls and cards */
 @media (min-width: 601px) {
-  .stats-filter-time {
-    display: flex !important;
-    align-items: flex-end !important;
-    gap: 8px;
-  }
-  .stats-filter-time > .stats-filter-label {
-    padding-bottom: 8px;
-  }
-  .stats-presets {
-    flex: 0 0 auto;
-    margin-bottom: 0;
-  }
-  .stats-date-row {
-    flex: 0 0 auto !important;
-    grid-template-columns: 155px auto 155px auto !important;
-  }
-  .stats-date-row label,
-  .stats-date-row input {
-    width: 155px !important;
-    min-width: 155px !important;
-    max-width: 155px !important;
-  }
-  .stats-live {
-    align-self: end !important;
-    padding-bottom: 7px;
-    white-space: nowrap;
-  }
-  .stats-filter-data {
-    display: flex !important;
-    align-items: flex-end !important;
-    gap: 8px;
-  }
-  .stats-filter-data > .stats-filter-label {
-    padding-bottom: 8px;
-  }
-  .stats-filter-data .stats-select-grid {
-    display: grid !important;
-    flex: 0 0 auto !important;
-    grid-template-columns: 125px 125px 150px 150px !important;
-    gap: 6px;
-  }
-  .stats-select-grid select {
-    width: 100% !important;
-    min-width: 0 !important;
-  }
-  .stats-filter-actions {
-    margin-left: auto;
-    padding-bottom: 0;
-  }
   .stats-overview .stat-card {
     display: flex !important;
     flex-direction: column !important;
@@ -3484,17 +3187,7 @@ label span {
   }
 }
 
-/* checkbox must remain intrinsic instead of inheriting full-width text input */
-.stats-live input[type="checkbox"] {
-  /* SECTION: statistics (21 rules) */
-  width: 16px !important;
-  min-width: 16px !important;
-  max-width: 16px !important;
-  height: 16px;
-  margin: 0;
-  padding: 0;
-  flex: 0 0 16px;
-}
+/* SECTION: statistics (72 rules) */
 
 /* prevent token totals and details from escaping their card */
 .stats-overview .stat-card-tokens {
@@ -3601,27 +3294,231 @@ label span {
 /* final statistics layout: group labels sit above their controls; the date row
    is a compact flex row (no stretched auto tracks); follow-now stays clear of
    the end-time input; small screens fall back to a stacked single column */
+
+/* =============================================================================
+   COMPONENT: statistics filter bar
+
+   This block owns every rule that styles the statistics time-range bar and its
+   status line. Owned classes:
+
+     .stats-filters           .stats-filter-group      .stats-filter-time
+     .stats-filter-label      .stats-filter-summary    .stats-date-row
+     .stats-date-separator    .stats-presets           .stats-presets-group
+     .stats-live
+
+   Nothing outside this block may name one of them, and no declaration here may be
+   written twice for the same selector, context and property; both rules are pinned
+   by test-node/ui/admin-ui-css-ownership.test.ts, which also pins the effective
+   layout at every breakpoint so a later pass cannot quietly take the component over.
+   Shared shell rules (button, input, label, label span) still reach these elements
+   because their specificity is lower than every selector in this block.
+
+   The order inside the block is the order the scattered passes had, so the cascade
+   still resolves to the same declarations. Read it as two layouts:
+
+     >= 601px  .stats-filters is a grid card; .stats-filter-time stacks its label
+               over a flex .stats-date-row of two fixed 155px date cells, the
+               presets group and the follow-now label.
+     <= 600px  .stats-date-row falls back to a single-column grid and the date
+               separator is hidden.
+
+   .stats-filter-data, .stats-select-grid and .stats-filter-actions are gone from
+   the markup; their rules were removed with the rest of the component cleanup.
+   ========================================================================== */
+.stats-filters {
+  margin-bottom: 10px;
+}
+.stats-presets button {
+  font-size: 12px;
+}
+@media (max-width: 1100px) {
+  .stats-date-row {
+    grid-template-columns: minmax(160px, 1fr) auto minmax(160px, 1fr) auto;
+  }
+}
+@media (min-width: 601px) {
+  .stats-filter-time .stats-filter-label {
+    align-self: center;
+  }
+}
+.stats-filter-time {
+  grid-template-columns: auto 1fr;
+}
+.stats-filter-time .stats-filter-label {
+  grid-row: 1;
+}
+.stats-date-row {
+  grid-column: 1 / -1;
+}
+.stats-date-row input {
+  padding: 5px 7px;
+}
+@media (max-width: 1100px) {
+  .stats-filter-time {
+    grid-template-columns: 1fr;
+  }
+  .stats-date-row {
+    grid-column: auto;
+  }
+}
+.stats-filters {
+  align-items: center;
+  flex-wrap: wrap;
+  background: #fff;
+}
+.stats-presets {
+  display: inline-flex;
+  gap: 4px;
+  padding: 3px;
+  border: 1px solid var(--border, #d9dee7);
+  border-radius: 8px;
+  background: #f8fafc;
+}
+.stats-filters > input[type="datetime-local"] {
+  flex: 1 1 280px;
+  min-width: 260px;
+}
+.stats-filters select,
+.stats-filters > input[type="datetime-local"] {
+  border-radius: 8px;
+}
+.stats-presets button {
+  border: 0;
+  background: transparent;
+  border-radius: 6px;
+  padding: 6px 9px;
+  color: #475467;
+  cursor: pointer;
+}
+.stats-presets button.active,
+.stats-presets button:hover {
+  background: #fff;
+  color: #1d4ed8;
+  box-shadow: 0 1px 3px #1018281f;
+}
+.stats-live {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  white-space: nowrap;
+  color: #475467;
+  font-size: 13px;
+}
+.stats-filters {
+  display: grid;
+  gap: 18px;
+  margin: 0 0 18px;
+  padding: 18px;
+  border: 1px solid #dfe5ed;
+  border-radius: 14px;
+  box-shadow: 0 5px 16px #1d29390d;
+}
+.stats-filter-group {
+  display: grid;
+  gap: 10px;
+}
+.stats-filter-label {
+  color: #344054;
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+.stats-presets {
+  flex-basis: auto;
+  width: fit-content;
+  max-width: 100%;
+}
+.stats-date-row {
+  display: grid;
+  grid-template-columns: minmax(220px, 1fr) auto minmax(220px, 1fr) auto;
+  gap: 10px;
+  align-items: end;
+}
+.stats-date-row label {
+  display: grid;
+  gap: 5px;
+  min-width: 0;
+  color: #667085;
+  font-size: 12px;
+  font-weight: 600;
+}
+.stats-date-separator {
+  padding-bottom: 9px;
+  color: #98a2b3;
+  font-size: 13px;
+}
+.stats-live {
+  align-self: end;
+  min-height: 36px;
+}
+.stats-date-row input {
+  width: 100%;
+  min-height: 38px;
+  border-radius: 8px;
+  background: #fbfcfe;
+}
+.stats-filter-summary {
+  margin: -5px 0 16px;
+  color: #667085;
+  font-size: 13px;
+}
+@media (max-width: 800px) {
+  .stats-date-row {
+    grid-template-columns: 1fr;
+  }
+  .stats-date-separator {
+    display: none;
+  }
+  .stats-live {
+    justify-self: start;
+  }
+}
+@media (min-width: 601px) {
+  .stats-filter-time {
+    flex-wrap: nowrap;
+  }
+  .stats-filter-time .stats-filter-label {
+    white-space: nowrap;
+  }
+  .stats-date-row {
+    min-width: 0;
+  }
+  .stats-presets {
+    flex: 0 0 auto;
+    margin-bottom: 0;
+  }
+  .stats-date-row {
+    flex: 0 0 auto !important;
+    grid-template-columns: 155px auto 155px auto !important;
+  }
+  .stats-date-row label,
+  .stats-date-row input {
+    width: 155px !important;
+    min-width: 155px !important;
+    max-width: 155px !important;
+  }
+  .stats-live {
+    align-self: end !important;
+    padding-bottom: 7px;
+  }
+}
+/* checkbox must remain intrinsic instead of inheriting full-width text input */
+.stats-live input[type="checkbox"] {
+  width: 16px !important;
+  min-width: 16px !important;
+  max-width: 16px !important;
+  height: 16px;
+  margin: 0;
+  padding: 0;
+  flex: 0 0 16px;
+}
 .stats-filter-time {
   display: grid !important;
   align-items: stretch !important;
   gap: 6px !important;
 }
 .stats-filter-time > .stats-filter-label {
-  padding-bottom: 0 !important;
-}
-/* The data group must be a single column so its label sits above the select
-   grid; without an explicit column template, grid auto-placement puts the
-   label and the select grid side by side (two auto columns). */
-.stats-filter-data {
-  display: grid !important;
-  grid-template-columns: 1fr !important;
-  grid-template-rows: auto auto !important;
-  align-items: start !important;
-  align-content: start !important;
-  gap: 6px 0 !important;
-  flex: 1 1 auto !important;
-}
-.stats-filter-data > .stats-filter-label {
   padding-bottom: 0 !important;
 }
 .stats-presets-group {
@@ -3650,13 +3547,11 @@ label span {
     display: grid !important;
     grid-template-columns: 1fr !important;
   }
-  .stats-date-separator {
-    display: none;
-  }
   .stats-date-row .stats-live {
     margin-left: 0;
   }
 }
+/* END COMPONENT: statistics filter bar */
 
 /* 统计页令牌卡片:明细移至大数字右侧,同一行卡片等高 */
 @media (min-width: 601px) {
@@ -3739,7 +3634,7 @@ label span {
 /* Upstream /metrics viewer (metricsDialog): a wide resizable dialog that
    lists Prometheus metric families parsed from the exposition text. */
 .metrics-dialog {
-  /* SECTION: target metrics (16 rules) */
+  /* SECTION: target metrics (17 rules) */
   width: min(1080px, calc(100vw - 48px));
   height: min(680px, calc(100vh - 80px));
   min-width: min(420px, calc(100vw - 48px));
@@ -4178,7 +4073,7 @@ label span {
    generic card class would pull in the statistics page's font-size and ellipsis
    rules, which do not belong here. */
 .lb-section {
-  /* SECTION: load balancing (47 rules) */
+  /* SECTION: load balancing (53 rules) */
   display: grid;
   gap: 8px;
   margin-top: 4px;
