@@ -121,7 +121,7 @@ P0 是已复现的功能缺陷；P1 是契约、文档和后端基础；P2 是�
 | [x]  | AI-11 | P1     | 分离模型调用与日志查询      | AI-01、AI-05、AI-07、AI-10                                                                                                                                      | 已完成 |
 | [x]  | AI-12 | P1     | 按职责拆分持久化访问        | AI-06、AI-07、AI-10                                                                                                                                             | 已完成 |
 | [x]  | AI-13 | P1     | 稳定历史迁移依赖            | AI-03、AI-10、AI-12                                                                                                                                             | 已完成 |
-| [ ]  | AI-14 | P1     | 补齐场景测试并稳定时序验证  | AI-01、AI-02、AI-05、AI-08、AI-09                                                                                                                               | 未开始 |
+| [ ]  | AI-14 | P1     | 补齐场景测试并稳定时序验证  | AI-01、AI-02、AI-05、AI-08、AI-09                                                                                                                               | 在办   |
 | [x]  | AI-15 | P2     | 分离产品、测试与工具编译    | 无                                                                                                                                                              | 已完成 |
 | [x]  | AI-16 | P2     | 固化 ABI 和交付冒烟流程     | AI-15                                                                                                                                                           | 已完成 |
 | [ ]  | AI-17 | P2     | 建立前端模块构建入口        | AI-08、AI-15                                                                                                                                                    | 在办   |
@@ -789,6 +789,15 @@ UI 截图、性能或迁移结果（适用时）：
 - AI-13 那条故意留的耦合接住了：`git diff 7ecedcd..HEAD` 里根本没有 `src/proxy/records.ts` 和 `src/proxy/protocol/analysis.*`，合并后全量套件里 `migration-freeze / migration-live-drift / migration-conversions` 都跑了且绿。
 - `AGENTS.md` `+2` 行 `-0` 行（读/写工具会把开头的 `/tmp/...` 解到当前盘而不是 shell 的 `/tmp`；证明重构后上游请求字节相同不需要付费上游，`git show <base>:<path>` 把改前的文件取出来跟当前版本比对）；`docs/current-architecture.md` 改了 **2** 行（proxy 行和 maintenance 行）——包里只许改 1 行，这算个小偏差，但两行都是它自己改动的准确反映。
 - 遗留风险（它报的，我认了）：超时与网络失败现在共用同一句对外文案（这是从旧代码里保留下来的，不是新引入的）；并发保护只在单进程内有效；UI 基线没动（UI 套件绿，skip 数与之前相同）。下一轮集成 V-P 会盖住 AI-11、AI-17 和 AI-09 那笔还欠着的 V-P，对合并后的最终状态一次性跑。
+
+### AI-14 在办记录（与 AI-17 同轮，用户选的碰撞）
+
+- 状态：**在办**，复选框仍 `[ ]`。编排方把三条路都摆出来了（等 AI-17 / 只开 AI-14 的后端半边 / 现在就全量开），用户选了“现在就全量开 AI-14”，所以这一轮是明知会撞还开——这是六个零冲突合并之后第一次真可能撞。
+- 撞在哪：AI-17 手里正拿着 `test-node/ui/**`（含 `admin-ui-fixture.ts`、`admin-ui-server.ts`、`admin-ui-page.ts`）、`test-node/admin/static-source.test.ts`、`src/admin/static/**`、`tsconfig.ui.json`、`package.json` 与 `package-lock.json`（它正在往里声明 esbuild）、`eslint.config.js`、十个基线 PNG 与哈希文档；而 AI-14 的任务入口里明写着 `test-node/app/runtime.test.ts`、`test-node/proxy/proxy-listener.test.ts`、`test-node/admin/static-source.test.ts` 和 UI 测试，它的第二条第五条验收（SSE 时序、pageerror 收集）正好落在 AI-17 的文件上。
+- 所以任务包里写了六条碰撞协议（用户选的碰撞，编排方能做的是把它压成文本级小碰撞而不是结构级大碰撞）：优先新增文件而不是改写共享文件；要碰共享 UI helper 只做加法、尽量小、并在 handoff 里逐条申报碰了哪些共享文件；第五条的 pageerror 收集实现放进一个新 helper，只用在 AI-14 自己新增的场景文件上，那六个现有 `admin-ui-*.test.ts` 的扫尾明确放到 AI-17 合并之后做（写成后续任务，不是静默缺口）；第四条若遇到该转换的源码文本检查正好住在 `static-source.test.ts` 里，就留在原处不动、把行为/结构替代写成同目录兄弟文件并报告这一对；绝不许动十个 `doc/ui_*.png` 与 `docs/refactoring/ui-visual-baseline.md`（觉得基线该动就报告，不许重生成）；绝不许动 `package.json`、`package-lock.json`、`eslint.config.js`、任何 `tsconfig*.json`、`electron-builder.yml`。要改被禁文件就停下来写理由与具体行。
+- lane 与身份：`D:/code/lane-ai14` 分支 `lane/ai-14`，从 `acf35b0` 起；启动前 `git status --short` 行数实测 0，595 MB `node_modules` 副本（robocopy 退出码 1 = 成功），`:memory:` 实查询报 `{"a":42}` 证明 Node ABI。workflow `82dea497-9363-45af-a2b7-a329c6855205`；子运行 `9dbeff02-0e36-440b-8968-0d77cc4de9e9`；预算 50 分钟、编排层上限 60 分钟；脚本 `.pi/subagents/lane-ai14.mjs` 先 validate 报 `{"ok":true,"errors":[]}`。端口 39561/39562/39563 实测全空闲。
+- 写进包里的实测事实：那条压缩 SSE 偶发失败的全量签名（期望 `decode_window_ms >= 20` 实得 `1`）、单跑那个文件 32/32、编排方探针实测 `1.2 ms`、夹具第 1210–1214 行嵌套 `setTimeout` 加第 8 行 `node:zlib`（饥饿时就挤进同一 tick）；`runtime.test.ts` 已带 AI-09 那 +158 行、钉着十个真 GET 与关键 POST 走装配后的服务；`static-source.test.ts` 钉作者顺序等于 `ADMIN_SCRIPT_PARTS`、每个部分规范格式、拼接里一个占位符且无重复顶层声明；`pageerror` 在 `test-node/ui` 里出现 **0** 次（所以第五条是新活，不是微改）；`test-node` 里 `readFileSync/existsSync` 在非夹具非数据库位置 **15** 处（第四条的清单起点）。
+- 还写进去了它兄弟那条致命教训：冒烟脚本打完最后一行却不退出，就会被自己那个还在监听的夹具服务撑住事件循环，启动它的 bash 调用永不返回，预算全烧在等一个不会回来的命令——AI-11 正是这么死的。要求 `unref()` 服务器与 socket，或者查完就 `process.exit`。
 
 ### AI-13 完成记录
 
