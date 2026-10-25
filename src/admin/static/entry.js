@@ -2,6 +2,8 @@
 // This file is the root the bundler walks: every capability below arrives through an
 // import, so the bundle has no undeclared names of its own.
 
+import { createProxyConfig } from "./modules/proxy-config.js";
+import { createLoadBalancing } from "./modules/load-balancing.js";
 import { configureDisplayLanguage } from "./modules/display-locale.js";
 import { chartMeanLine, chartPeakLabel, costAxisLabel, niceAxisScale } from "./modules/chart.js";
 import {
@@ -50,3 +52,6 @@ globalThis.niceAxisScale = niceAxisScale;
 globalThis.chartMeanLine = chartMeanLine;
 globalThis.chartPeakLabel = chartPeakLabel;
 globalThis.costAxisLabel = costAxisLabel;
+
+globalThis.createProxyConfig = createProxyConfig;
+globalThis.createLoadBalancing = createLoadBalancing;

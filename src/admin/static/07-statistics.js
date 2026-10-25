@@ -27,69 +27,6 @@ function logStatusClass(status) {
   if (Number.isFinite(code) && code >= 400) return "error";
   return "neutral";
 }
-function applyLoadBalancerStatus(data) {
-  const pairStates = (data && data.pairs) || [];
-  qsa(".lb-card").forEach((lbCard) => {
-    const pair = state.pairs[Number(lbCard.dataset.lbPair)];
-    const group = ((pair && pair.load_balancers) || [])[Number(lbCard.dataset.lbIndex)];
-    const pairState = pairStates.find((item) => item.id === (pair && pair.id));
-    const groupState = ((pairState && pairState.groups) || []).find(
-      (item) => item.id === (group && group.id),
-    );
-    if (!groupState) return;
-    qsaOn(lbCard, ".lb-node-state").forEach((row) => {
-      const node = (groupState.nodes || []).find(
-        (item) => item.targetId === row.dataset.lbStatusTarget,
-      );
-      if (!node) return;
-      const metrics = node.metrics;
-      const stateWords = [node.enabled ? t("lbStateOn") : t("lbStateOff")];
-      if (metrics === null) stateWords.push(t("lbStateNoSample"));
-      else if (node.stale) stateWords.push(t("lbStateStale"));
-      setLbBadge(row, node.enabled, metrics, node.stale, stateWords);
-      setLbFact(row, "inFlight", t("lbStateInFlight"), String(node.inFlight));
-      setLbFact(
-        row,
-        "waiting",
-        t("lbStateWaiting"),
-        metrics === null ? "-" : String(metrics.waiting),
-      );
-      setLbFact(
-        row,
-        "kv",
-        t("lbStateKv"),
-        metrics === null || metrics.kvUsage === undefined
-          ? "-"
-          : `${Math.round(metrics.kvUsage * 100)}%`,
-      );
-      setLbFact(row, "bindings", t("lbStateBindings"), String(node.bindings));
-      setLbFact(
-        row,
-        "cooldown",
-        t("lbStateCooldown"),
-        node.cooldownRemainingMs > 0 ? `${Math.ceil(node.cooldownRemainingMs / 1000)}s` : "0",
-      );
-      setLbFact(row, "source", t("lbStateSource"), metrics === null ? "-" : metrics.source);
-    });
-  });
-}
-
-async function refreshLoadBalancerStatus() {
-  if (!loadBalancerStatusVisible()) return;
-  try {
-    applyLoadBalancerStatus(await api("/api/load-balancer/status"));
-  } catch {
-    // A failed read keeps the numbers that are already on screen.
-  }
-}
-
-function scheduleLoadBalancerStatus() {
-  clearInterval(loadBalancerStatusTimer);
-  loadBalancerStatusTimer = setInterval(() => {
-    refreshLoadBalancerStatus();
-  }, loadBalancerStatusIntervalMs);
-}
-
 // The chart geometry this page used to own (nice axis scale, mean line, peak label and
 // cost tick labels) is now src/admin/static/modules/chart.js; the task-detail charts
 // reach it through the bridge in entry.js.

@@ -982,4 +982,90 @@ describe("admin UI proxy page", { timeout: UI_TEST_TIMEOUT_MS }, () => {
       expect(item.more.right).toBeGreaterThan(item.actions.right);
     }
   });
+  it("preserves raw drafts, prices and focus across language and status refreshes", async () => {
+    await loadAdminPage();
+    await page.locator(".model-prices summary").click();
+    await page.locator("[data-add-price]").click();
+    const mapping = page.locator('[data-target-field="model_mappings"]');
+    const name = page.locator('[data-field="name"]');
+    const price = page.locator('[data-price-field="input_per_million"]');
+    await name.fill("Unsaved proxy");
+    await mapping.fill("  draft-*  =>  upstream-model  ");
+    await price.fill("0.00100");
+    await mapping.focus();
+    await mapping.evaluate((element) => {
+      if (element instanceof HTMLTextAreaElement) element.setSelectionRange(3, 9);
+    });
+    await page.evaluate('setLanguage("zh");');
+    await expectPage(mapping).toHaveValue("  draft-*  =>  upstream-model  ");
+    await expectPage(mapping).toBeFocused();
+    expect(
+      await mapping.evaluate((element) =>
+        element instanceof HTMLTextAreaElement
+          ? [element.selectionStart, element.selectionEnd]
+          : [],
+      ),
+    ).toEqual([3, 9]);
+    await page.evaluate("proxyConfig.load();");
+    await expectPage(name).toHaveValue("Unsaved proxy");
+    await expectPage(price).toHaveValue("0.00100");
+    await page.locator("#languageSelect").selectOption("en");
+    await expectPage(mapping).toHaveValue("  draft-*  =>  upstream-model  ");
+    await expectPage(price).toHaveValue("0.00100");
+  });
+
+  it("initializes once and removes form and language listeners on disposal", async () => {
+    await loadAdminPage();
+    await page.evaluate("initializeProxyConfig(); initializeProxyConfig();");
+    await page.locator("#addProxy").click();
+    await expectPage(page.locator(".proxy-card")).toHaveCount(2);
+    await page.evaluate("proxyConfig.dispose(); proxyConfig.dispose();");
+    await page.locator("#addProxy").click();
+    await expectPage(page.locator(".proxy-card")).toHaveCount(2);
+    // Disposal unregisters the feature panel, including its draft capture callback.
+    await page.locator(".proxy-card").first().locator('[data-field="name"]').fill("Disposed draft");
+    await page.locator("#languageSelect").selectOption("zh");
+    await expectPage(
+      page.locator(".proxy-card").first().locator('[data-field="name"]'),
+    ).toHaveValue("Disposed draft");
+    await page.evaluate("initializeProxyConfig(); initializeProxyConfig();");
+    await page.locator("#addProxy").click();
+    await expectPage(page.locator(".proxy-card")).toHaveCount(3);
+    await page.locator("#languageSelect").selectOption("en");
+    await expectPage(
+      page.locator(".proxy-card").first().locator('[data-field="name"]'),
+    ).toHaveValue("Disposed draft");
+  });
+
+  it("keeps edits typed while a config save is in flight", async () => {
+    await loadAdminPage();
+    let releaseSave: (() => void) | undefined;
+    const saveReleased = new Promise<void>((resolve) => {
+      releaseSave = resolve;
+    });
+    await page.route("**/api/pairs", async (route) => {
+      if (route.request().method() !== "PUT") {
+        await route.continue();
+        return;
+      }
+      await saveReleased;
+      await route.continue();
+    });
+    const name = page.locator('[data-field="name"]');
+    await name.fill("Submitted draft");
+    await Promise.all([
+      page.waitForRequest(
+        (request) => request.url().endsWith("/api/pairs") && request.method() === "PUT",
+      ),
+      page.locator("#saveProxies").click(),
+    ]);
+    await name.fill("Later unsaved draft");
+    const mapping = page.locator('[data-target-field="model_mappings"]');
+    await mapping.fill("  draft-model  =>  upstream-model  ");
+    releaseSave?.();
+    await expectPage(page.locator("#toast")).toContainText("Config saved");
+    expect(pairs[0]?.name).toBe("Submitted draft");
+    await expectPage(name).toHaveValue("Later unsaved draft");
+    await expectPage(mapping).toHaveValue("  draft-model  =>  upstream-model  ");
+  });
 });
