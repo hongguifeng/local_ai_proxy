@@ -9,6 +9,8 @@ import { afterEach, describe, expect, it } from "vitest";
 import {
   SCHEMA_VERSION_KEY,
   TRAFFIC_DB_NAME,
+  CURRENT_SCHEMA_VERSION,
+  DATABASE_MIGRATIONS,
   backupDatabase,
   checkpointDatabase,
   connectLogDatabase,
@@ -254,6 +256,35 @@ describe("connectLogDatabase", () => {
     ).toEqual(["record-1"]);
 
     database.close();
+  });
+});
+
+describe("schema version source", () => {
+  // [AI-03] One ordered list defines what "current" means. Pinning the numbers by hand keeps a
+  // drifted constant from passing every assertion that is derived from it.
+  it("[AI-03] applies every migration exactly once, in the order 1 through 13", () => {
+    const versions = DATABASE_MIGRATIONS.map(({ version }) => version);
+
+    expect(versions).toEqual([1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13]);
+    expect(new Set(versions).size).toBe(versions.length);
+  });
+
+  it("[AI-03] exports the version a fresh database and a restored backup report", async () => {
+    const root = await mkdtemp(path.join(os.tmpdir(), "llm-proxy-schema-source-"));
+    temporaryDirectories.push(root);
+    const database = connectLogDatabase(path.join(root, "live"));
+    const freshVersion = readSchemaVersion(database);
+    const destination = path.join(root, "nested", "backup", TRAFFIC_DB_NAME);
+    await backupDatabase(database, destination);
+    database.close();
+
+    const backup = new Database(destination, { readonly: true });
+    const backupVersion = readSchemaVersion(backup);
+    backup.close();
+
+    expect(CURRENT_SCHEMA_VERSION).toBe(13);
+    expect(freshVersion).toBe(CURRENT_SCHEMA_VERSION);
+    expect(backupVersion).toBe(CURRENT_SCHEMA_VERSION);
   });
 });
 

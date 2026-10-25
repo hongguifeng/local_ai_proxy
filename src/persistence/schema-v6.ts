@@ -1,7 +1,6 @@
 import type { DatabaseMigration } from "./database.js";
 
 export const SCHEMA_V6_VERSION = 6;
-export const SCHEMA_VERSION = SCHEMA_V6_VERSION;
 
 export const SCHEMA_V6_MIGRATION: DatabaseMigration = {
   version: SCHEMA_V6_VERSION,

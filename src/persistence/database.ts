@@ -25,6 +25,33 @@ export interface DatabaseMigration {
   readonly migrate: (database: Database.Database) => void;
 }
 
+/**
+ * Every migration in apply order. `runMigrations` sorts by version, so this list is also the
+ * definition of what "current" means: `CURRENT_SCHEMA_VERSION` is derived from it and the
+ * public barrel re-exports the same value.
+ */
+export const DATABASE_MIGRATIONS: readonly DatabaseMigration[] = Object.freeze([
+  SCHEMA_V1_MIGRATION,
+  SCHEMA_V2_MIGRATION,
+  SCHEMA_V3_MIGRATION,
+  SCHEMA_V4_MIGRATION,
+  SCHEMA_V5_MIGRATION,
+  SCHEMA_V6_MIGRATION,
+  SCHEMA_V7_MIGRATION,
+  SCHEMA_V8_MIGRATION,
+  SCHEMA_V9_MIGRATION,
+  SCHEMA_V10_MIGRATION,
+  SCHEMA_V11_MIGRATION,
+  SCHEMA_V12_MIGRATION,
+  SCHEMA_V13_MIGRATION,
+]);
+
+/** The schema version a fully migrated database reports. */
+export const CURRENT_SCHEMA_VERSION = DATABASE_MIGRATIONS.reduce(
+  (highest, migration) => Math.max(highest, migration.version),
+  0,
+);
+
 export type WalCheckpointMode = "PASSIVE" | "FULL" | "RESTART" | "TRUNCATE";
 
 export interface WalCheckpointResult {
@@ -50,21 +77,7 @@ export function connectLogDatabase(logRoot: string): Database.Database {
   const database = openLogDatabase(logRoot);
   try {
     verifyFts5(database);
-    runMigrations(database, [
-      SCHEMA_V1_MIGRATION,
-      SCHEMA_V2_MIGRATION,
-      SCHEMA_V3_MIGRATION,
-      SCHEMA_V4_MIGRATION,
-      SCHEMA_V5_MIGRATION,
-      SCHEMA_V6_MIGRATION,
-      SCHEMA_V7_MIGRATION,
-      SCHEMA_V8_MIGRATION,
-      SCHEMA_V9_MIGRATION,
-      SCHEMA_V10_MIGRATION,
-      SCHEMA_V11_MIGRATION,
-      SCHEMA_V12_MIGRATION,
-      SCHEMA_V13_MIGRATION,
-    ]);
+    runMigrations(database, DATABASE_MIGRATIONS);
     return database;
   } catch (error) {
     database.close();

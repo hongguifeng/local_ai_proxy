@@ -3,7 +3,6 @@ import { loadRecordBody } from "./body-storage.js";
 import type { DatabaseMigration } from "./database.js";
 
 export const SCHEMA_V5_VERSION = 5;
-export const SCHEMA_VERSION = SCHEMA_V5_VERSION;
 
 export const SCHEMA_V5_MIGRATION: DatabaseMigration = {
   version: SCHEMA_V5_VERSION,

@@ -1,7 +1,6 @@
 import type { DatabaseMigration } from "./database.js";
 
 export const SCHEMA_V8_VERSION = 8;
-export const SCHEMA_VERSION = SCHEMA_V8_VERSION;
 
 /** Adds immutable per-request pricing data without reading historical bodies. */
 export const SCHEMA_V8_MIGRATION: DatabaseMigration = {

@@ -1,6 +1,8 @@
 export {
   SCHEMA_VERSION_KEY,
   TRAFFIC_DB_NAME,
+  CURRENT_SCHEMA_VERSION,
+  DATABASE_MIGRATIONS,
   backupDatabase,
   checkpointDatabase,
   connectLogDatabase,
@@ -14,17 +16,6 @@ export {
   type WalCheckpointMode,
   type WalCheckpointResult,
 } from "./database.js";
-export { SCHEMA_V1_MIGRATION, SCHEMA_V1_VERSION } from "./schema-v1.js";
-export { SCHEMA_V2_MIGRATION, SCHEMA_V2_VERSION } from "./schema-v2.js";
-export { SCHEMA_V3_MIGRATION, SCHEMA_V3_VERSION } from "./schema-v3.js";
-export { SCHEMA_V4_MIGRATION, SCHEMA_V4_VERSION } from "./schema-v4.js";
-export { SCHEMA_V5_MIGRATION, SCHEMA_V5_VERSION } from "./schema-v5.js";
-export { SCHEMA_V6_MIGRATION, SCHEMA_V6_VERSION } from "./schema-v6.js";
-export { SCHEMA_V7_MIGRATION, SCHEMA_V7_VERSION } from "./schema-v7.js";
-export { SCHEMA_VERSION, SCHEMA_V8_MIGRATION, SCHEMA_V8_VERSION } from "./schema-v8.js";
-export { SCHEMA_V9_MIGRATION, SCHEMA_V9_VERSION } from "./schema-v9.js";
-export { SCHEMA_V12_MIGRATION, SCHEMA_V12_VERSION } from "./schema-v12.js";
-export { SCHEMA_V13_MIGRATION, SCHEMA_V13_VERSION } from "./schema-v13.js";
 export {
   BODY_CHUNK_BYTES,
   BODY_CHUNK_CODEC,
