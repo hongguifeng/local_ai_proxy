@@ -757,6 +757,9 @@ export function createLoadBalancing({
     // Read before the envelope is copied over: this is the epoch the rows on screen came from,
     // and once it is overwritten the comparison would always be between two equal values.
     const leftRuntime = panel.runtimeEpoch !== null && panel.runtimeEpoch !== data.runtimeEpoch;
+    // Also read before the envelope is copied over: once the version is overwritten, the
+    // comparison would only ever be between two equal values.
+    const changedGeneration = panel.version !== "" && panel.version !== incoming;
     panel.total = data.totalBindings;
     panel.hasMore = data.hasMore;
     panel.now = data.now;
@@ -779,6 +782,11 @@ export function createLoadBalancing({
       // a runtime that is gone: it is retired before any row of the new list is shown. A group
       // revision that moved under the same runtime does not retire it, because the frozen
       // instruction can still be replayed and the server answers it definitively.
+      if (changedGeneration) {
+        // Whichever part of the generation moved, this page stopped being the page that asked.
+        // A write still on its way is detached here so its answer cannot rewrite a newer page.
+        detachPendingMoveWrites(panel);
+      }
       if (leftRuntime) {
         retireMoveDrafts(panel);
       }
@@ -796,6 +804,9 @@ export function createLoadBalancing({
    *  runtime that is gone is retired with the rows; one addressed to this same runtime under an
    *  older group revision is kept, because replaying it is still how its outcome gets settled. */
   function discardBindingGeneration(panel, data) {
+    // The rows on screen are being dropped, so the page that asked for these writes is going
+    // away with them: detach before anything of the old generation is cleared.
+    detachPendingMoveWrites(panel);
     if (panel.runtimeEpoch !== null && panel.runtimeEpoch !== data.runtimeEpoch) {
       retireMoveDrafts(panel);
     }
@@ -911,6 +922,43 @@ export function createLoadBalancing({
         draft.uncertain = true;
       }
     });
+  }
+
+  /**
+   * Stop the writes this page is waiting for, at the moment the page stops being the page that
+   * asked for them: the surface was disposed, or its rows were replaced by another generation.
+   * A write goes out without the surface's signal, so nobody can call it back once it is on the
+   * wire - what changes here is only whose answer it may still become. The attempt is detached
+   * and the draft's own flags are cleared at this point, so a callback that arrives later finds
+   * an attempt that is no longer the draft's and writes nothing at all: no receipt, no retry,
+   * no second send, and no read started in its name.
+   *
+   * What the user is told is the local answer at the moment of the detach - this page stopped
+   * waiting, so the outcome of that submission is unknown - never something a late callback
+   * happens to carry. The instruction stays frozen exactly as it went out, key and payload
+   * both, so the row's own retry can still settle it while the runtime it was addressed to is
+   * the one this page shows. A cancel's claim is dropped the same way: the operations the live
+   * read carries are the current fact, so an answer nobody waits for must not leave the cancel
+   * button locked for good.
+   */
+  function detachPendingMoveWrites(panel) {
+    panel.moves.forEach((draft) => {
+      if (draft.attempt === null && !draft.submitting) return;
+      draft.attempt = null;
+      draft.submitting = false;
+      // Nothing to settle by retry once the generation it was built under is gone: that
+      // sentence is `retireMoveDrafts`'s, and it already left no instruction behind.
+      if (draft.generationRetired || draft.payload === null) return;
+      draft.uncertain = true;
+      draft.noticeKey = "lbMoveUncertainNotice";
+      draft.noticeDetail = "";
+    });
+    panel.cancelling.clear();
+  }
+
+  /** Every panel the surface is leaving: disposal does not pick one node's list to abandon. */
+  function detachAllPendingMoveWrites() {
+    bindingPanels.forEach((panel) => detachPendingMoveWrites(panel));
   }
 
   /**
@@ -1323,48 +1371,6 @@ export function createLoadBalancing({
   }
 
   /**
-   * An answer that no longer belongs to the page it was sent from. The receipt is not rewritten
-   * and never shown on a page that did not ask for it, and it starts no read and no second write.
-   * What is left is only what the browser can honestly say about this write. If the page no
-   * longer names the runtime the instruction was addressed to, its state is named unknown and the
-   * instruction goes: nothing read here can answer for it, and it must not be sent again under
-   * newer versions. If the runtime is still the one shown and the server did answer, the
-   * operation's own record - which the live read below the rows carries - is what the user sees,
-   * not this stale receipt. If nothing came back, the outcome stays unknown and the same
-   * instruction may still be repeated by its own retry.
-   */
-  function resolveStrandedAttempt(attempt, outcome) {
-    const panel = attempt.panel;
-    if (bindingPanels.get(attempt.panelKey) !== panel) return;
-    const draft = panel.moves.get(attempt.address);
-    if (draft !== attempt.draft) return;
-    // Only the attempt the draft still carries has anything to say. A newer attempt that took
-    // its place, or a detach that retired this one when the page moved to another runtime, means
-    // this answer writes nothing at all: it may not clear a newer intent's flags, drop the
-    // instruction that intent is sending, or name an outcome the page no longer waits for.
-    if (draft.attempt !== attempt) return;
-    draft.attempt = null;
-    draft.submitting = false;
-    const runtimeGone =
-      panel.runtimeEpoch !== null && panel.runtimeEpoch !== attempt.payload.runtimeEpoch;
-    if (runtimeGone) {
-      retireMoveIntent(draft);
-      draft.generationRetired = true;
-      draft.noticeKey = null;
-      draft.noticeDetail = "";
-    } else if (outcome.kind === "answered") {
-      retireMoveIntent(draft);
-      draft.noticeKey = null;
-      draft.noticeDetail = "";
-    } else {
-      draft.uncertain = true;
-      draft.noticeKey = "lbMoveUncertainNotice";
-      draft.noticeDetail = String(outcome.error.message || outcome.error);
-    }
-    if (panel.readLifecycle === lifecycle) renderBindingPanel(attempt.context);
-  }
-
-  /**
    * What a cancel's callback has to check before it says anything: the surface it started from
    * and the generation the operations list belonged to. A page that moved to another runtime or
    * group version no longer answers about that operation, and a disposal is never reported as a
@@ -1467,17 +1473,19 @@ export function createLoadBalancing({
     draft.attempt = attempt;
     renderBindingPanel(context);
     const outcome = await postMoveWrite(payload);
-    if (moveAttemptStillOwnsPage(attempt)) {
-      if (draft.attempt === attempt) draft.attempt = null;
-      if (outcome.kind === "failed") {
-        applyMoveError(panel, context, item, draft, outcome.error);
-      } else {
-        applyMoveAnswer(draft, outcome.answer);
-      }
-      if (panel.readLifecycle === lifecycle) renderBindingPanel(context);
-      return;
+    // An answer whose page stopped waiting writes nothing at all: the detach that ended that
+    // wait - a disposal, or the rows being replaced by another generation - already left the
+    // row with the only honest statement and the instruction its own retry can settle. So this
+    // callback may not show a receipt on a page that did not ask, clear a newer intent's flags,
+    // start a read or send a second write.
+    if (!moveAttemptStillOwnsPage(attempt)) return;
+    if (draft.attempt === attempt) draft.attempt = null;
+    if (outcome.kind === "failed") {
+      applyMoveError(panel, context, item, draft, outcome.error);
+    } else {
+      applyMoveAnswer(draft, outcome.answer);
     }
-    resolveStrandedAttempt(attempt, outcome);
+    if (panel.readLifecycle === lifecycle) renderBindingPanel(context);
   }
 
   /**
@@ -1556,17 +1564,16 @@ export function createLoadBalancing({
     draft.attempt = attempt;
     renderBindingPanel(context);
     const outcome = await postMoveWrite(attempt.payload);
-    if (moveAttemptStillOwnsPage(attempt)) {
-      if (draft.attempt === attempt) draft.attempt = null;
-      if (outcome.kind === "failed") {
-        applyMoveError(panel, context, item, draft, outcome.error);
-      } else {
-        applyMoveAnswer(draft, outcome.answer);
-      }
-      if (panel.readLifecycle === lifecycle) renderBindingPanel(context);
-      return;
+    // Guarded exactly like the submit: an answer that no longer owns the page this retry was
+    // sent from writes nothing, starts nothing and unfreezes nothing.
+    if (!moveAttemptStillOwnsPage(attempt)) return;
+    if (draft.attempt === attempt) draft.attempt = null;
+    if (outcome.kind === "failed") {
+      applyMoveError(panel, context, item, draft, outcome.error);
+    } else {
+      applyMoveAnswer(draft, outcome.answer);
     }
-    resolveStrandedAttempt(attempt, outcome);
+    if (panel.readLifecycle === lifecycle) renderBindingPanel(context);
   }
 
   /**
@@ -1586,10 +1593,11 @@ export function createLoadBalancing({
     if (!cancelAttemptStillOwnsPage(attempt)) return;
     if (outcome.kind === "failed") {
       // A refusal that carried the API's code is the server's own sentence, which is not the
-      // console's to translate. One that carried no code never reached the server, so the
-      // operation's state stays unknown - it is never reported as a cancellation.
+      // console's to translate. One that carried no code leaves the browser unable to tell how
+      // this cancel ended: nothing here proves the request did or did not arrive, so the
+      // operation's state stays unknown and is never reported as a cancellation.
       panel.cancelNoticeKey =
-        typeof outcome.error.code === "string" ? null : "lbMoveCancelUnreachable";
+        typeof outcome.error.code === "string" ? null : "lbMoveCancelUnknownOutcome";
       panel.cancelNoticeDetail = String(outcome.error.message || outcome.error);
       renderBindingPanel(context);
       return;
@@ -2192,6 +2200,13 @@ export function createLoadBalancing({
     // The list reads have an owner of their own, so disposal stops them the same way the
     // status read is stopped; a cancelled read is never shown as a query failure.
     cancelAllBindingReads();
+    // A write keeps travelling after disposal because it was sent without the surface's signal.
+    // What disposal ends is the right to answer into the page, so the attempts still on their
+    // way are detached here: the row is left with the honest local state - this surface stopped
+    // waiting, so the outcome of that submission is unknown - plus the frozen instruction its
+    // own retry can still settle. A callback that arrives later, into a lifecycle built after
+    // this one, finds an attempt that is no longer the draft's and writes nothing.
+    detachAllPendingMoveWrites();
     closeLbPickers(null);
   }
   return {

@@ -1058,6 +1058,70 @@ describe("admin UI load balancing groups", { timeout: UI_TEST_TIMEOUT_MS }, () =
     })()`);
   }
 
+  /** The text one affordance carries, or nothing at all when it is not on the page. A locator
+   *  that waits for an element that never arrives would hang, and "no notice" is a state worth
+   *  reading back rather than an error worth failing on. */
+  async function textOrEmpty(locator: Locator): Promise<string> {
+    return (await locator.count()) === 0 ? "" : ((await locator.textContent()) ?? "");
+  }
+
+  /**
+   * Everything a row can say about the instruction it is holding: the sentence and its detail,
+   * the retry, the destination picker and the submit, and what the picker holds. Reading a row
+   * back as one value is what proves an obsolete answer changed nothing - a callback that rewrote
+   * the draft would move one of these fields, and a repaint it forced would show even with the
+   * status poll stopped, because nothing else is left that can touch the row.
+   */
+  async function rowMoveState(row: Locator): Promise<{
+    notice: string;
+    noticeDetail: string;
+    retry: number;
+    pickerValue: string;
+    pickerEnabled: boolean;
+    submitEnabled: boolean;
+  }> {
+    return {
+      notice: await textOrEmpty(row.locator("[data-lb-binding-move-notice]")),
+      noticeDetail: await textOrEmpty(row.locator("[data-lb-binding-move-notice-detail]")),
+      retry: await row.locator("[data-lb-binding-move-retry]").count(),
+      pickerValue: await row.locator("[data-lb-binding-move-target]").inputValue(),
+      pickerEnabled: await row.locator("[data-lb-binding-move-target]").isEnabled(),
+      submitEnabled: await row.locator("[data-lb-binding-move]").isEnabled(),
+    };
+  }
+
+  /** The same for the operation block a cancel answers into: the sentence the cancel left, the
+   *  state the live read reports, and whether the button is free to click again. */
+  async function panelCancelState(panel: Locator): Promise<{
+    notice: string;
+    noticeDetail: string;
+    operationState: string;
+    cancelEnabled: boolean;
+  }> {
+    return {
+      notice: await textOrEmpty(panel.locator("[data-lb-binding-cancel-notice]")),
+      noticeDetail: await textOrEmpty(panel.locator("[data-lb-binding-cancel-notice-detail]")),
+      operationState: await textOrEmpty(panel.locator(".lb-binding-operation-state")),
+      cancelEnabled: await panel.locator("[data-lb-binding-move-cancel]").isEnabled(),
+    };
+  }
+
+  /** Take the status poll away without disposing the surface, so a held answer is the only
+   *  thing left that can move the row: every change that follows has a named author. */
+  async function hideThePage(): Promise<void> {
+    await page.evaluate(() => {
+      Object.defineProperty(document, "hidden", { value: true, configurable: true });
+      document.dispatchEvent(new Event("visibilitychange"));
+    });
+  }
+
+  async function showThePage(): Promise<void> {
+    await page.evaluate(() => {
+      Object.defineProperty(document, "hidden", { value: false, configurable: true });
+      document.dispatchEvent(new Event("visibilitychange"));
+    });
+  }
+
   it("[TRI-09] freezes an outcome that stayed unknown so only its own retry may send it", async () => {
     const sent = browserMoveWrites();
     await page.route("**/api/load-balancer/task-moves", (route) => route.abort("failed"));
@@ -1792,14 +1856,25 @@ describe("admin UI load balancing groups", { timeout: UI_TEST_TIMEOUT_MS }, () =
     const seen = lbBindingReads.length;
     await page.evaluate("__adminUiTest.proxyConfig.dispose(); __adminUiTest.proxyConfig.init();");
     await expect.poll(() => lbBindingReads.length).toBeGreaterThan(seen);
+    // The disposal is what changed this row, before this answer is released at all: the surface
+    // stopped waiting while the write was on its way, so the row carries the local answer the
+    // detach wrote - the outcome is unknown, with the retry of the instruction it went out under.
+    await expectPage(row.locator("[data-lb-binding-move-notice]")).toHaveText(
+      "The outcome of this submission is unknown; retry the same request.",
+    );
+    await expectPage(row.locator("[data-lb-binding-move-retry]")).toBeVisible();
+
     release();
     await page.waitForTimeout(300);
 
     // The receipt belongs to a surface that is gone. It is not shown on the page the new surface
-    // reads, it is never reported as a cancellation the disposal did not cause, and it starts no
-    // second write and no extra read.
-    await expectPage(row.locator("[data-lb-binding-move-notice]")).toHaveCount(0);
-    await expectPage(row.locator("[data-lb-binding-move-retry]")).toHaveCount(0);
+    // reads, it does not rewrite the sentence the disposal already wrote, it is never reported as
+    // a cancellation the disposal did not cause, and it starts no second write and no extra read.
+    await expectPage(row.locator("[data-lb-binding-move-notice]")).toHaveText(
+      "The outcome of this submission is unknown; retry the same request.",
+    );
+    await expectPage(row.locator("[data-lb-binding-move-notice-detail]")).toHaveCount(0);
+    await expectPage(panel.locator('[data-lb-binding-operation="late-write"]')).toHaveCount(0);
     await expectPage(panel.locator("[data-lb-binding-cancel-notice]")).toHaveCount(0);
     await expectPage(panel.locator("[data-lb-binding-stale]")).toHaveCount(0);
     await expectPage(panel.locator("[data-lb-binding-error]")).toHaveCount(0);
@@ -1814,7 +1889,385 @@ describe("admin UI load balancing groups", { timeout: UI_TEST_TIMEOUT_MS }, () =
 
     await page.locator("#languageSelect").selectOption("zh");
     await expectPage(panel.locator(".lb-binding-operation-state")).toHaveText("等待当前请求边界");
-    await expectPage(row.locator("[data-lb-binding-move-notice]")).toHaveCount(0);
+    await expectPage(row.locator("[data-lb-binding-move-notice]")).toHaveText(
+      "这次提交的结果未知，可以用同一请求重试",
+    );
+    await expectPage(row.locator("[data-lb-binding-move-retry]")).toBeVisible();
+  });
+
+  it("[TRI-09] disposal settles an unanswered write into unknown before its answer can land", async () => {
+    const sent = browserMoveWrites();
+    let release: () => void = () => undefined;
+    const held = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    let requested = false;
+    const card = await openTwoNodeStates();
+    const sourceId = moveSourceId();
+    const destinationId = moveDestinationId();
+    await page.route("**/api/load-balancer/task-moves", async (route) => {
+      requested = true;
+      await held;
+      await route.abort("failed");
+    });
+    const panel = await openBindingList(card, 0);
+    const row = bindingRow(panel, 7);
+    const picker = row.locator("[data-lb-binding-move-target]");
+    await picker.selectOption(destinationId);
+    await row.locator("[data-lb-binding-move]").click();
+    await expect.poll(() => requested).toBe(true);
+    const written = sent[0]?.body;
+    if (written === null || written === undefined) {
+      throw new Error("the submit put no instruction on the wire");
+    }
+    // Nothing has decided yet: the answer is still on its way and the row is frozen on it.
+    await expectPage(picker).toHaveJSProperty("disabled", true);
+    await expectPage(row.locator("[data-lb-binding-move]")).toBeDisabled();
+
+    // The same runtime with a new surface: the page this write was sent from is gone, and the
+    // write itself was sent without the surface's signal, so nothing can call it back.
+    const seen = lbBindingReads.length;
+    await page.evaluate("__adminUiTest.proxyConfig.dispose(); __adminUiTest.proxyConfig.init();");
+    await expect.poll(() => lbBindingReads.length).toBeGreaterThan(seen);
+    // The disposal wrote this state, not the answer. This surface stopped waiting while the
+    // instruction was still on its way, so the row says the outcome is unknown and offers only
+    // the retry of the instruction it went out under; the instruction stayed frozen, so the row
+    // is still frozen against an edit that would turn it into a different one.
+    await expectPage(row.locator("[data-lb-binding-move-notice]")).toHaveText(
+      "The outcome of this submission is unknown; retry the same request.",
+    );
+    await expectPage(row.locator("[data-lb-binding-move-retry]")).toBeVisible();
+    await expectPage(picker).toHaveValue(destinationId);
+    await expectPage(picker).toHaveJSProperty("disabled", true);
+    await expectPage(row.locator("[data-lb-binding-move]")).toBeDisabled();
+    expect(sent).toHaveLength(1);
+
+    // Take the poll away without disposing the surface, so the held answer is the only thing
+    // left that can touch this row: whatever moves next has a named author.
+    await hideThePage();
+    const askedAfterRelease = bindingReadParameters();
+    const stateBeforeRelease = await rowMoveState(row);
+    const readsBeforeRelease = lbBindingReads.length;
+    const statusesBeforeRelease = lbStatusReads.length;
+
+    release();
+    await page.waitForTimeout(300);
+
+    // The failure belongs to a lifecycle that is gone, so it writes nothing at all: the row is
+    // exactly what the disposal left, and the answer started neither a read nor a second write.
+    expect(await rowMoveState(row)).toEqual(stateBeforeRelease);
+    expect(askedAfterRelease).toEqual([]);
+    expect(lbBindingReads.length).toBe(readsBeforeRelease);
+    expect(lbStatusReads.length).toBe(statusesBeforeRelease);
+    expect(sent).toHaveLength(1);
+    expect(moveWrites()).toEqual([]);
+    await expectPage(panel.locator("[data-lb-binding-cancel-notice]")).toHaveCount(0);
+
+    // The user's own retry is the only thing that may send that instruction again, and it sends
+    // the very bytes the first attempt put on the wire - the idempotency key included.
+    await showThePage();
+    await page.unroute("**/api/load-balancer/task-moves");
+    setLbMoveReply({
+      response: {
+        bindingId: 7,
+        effect: "next_request",
+        fromTargetId: sourceId,
+        groupRevision: 12,
+        inFlightAtRequest: 1,
+        operationId: "op-7-unknown",
+        routingRevision: 4,
+        runtimeEpoch: "stub-runtime-epoch",
+        state: "pending_boundary",
+        toTargetId: destinationId,
+      },
+    });
+    await row.locator("[data-lb-binding-move-retry]").click();
+    await expectPage(row.locator("[data-lb-binding-move-notice]")).toHaveText(
+      "Registered; the route changes when the current request ends.",
+    );
+    await expectPage(row.locator("[data-lb-binding-move-retry]")).toHaveCount(0);
+    expect(sent).toHaveLength(2);
+    expect(sent[1]?.body).toEqual(written);
+    expect(lbMoveCall(0).body).toEqual(written);
+    expect(lbMoveCall(0).method).toBe("POST");
+
+    await page.locator("#languageSelect").selectOption("zh");
+    await expectPage(row.locator("[data-lb-binding-move-notice]")).toHaveText(
+      "已登记，等当前请求结束后才会改路由",
+    );
+    await expectPage(row.locator("[data-lb-binding-move-target]")).toHaveValue(destinationId);
+  });
+
+  it("[TRI-09] leaves a row the disposal settled exactly as it was when a late answer arrives", async () => {
+    const sent = browserMoveWrites();
+    let release: () => void = () => undefined;
+    const held = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    let requested = false;
+    const card = await openTwoNodeStates();
+    const sourceId = moveSourceId();
+    const destinationId = moveDestinationId();
+    await page.route("**/api/load-balancer/task-moves", async (route) => {
+      requested = true;
+      await held;
+      await route.fulfill({
+        json: {
+          bindingId: 7,
+          effect: "next_request",
+          fromTargetId: sourceId,
+          groupRevision: 12,
+          inFlightAtRequest: 1,
+          operationId: "late-write",
+          routingRevision: 4,
+          runtimeEpoch: "stub-runtime-epoch",
+          state: "applied",
+          toTargetId: destinationId,
+        },
+      });
+    });
+    const panel = await openBindingList(card, 0);
+    const row = bindingRow(panel, 7);
+    await row.locator("[data-lb-binding-move-target]").selectOption(destinationId);
+    await row.locator("[data-lb-binding-move]").click();
+    await expect.poll(() => requested).toBe(true);
+
+    const seen = lbBindingReads.length;
+    await page.evaluate("__adminUiTest.proxyConfig.dispose(); __adminUiTest.proxyConfig.init();");
+    await expect.poll(() => lbBindingReads.length).toBeGreaterThan(seen);
+    // What the row carries now was written by the disposal, and this answered receipt - the
+    // server's own `applied` - is released only afterwards.
+    const stateBeforeRelease = await rowMoveState(row);
+    expect(stateBeforeRelease.notice).toBe(
+      "The outcome of this submission is unknown; retry the same request.",
+    );
+    expect(stateBeforeRelease.retry).toBe(1);
+
+    await hideThePage();
+    const askedAfterRelease = bindingReadParameters();
+    const readsBeforeRelease = lbBindingReads.length;
+    const statusesBeforeRelease = lbStatusReads.length;
+    release();
+    await page.waitForTimeout(300);
+
+    // A definite answer from a surface that is gone still writes nothing: the receipt is not
+    // shown, the frozen instruction is not spent by it, and no read or write starts in its name.
+    expect(await rowMoveState(row)).toEqual(stateBeforeRelease);
+    expect(askedAfterRelease).toEqual([]);
+    expect(lbBindingReads.length).toBe(readsBeforeRelease);
+    expect(lbStatusReads.length).toBe(statusesBeforeRelease);
+    expect(sent).toHaveLength(1);
+    expect(moveWrites()).toEqual([]);
+    await expectPage(row.locator("[data-lb-binding-move-retry]")).toBeVisible();
+    await expectPage(row.locator("[data-lb-binding-move]")).toBeDisabled();
+    // The operation the new page shows is the one its own read carried, never the operation the
+    // obsolete receipt named.
+    await expectPage(panel.locator('[data-lb-binding-operation="stub-move-1"]')).toHaveCount(1);
+    await expectPage(panel.locator('[data-lb-binding-operation="late-write"]')).toHaveCount(0);
+
+    await page.locator("#languageSelect").selectOption("zh");
+    await expectPage(row.locator("[data-lb-binding-move-notice]")).toHaveText(
+      "这次提交的结果未知，可以用同一请求重试",
+    );
+    await expectPage(row.locator("[data-lb-binding-move-retry]")).toBeVisible();
+    await showThePage();
+  });
+
+  it("[TRI-09] does not let a late cancel answer unlock the cancel a newer surface is making", async () => {
+    const sent = browserMoveWrites();
+    const deleteRoute = "DELETE /api/load-balancer/task-moves/op-pending";
+    const releases: (() => void)[] = [];
+    await page.route("**/api/load-balancer/task-moves/*", async (route) => {
+      if (route.request().method() !== "DELETE") {
+        await route.continue();
+        return;
+      }
+      const held = new Promise<void>((resolve) => {
+        releases.push(resolve);
+      });
+      await held;
+      await route.abort("failed");
+    });
+    const card = await openTwoNodeStates();
+    const groupId = savedGroup().id;
+    const sourceId = moveSourceId();
+    const destinationId = moveDestinationId();
+    setLbBindingMigrationOperations([
+      lbBindingMoveOperation(
+        { bindingId: 8, incarnation: 4, routingRevision: 1, targetId: sourceId },
+        destinationId,
+        "pending_boundary",
+        "op-pending",
+        groupId,
+      ),
+    ]);
+    const panel = await openBindingList(card, 0);
+    const cancel = panel.locator('[data-lb-binding-move-cancel="op-pending"]');
+    await expectPage(cancel).toHaveCount(1);
+    await cancel.click();
+    await expect.poll(() => releases.length).toBe(1);
+    await expectPage(cancel).toBeDisabled();
+
+    const seen = lbBindingReads.length;
+    await page.evaluate("__adminUiTest.proxyConfig.dispose(); __adminUiTest.proxyConfig.init();");
+    await expect.poll(() => lbBindingReads.length).toBeGreaterThan(seen);
+    // A disposal is not a cancellation the server made, and the claim the disposed attempt held
+    // went with it: the new surface answers about the operation from its own read, and the
+    // button is free again because nothing on this page waits for that DELETE any more.
+    await expectPage(panel.locator("[data-lb-binding-cancel-notice]")).toHaveCount(0);
+    await expectPage(cancel).toBeEnabled();
+    await expectPage(panel.locator(".lb-binding-operation-state")).toHaveText(
+      "waiting for the current request boundary",
+    );
+
+    // A newer claim is made on the newer surface, and it is the newer attempt that holds it.
+    await cancel.click();
+    await expect.poll(() => releases.length).toBe(2);
+    await expectPage(cancel).toBeDisabled();
+
+    await hideThePage();
+    const askedAfterRelease = bindingReadParameters();
+    const stateBeforeRelease = await panelCancelState(panel);
+    const readsBeforeRelease = lbBindingReads.length;
+    const statusesBeforeRelease = lbStatusReads.length;
+    releases[0]?.();
+    await page.waitForTimeout(300);
+
+    // The old cancel's failure belongs to a lifecycle that is gone: it writes no sentence, asks
+    // for no read, sends no second DELETE, and it cannot unlock the claim the newer attempt holds.
+    expect(await panelCancelState(panel)).toEqual(stateBeforeRelease);
+    expect(askedAfterRelease).toEqual([]);
+    expect(lbBindingReads.length).toBe(readsBeforeRelease);
+    expect(lbStatusReads.length).toBe(statusesBeforeRelease);
+    expect(writeRoutes(sent)).toEqual([deleteRoute, deleteRoute]);
+    expect(moveWrites()).toEqual([]);
+    await expectPage(cancel).toBeDisabled();
+
+    // The newer claim is released only by its own answer. The browser could not read that one,
+    // so the outcome of this cancel is unknown - nothing here claims the request did or did not
+    // arrive, and nothing reports the operation as cancelled.
+    releases[1]?.();
+    await expectPage(panel.locator("[data-lb-binding-cancel-notice]")).toContainText(
+      "The outcome of this cancel is unknown",
+    );
+    await expectPage(panel.locator("[data-lb-binding-cancel-notice]")).not.toContainText(
+      "This registered move was cancelled.",
+    );
+    await expectPage(panel.locator(".lb-binding-operation-state")).toHaveText(
+      "waiting for the current request boundary",
+    );
+    await expectPage(cancel).toBeEnabled();
+    expect(writeRoutes(sent)).toEqual([deleteRoute, deleteRoute]);
+
+    await page.locator("#languageSelect").selectOption("zh");
+    await expectPage(panel.locator("[data-lb-binding-cancel-notice]")).toContainText(
+      "取消的结果未知，操作的当前状态无法确认",
+    );
+    await expectPage(panel.locator("[data-lb-binding-cancel-notice]")).not.toContainText(
+      "这次登记的迁移已取消",
+    );
+    await expectPage(panel.locator(".lb-binding-operation-state")).toHaveText("等待当前请求边界");
+    await showThePage();
+  });
+
+  it("[TRI-09] detaches a write still on its way when the group version moves under one runtime", async () => {
+    const sent = browserMoveWrites();
+    const releases: (() => void)[] = [];
+    await page.route("**/api/load-balancer/task-moves", async (route) => {
+      const held = new Promise<void>((resolve) => {
+        releases.push(resolve);
+      });
+      await held;
+      await route.abort("failed");
+    });
+    const card = await openTwoNodeStates();
+    const sourceId = moveSourceId();
+    const destinationId = moveDestinationId();
+    const panel = await openBindingList(card, 0);
+    const row = bindingRow(panel, 7);
+    const picker = row.locator("[data-lb-binding-move-target]");
+    await picker.selectOption(destinationId);
+    await row.locator("[data-lb-binding-move]").click();
+    await expect.poll(() => releases.length).toBe(1);
+    const written = sent[0]?.body;
+    if (written === null || written === undefined) {
+      throw new Error("the submit put no instruction on the wire");
+    }
+
+    // The group's routing signature moved under the same runtime, so the rows on screen now
+    // carry a newer revision than the one this instruction was built under.
+    setLbBindingRouteBump(1);
+    const seen = lbStatusReads.length;
+    await waitForLbPoll(seen);
+    await expectPage(row.locator('[data-lb-binding-fact="revision"]')).toHaveText(
+      "Routing revision: 4",
+    );
+    // A version change detaches the write exactly as a disposal does. The runtime is still the
+    // one shown, so the instruction is kept whole and its retry is offered; the newer revision
+    // this page now reads cannot be stamped onto it, because the row is frozen on what it sent.
+    await expectPage(row.locator("[data-lb-binding-move-notice]")).toHaveText(
+      "The outcome of this submission is unknown; retry the same request.",
+    );
+    await expectPage(row.locator("[data-lb-binding-move-retry]")).toBeVisible();
+    await expectPage(picker).toHaveValue(destinationId);
+    await expectPage(picker).toHaveJSProperty("disabled", true);
+    await expectPage(row.locator("[data-lb-binding-move]")).toBeDisabled();
+
+    await hideThePage();
+    const askedAfterRelease = bindingReadParameters();
+    const stateBeforeRelease = await rowMoveState(row);
+    const readsBeforeRelease = lbBindingReads.length;
+    releases[0]?.();
+    await page.waitForTimeout(300);
+
+    // The late failure of a write this page no longer waits for writes nothing: the row keeps
+    // the sentence the version change wrote, and it started no read and no second send.
+    expect(await rowMoveState(row)).toEqual(stateBeforeRelease);
+    expect(askedAfterRelease).toEqual([]);
+    expect(lbBindingReads.length).toBe(readsBeforeRelease);
+    expect(sent).toHaveLength(1);
+    expect(lbMoveCalls).toEqual([]);
+
+    // The user's retry replays the instruction exactly as it went out - the older group revision
+    // and the older routing revision included, not the pair this page reads now.
+    await showThePage();
+    await page.unroute("**/api/load-balancer/task-moves");
+    setLbMoveReply({
+      response: {
+        bindingId: 7,
+        effect: "next_request",
+        fromTargetId: sourceId,
+        groupRevision: 13,
+        inFlightAtRequest: 1,
+        operationId: "op-7-bumped",
+        routingRevision: 4,
+        runtimeEpoch: "stub-runtime-epoch",
+        state: "pending_boundary",
+        toTargetId: destinationId,
+      },
+    });
+    await row.locator("[data-lb-binding-move-retry]").click();
+    await expectPage(row.locator("[data-lb-binding-move-notice]")).toHaveText(
+      "Registered; the route changes when the current request ends.",
+    );
+    expect(sent).toHaveLength(2);
+    expect(sent[1]?.body).toEqual(written);
+    expect(lbMoveCall(0).body).toEqual(written);
+
+    await page.locator("#languageSelect").selectOption("zh");
+    await expectPage(row.locator("[data-lb-binding-move-notice]")).toHaveText(
+      "已登记，等当前请求结束后才会改路由",
+    );
+    await page.locator("#languageSelect").selectOption("en");
+
+    // A decision made now is a different instruction: a newer key built from the versions this
+    // page reads, never the frozen one sent a third time.
+    await row.locator("[data-lb-binding-move]").click();
+    await expect.poll(() => lbMoveCalls.length).toBe(2);
+    expect(sent).toHaveLength(3);
+    expect(sent[2]?.body).not.toEqual(written);
+    expect(lbMoveCall(1).body).not.toEqual(written);
+    setLbBindingRouteBump(0);
   });
 
   it("[TRI-09] does not let a late cancel answer speak for a page that was rebuilt", async () => {

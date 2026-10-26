@@ -383,12 +383,12 @@ const translations = {
     lbMovePendingNotice: "已登记，等当前请求结束后才会改路由",
     lbMoveAlreadyThereNotice: "这个绑定已经在目标节点上，无需改动",
     lbMoveRejectedNotice: "服务端拒绝了这次提交",
-    lbMoveUncertainNotice: "这次提交的结果未知，可以用同一请求重试，也可以放弃",
+    lbMoveUncertainNotice: "这次提交的结果未知，可以用同一请求重试",
     lbMoveConflictNotice: "状态已变化，请核对新状态后显式重新提交",
     lbMoveExpiredNotice: "这次迁移意图已经被叫停",
     lbMoveGenerationChanged: "运行时或组版本已经更换，这次提交的最新状态无法确认",
     lbMoveUnresolvedOffPage: "这次提交的结果仍然未知，而这个绑定不在本页列出，这里不显示它的重试",
-    lbMoveCancelUnreachable: "取消请求未能送达，操作状态未知",
+    lbMoveCancelUnknownOutcome: "取消的结果未知，操作的当前状态无法确认",
     lbMoveNoEnvelope: "列表还没有给出可以提交的版本号",
     lbMoveCancelledNotice: "这次登记的迁移已取消",
     lbReasonExactKeyLinks: "精确 key 命中",
@@ -948,16 +948,15 @@ const translations = {
     lbMovePendingNotice: "Registered; the route changes when the current request ends.",
     lbMoveAlreadyThereNotice: "This binding is already on that node; nothing to change.",
     lbMoveRejectedNotice: "The server refused this submission.",
-    lbMoveUncertainNotice:
-      "The outcome of this submission is unknown; retry the same request or leave it.",
+    lbMoveUncertainNotice: "The outcome of this submission is unknown; retry the same request.",
     lbMoveConflictNotice: "The state changed. Check the new state and submit again on purpose.",
     lbMoveExpiredNotice: "This migration intent was already called off.",
     lbMoveGenerationChanged:
       "The runtime or the group version changed; the current state of this submission cannot be confirmed.",
     lbMoveUnresolvedOffPage:
       "the outcome of this submission is still unknown, and this binding is not listed on this page, so its retry is not shown here",
-    lbMoveCancelUnreachable:
-      "The cancel request did not reach the server; the operation state is unknown.",
+    lbMoveCancelUnknownOutcome:
+      "The outcome of this cancel is unknown; the operation's current state cannot be confirmed.",
     lbMoveNoEnvelope: "The list has not given a version this submit could carry.",
     lbMoveCancelledNotice: "This registered move was cancelled.",
     lbReasonExactKeyLinks: "exact key links",
