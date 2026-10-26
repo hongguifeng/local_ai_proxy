@@ -20,7 +20,7 @@ import { renderJsonPane, renderMetaPane, updateResponseTiming } from "./json-pan
 import { formatGroupCost, formatRequestCost } from "./money.js";
 import { escapeHtml } from "./text.js";
 import { displayTimestampParts } from "./time.js";
-import { formatDecodeSpeed, optionalFiniteNumber } from "./numbers.js";
+import { formatDecodeSpeed, optionalFiniteNumber, positiveNumber } from "./numbers.js";
 import {
   closeTaskPricing,
   refreshTaskPricingPanel,
@@ -597,12 +597,33 @@ function logGroupBodyHtml(group) {
           : "")
       : `<div class="log-item log-group-empty">${escapeHtml(group.labels.noMatchedLogs)}</div>`;
 }
+/**
+ * The dot that says "this task has a request the proxy is still waiting for". Nothing is
+ * rendered when the count is zero, missing or not a number, so an idle task keeps its
+ * control column exactly as it was.
+ *
+ * The count comes from the task's pricing block, not from which event a row carries. A
+ * request is written as `pending` from the moment the log records it until its answer is
+ * complete, so the number rises when a request starts and falls back when it ends, and an
+ * upstream failure that the proxy answered itself resolves the same way. A row a process
+ * death left behind keeps its `request_pending_response` event forever, while its pricing is
+ * flipped to `unpriced` as soon as a log service opens that root again: reading the event
+ * name would leave a dot lit for a request nobody is waiting for any more.
+ * @param {{ liveRequestCount: number | undefined, liveLabel: string }} summary
+ * @returns {string}
+ */
+function logGroupLiveHtml(summary) {
+  const count = summary.liveRequestCount;
+  if (!count) return "";
+  return `<span class="log-group-live" title="${escapeHtml(`${summary.liveLabel}: ${count}`)}"></span>`;
+}
 function logGroupSectionHtml(group) {
   return `
     <section class="log-group">
       <div class="log-group-head" data-group-id="${escapeHtml(group.id || "")}" role="button" tabindex="0" aria-label="${escapeHtml(group.labels.viewTaskPricing)}">
         <div class="log-group-controls">
           <input class="log-group-select" type="checkbox" data-select-group="${escapeHtml(group.id || "")}" title="${escapeHtml(group.labels.selectLogGroup)}" ${group.selected ? "checked" : ""}>
+          ${logGroupLiveHtml(group.summary)}
           <button type="button" class="log-group-caret" data-group-toggle="${escapeHtml(group.id || "")}" title="${escapeHtml(group.labels.toggleTaskRecords)}" aria-label="${escapeHtml(group.labels.toggleTaskRecords)}" aria-expanded="${group.expanded ? "true" : "false"}">${!group.expanded ? "▸" : "▾"}</button>
         </div>
         <div class="log-group-summary">
@@ -647,6 +668,10 @@ function logGroupRenderInput(group) {
       decodeSpeed: formatDecodeSpeed(group.decode_speed_tps),
       decodeSpeedTip: `${t("avgDecodeSpeed")}: ${t("avgDecodeSpeedTip")}`,
       costText: formatGroupCost(group.cost),
+      // "How many of this task's requests are still open" is the same number the cost block
+      // carries, so the dot needs no second read and no new wire field.
+      liveRequestCount: positiveNumber(group.cost?.pending_request_count),
+      liveLabel: t("requestsInProgress"),
       taskLabel: t("task"),
       requestsLabel: t("requests"),
     },

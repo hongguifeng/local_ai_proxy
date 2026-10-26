@@ -442,6 +442,73 @@ describe("admin UI history page", { timeout: UI_TEST_TIMEOUT_MS }, () => {
     await page.unroute("**/api/logs?**");
   });
 
+  it("marks a task whose request is still open and drops the mark when it is not", async () => {
+    await loadAdminPage();
+    await Promise.all([
+      page.waitForResponse((response) => response.url().includes("/api/logs?")),
+      page.locator('[data-tab="logs"]').click(),
+    ]);
+    // The fixture keeps one open request on task-one and none on the other three, so one
+    // mark proves both halves: a task with an open request shows it, a task without one
+    // renders nothing.
+    const task = page.locator('.log-group:has([data-group-id="task-one"])');
+    const mark = task.locator(".log-group-live");
+    await expectPage(page.locator(".log-group-live")).toHaveCount(1);
+    await expectPage(mark).toHaveAttribute("title", "Requests in progress: 1");
+
+    // The mark hangs on the header's shared control column: it shares the checkbox and the
+    // caret's axis and centers on the fact-line row, and it never widens the column the
+    // caret sizes. An alignment claim needs this probe, not a screenshot read by eye.
+    const markBox = await requiredBox(mark);
+    const checkbox = await requiredBox(task.locator(".log-group-select"));
+    const caret = await requiredBox(task.locator(".log-group-caret"));
+    const factLine = await requiredBox(task.locator(".log-group-fact-line").first());
+    const markCenterX = markBox.x + markBox.width / 2;
+    expect(markCenterX).toBeCloseTo(checkbox.x + checkbox.width / 2, 0);
+    expect(markCenterX).toBeCloseTo(caret.x + caret.width / 2, 0);
+    expect(markBox.y + markBox.height / 2).toBeCloseTo(factLine.y + factLine.height / 2, 0);
+    const columnWidths = await page
+      .locator(".log-group-controls")
+      .evaluateAll((nodes) => nodes.map((node) => node.getBoundingClientRect().width));
+    expect(Math.max(...columnWidths) - Math.min(...columnWidths)).toBeLessThan(1);
+
+    // The mark is a plain span, not a control: a click that lands on it has to reach the
+    // header the way any other click on the row does, and the header opens the task detail.
+    await Promise.all([
+      page.waitForResponse((response) =>
+        response.url().endsWith("/api/log-groups/task-one/pricing"),
+      ),
+      mark.click(),
+    ]);
+    await expectPage(page.locator("#pricingPanel")).toBeVisible();
+    await page.locator("#pricingPanel [data-close-pricing]").click();
+    await expectPage(page.locator("#pricingPanel")).toBeHidden();
+
+    // The tooltip is a dictionary label, so the language pass has to rebuild it.
+    await page.locator("#languageSelect").selectOption("zh");
+    await expectPage(mark).toHaveAttribute("title", "进行中的请求: 1");
+    await page.locator("#languageSelect").selectOption("en");
+
+    // The same list read with the count back to zero has to drop the mark, which is what
+    // the automatic refresh does while a request is open.
+    await page.route("**/api/logs?**", async (route) => {
+      const response = await route.fetch().catch(() => undefined);
+      if (response === undefined) return;
+      const data = (await response.json()) as {
+        groups: { id: string; cost?: Record<string, unknown> }[];
+      };
+      data.groups = data.groups.map((group) =>
+        group.id === "task-one" && group.cost !== undefined
+          ? { ...group, cost: { ...group.cost, pending_request_count: 0 } }
+          : group,
+      );
+      await route.fulfill({ response, json: data }).catch(() => undefined);
+    });
+    await page.locator("#refreshLogs").click();
+    await expectPage(page.locator(".log-group-live")).toHaveCount(0);
+    await page.unroute("**/api/logs?**");
+  });
+
   it("keeps an open task detail panel in step with a running task", async () => {
     await loadAdminPage();
     await Promise.all([

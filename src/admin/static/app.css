@@ -813,7 +813,7 @@ label span {
 /* "clip" (not "hidden") keeps the section from becoming a scroll container,
    which is what lets the group header stick inside .log-items. */
 .log-group {
-  /* SECTION: request history (31 rules) */
+  /* SECTION: request history (32 rules) */
   border: 1px solid var(--line);
   border-radius: 8px;
   background: white;
@@ -863,6 +863,18 @@ label span {
   height: 14px;
   padding: 0;
   margin: 0;
+}
+/* The one mark a task header carries for an open request: a dot on the fact-line row of the
+   control column, centered on the same axis as the checkbox above it and the caret below. It
+   renders only while a request is open, so an idle task leaves that row empty and the column
+   keeps the caret's 22px width. `--accent` is the green this sheet already uses for a good
+   outcome, so the mark adds no new colour. */
+.log-group-live {
+  grid-row: 2;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--accent);
 }
 .log-group-controls {
   grid-column: 1;
