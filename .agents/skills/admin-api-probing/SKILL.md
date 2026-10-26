@@ -31,19 +31,24 @@ description: >-
   means the record or group is missing;
   `{ "code": "not_found", "message": "Route not found." }` is only reachable on a
   server assembled from `PartialAdminServerOptions`, which is what the stub tests pass.
-  A service that answers two routes can be half-wired: `loadBalancerService` carries
-  `getStatus` and `getBindings`, and a service built through a cast is exactly the hole
-  the compiler cannot see, so the startup refusal names `loadBalancerService.getBindings`.
+  A service that answers several routes can be half-wired: `loadBalancerService` carries
+  `getStatus`, `getBindings`, `moveBinding` and `cancelMoveBinding`, and a service built
+  through a cast is exactly the hole the compiler cannot see, so the startup refusal names
+  the missing method, `loadBalancerService.getBindings` among them.
 - Service interfaces live in `src/admin/admin-contracts.ts` and the JSON schemas in
   `src/admin/admin-schemas.ts`. A schema is a wire contract, not documentation: renaming
   a declared field without changing the schema still ships, and an undeclared field only
   survives because the response schemas are open.
-- 29 of the 34 registered routes declare a response schema. The five that do not are the
+- 31 of the 36 registered routes declare a response schema. The five that do not are the
   stream endpoints — `GET /api/logs/export` (ZIP) and `GET /api/usage-statistics/export`
   (CSV) — plus `/`, `/static/app.css` and `/static/app.js`; the two stream registrations
   say so in a comment, the three static ones say nothing, so an absent comment is not
   evidence that a schema exists. A rename on one of those five is invisible to both
   typechecks and would surface only as `undefined` in the UI.
+- The table spans four methods: `GET`, `POST`, `PUT` and `DELETE`. The cancel of a
+  migration intent is the only delete, so a roster that lists three verbs is stale, and a
+  verb count is the cheapest way to notice a route was added or removed since the last
+  recount.
 - Recounting that table needs the TypeScript AST. A line-based scan misses a registration
   whose generic spans several lines (`server.post<{ Body: ... }>(` is three lines before
   the path string), and a scan for schemas has to follow them into `admin-schemas.ts`.

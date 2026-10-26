@@ -38,13 +38,15 @@ remaining 404 cause is a missing record or group.
 ## Where the route-table assertion lives
 
 `test-node/admin/api-contract.test.ts` was written to make a missing registration a test
-failure instead of a browser-side `undefined`. It pins 34 registrations and the top-level
+failure instead of a browser-side `undefined`. It pins 36 registrations and the top-level
 response keys of the JSON routes, including the empty-configuration case. Its `probeUrl`
 function also spells out the query strings the statistics routes require, which is why
 `real-upstream-acceptance` points at it instead of inventing URLs.
 
-The 29-of-34 schema count is current, not historical: the five stream endpoints
+The 31-of-36 schema count is current, not historical: the five stream endpoints
 (`/api/logs/export`, `/api/usage-statistics/export`, `/`, `/static/app.css`,
 `/static/app.js`) carry no response schema because their body is not a JSON DTO. Recount
 with the TypeScript AST rather than a grep — several registrations write their generic
-across three lines, so a line-based scan undercounts.
+across three lines, so a line-based scan undercounts. The table spans four methods (`GET`,
+`POST`, `PUT`, `DELETE`); TRI-08 added the first delete, so a verb roster of three is out
+of date.
