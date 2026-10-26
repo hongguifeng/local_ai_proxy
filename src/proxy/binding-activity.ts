@@ -91,6 +91,12 @@ function emptyRecord(): BindingActivityRecord {
   };
 }
 
+/**
+ * The read shape handed to a caller. Every value is copied, the nested objects included:
+ * `readonly` only constrains TypeScript, so a caller written in plain JavaScript could
+ * still write through an object it was handed. Copying all the way down means a reader can
+ * change what it holds without ever changing the ledger behind it.
+ */
 function toActivity(record: BindingActivityRecord): BindingActivity {
   return {
     inFlight: record.inFlight,
@@ -98,8 +104,18 @@ function toActivity(record: BindingActivityRecord): BindingActivity {
     lastResponseEndedAt: record.lastResponseEndedAt,
     recentRequestStarts: [...record.recentRequestStarts],
     lastRequestBytes: record.lastRequestBytes,
-    lastUsage: record.lastUsage,
-    manualProtection: record.manualProtection,
+    lastUsage:
+      record.lastUsage === undefined
+        ? undefined
+        : {
+            observedAt: record.lastUsage.observedAt,
+            costSource: record.lastUsage.costSource,
+            endpoint: record.lastUsage.endpoint,
+            inputTokens: record.lastUsage.inputTokens,
+            cacheReadTokens: record.lastUsage.cacheReadTokens,
+          },
+    manualProtection:
+      record.manualProtection === undefined ? undefined : { setAt: record.manualProtection.setAt },
   };
 }
 

@@ -1729,6 +1729,37 @@ async function startUsageStreamNode(label: string): Promise<{ server: http.Serve
 }
 
 /**
+ * An engine that accepts the connection, reads the whole request, then holds the response
+ * until the test says so and hangs up without ever answering. The pipeline sees a
+ * connection-phase error while a switch is still safe, which is what lets a test arrange
+ * what the group looks like by the time that switch is planned.
+ */
+async function startHeldNode(): Promise<{
+  readonly server: http.Server;
+  readonly port: number;
+  readonly hangUp: () => void;
+}> {
+  let release: (() => void) | undefined;
+  const held = new Promise<void>((resolve) => {
+    release = resolve;
+  });
+  const server = http.createServer((request, response) => {
+    request.on("data", () => undefined);
+    request.on("end", () => {
+      void held.then(() => response.socket?.destroy());
+    });
+  });
+  const port = await listen(server);
+  return {
+    server,
+    port,
+    hangUp: () => {
+      release?.();
+    },
+  };
+}
+
+/**
  * A writer that silently drops one kind of record, the way the real traffic service
  * swallows a failed database write: the client response must stay untouched and the
  * reservation must still come back (ADR-005).
@@ -2250,5 +2281,152 @@ describe("TRI-02 binding activity around the live pipeline", () => {
 
     await listener.close();
     await close(nodeA.server);
+  });
+
+  it("TRI-02 a failover onto a fresh binding records the body size for its missing usage", async () => {
+    const held = await startHeldNode();
+    const bare = await startBareNode("bare");
+    const records: Readonly<Record<string, unknown>>[] = [];
+    const trafficLog = collectWriter(records);
+    const balancer = new LoadBalancer("pair-lb");
+    balancer.reconfigure(
+      pair(
+        [target("target-held", held.port), target("target-bare", bare.port)],
+        [group("lb-rebind", ["target-held", "target-bare"], { strategy: "round_robin" })],
+      ),
+    );
+    const pipeline = new ProxyRequestPipeline({
+      pairId: "pair-lb",
+      defaultTargetId: "target-held",
+      loadBalancer: balancer,
+      loadSamples: () => EMPTY_LOAD_SAMPLES,
+      targets: [
+        pipelineTarget("target-held", held.port, trafficLog),
+        pipelineTarget("target-bare", bare.port, trafficLog),
+      ],
+    });
+    const { port, listener } = await startListener((request, response, context) =>
+      pipeline.handle(request, response, context),
+    );
+
+    const body = bodyFor("Qwen3.8-Flash-Next", "answer elsewhere");
+    const pending = post(port, "/v1/responses", body, session("rebind-failover"));
+    // Round robin sends this task to the node that is holding the connection open.
+    await expect
+      .poll(() => singleBinding(balancer, "lb-rebind").targetId, { timeout: 5_000 })
+      .toBe("target-held");
+    const first = singleBinding(balancer, "lb-rebind");
+    expect(first.activity.inFlight).toBe(1);
+    expect(first.activity.lastRequestBytes).toBe(Buffer.byteLength(body));
+
+    // What a reload does when the node that failed leaves the group: the binding leaves the
+    // table with it, while its request is still in flight. The failover therefore binds the
+    // task again, and that reservation starts on a ledger that knows nothing about this
+    // request - the body size has to be recorded for it as well.
+    balancer.reconfigure(
+      pair(
+        [target("target-held", held.port), target("target-bare", bare.port)],
+        [group("lb-rebind", ["target-bare"], { strategy: "round_robin" })],
+      ),
+    );
+    held.hangUp();
+
+    const answer = await pending;
+    expect(answer.status).toBe(200);
+    expect(echoed(answer.body).node).toBe("bare");
+    const finished = eventRecords(records, "request_finished")[0];
+    expect(routeOf(finished)).toMatchObject({
+      route_mode: "load_balance",
+      target_id: "target-bare",
+      load_balance: { decision: "failover", failover_from: "target-held" },
+    });
+
+    // A different binding answered, and the failed one's ledger went with its binding:
+    // the body size recorded at selection is the only cost evidence the new ledger has, so
+    // a response with no usage falls back to it instead of reporting nothing.
+    const entry = singleBinding(balancer, "lb-rebind");
+    expect(entry.ref.incarnation).not.toBe(first.ref.incarnation);
+    expect(entry.targetId).toBe("target-bare");
+    expect(entry.routingRevision).toBe(0);
+    expect(entry.activity.inFlight).toBe(0);
+    expect(entry.activity.recentRequestStarts).toHaveLength(1);
+    expect(entry.activity.lastRequestBytes).toBe(Buffer.byteLength(body));
+    expect(entry.activity.lastUsage?.costSource).toBe("request_bytes");
+    expect(entry.activity.lastUsage?.endpoint).toBeUndefined();
+    expect(entry.activity.lastUsage?.inputTokens).toBeUndefined();
+    expect(entry.activity.lastUsage?.cacheReadTokens).toBeUndefined();
+    expect(entry.activity.lastUsage?.observedAt).toBeTypeOf("number");
+    expect(entry.activity.lastRequestStartedAt).toBeTypeOf("number");
+    expect(entry.activity.lastResponseEndedAt).toBeTypeOf("number");
+    expect(balancer.inFlight("target-held")).toBe(0);
+    expect(balancer.inFlight("target-bare")).toBe(0);
+
+    await listener.close();
+    await close(held.server);
+    await close(bare.server);
+  });
+
+  it("TRI-02 a failover onto a target the pipeline cannot name hands its reservation back", async () => {
+    const records: Readonly<Record<string, unknown>>[] = [];
+    const trafficLog = collectWriter(records);
+    const balancer = new LoadBalancer("pair-lb");
+    // The balancer knows a second node the pipeline was never given, so the switch can be
+    // planned and reserved but never executed.
+    balancer.reconfigure(
+      pair(
+        [target("target-refused", 1), target("target-ghost", 2)],
+        [
+          group("lb-ghost-switch", ["target-refused", "target-ghost"], {
+            strategy: "round_robin",
+          }),
+        ],
+      ),
+    );
+    const pipeline = new ProxyRequestPipeline({
+      pairId: "pair-lb",
+      defaultTargetId: "target-refused",
+      loadBalancer: balancer,
+      loadSamples: () => EMPTY_LOAD_SAMPLES,
+      targets: [pipelineTarget("target-refused", 1, trafficLog)],
+    });
+    const { port, listener } = await startListener((request, response, context) =>
+      pipeline.handle(request, response, context),
+    );
+
+    const answer = await post(
+      port,
+      "/v1/responses",
+      bodyFor("Qwen3.8-Flash-Next", "nowhere to switch"),
+      session("ghost-switch"),
+    );
+    expect(answer.status).toBe(502);
+    expect(answer.body).toContain("Bad Gateway");
+
+    // The switch really was planned: the task names the node the balancer chose and carries
+    // the revision every move leaves behind, and that node is not one this pipeline has.
+    const entry = singleBinding(balancer, "lb-ghost-switch");
+    expect(entry.targetId).toBe("target-ghost");
+    expect(entry.routingRevision).toBe(1);
+    // The reservation that choice established was handed straight back: the node nobody can
+    // reach carries no in-flight request, and its ledger ended instead of counting forever.
+    expect(balancer.inFlight("target-ghost")).toBe(0);
+    expect(balancer.inFlight("target-refused")).toBe(0);
+    expect(entry.activity.inFlight).toBe(0);
+    expect(entry.activity.lastResponseEndedAt).toBeTypeOf("number");
+    // Nothing is left dangling for the collector: both counts came back.
+    expect(balancer.sweepBindingActivity()).toBe(0);
+
+    const refusedFinished = eventRecords(records, "request_finished")[0];
+    expect(responseStatusOf(refusedFinished)).toBe(502);
+    expect(errorOf(refusedFinished)).toContain("ECONNREFUSED");
+    // A switch that could never run changes nothing in the record: the failed attempt stays
+    // the route the history shows.
+    expect(routeOf(refusedFinished)).toMatchObject({
+      route_mode: "load_balance",
+      target_id: "target-refused",
+      load_balance: { decision: "new_task", failover_from: null },
+    });
+
+    await listener.close();
   });
 });

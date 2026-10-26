@@ -12,6 +12,7 @@ import {
   MAX_RECENT_REQUEST_STARTS,
   taskIdentity,
   type BindingActivity,
+  type BindingCostSource,
   type LoadBalancerBindingEntry,
   type LoadBalancerReservation,
 } from "../../src/proxy/index.js";
@@ -143,6 +144,23 @@ function activityOf(balancer: LoadBalancer, groupId: string): BindingActivity {
   return entryOf(balancer, groupId).activity;
 }
 
+/**
+ * The read shape with every `readonly` marker dropped. `readonly` is a TypeScript promise,
+ * not a runtime lock, so this is what a caller written in plain JavaScript can actually do
+ * with the objects the projection handed it - and the ledger must not follow those writes.
+ */
+interface WritableBindingActivity {
+  recentRequestStarts: number[];
+  lastUsage: {
+    costSource: BindingCostSource;
+    inputTokens: number | undefined;
+    cacheReadTokens: number | undefined;
+  };
+  manualProtection: {
+    setAt: number;
+  };
+}
+
 describe("TRI-02 reservation counting at the reservation points", () => {
   it("TRI-02 a reservation opens the ledger and its release closes it", () => {
     const { balancer, now, advance } = balancerOnClock();
@@ -264,6 +282,54 @@ describe("TRI-02 the projection reads without touching", () => {
       lastUsage: undefined,
       manualProtection: undefined,
     });
+  });
+
+  it("TRI-02 the projection hands out copies a caller cannot write through", () => {
+    const { balancer, now, advance } = balancerOnClock();
+    const reservation = planned(balancer, "session-1", "one", now());
+    balancer.noteBindingRequestBytes(reservation.bindingRef, 512);
+    advance(2_000);
+    balancer.recordBindingUsage(reservation.bindingRef, {
+      status: "complete",
+      endpoint: "responses",
+      inputTokens: 1_500,
+      cacheReadTokens: 256,
+    });
+    advance(500);
+    balancer.setManualProtection(reservation.bindingRef);
+    advance(250);
+    reservation.release();
+
+    const read = activityOf(balancer, "lb-1");
+    // The caller rewrites everything the projection handed it, nested objects and the
+    // request ring included. None of that may reach the ledger behind the read.
+    const writable = read as unknown as WritableBindingActivity;
+    writable.recentRequestStarts.push(999_000);
+    writable.lastUsage.costSource = "none";
+    writable.lastUsage.inputTokens = 0;
+    writable.lastUsage.cacheReadTokens = undefined;
+    writable.manualProtection.setAt = 0;
+
+    expect(activityOf(balancer, "lb-1")).toStrictEqual({
+      inFlight: 0,
+      lastRequestStartedAt: 1_000,
+      lastResponseEndedAt: 3_750,
+      recentRequestStarts: [1_000],
+      lastRequestBytes: 512,
+      lastUsage: {
+        observedAt: 3_000,
+        costSource: "normalized_usage",
+        endpoint: "responses",
+        inputTokens: 1_500,
+        cacheReadTokens: 256,
+      },
+      manualProtection: { setAt: 3_500 },
+    });
+    // What the caller holds is a copy of each nested value, not the ledger's own object.
+    const again = activityOf(balancer, "lb-1");
+    expect(again.lastUsage).not.toBe(read.lastUsage);
+    expect(again.manualProtection).not.toBe(read.manualProtection);
+    expect(again.recentRequestStarts).not.toBe(read.recentRequestStarts);
   });
 });
 

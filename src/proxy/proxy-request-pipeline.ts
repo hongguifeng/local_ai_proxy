@@ -267,6 +267,13 @@ export class ProxyRequestPipeline {
           }
           activeTarget = switched.target;
           activeReservation = switched.reservation;
+          // The new reservation may belong to a binding the first attempt never touched -
+          // the old binding can leave the table while its reservation is handed back, and
+          // the failover plan then creates a fresh one. Its ledger knows nothing about this
+          // request, so the coarse cost signal has to be recorded again for the node that
+          // actually answers; without it a missing usage reports `none` instead of the
+          // body size that was known at selection.
+          this.#noteRequestBytes(activeReservation, requestBody.byteLength);
           activeReservation.markDispatched();
           const failoverModelId =
             loadBalancerMemberModelId(switched.group, activeTarget.id) ?? selection.requestModel;
@@ -500,6 +507,10 @@ export class ProxyRequestPipeline {
     }
     const target = this.#options.targets.find(({ id }) => id === next.decision.targetId);
     if (target === undefined) {
+      // The plan established a reservation for a node this pipeline cannot reach, and only
+      // this method would ever release it. Hand it straight back, same as at selection: the
+      // target count and the binding ledger must not hang on a node nobody owns.
+      next.release();
       return undefined;
     }
     return { target, reservation: next, fromTargetId, group: loadBalance.group };
