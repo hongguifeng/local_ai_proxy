@@ -178,10 +178,13 @@ function compareCapture(
   baseline: { readonly width: number; readonly height: number; readonly data: Buffer },
 ): number {
   expect(actual.width).toBe(baseline.width);
-  // The document height can drift a few pixels between environments because of
-  // fractional-pixel rounding (e.g. aspect-ratio SVGs). Treat a page as
-  // unchanged when the overlap is identical and any extra rows are blank.
-  expect(Math.abs(actual.height - baseline.height)).toBeLessThanOrEqual(4);
+  // The capture height is derived from the document, so it follows how the installed
+  // fonts wrapped the text: on the Linux runner the same load-balancing page is 17 px
+  // shorter in Chinese and 16 px taller in English than on Windows, while every extra
+  // row on either side is blank. Asserting the height therefore failed for a difference
+  // no content change could explain. What matters is that the rows one capture has and
+  // the other lacks are blank, which the loop below checks: real content loss grows
+  // those rows with ink, and content that moved shows up in the pixel ratio.
   const rows = Math.min(actual.height, baseline.height);
   const stride = actual.width * 4;
   const sliceRows = (image: { data: Buffer }) => {
