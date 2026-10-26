@@ -382,8 +382,10 @@ export function createLoadBalancing({
       // What the user has chosen and what the server answered, per binding, so a refresh can
       // rebuild the markup without wiping a selection, a confirmation or a conflict notice.
       moves: new Map(),
-      // The cancels on their way, so one button cannot be clicked into two DELETEs.
-      cancelling: new Set(),
+      // The cancels on their way, each held by the attempt that started it, so one button
+      // cannot be clicked into two DELETEs and an obsolete callback cannot unlock a cancel a
+      // newer generation is making for the same operation.
+      cancelling: new Map(),
       cancelNoticeKey: null,
       cancelNoticeDetail: "",
     };
@@ -614,7 +616,7 @@ export function createLoadBalancing({
       // be able to read here. Dropping it with the rows would leave the move looking unfinished.
       return `${staleNote}<p class="lb-binding-empty" data-lb-binding-empty>${escapeHtml(
         t("lbBindingsNone"),
-      )}</p>${lbBindingOperationsHtml(panel)}`;
+      )}</p>${lbBindingUnresolvedHtml(panel)}${lbBindingOperationsHtml(panel)}`;
     }
     const linkedTasks = panel.items.reduce(
       (total, item) => total + item.associations.tasks.length,
@@ -632,6 +634,7 @@ export function createLoadBalancing({
       panel.items
         .map((item) => lbBindingRowHtml(panel, item, panel.now, nodeLabel, nodeNames))
         .join(""),
+      lbBindingUnresolvedHtml(panel),
       lbBindingOperationsHtml(panel),
       pager,
     ].join("");
@@ -750,6 +753,10 @@ export function createLoadBalancing({
    *  most `lbBindingReadRowCap` rows: the read asks for no more than the room left, and a page
    *  that still answers with more than that is cut to the cap rather than shown past it. */
   function storeBindingPage(panel, data, append) {
+    const incoming = bindingVersionKey(data.runtimeEpoch, data.groupRevision);
+    // Read before the envelope is copied over: this is the epoch the rows on screen came from,
+    // and once it is overwritten the comparison would always be between two equal values.
+    const leftRuntime = panel.runtimeEpoch !== null && panel.runtimeEpoch !== data.runtimeEpoch;
     panel.total = data.totalBindings;
     panel.hasMore = data.hasMore;
     panel.now = data.now;
@@ -760,7 +767,6 @@ export function createLoadBalancing({
     // Newest first: the newest submit is the one a reader has to be shown, and a binding can
     // carry several records whose ids never line up into a sequence.
     panel.operations = data.migrationOperations;
-    pruneMoveDrafts(panel);
     panel.errorKey = null;
     panel.errorMessage = "";
     panel.errorDetail = "";
@@ -768,16 +774,31 @@ export function createLoadBalancing({
       const held = new Set(panel.items.map(bindingAddress));
       const fresh = data.items.filter((item) => !held.has(bindingAddress(item)));
       panel.items = panel.items.concat(fresh).slice(0, lbBindingReadRowCap);
-      return;
+    } else {
+      // The page names another runtime now, so an instruction built under the old one addressed
+      // a runtime that is gone: it is retired before any row of the new list is shown. A group
+      // revision that moved under the same runtime does not retire it, because the frozen
+      // instruction can still be replayed and the server answers it definitively.
+      if (leftRuntime) {
+        retireMoveDrafts(panel);
+      }
+      panel.items = data.items.slice(0, lbBindingReadRowCap);
+      panel.version = incoming;
     }
-    panel.items = data.items.slice(0, lbBindingReadRowCap);
-    panel.version = bindingVersionKey(data.runtimeEpoch, data.groupRevision);
+    // Pruning judges the drafts against the rows this answer put on the page, so it runs after
+    // they are stored: run it first it would judge them against the list being replaced.
+    pruneMoveDrafts(panel);
   }
 
   /** Forget the rows that came from another runtime epoch or another group revision, so the
    *  panel holds one consistent list again. A fresh read then starts at offset 0: the tail of
-   *  the old generation is not the first page of the new one. */
-  function discardBindingGeneration(panel) {
+   *  the old generation is not the first page of the new one. An instruction addressed to a
+   *  runtime that is gone is retired with the rows; one addressed to this same runtime under an
+   *  older group revision is kept, because replaying it is still how its outcome gets settled. */
+  function discardBindingGeneration(panel, data) {
+    if (panel.runtimeEpoch !== null && panel.runtimeEpoch !== data.runtimeEpoch) {
+      retireMoveDrafts(panel);
+    }
     panel.items = [];
     panel.version = "";
     panel.loaded = false;
@@ -798,10 +819,11 @@ export function createLoadBalancing({
    * only existed as text would be wiped with it.
    */
   function moveDraftFor(panel, item) {
-    const key = bindingAddress(item);
-    const known = panel.moves.get(key);
+    const address = bindingAddress(item);
+    const known = panel.moves.get(address);
     if (known !== undefined) return known;
     const created = {
+      bindingId: item.bindingId,
       destinationTargetId: null,
       confirmed: false,
       submitting: false,
@@ -814,25 +836,94 @@ export function createLoadBalancing({
       // route and the poll look like now.
       key: null,
       payload: null,
-      // The runtime the instruction was addressed to. A callback that comes back after this pair
-      // runs a different runtime describes an address that no longer exists, so its state is
-      // named unknown rather than kept under the word it was answered with.
+      // The runtime epoch this draft's instruction was addressed to. It outlives the answer: a
+      // later page that names a different epoch is what turns this submission's state into
+      // "cannot be confirmed", because the runtime it was sent to is gone and nothing read from
+      // this one can ever answer for it.
       builtEpoch: null,
+      // The page moved to another runtime epoch after an instruction was built here, so what
+      // that instruction reached is no longer something this list can answer. It stays as a
+      // fact about the user's own submission, never as an instruction that may be sent again.
+      generationRetired: false,
+      // The write this draft has on its way, or null. A callback only answers into the attempt
+      // that still owns the draft, so a superseded or stranded one writes nothing.
+      attempt: null,
       operationId: null,
     };
-    panel.moves.set(key, created);
+    panel.moves.set(address, created);
     return created;
   }
 
   /**
-   * Forget the drafts whose binding is no longer on this page. The operation a draft recorded is
-   * still shown in the panel's own list - it does not live in the draft - so dropping the draft
-   * loses no state the user still needs to read.
+   * The instruction a row is carrying and the user may not overwrite right now: a write on its
+   * way, or a write whose outcome the browser could not tell. Either stays frozen until an
+   * answer settles it, and the only thing that may send the second one again is its own retry,
+   * with the same key and the same payload.
+   */
+  function moveDraftIsFrozen(draft) {
+    return draft.submitting || (draft.uncertain && draft.payload !== null);
+  }
+
+  /** Whether the user still has something to learn from a draft: a write on its way, or a write
+   *  whose outcome the browser could not tell. Dropping one of those would drop the only retry
+   *  the user has, or the answer a callback is still on its way to give. */
+  function moveDraftIsAwaited(draft) {
+    return draft.submitting || draft.uncertain;
+  }
+
+  /**
+   * Drop the instruction a draft carries: the payload, its key, the destination and the
+   * confirmation. What stays is only what the user still has to be told, because a frozen
+   * instruction must never be sent again under versions the page now shows.
+   */
+  function retireMoveIntent(draft) {
+    draft.payload = null;
+    draft.key = null;
+    draft.builtEpoch = null;
+    draft.destinationTargetId = null;
+    draft.confirmed = false;
+  }
+
+  /**
+   * The page moved to another runtime epoch. Every instruction the drafts carry was addressed to
+   * a runtime this page no longer shows: it can never be answered for or replayed here, and a
+   * binding number plus incarnation that a later runtime reuses is not the same binding. So the
+   * instruction, the destination and the confirmation go with it, and what stays is the one
+   * sentence the user still needs - that submission's state cannot be confirmed. Keeping the old
+   * choice would offer a destination this generation never named. A write that was still on its
+   * way is detached at the same moment: its callback finds nothing to write into, and the row is
+   * left free to be decided over again on the runtime this page now shows.
+   */
+  function retireMoveDrafts(panel) {
+    panel.moves.forEach((draft) => {
+      // A write still on its way was addressed to the runtime this page has left. Detach it
+      // here, so the callback that eventually answers finds an attempt that is no longer the
+      // draft's and writes nothing, and so the row is not left frozen on an answer that can
+      // never settle. A row frozen that way would block every new decision on this runtime.
+      const unconfirmed = draft.attempt !== null || draft.builtEpoch !== null || draft.uncertain;
+      draft.attempt = null;
+      draft.submitting = false;
+      retireMoveIntent(draft);
+      if (unconfirmed) {
+        // What the user still has to be told: that submission's state cannot be confirmed, and
+        // nothing is left here that could be sent again. The row itself is open to a decision.
+        draft.generationRetired = true;
+        draft.uncertain = true;
+      }
+    });
+  }
+
+  /**
+   * Forget the drafts whose binding is no longer listed here, once the rows this answer put on
+   * the page are stored. An intent the user is still waiting on is kept: its outcome is either
+   * unknown or still being written, and dropping it would drop the only retry it has. What is
+   * kept without a row to show it on is named by the panel's own line below the rows.
    */
   function pruneMoveDrafts(panel) {
     const living = new Set(panel.items.map(bindingAddress));
-    [...panel.moves.keys()].forEach((key) => {
-      if (!living.has(key)) panel.moves.delete(key);
+    [...panel.moves].forEach(([address, draft]) => {
+      if (living.has(address) || moveDraftIsAwaited(draft)) return;
+      panel.moves.delete(address);
     });
   }
 
@@ -865,6 +956,10 @@ export function createLoadBalancing({
     </div>`;
     }
     const chosen = draft.destinationTargetId;
+    // While a write is on its way, or its outcome stayed unknown, the row is frozen: the
+    // destination and the confirmation cannot be edited into a different instruction, and the
+    // only control that does anything is the retry of the very same one.
+    const frozen = moveDraftIsFrozen(draft);
     const options = item.movable.destinations.map((destination) => {
       const name = nodeNames.get(destination.targetId) ?? destination.targetId;
       const label = destination.eligible
@@ -881,7 +976,7 @@ export function createLoadBalancing({
     );
     const needsConfirmation = selected !== undefined && selected.metricsUnknown;
     const canSubmit =
-      !draft.submitting &&
+      !frozen &&
       chosen !== null &&
       selected !== undefined &&
       selected.eligible &&
@@ -889,7 +984,7 @@ export function createLoadBalancing({
     // The runtime this instruction was addressed to is gone, so what it reached is no longer
     // something the list can answer. It is named as unknown rather than kept under the word it
     // was answered with, and no retry is offered for an address that does not exist.
-    const generationChanged = draft.builtEpoch !== null && draft.builtEpoch !== panel.runtimeEpoch;
+    const generationChanged = draft.generationRetired;
     const noticeKey = generationChanged ? "lbMoveGenerationChanged" : draft.noticeKey;
     const notice =
       noticeKey === null && draft.noticeDetail === ""
@@ -902,7 +997,7 @@ export function createLoadBalancing({
               : ` <span class="lb-binding-move-notice-detail" data-lb-binding-move-notice-detail>${escapeHtml(draft.noticeDetail)}</span>`
           }</p>`;
     const retry =
-      draft.uncertain && !generationChanged
+      draft.uncertain && !generationChanged && draft.payload !== null
         ? `<button type="button" class="lb-binding-move-retry" data-lb-binding-move-retry${
             draft.submitting ? " disabled" : ""
           }>${escapeHtml(t("lbMoveRetry"))}</button>`
@@ -910,20 +1005,43 @@ export function createLoadBalancing({
     return `<div class="lb-binding-tools lb-binding-move-tools">
     <label class="lb-binding-move-pick">
       <span class="lb-binding-move-pick-label">${escapeHtml(t("lbMoveChooseTarget"))}</span>
-      <select class="lb-binding-move-target" data-lb-binding-move-target aria-label="${escapeHtml(t("lbMoveChooseTarget"))}">
+      <select class="lb-binding-move-target" data-lb-binding-move-target aria-label="${escapeHtml(t("lbMoveChooseTarget"))}"${
+        frozen ? " disabled" : ""
+      }>
         <option value="">${escapeHtml(t("lbMoveChooseTarget"))}</option>
         ${options.join("")}
       </select>
     </label>
     ${
       needsConfirmation
-        ? `<label class="lb-binding-move-confirm"><input type="checkbox" class="lb-binding-move-confirm-input" data-lb-binding-move-confirm${draft.confirmed ? " checked" : ""}><span>${escapeHtml(t("lbMoveConfirmUnknown"))}</span></label>`
+        ? `<label class="lb-binding-move-confirm"><input type="checkbox" class="lb-binding-move-confirm-input" data-lb-binding-move-confirm${draft.confirmed ? " checked" : ""}${frozen ? " disabled" : ""}><span>${escapeHtml(t("lbMoveConfirmUnknown"))}</span></label>`
         : ""
     }
     <button type="button" class="lb-binding-move" data-lb-binding-move${canSubmit ? "" : " disabled"} title="${escapeHtml(t("lbMoveNextRequestHint"))}">${escapeHtml(t("lbMoveBinding"))}</button>
     ${retry}
     ${notice}
   </div>`;
+  }
+
+  /**
+   * A submission whose outcome the browser could not tell is retryable only from the row that
+   * carries it. When that row is not on this page - the binding moved away, or the generation
+   * the submission was addressed to is gone - the panel says so below the rows instead of
+   * leaving the user with no trace of the write they made.
+   */
+  function lbBindingUnresolvedHtml(panel) {
+    const shown = new Set(panel.items.map(bindingAddress));
+    const stranded = [...panel.moves].filter(
+      ([address, draft]) => draft.uncertain && !shown.has(address),
+    );
+    return stranded
+      .map(
+        ([, draft]) =>
+          `<p class="lb-binding-unresolved" data-lb-binding-unresolved="${draft.bindingId}">${escapeHtml(
+            `#${draft.bindingId} ${t("lbMoveUnresolvedOffPage")}`,
+          )}</p>`,
+      )
+      .join("");
   }
 
   /**
@@ -1024,7 +1142,7 @@ export function createLoadBalancing({
       )
         return;
       if (append && bindingVersionKey(data.runtimeEpoch, data.groupRevision) !== panel.version) {
-        discardBindingGeneration(panel);
+        discardBindingGeneration(panel, data);
         void readBindingPage(context, panel, 0);
         return;
       }
@@ -1165,20 +1283,112 @@ export function createLoadBalancing({
   /**
    * A write is not a read: closing the panel must not be reported to the user as though the
    * server had called the intent off. So a write is sent without the surface's signal and its
-   * answer is guarded instead - a callback whose surface is gone, or whose runtime is no longer
-   * the one this page shows, writes nothing into the panel.
+   * answer is guarded instead.
    */
-  function moveWriteBelongsToPanel(panel, draft) {
-    return panel.readLifecycle === lifecycle && draft.builtEpoch === panel.runtimeEpoch;
+  /**
+   * Everything one write's callback needs to decide whether its answer still belongs on the
+   * page it was sent from, captured at the moment the write starts: the surface that was alive,
+   * the generation the page showed, the panel and binding address the draft lives under, the
+   * draft itself, and the instruction that goes out. A later edit, refresh, disposal or runtime
+   * cannot change any of it, so the callback never reads a draft or a version that somebody
+   * else moved on from.
+   */
+  function captureMoveAttempt(context, panel, item, draft, payload) {
+    return {
+      context,
+      panel,
+      panelKey: bindingPanelKey(context.pairId, context.groupId, context.targetId),
+      lifecycle,
+      version: panel.version,
+      address: bindingAddress(item),
+      item,
+      draft,
+      payload,
+    };
+  }
+
+  /**
+   * Whether an attempt still owns the page it was sent from: the same live surface, the same
+   * panel object, the same generation, the same draft under the same binding address, and no
+   * newer attempt that took its place. Anything else means the answer describes a page, a
+   * version or an intent that is gone, so it never writes a receipt into a newer state and
+   * starts no read and no second write.
+   */
+  function moveAttemptStillOwnsPage(attempt) {
+    if (attempt.lifecycle !== lifecycle) return false;
+    if (bindingPanels.get(attempt.panelKey) !== attempt.panel) return false;
+    if (attempt.panel.version !== attempt.version) return false;
+    if (attempt.panel.moves.get(attempt.address) !== attempt.draft) return false;
+    return attempt.draft.attempt === attempt;
+  }
+
+  /**
+   * An answer that no longer belongs to the page it was sent from. The receipt is not rewritten
+   * and never shown on a page that did not ask for it, and it starts no read and no second write.
+   * What is left is only what the browser can honestly say about this write. If the page no
+   * longer names the runtime the instruction was addressed to, its state is named unknown and the
+   * instruction goes: nothing read here can answer for it, and it must not be sent again under
+   * newer versions. If the runtime is still the one shown and the server did answer, the
+   * operation's own record - which the live read below the rows carries - is what the user sees,
+   * not this stale receipt. If nothing came back, the outcome stays unknown and the same
+   * instruction may still be repeated by its own retry.
+   */
+  function resolveStrandedAttempt(attempt, outcome) {
+    const panel = attempt.panel;
+    if (bindingPanels.get(attempt.panelKey) !== panel) return;
+    const draft = panel.moves.get(attempt.address);
+    if (draft !== attempt.draft) return;
+    // Only the attempt the draft still carries has anything to say. A newer attempt that took
+    // its place, or a detach that retired this one when the page moved to another runtime, means
+    // this answer writes nothing at all: it may not clear a newer intent's flags, drop the
+    // instruction that intent is sending, or name an outcome the page no longer waits for.
+    if (draft.attempt !== attempt) return;
+    draft.attempt = null;
+    draft.submitting = false;
+    const runtimeGone =
+      panel.runtimeEpoch !== null && panel.runtimeEpoch !== attempt.payload.runtimeEpoch;
+    if (runtimeGone) {
+      retireMoveIntent(draft);
+      draft.generationRetired = true;
+      draft.noticeKey = null;
+      draft.noticeDetail = "";
+    } else if (outcome.kind === "answered") {
+      retireMoveIntent(draft);
+      draft.noticeKey = null;
+      draft.noticeDetail = "";
+    } else {
+      draft.uncertain = true;
+      draft.noticeKey = "lbMoveUncertainNotice";
+      draft.noticeDetail = String(outcome.error.message || outcome.error);
+    }
+    if (panel.readLifecycle === lifecycle) renderBindingPanel(attempt.context);
+  }
+
+  /**
+   * What a cancel's callback has to check before it says anything: the surface it started from
+   * and the generation the operations list belonged to. A page that moved to another runtime or
+   * group version no longer answers about that operation, and a disposal is never reported as a
+   * cancellation the server made.
+   */
+  function captureCancelAttempt(context, panel, operationId) {
+    return {
+      context,
+      panel,
+      panelKey: bindingPanelKey(context.pairId, context.groupId, context.targetId),
+      lifecycle,
+      version: panel.version,
+      operationId,
+    };
+  }
+
+  function cancelAttemptStillOwnsPage(attempt) {
+    if (attempt.lifecycle !== lifecycle) return false;
+    if (bindingPanels.get(attempt.panelKey) !== attempt.panel) return false;
+    return attempt.panel.version === attempt.version;
   }
 
   /** @typedef {Error & { code?: string }} MoveWriteError */
 
-  /**
-   * Send one write and say which way it went: the server answered, or nothing came back and the
-   * outcome is unknown. `code` is present only when the answer carried the API's error shape,
-   * which is what tells a refusal the page can name apart from a request that never arrived.
-   */
   /**
    * A write's outcome, as the browser can tell it: the server answered, or nothing came back and
    * the outcome is unknown. `code` is present only when the answer carried the API's error shape,
@@ -1229,11 +1439,17 @@ export function createLoadBalancing({
    * the moment it answered - and never the operation's current state, which the list below
    * shows. `applied` says the route changed and nothing about the upstream; `pending_boundary`
    * says nothing changed yet and the intent waits for the request boundary.
+   *
+   * A submit always stamps a fresh key: an outcome that stayed unknown is repeated only by the
+   * retry button, with the instruction it was built under.
    */
   async function submitBindingMove(context, panel, item, draft) {
     const destination = draft.destinationTargetId;
-    if (destination === null) return;
-    const payload = draft.payload ?? buildMovePayload(context, panel, item, destination);
+    // A frozen row starts no new write: one already on its way must not become two, and an
+    // outcome that stayed unknown is repeated only by its own retry - never by a submit that
+    // stamps a newer key and newer versions onto the same intent.
+    if (destination === null || moveDraftIsFrozen(draft)) return;
+    const payload = buildMovePayload(context, panel, item, destination);
     if (payload === null) {
       draft.noticeKey = "lbMoveNoEnvelope";
       renderBindingPanel(context);
@@ -1242,29 +1458,26 @@ export function createLoadBalancing({
     draft.payload = payload;
     draft.key = payload.idempotencyKey;
     draft.builtEpoch = panel.runtimeEpoch;
+    draft.generationRetired = false;
     draft.submitting = true;
     draft.uncertain = false;
     draft.noticeKey = null;
     draft.noticeDetail = "";
+    const attempt = captureMoveAttempt(context, panel, item, draft, payload);
+    draft.attempt = attempt;
     renderBindingPanel(context);
     const outcome = await postMoveWrite(payload);
-    if (outcome.kind === "failed") {
-      if (moveWriteBelongsToPanel(panel, draft)) {
+    if (moveAttemptStillOwnsPage(attempt)) {
+      if (draft.attempt === attempt) draft.attempt = null;
+      if (outcome.kind === "failed") {
         applyMoveError(panel, context, item, draft, outcome.error);
       } else {
-        draft.submitting = false;
+        applyMoveAnswer(draft, outcome.answer);
       }
       if (panel.readLifecycle === lifecycle) renderBindingPanel(context);
       return;
     }
-    if (!moveWriteBelongsToPanel(panel, draft)) {
-      // The pair is running a different runtime now. The receipt the server gave is not rewritten
-      // by a later lifecycle, but it is no longer this page's answer.
-      draft.submitting = false;
-      return;
-    }
-    applyMoveAnswer(draft, outcome.answer);
-    renderBindingPanel(context);
+    resolveStrandedAttempt(attempt, outcome);
   }
 
   /**
@@ -1327,27 +1540,33 @@ export function createLoadBalancing({
     void readBindingPage(context, panel, 0);
   }
 
-  /** Repeat the instruction whose result the browser could not tell apart, key and all. */
+  /**
+   * Repeat the instruction whose result the browser could not tell apart, key and payload both.
+   * The send uses the instruction the attempt captured, not whatever the draft holds after a
+   * later edit, and the answer is only applied if the page still owns that attempt.
+   */
   async function retryBindingMove(context, panel, item, draft) {
-    if (draft.payload === null || !draft.uncertain) return;
+    const payload = draft.payload;
+    if (payload === null || !draft.uncertain || draft.submitting) return;
+    // The generation this instruction was addressed to is gone: a frozen payload must never be
+    // sent again under a newer runtime epoch or group revision.
+    if (draft.generationRetired) return;
     draft.submitting = true;
+    const attempt = captureMoveAttempt(context, panel, item, draft, payload);
+    draft.attempt = attempt;
     renderBindingPanel(context);
-    const outcome = await postMoveWrite(draft.payload);
-    if (outcome.kind === "failed") {
-      if (moveWriteBelongsToPanel(panel, draft)) {
+    const outcome = await postMoveWrite(attempt.payload);
+    if (moveAttemptStillOwnsPage(attempt)) {
+      if (draft.attempt === attempt) draft.attempt = null;
+      if (outcome.kind === "failed") {
         applyMoveError(panel, context, item, draft, outcome.error);
       } else {
-        draft.submitting = false;
+        applyMoveAnswer(draft, outcome.answer);
       }
       if (panel.readLifecycle === lifecycle) renderBindingPanel(context);
       return;
     }
-    if (!moveWriteBelongsToPanel(panel, draft)) {
-      draft.submitting = false;
-      return;
-    }
-    applyMoveAnswer(draft, outcome.answer);
-    renderBindingPanel(context);
+    resolveStrandedAttempt(attempt, outcome);
   }
 
   /**
@@ -1357,11 +1576,14 @@ export function createLoadBalancing({
    */
   async function cancelBindingMove(context, panel, operationId) {
     if (panel.cancelling.has(operationId)) return;
-    panel.cancelling.add(operationId);
+    const attempt = captureCancelAttempt(context, panel, operationId);
+    panel.cancelling.set(operationId, attempt);
     renderBindingPanel(context);
-    const outcome = await deleteMoveWrite(operationId);
-    panel.cancelling.delete(operationId);
-    if (panel.readLifecycle !== lifecycle) return;
+    const outcome = await deleteMoveWrite(attempt.operationId);
+    // A claim is released only by the attempt that holds it. An obsolete callback must not
+    // unlock a cancel a newer generation is making for the same operation.
+    if (panel.cancelling.get(operationId) === attempt) panel.cancelling.delete(operationId);
+    if (!cancelAttemptStillOwnsPage(attempt)) return;
     if (outcome.kind === "failed") {
       // A refusal that carried the API's code is the server's own sentence, which is not the
       // console's to translate. One that carried no code never reached the server, so the
@@ -1737,14 +1959,26 @@ export function createLoadBalancing({
       if (row !== null) {
         const draft = moveDraftFor(panel, row.item);
         if (asElement(event.target)?.matches("[data-lb-binding-move]")) {
-          // One intent is in flight at a time, so a double click cannot become two writes.
-          if (!draft.submitting && !controlIsDisabled(event.target)) {
+          // One intent is in flight at a time, so a double click cannot become two writes, and a
+          // dispatch that reaches this button while an outcome is unknown sends nothing: the
+          // only way to repeat that instruction is its own retry, key and payload included.
+          if (!moveDraftIsFrozen(draft) && !controlIsDisabled(event.target)) {
             void submitBindingMove(moveContext, panel, row.item, draft);
           }
           return true;
         }
         if (asElement(event.target)?.matches("[data-lb-binding-move-retry]")) {
-          if (!draft.submitting) void retryBindingMove(moveContext, panel, row.item, draft);
+          // A retry repeats one instruction, so it is guarded the same way: no second send while
+          // one is on its way, and none at all once the generation it was built under is gone.
+          if (
+            !draft.submitting &&
+            draft.uncertain &&
+            draft.payload !== null &&
+            !draft.generationRetired &&
+            !controlIsDisabled(event.target)
+          ) {
+            void retryBindingMove(moveContext, panel, row.item, draft);
+          }
           return true;
         }
       }
@@ -1914,6 +2148,13 @@ export function createLoadBalancing({
       const row = bindingRowContext(panel, control);
       if (row === null) return;
       const draft = moveDraftFor(panel, row.item);
+      // A frozen row takes no edits: the destination and the confirmation of an instruction that
+      // is still on its way, or whose outcome stayed unknown, cannot be rewritten into a new one.
+      // The panel is rebuilt instead, so what the control shows is the frozen choice again.
+      if (moveDraftIsFrozen(draft)) {
+        renderBindingPanel(context);
+        return;
+      }
       if (control.dataset.lbBindingMoveTarget !== undefined) {
         const chosen = control instanceof HTMLSelectElement ? control.value : "";
         draft.destinationTargetId = chosen === "" ? null : chosen;
