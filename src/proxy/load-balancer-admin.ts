@@ -571,15 +571,20 @@ export function createLoadBalancerAdminService(
      * A pair that is configured but not running has no runtime to address, and a runtime epoch
      * that is not the current one names a runtime that no longer exists; both are reported before
      * the call so the two causes stay readable in the answer.
+     *
+     * The order the checks run in is part of the answer. A pair, a runtime and an epoch have to
+     * be located first, because a runtime that is gone or replaced holds no receipt to answer
+     * from. Then the runtime is asked what it already knows about the idempotency key, and only
+     * an instruction it has never answered is put through the configuration preflight: a retry of
+     * an instruction this runtime answered is answered that answer even when the group the
+     * request names has since left the configuration, because it is the first submission the
+     * client is repeating, not a new claim about what is configured now. Asking the other way
+     * round would answer a remembered retry with a 404 the receipt should have forestalled.
      */
     moveBinding(query: LoadBalancerBindingMoveQuery): LoadBalancerTaskMoveReply {
       const pair = source.pairs().find((item) => item.id === query.pairId);
       if (pair === undefined) {
         return { rejection: { code: "pair_not_found", detail: undefined } };
-      }
-      const group = pair.load_balancers.find((item) => item.id === query.groupId);
-      if (group === undefined) {
-        return { rejection: { code: "group_not_found", detail: undefined } };
       }
       const balancer = source.loadBalancer(pair.id);
       if (balancer === undefined) {
@@ -598,8 +603,14 @@ export function createLoadBalancerAdminService(
           },
         };
       }
-      const outcome = balancer.moveBinding(moveRequestOf(query));
-      return describeMove(outcome);
+      const request = moveRequestOf(query);
+      if (balancer.lookUpIdempotencyKey(request) === "nothing") {
+        const group = pair.load_balancers.find((item) => item.id === query.groupId);
+        if (group === undefined) {
+          return { rejection: { code: "group_not_found", detail: undefined } };
+        }
+      }
+      return describeMove(balancer.moveBinding(request));
     },
     /**
      * Call off an intent that has not been applied. Migration records live in the runtime of the

@@ -313,6 +313,34 @@ const TERMINAL_STATES: ReadonlySet<MigrationState> = new Set<MigrationState>([
   "expired_after_apply",
 ]);
 
+/**
+ * The copy of a submission answer. Nothing the store hands out, and nothing it keeps, is the
+ * same object a caller holds: `readonly` only stops a TypeScript write, not a write made through
+ * `Object.assign` or a plain cast, and an answer a caller could rewrite would rewrite every
+ * later replay of that key. This is the same isolation `toView()` gives the records.
+ */
+function toAnswerCopy(answer: MigrationSubmissionAnswer): MigrationSubmissionAnswer {
+  if (answer.kind === "refused") {
+    return {
+      kind: "refused",
+      rejection: { code: answer.rejection.code, reason: answer.rejection.reason },
+    };
+  }
+  return {
+    kind: "answered",
+    state: answer.state,
+    effect: answer.effect,
+    bindingId: answer.bindingId,
+    fromTargetId: answer.fromTargetId,
+    toTargetId: answer.toTargetId,
+    routingRevision: answer.routingRevision,
+    inFlightAtRequest: answer.inFlightAtRequest,
+    groupRevision: answer.groupRevision,
+    runtimeEpoch: answer.runtimeEpoch,
+    operationId: answer.operationId,
+  };
+}
+
 function toView(operation: MigrationOperation): MigrationOperationView {
   return {
     operationId: operation.operationId,
@@ -353,11 +381,15 @@ function idempotencyLookupKey(runtimeEpoch: string, idempotencyKey: string): str
  * answer it holds carries `operationId: null`. It is kept under the same runtime scope, the
  * same capacity and the same retention window as a record, because it costs the same kind of
  * memory and answers the same question: "what did my first submission get?".
+ *
+ * How long one is kept is not written here. A receipt that stands on its own is kept from
+ * `answeredAt` for one retention window; a receipt attached to a record is kept as long as that
+ * record is kept, which is what makes the two indexes let go of the same instruction at the same
+ * moment. An answer whose record may still move is never dropped by the clock at all.
  */
 interface StoredReceipt {
   readonly requestDigest: string;
   readonly answeredAt: number;
-  readonly expiresAt: number;
   /** The record the answer belongs to, when the submit opened one. */
   readonly operation: MigrationOperation | undefined;
   readonly answer: MigrationSubmissionAnswer;
@@ -372,6 +404,13 @@ export type MigrationReplayLookup =
     }
   | { readonly kind: "conflict"; readonly operationId: string | undefined }
   | { readonly kind: "nothing" };
+
+/**
+ * Which of those three states a key is in, without the answer that goes with the first one.
+ * A caller that only has to decide whether this runtime has ever answered the key asks for this
+ * spelling, so the stored answer and the store's own record stay inside the store.
+ */
+export type MigrationReplayKind = MigrationReplayLookup["kind"];
 
 /**
  * The bounded, in-memory record set behind `moveBinding()`. Nothing here outlives the runtime:
@@ -490,24 +529,52 @@ export class MigrationOperationStore {
         operationId: receipt.operation?.operationId,
       };
     }
-    return { kind: "match", operation: receipt.operation, answer: receipt.answer };
+    // The answer is handed out as a copy, so writing to what a reader got cannot rewrite what
+    // this runtime remembers under the key.
+    return {
+      kind: "match",
+      operation: receipt.operation,
+      answer: toAnswerCopy(receipt.answer),
+    };
+  }
+
+  /**
+   * Whether an answer can be remembered under a key right now: there is room, the key is already
+   * held (so storing replaces rather than grows), or a finished answer can be given up to make
+   * room. An index full of answers whose intents may still move has nothing to give up, and a
+   * success the runtime cannot repeat is a success it cannot promise - which is why a caller asks
+   * this before it answers, instead of answering and losing the receipt silently. Nothing here
+   * changes what the store holds; a live answer is never given up to make room.
+   */
+  canRecordAnswer(runtimeEpoch: string, idempotencyKey: string): boolean {
+    const lookup = idempotencyLookupKey(runtimeEpoch, idempotencyKey);
+    if (this.#byIdempotencyKey.has(lookup)) {
+      return true;
+    }
+    if (this.#byIdempotencyKey.size < this.#maxRecords) {
+      return true;
+    }
+    return this.#oldestFinishedReceipt() !== undefined;
   }
 
   /**
    * Keep the answer a submit gave under its own key, so a retry of that key is answered from
    * the answer rather than from whatever the route looks like now. A submit with no idempotency
    * key has nothing to be retried by, so nothing is kept for it.
+   *
+   * A submit that opened a record does not ask `canRecordAnswer()` first: every answer the index
+   * holds belongs either to a live record or to a finished one, so an index that could give
+   * nothing up is full of live answers, which means the record store is full of live records and
+   * `open()` already refused this submit with `migration_backlog_full`.
    */
   recordAnswer(operation: MigrationOperation, answer: MigrationSubmissionAnswer): void {
     const idempotencyKey = operation.idempotencyKey;
     if (idempotencyKey === undefined) {
       return;
     }
-    const now = this.#now();
     this.#storeReceipt(idempotencyLookupKey(operation.runtimeEpoch, idempotencyKey), {
       requestDigest: operation.requestDigest,
-      answeredAt: now,
-      expiresAt: now + this.#retentionMs,
+      answeredAt: this.#now(),
       operation,
       answer,
     });
@@ -527,11 +594,9 @@ export class MigrationOperationStore {
     if (idempotencyKey === undefined) {
       return;
     }
-    const now = this.#now();
     this.#storeReceipt(idempotencyLookupKey(request.runtimeEpoch, idempotencyKey), {
       requestDigest,
-      answeredAt: now,
-      expiresAt: now + this.#retentionMs,
+      answeredAt: this.#now(),
       operation: undefined,
       answer,
     });
@@ -630,8 +695,11 @@ export class MigrationOperationStore {
    * than a phantom hit on a record nobody could explain any more.
    *
    * A receipt that stands on its own - the answer of a move that needed no record - follows the
-   * same rule from the moment it was answered; a receipt attached to a record that is still live
-   * is kept, because it is still the answer a retry of that key has to repeat.
+   * same rule from the moment it was answered; a receipt attached to a record is kept exactly as
+   * long as that record is kept, which is what makes the two indexes let go of one instruction
+   * together. A receipt whose record may still move is never dropped by the clock: it is still
+   * the answer a retry of that key has to repeat, and dropping it would make a runtime that
+   * remembered an answer pretend it never gave one.
    */
   dropExpiredRecords(): number {
     const cutoff = this.#now() - this.#retentionMs;
@@ -645,10 +713,12 @@ export class MigrationOperationStore {
       dropped += 1;
     }
     for (const [lookup, receipt] of [...this.#byIdempotencyKey]) {
-      if (receipt.expiresAt > cutoff) {
-        continue;
-      }
-      if (receipt.operation !== undefined && this.#live.has(receipt.operation)) {
+      const operation = receipt.operation;
+      if (operation === undefined) {
+        if (receipt.answeredAt > cutoff) {
+          continue;
+        }
+      } else if (this.#live.has(operation) || (operation.endedAt ?? operation.createdAt) > cutoff) {
         continue;
       }
       this.#byIdempotencyKey.delete(lookup);
@@ -715,21 +785,30 @@ export class MigrationOperationStore {
   }
 
   /**
-   * Put one answer under its key. The index is bounded by the same capacity as the records and
-   * makes room the same way: the oldest answer whose intent is finished goes first. When every
-   * receipt still held belongs to an intent that may move, the new answer is not kept - a later
-   * retry of that key is then evaluated fresh, which is the honest answer when the runtime
-   * cannot afford to remember the first one.
+   * Put one answer under its key. The answer is stored as a copy, so the object the caller holds
+   * and the object the runtime remembers are never the same one. The index is bounded by the same
+   * capacity as the records and makes room the same way: the oldest answer whose intent is
+   * finished goes first. When every receipt still held belongs to an intent that may move, the
+   * new answer is not kept - a later retry of that key is then evaluated fresh, which is the
+   * honest answer when the runtime cannot afford to remember the first one. A caller that is
+   * about to answer under a new key asks `canRecordAnswer()` first, so it never gives a success
+   * this index cannot back up.
    */
   #storeReceipt(lookup: string, receipt: StoredReceipt): void {
-    while (this.#byIdempotencyKey.size >= this.#maxRecords) {
+    // A key the index already holds is replaced, not added, so it never costs an eviction.
+    while (!this.#byIdempotencyKey.has(lookup) && this.#byIdempotencyKey.size >= this.#maxRecords) {
       const oldest = this.#oldestFinishedReceipt();
       if (oldest === undefined) {
         return;
       }
       this.#byIdempotencyKey.delete(oldest[0]);
     }
-    this.#byIdempotencyKey.set(lookup, receipt);
+    this.#byIdempotencyKey.set(lookup, {
+      requestDigest: receipt.requestDigest,
+      answeredAt: receipt.answeredAt,
+      operation: receipt.operation,
+      answer: toAnswerCopy(receipt.answer),
+    });
   }
 
   #oldestFinishedReceipt(): readonly [string, StoredReceipt] | undefined {

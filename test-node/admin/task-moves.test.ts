@@ -664,6 +664,70 @@ describe("[TRI-08] the manual move route on the service the proxy runs", () => {
     expect(bindingEntryOf(balancer, second.ref.bindingId).targetId).toBe("node-a");
   });
 
+  it("answers a retry from its receipt even after the group it names left the configuration", async () => {
+    const { balancer, server, configured } = fixture();
+    const identity = chatIdentity("removed-group-retry");
+    bind(balancer, identity, "node-a");
+    const held = reserveOneRequest(balancer, identity);
+    const body = moveBody(balancer, "node-b", { idempotencyKey: "key-removed-group" });
+
+    const first = await submit(server, body);
+    expect(first.status).toBe(202);
+
+    // The group leaves the configuration while the intent waits. The runtime epoch is unchanged
+    // and the receipt is still held, so the retry of the first submission is answered that
+    // submission: what the client is repeating is an instruction this runtime already answered,
+    // not a fresh claim about what is configured now. A configuration check placed ahead of the
+    // receipt would answer it with a 404 instead.
+    configured.load_balancers.splice(0);
+    balancer.reconfigure(configured);
+    expect(balancer.groupRevision(GROUP_ID)).toBeUndefined();
+    expect(onlyRecord(balancer).state).toBe("expired");
+
+    const retry = await submit(server, body);
+    expect(retry.status).toBe(202);
+    expect(retry.payload).toEqual(first.payload);
+    expect(retry.payload["state"]).toBe("pending_boundary");
+    expect(retry.payload["operationId"]).toBe(first.payload["operationId"]);
+
+    // The four not-found causes are still located before the receipt is consulted, because a
+    // runtime that is gone or replaced holds no receipt to answer from: an epoch that is not this
+    // one is still the 404 it was, with its own sentence.
+    const oldEpoch = await submit(server, {
+      ...body,
+      runtimeEpoch: "epoch-of-a-replaced-runtime",
+    });
+    expect(oldEpoch.status).toBe(404);
+    expect(oldEpoch.code).toBe("binding_not_found");
+    expect(oldEpoch.message).toContain("runtime epoch");
+
+    // The same key carrying only a different group is a different instruction, so it is refused
+    // as spent rather than answered by the group that is not there: a key this runtime answered
+    // is never handed to the configuration preflight to be turned into a not-found.
+    const otherGroup = await submit(server, { ...body, groupId: "group-never-configured" });
+    expect(otherGroup.status).toBe(409);
+    expect(otherGroup.code).toBe("idempotency_conflict");
+    expect(otherGroup.message).toContain("idempotency key");
+
+    // An instruction this runtime has never answered still gets the configuration question, and
+    // a group that is not there is named with the sentence this surface has always used.
+    const brandNew = await submit(server, {
+      ...body,
+      groupId: "group-never-configured",
+      idempotencyKey: "key-never-answered-here",
+    });
+    expect(brandNew.status).toBe(404);
+    expect(brandNew.code).toBe("binding_not_found");
+    expect(brandNew.message).toBe("Load balancer group not found.");
+
+    // Nothing was written by any of these: the group left with its bindings, so there is no table
+    // left to move, and the expired intent is still the only thing this runtime recorded.
+    expect(balancer.bindingSnapshot(GROUP_ID)).toBeUndefined();
+    expect(balancer.migrationOperations()).toHaveLength(1);
+
+    held.release();
+  });
+
   it("lets one page win when two hold the same old revision, and refuses the other as stale", async () => {
     const { balancer, server } = fixture();
     bind(balancer, chatIdentity("move-6"), "node-a");
@@ -913,6 +977,77 @@ describe("[TRI-08] the manual move route on the service the proxy runs", () => {
     // Nothing was written while the store was full.
     expect(balancer.migrationOperations()).toHaveLength(1);
     expect(onlyEntry(balancer).targetId).toBe("node-b");
+  });
+
+  it("refuses a no-op the runtime cannot remember with 503 instead of a receipt it cannot keep", async () => {
+    const { balancer, server } = fixture({ maxMigrationRecords: 1 });
+    const busy = chatIdentity("capacity-noop");
+    const parkedBinding = bind(balancer, busy, "node-a");
+    const held = reserveOneRequest(balancer, busy);
+    const heldBody = moveBody(balancer, "node-b", {
+      bindingId: parkedBinding.ref.bindingId,
+      idempotencyKey: "key-held-answer",
+    });
+    const parked = await submit(server, heldBody);
+    expect(parked.status).toBe(202);
+
+    // The one answer this runtime can afford to hold belongs to an intent that may still move,
+    // so there is nothing to give up for a new key. The no-op that would have been answered under
+    // that key is refused with the store's own limit instead of a 200 whose receipt was dropped
+    // on the floor: a success nobody can replay is not an idempotent success, and the same key
+    // with a different destination would have moved the route.
+    const idleBinding = bind(
+      balancer,
+      chatIdentity("capacity-noop-idle", "a second turn"),
+      "node-a",
+    );
+    const noopBody = moveBody(balancer, "node-a", {
+      bindingId: idleBinding.ref.bindingId,
+      idempotencyKey: "key-cannot-be-remembered",
+    });
+    const noop = await submit(server, noopBody);
+    expect(noop.status).toBe(503);
+    expect(noop.code).toBe("migration_backlog_full");
+    expect(noop.message).toContain("cannot promise to remember this idempotency key");
+
+    // Nothing was written: the idle binding is on the node it was bound to at the revision it was
+    // created with, and the only record is still the parked intent.
+    expect(bindingEntryOf(balancer, idleBinding.ref.bindingId).targetId).toBe("node-a");
+    expect(bindingEntryOf(balancer, idleBinding.ref.bindingId).routingRevision).toBe(
+      INITIAL_ROUTING_REVISION,
+    );
+    expect(onlyRecord(balancer).state).toBe("pending_boundary");
+
+    // The answer that was kept is still replayable: making room was never paid for by dropping a
+    // live intent's receipt.
+    const retryHeld = await submit(server, heldBody);
+    expect(retryHeld.status).toBe(202);
+    expect(retryHeld.payload).toEqual(parked.payload);
+
+    // Once the intent has ended there is something the index can give up, so the same
+    // instruction is answered with a receipt this runtime can keep: a retry repeats it, and the
+    // same key with a changed destination is refused instead of allowed to move the route.
+    const cancelled = await callOff(server, textOf(parked.payload, "operationId"));
+    expect(cancelled.status).toBe(200);
+    held.release();
+
+    const remembered = await submit(server, noopBody);
+    expect(remembered.status).toBe(200);
+    expect(remembered.payload["state"]).toBe("already_there");
+    expect(remembered.payload["operationId"]).toBeNull();
+    const replayed = await submit(server, noopBody);
+    expect(replayed.status).toBe(200);
+    expect(replayed.payload).toEqual(remembered.payload);
+
+    const changed = await submit(server, { ...noopBody, destinationTargetId: "node-b" });
+    expect(changed.status).toBe(409);
+    expect(changed.code).toBe("idempotency_conflict");
+    expect(bindingEntryOf(balancer, idleBinding.ref.bindingId).targetId).toBe("node-a");
+    expect(bindingEntryOf(balancer, idleBinding.ref.bindingId).routingRevision).toBe(
+      INITIAL_ROUTING_REVISION,
+    );
+    // The cap held throughout: one record, never a second one written under a full store.
+    expect(balancer.migrationOperations()).toHaveLength(1);
   });
 
   it("calls off a parked intent with 200 cancelled and leaves the route where it was", async () => {

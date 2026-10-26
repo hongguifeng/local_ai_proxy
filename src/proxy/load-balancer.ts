@@ -25,6 +25,8 @@ import {
   type MigrationOperationView,
   type MigrationRejection,
   type MigrationRejectionCode,
+  type MigrationReplayKind,
+  type MigrationReplayLookup,
   type MigrationAnswerEffect,
   type MigrationAnswerState,
   type MigrationRouteMeta,
@@ -425,6 +427,17 @@ export class LoadBalancer {
   }
 
   /**
+   * What this runtime already knows about one idempotency key, before any gate or any
+   * configuration question is asked: the key holds a first answer (`match`), it was spent on a
+   * different instruction (`conflict`), or this runtime has never answered it (`nothing`). The
+   * digest is computed here so a caller never has to reproduce it, and the stored answer is not
+   * handed out - `moveBinding()` is what replays it, which keeps the receipt authority here.
+   */
+  lookUpIdempotencyKey(request: MoveBindingRequest): MigrationReplayKind {
+    return this.#replayOf(request, migrationRequestDigest(request)).kind;
+  }
+
+  /**
    * The one entry that moves a binding's target. A manual move (TRI-08) and a future automatic
    * policy (TRI-10) both call this, and nothing outside `LoadAffinityTable.rebind()` assigns
    * `targetId`. Every gate is checked twice - once here at submit and once again inside the
@@ -440,30 +453,27 @@ export class LoadBalancer {
    */
   moveBinding(request: MoveBindingRequest): MoveBindingOutcome {
     const digest = migrationRequestDigest(request);
-    const idempotencyKey = request.idempotencyKey;
-    if (idempotencyKey !== undefined) {
-      const lookup = this.#migrations.findReplay(request.runtimeEpoch, idempotencyKey, digest);
-      if (lookup.kind === "match") {
-        // The same key with the same parameters is answered the answer this runtime gave the
-        // first time - the same status, the same body, the same effect - and never a reading of
-        // the route as it stands now.
-        return {
-          kind: "replayed",
-          answer: lookup.answer,
-          operation:
-            lookup.operation === undefined ? undefined : this.#migrations.viewOf(lookup.operation),
-        };
-      }
-      if (lookup.kind === "conflict") {
-        return {
-          kind: "rejected",
-          operationId: lookup.operationId,
-          rejection: {
-            code: "idempotency_conflict",
-            reason: "That idempotency key was already used for a different move in this runtime.",
-          },
-        };
-      }
+    const lookup = this.#replayOf(request, digest);
+    if (lookup.kind === "match") {
+      // The same key with the same parameters is answered the answer this runtime gave the
+      // first time - the same status, the same body, the same effect - and never a reading of
+      // the route as it stands now.
+      return {
+        kind: "replayed",
+        answer: lookup.answer,
+        operation:
+          lookup.operation === undefined ? undefined : this.#migrations.viewOf(lookup.operation),
+      };
+    }
+    if (lookup.kind === "conflict") {
+      return {
+        kind: "rejected",
+        operationId: lookup.operationId,
+        rejection: {
+          code: "idempotency_conflict",
+          reason: "That idempotency key was already used for a different move in this runtime.",
+        },
+      };
     }
 
     const binding = this.bindingForRef(this.#moveRef(request));
@@ -473,7 +483,22 @@ export class LoadBalancer {
         // Nothing to move, so nothing is recorded: no write happened and there is no outcome
         // worth auditing. The answer is still bound to its key and its digest, so a retry of the
         // same instruction repeats it and a key reused for a different destination is refused
-        // rather than allowed to move the route.
+        // rather than allowed to move the route - but only once the store can actually keep that
+        // binding. A success this runtime cannot remember is a success it cannot promise: the
+        // same key with a different destination would find nothing and move the route.
+        if (
+          request.idempotencyKey !== undefined &&
+          !this.#migrations.canRecordAnswer(request.runtimeEpoch, request.idempotencyKey)
+        ) {
+          return {
+            kind: "rejected",
+            operationId: undefined,
+            rejection: migrationRejection(
+              "migration_backlog_full",
+              "This runtime is holding as many migration answers as it is allowed to, so it cannot promise to remember this idempotency key.",
+            ),
+          };
+        }
         const answer: MigrationSubmissionAnswer = {
           kind: "answered",
           state: "already_there",
@@ -874,6 +899,19 @@ export class LoadBalancer {
       routingRevision: operation.sourceRoutingRevision,
       incarnation: operation.incarnation,
     };
+  }
+
+  /**
+   * What the idempotency index says about one request: the same key and the same parameters find
+   * the first answer, the same key with other parameters find the instruction it was spent on,
+   * and a request with no key has nothing to be retried by. This is the one place the key is
+   * looked over, so the public question and the submit cannot drift apart.
+   */
+  #replayOf(request: MoveBindingRequest, digest: string): MigrationReplayLookup {
+    if (request.idempotencyKey === undefined) {
+      return { kind: "nothing" };
+    }
+    return this.#migrations.findReplay(request.runtimeEpoch, request.idempotencyKey, digest);
   }
 
   /**

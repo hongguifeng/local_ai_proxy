@@ -7,6 +7,11 @@ import {
   type TargetConfig,
 } from "../../src/config/index.js";
 import type { LogContext, StructuredLogger } from "../../src/shared/index.js";
+import {
+  MigrationOperationStore,
+  migrationRequestDigest,
+  type MigrationReplayKind,
+} from "../../src/proxy/load-migration.js";
 
 import {
   EMPTY_LOAD_SAMPLES,
@@ -863,6 +868,62 @@ describe("TRI-07 submitting a move", () => {
     expect(codeOf(subject.moveBinding(moveRequest(subject, "node-b")))).toBe("model_mismatch");
     // The same model id on both members is what v1 allows.
     expect(subject.moveBinding(moveRequest(subject, "node-c")).kind).toBe("applied");
+  });
+
+  it("TRI-08 an answer handed to a caller is a copy, so writing to it cannot rewrite what is remembered", () => {
+    const { subject } = harness();
+    configured(subject, twoEngines());
+    tableOf(subject).bind(chatIdentity("session-tampered"), "node-a");
+    const request = moveRequest(subject, "node-b", { idempotencyKey: "key-tamper" });
+
+    const first = subject.moveBinding(request);
+    if (first.kind !== "applied") {
+      throw new Error("The first submit must apply.");
+    }
+    // What the submit answered is what every later replay has to repeat. The number is read here,
+    // before anything below writes to the answer object.
+    const rememberedRevision = answered(answerOf(first)).routingRevision;
+
+    // `readonly` stops a TypeScript write but not a runtime one, so the store keeps its own copy
+    // of an answer instead of holding the same object the caller was handed.
+    Object.assign(answerOf(first), { routingRevision: 999 });
+    const retry = subject.moveBinding(request);
+    expect(retry.kind).toBe("replayed");
+    expect(answered(answerOf(retry)).routingRevision).toBe(rememberedRevision);
+
+    // Writing to a replayed answer cannot rewrite the replay after it either.
+    Object.assign(answerOf(retry), { routingRevision: 7 });
+    expect(answered(answerOf(subject.moveBinding(request))).routingRevision).toBe(
+      rememberedRevision,
+    );
+
+    // A refusal is held the same way: the sentence the gate gave is the sentence a retry gets,
+    // whatever a reader does to the rejection object it was handed.
+    const refusalRequest = moveRequest(subject, "node-c", {
+      idempotencyKey: "key-tamper-refused",
+      routingRevision: 7,
+    });
+    const refusal = subject.moveBinding(refusalRequest);
+    if (refusal.kind !== "rejected") {
+      throw new Error("A stale submit must be refused.");
+    }
+    const rememberedSentence = refusal.rejection.reason;
+    Object.assign(refusal.rejection, { reason: "rewritten by a reader" });
+    const replayedRefusal = subject.moveBinding(refusalRequest);
+    expect(replayedRefusal.kind).toBe("replayed");
+    if (replayedRefusal.kind !== "replayed") {
+      throw new Error("A recorded refusal must be answered from that refusal.");
+    }
+    if (replayedRefusal.answer.kind !== "refused") {
+      throw new Error("A recorded refusal must replay as a refusal.");
+    }
+    expect(replayedRefusal.answer.rejection.reason).toBe(rememberedSentence);
+
+    // None of this touched the route or the records: the write and the refusal are still the
+    // only two things this runtime recorded.
+    expect(onlyBinding(subject).routingRevision).toBe(rememberedRevision);
+    expect(onlyBinding(subject).targetId).toBe("node-b");
+    expect(records(subject).map((record) => record.state)).toEqual(["applied", "rejected"]);
   });
 });
 
@@ -1815,5 +1876,261 @@ describe("TRI-07 what invalidates an intent", () => {
     expect(onlyBinding(subject).targetId).toBe("node-a");
 
     reservation.release();
+  });
+
+  it("TRI-08 a no-op the runtime cannot remember is refused instead of answered without a receipt", () => {
+    const { time, subject } = harness({ maxMigrationRecords: 1 });
+    configured(subject, threeEngines());
+    const busy = chatIdentity("session-answer-full");
+    tableOf(subject).bind(busy, "node-a");
+    const reservation = inFlight(subject, time, busy);
+    const held = moveRequest(subject, "node-b", { idempotencyKey: "key-answer-held" });
+    expect(subject.moveBinding(held).kind).toBe("pending_boundary");
+
+    // The one answer this runtime can afford to hold belongs to an intent that may still move,
+    // so there is nothing to give up for a new key. A move that would have been answered under
+    // that key is refused for the store's own limit rather than answered with a receipt it cannot
+    // keep: a no-op answered without a receipt leaves the same key free to move the route later.
+    tableOf(subject).bind(chatIdentity("session-answer-full-noop", "two"), "node-a");
+    const refused = subject.moveBinding(
+      moveRequest(subject, "node-a", { bindingId: 2, idempotencyKey: "key-answer-refused" }),
+    );
+    expect(codeOf(refused)).toBe("migration_backlog_full");
+    expect(refused.kind === "rejected" ? refused.operationId : undefined).toBeUndefined();
+
+    // Nothing was written: the second binding is still on the node it was bound to at the
+    // revision it was created with, and the only record is still the one the held intent opened.
+    expect(bindingEntry(subject, "lb-1", 2).targetId).toBe("node-a");
+    expect(bindingEntry(subject, "lb-1", 2).routingRevision).toBe(INITIAL_ROUTING_REVISION);
+    expect(records(subject)).toHaveLength(1);
+    expect(records(subject)[0]?.state).toBe("pending_boundary");
+
+    // Making room was never paid for by forgetting a live intent's answer: the held instruction
+    // is still replayed as the answer it was given.
+    expect(subject.moveBinding(held).kind).toBe("replayed");
+
+    reservation.release();
+  });
+
+  it("TRI-08 a full answer index gives up a finished answer, never a live one", () => {
+    const { time, subject } = harness({ maxMigrationRecords: 2 });
+    configured(subject, threeEngines());
+    const busy = chatIdentity("session-answer-room");
+    tableOf(subject).bind(busy, "node-a");
+    const reservation = inFlight(subject, time, busy);
+    const held = moveRequest(subject, "node-b", { idempotencyKey: "key-room-live" });
+    expect(subject.moveBinding(held).kind).toBe("pending_boundary");
+
+    // A refused submit is finished, so its answer is one the index may give up.
+    subject.markCooldown("node-c", time.now() + 30_000);
+    const finished = moveRequest(subject, "node-c", { idempotencyKey: "key-room-finished" });
+    expect(codeOf(subject.moveBinding(finished))).toBe("target_cooldown");
+    expect(records(subject)).toHaveLength(2);
+
+    // Both answers are held and the record cap is reached, so a new key has to make room. The
+    // finished answer goes first and the live one stays where it is.
+    tableOf(subject).bind(chatIdentity("session-answer-room-noop", "two"), "node-a");
+    const noop = moveRequest(subject, "node-a", { bindingId: 2, idempotencyKey: "key-room-noop" });
+    expect(subject.moveBinding(noop).kind).toBe("already_there");
+
+    // The no-op is remembered now, which is what makes the two halves of the idempotency
+    // contract hold for it: the same instruction is replayed, and the same key carrying a
+    // different destination is refused instead of allowed to move the route.
+    expect(subject.moveBinding(noop).kind).toBe("replayed");
+    expect(
+      codeOf(
+        subject.moveBinding(
+          moveRequest(subject, "node-b", { bindingId: 2, idempotencyKey: "key-room-noop" }),
+        ),
+      ),
+    ).toBe("idempotency_conflict");
+    expect(bindingEntry(subject, "lb-1", 2).targetId).toBe("node-a");
+    expect(bindingEntry(subject, "lb-1", 2).routingRevision).toBe(INITIAL_ROUTING_REVISION);
+    expect(records(subject)).toHaveLength(2);
+
+    // The live intent's answer survived the room being made: it is still replayed as itself.
+    expect(subject.moveBinding(held).kind).toBe("replayed");
+
+    // An answer that was given up is evaluated fresh, which is what the store says it does, and
+    // the record cap still holds: the refused record is what the new submit takes its place.
+    expect(codeOf(subject.moveBinding(finished))).toBe("target_cooldown");
+    expect(records(subject)).toHaveLength(2);
+
+    reservation.release();
+  });
+});
+
+/**
+ * The clock the two bounded indexes live by. These cases drive `MigrationOperationStore` on its
+ * own because it is the one that owns both: a record is dropped one retention window after it
+ * stopped moving, and the answer kept under its key has to go at that same moment - while an
+ * answer whose record may still move is never dropped by the clock at all.
+ */
+
+/** The retention window these cases move a hand clock by. */
+const STORE_RETENTION_MS = 100;
+
+/** The store on its own, on a clock the test moves by hand. */
+function storeAt(maxRecords = 5): {
+  readonly store: MigrationOperationStore;
+  readonly time: ReturnType<typeof clock>;
+  readonly audit: AuditLine[];
+} {
+  const time = clock(1_000);
+  const audit: AuditLine[] = [];
+  const store = new MigrationOperationStore({
+    pairId: "pair-retention",
+    now: time.now,
+    retentionMs: STORE_RETENTION_MS,
+    maxRecords,
+    logger: captureLogger(audit),
+  });
+  return { store, time, audit };
+}
+
+/** One submit the store is asked to remember, addressed by nothing but the fields it carries. */
+function storeRequest(idempotencyKey: string): MoveBindingRequest {
+  return {
+    runtimeEpoch: "epoch-retention",
+    groupId: "lb-retention",
+    groupRevision: 1,
+    bindingId: 1,
+    incarnation: 1,
+    expectedRoutingRevision: INITIAL_ROUTING_REVISION,
+    expectedSourceTargetId: "node-a",
+    destinationTargetId: "node-a",
+    requestedBy: "manual",
+    reason: "the retention probe",
+    idempotencyKey,
+  };
+}
+
+/** What the store says about one key, in the three-state spelling the answer index uses. */
+function replayKind(
+  store: MigrationOperationStore,
+  request: MoveBindingRequest,
+  digest: string,
+): MigrationReplayKind {
+  const idempotencyKey = request.idempotencyKey;
+  if (idempotencyKey === undefined) {
+    throw new Error("A retention probe always carries the key it is remembering.");
+  }
+  return store.findReplay(request.runtimeEpoch, idempotencyKey, digest).kind;
+}
+
+/** The answer of a move that needed no record, which is the one that stands on its own. */
+const NO_OP_ANSWER: MigrationSubmissionAnswer = {
+  kind: "answered",
+  state: "already_there",
+  effect: "none",
+  bindingId: 1,
+  fromTargetId: "node-a",
+  toTargetId: "node-a",
+  routingRevision: INITIAL_ROUTING_REVISION,
+  inFlightAtRequest: 0,
+  groupRevision: 1,
+  runtimeEpoch: "epoch-retention",
+  operationId: null,
+};
+
+describe("TRI-08 how long an answer is kept", () => {
+  it("TRI-08 a standalone answer is kept for one retention window, not two", () => {
+    const { store, time } = storeAt();
+    const request = storeRequest("key-standalone");
+    const digest = migrationRequestDigest(request);
+    store.recordNoOpAnswer(request, digest, NO_OP_ANSWER);
+
+    // The instant before it stops being worth its space still answers a retry.
+    time.advance(STORE_RETENTION_MS - 1);
+    expect(store.dropExpiredRecords()).toBe(0);
+    expect(replayKind(store, request, digest)).toBe("match");
+
+    // The instant it stops being worth its space is the instant a retry finds nothing - the same
+    // boundary the record index uses for a record that ended at this same instant.
+    time.advance(1);
+    expect(store.dropExpiredRecords()).toBe(1);
+    expect(replayKind(store, request, digest)).toBe("nothing");
+
+    // Past the window nothing comes back: the answer was forgotten, not hidden.
+    time.advance(STORE_RETENTION_MS);
+    expect(store.dropExpiredRecords()).toBe(0);
+    expect(replayKind(store, request, digest)).toBe("nothing");
+  });
+
+  it("TRI-08 an answer whose intent may still move outlives its own retention window", () => {
+    const { store, time } = storeAt();
+    const request = storeRequest("key-live");
+    const digest = migrationRequestDigest(request);
+    const opened = store.open(request, digest);
+    if (opened === undefined) {
+      throw new Error("The store must have room for the record.");
+    }
+    store.park(opened, 1);
+    store.recordAnswer(opened, {
+      kind: "answered",
+      state: "pending_boundary",
+      effect: "next_request",
+      bindingId: request.bindingId,
+      fromTargetId: request.expectedSourceTargetId,
+      toTargetId: request.destinationTargetId,
+      routingRevision: request.expectedRoutingRevision,
+      inFlightAtRequest: 1,
+      groupRevision: request.groupRevision,
+      runtimeEpoch: request.runtimeEpoch,
+      operationId: opened.operationId,
+    });
+
+    // A whole window after the answer was given, the intent is still waiting, so the answer a
+    // retry has to repeat is still held: it is the record's state that decides, not the age of
+    // the answer itself.
+    time.advance(STORE_RETENTION_MS);
+    expect(store.dropExpiredRecords()).toBe(0);
+    expect(store.live()).toHaveLength(1);
+    expect(replayKind(store, request, digest)).toBe("match");
+
+    // Two windows after it, with the intent still live, the answer is still held.
+    time.advance(STORE_RETENTION_MS);
+    expect(store.dropExpiredRecords()).toBe(0);
+    expect(store.live()).toHaveLength(1);
+    expect(replayKind(store, request, digest)).toBe("match");
+  });
+
+  it("TRI-08 a finished answer goes at the same moment as the record it belongs to", () => {
+    const { store, time } = storeAt();
+    const request = storeRequest("key-together");
+    const digest = migrationRequestDigest(request);
+    const opened = store.open(request, digest);
+    if (opened === undefined) {
+      throw new Error("The store must have room for the record.");
+    }
+    store.park(opened, 1);
+    store.recordAnswer(opened, {
+      kind: "answered",
+      state: "pending_boundary",
+      effect: "next_request",
+      bindingId: request.bindingId,
+      fromTargetId: request.expectedSourceTargetId,
+      toTargetId: request.destinationTargetId,
+      routingRevision: request.expectedRoutingRevision,
+      inFlightAtRequest: 1,
+      groupRevision: request.groupRevision,
+      runtimeEpoch: request.runtimeEpoch,
+      operationId: opened.operationId,
+    });
+
+    // The intent ends a whole window after its answer was given, so the answer's own age has
+    // already passed its window while the record is still reportable.
+    time.advance(STORE_RETENTION_MS);
+    store.expire(opened, "the retention window passed");
+    expect(store.live()).toHaveLength(0);
+    expect(store.dropExpiredRecords()).toBe(0);
+    expect(store.operations()).toHaveLength(1);
+    expect(replayKind(store, request, digest)).toBe("match");
+
+    // One window after it ended, both indexes let go of the same instruction at the same moment.
+    time.advance(STORE_RETENTION_MS);
+    expect(store.dropExpiredRecords()).toBe(1);
+    expect(store.operations()).toHaveLength(0);
+    expect(replayKind(store, request, digest)).toBe("nothing");
   });
 });
