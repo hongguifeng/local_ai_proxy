@@ -172,6 +172,79 @@ async function startStallNode(): Promise<{ server: http.Server; port: number }> 
   return { server, port };
 }
 
+/** An address that binds a port and then lets go of it, so connecting to it is refused. */
+async function startClosedPort(): Promise<number> {
+  const server = http.createServer();
+  const port = await listen(server);
+  await close(server);
+  return port;
+}
+
+/**
+ * An engine that answers without naming a response of its own. A completed answer that carries an
+ * `id` teaches the binding a `response:` key, and a task addressed through a response id is not
+ * migratable. A case that wants a movable binding therefore needs an answer that names nothing.
+ */
+async function startIdlessNode(label: string): Promise<{ server: http.Server; port: number }> {
+  const server = http.createServer((request, response) => {
+    let receivedBytes = 0;
+    request.on("data", (chunk: Buffer) => {
+      receivedBytes += chunk.byteLength;
+    });
+    request.on("end", () => {
+      response.writeHead(200, { "content-type": "application/json" });
+      response.end(JSON.stringify({ node: label, received: receivedBytes }));
+    });
+  });
+  const port = await listen(server);
+  return { server, port };
+}
+
+/**
+ * An engine that takes the request and answers it with an error status. The request arrived and
+ * was answered: that is a routed request, which is why a migration landing does not wait for a
+ * business success.
+ */
+async function startRefusingNode(
+  label: string,
+  status: number,
+): Promise<{ server: http.Server; port: number }> {
+  const server = http.createServer((request, response) => {
+    let body = "";
+    request.setEncoding("utf8");
+    request.on("data", (chunk: string) => {
+      body += chunk;
+    });
+    request.on("end", () => {
+      const parsed: unknown = JSON.parse(body === "" ? "{}" : body);
+      const model = isRecord(parsed) ? parsed["model"] : undefined;
+      const text = typeof model === "string" ? model : "";
+      response.writeHead(status, { "content-type": "application/json" });
+      response.end(
+        JSON.stringify({
+          error: { message: `node ${label} refused the request` },
+          model: text,
+          node: label,
+        }),
+      );
+    });
+  });
+  const port = await listen(server);
+  return { server, port };
+}
+
+/** A traffic log that refuses every record, so a request fails before it is dispatched. */
+function rejectingWriter(reason: string): TrafficLogWriter {
+  return {
+    write(): Promise<void> {
+      return Promise.reject(new Error(reason));
+    },
+    update(): Promise<void> {
+      return Promise.reject(new Error(reason));
+    },
+  };
+}
+
 function startListener(
   onRequest: ProxyRequestHandler,
 ): Promise<{ port: number; listener: ProxyListener }> {
@@ -2751,5 +2824,260 @@ describe("TRI-07 the migration service around the live pipeline", () => {
     await listener.close();
     await close(nodeA.server);
     await close(stalled.server);
+  });
+
+  it("TRI-08 a destination whose connection fails is never observed and the record says failover", async () => {
+    const healthy = await startIdlessNode("healthy");
+    const closedPort = await startClosedPort();
+    const records: Readonly<Record<string, unknown>>[] = [];
+    const trafficLog = collectWriter(records);
+    const balancer = new LoadBalancer("pair-lb");
+    balancer.reconfigure(
+      pair(
+        [target("a", healthy.port), target("b", closedPort)],
+        [group("lb-failed-landing", ["a", "b"])],
+      ),
+    );
+    const pipeline = new ProxyRequestPipeline({
+      pairId: "pair-lb",
+      defaultTargetId: "a",
+      loadBalancer: balancer,
+      loadSamples: () => EMPTY_LOAD_SAMPLES,
+      targets: [
+        pipelineTarget("a", healthy.port, trafficLog),
+        pipelineTarget("b", closedPort, trafficLog),
+      ],
+    });
+    const { port, listener } = await startListener((request, response, context) =>
+      pipeline.handle(request, response, context),
+    );
+
+    try {
+      const body = chatBodyFor("Qwen3.8-Flash-Next", "review prompt");
+      const headers = session("failed-landing-probe");
+      // The task is put on node a through the real request path so the binding is movable.
+      const first = await post(port, "/v1/chat/completions", body, headers);
+      expect(first.status).toBe(200);
+      expect(echoed(first.body).node).toBe("healthy");
+      expect(singleBinding(balancer, "lb-failed-landing").targetId).toBe("a");
+
+      const applied = balancer.moveBinding(moveFor(balancer, "lb-failed-landing", "b"));
+      expect(applied.kind).toBe("applied");
+
+      // The next request really is planned onto the destination, and the destination cannot be
+      // reached. The group's one failover attempt answers from the healthy node.
+      const answer = await post(port, "/v1/chat/completions", body, headers);
+      expect(answer.status).toBe(200);
+      expect(echoed(answer.body).node).toBe("healthy");
+
+      // A move whose destination never received a request is not observed. The availability
+      // action called the applied intent off, and a terminal record is never revived by the
+      // request that answered from elsewhere.
+      const operation = balancer.migrationOperations()[0];
+      expect(operation?.state).toBe("expired_after_apply");
+      expect(operation?.endReason).toContain("failover");
+      expect(operation?.observedAt).toBeUndefined();
+
+      // The record this request ends with describes the switch, not a landing: it names the node
+      // that answered, says where it came over from, and carries no move keys at all.
+      const finished = eventRecords(records, "request_finished");
+      expect(finished).toHaveLength(2);
+      const lastRoute = routeOf(finished.at(-1));
+      expect(lastRoute["route_mode"]).toBe("load_balance");
+      expect(lastRoute["target_id"]).toBe("a");
+      const lastBalance = isRecord(lastRoute["load_balance"]) ? lastRoute["load_balance"] : {};
+      expect(lastBalance["decision"]).toBe("failover");
+      expect(lastBalance["failover_from"]).toBe("b");
+      const moveKeys = Object.keys(lastBalance).filter(
+        (key) => key.startsWith("move_") || key.startsWith("moved_"),
+      );
+      expect(moveKeys).toEqual([]);
+      expect(JSON.stringify(lastBalance)).not.toContain("review prompt");
+      for (const key of Object.keys(lastBalance)) {
+        expect(LOAD_BALANCE_RECORD_KEYS).toContain(key);
+      }
+    } finally {
+      await listener.close();
+      await close(healthy.server);
+    }
+  });
+
+  it("TRI-08 a destination that answers with an error status is still a landing", async () => {
+    const healthy = await startIdlessNode("healthy");
+    const refusing = await startRefusingNode("refusing", 503);
+    const records: Readonly<Record<string, unknown>>[] = [];
+    const trafficLog = collectWriter(records);
+    const balancer = new LoadBalancer("pair-lb");
+    balancer.reconfigure(
+      pair(
+        [target("a", healthy.port), target("b", refusing.port)],
+        [group("lb-refusing-landing", ["a", "b"])],
+      ),
+    );
+    const pipeline = new ProxyRequestPipeline({
+      pairId: "pair-lb",
+      defaultTargetId: "a",
+      loadBalancer: balancer,
+      loadSamples: () => EMPTY_LOAD_SAMPLES,
+      targets: [
+        pipelineTarget("a", healthy.port, trafficLog),
+        pipelineTarget("b", refusing.port, trafficLog),
+      ],
+    });
+    const { port, listener } = await startListener((request, response, context) =>
+      pipeline.handle(request, response, context),
+    );
+
+    try {
+      const body = chatBodyFor("Qwen3.8-Flash-Next", "review prompt");
+      const headers = session("refusing-landing-probe");
+      const first = await post(port, "/v1/chat/completions", body, headers);
+      expect(first.status).toBe(200);
+      expect(singleBinding(balancer, "lb-refusing-landing").targetId).toBe("a");
+
+      const applied = balancer.moveBinding(moveFor(balancer, "lb-refusing-landing", "b"));
+      expect(applied.kind).toBe("applied");
+
+      // The next request reaches the destination and is answered there - with an error. An
+      // upstream error answer is still evidence that the destination took the request, so the
+      // move is observed, and no failover is attempted for an answer that arrived.
+      const answer = await post(port, "/v1/chat/completions", body, headers);
+      expect(answer.status).toBe(503);
+      const operation = balancer.migrationOperations()[0];
+      expect(operation?.state).toBe("observed");
+      expect(balancer.nodeFor("b")?.cooldownUntil).toBeUndefined();
+
+      const finished = eventRecords(records, "request_finished");
+      const lastRoute = routeOf(finished.at(-1));
+      expect(lastRoute["route_mode"]).toBe("load_balance");
+      expect(lastRoute["target_id"]).toBe("b");
+      const lastBalance = isRecord(lastRoute["load_balance"]) ? lastRoute["load_balance"] : {};
+      expect(lastBalance["decision"]).toBe("affinity");
+      expect(lastBalance["failover_from"]).toBeNull();
+      expect(lastBalance["moved_from"]).toBe("a");
+      expect(lastBalance["moved_to"]).toBe("b");
+      expect(lastBalance["move_operation_id"]).toBe(operation?.operationId);
+      expect(lastBalance["move_reason"]).toBe("moved from the console");
+      expect(lastBalance["moved_by"]).toBe("manual");
+      expect(lastBalance["move_routing_revision"]).toBe(1);
+      expect(JSON.stringify(lastBalance)).not.toContain("review prompt");
+      for (const key of Object.keys(lastBalance)) {
+        expect(LOAD_BALANCE_RECORD_KEYS).toContain(key);
+      }
+    } finally {
+      await listener.close();
+      await close(healthy.server);
+      await close(refusing.server);
+    }
+  });
+
+  it("TRI-08 a move to a target this pipeline cannot reach is never observed", async () => {
+    const healthy = await startIdlessNode("healthy");
+    const other = await startEchoNode("other");
+    const records: Readonly<Record<string, unknown>>[] = [];
+    const trafficLog = collectWriter(records);
+    const balancer = new LoadBalancer("pair-lb");
+    // The group has three members and this pipeline is configured with only two of them, so the
+    // balancer can name a target the request path has no client for.
+    balancer.reconfigure(
+      pair(
+        [target("a", healthy.port), target("b", other.port), target("c", other.port)],
+        [group("lb-no-target", ["a", "b", "c"])],
+      ),
+    );
+    const pipeline = new ProxyRequestPipeline({
+      pairId: "pair-lb",
+      defaultTargetId: "a",
+      loadBalancer: balancer,
+      loadSamples: () => EMPTY_LOAD_SAMPLES,
+      targets: [
+        pipelineTarget("a", healthy.port, trafficLog),
+        pipelineTarget("b", other.port, trafficLog),
+      ],
+    });
+    const { port, listener } = await startListener((request, response, context) =>
+      pipeline.handle(request, response, context),
+    );
+
+    try {
+      const body = chatBodyFor("Qwen3.8-Flash-Next", "review prompt");
+      const headers = session("no-target-probe");
+      const first = await post(port, "/v1/chat/completions", body, headers);
+      expect(first.status).toBe(200);
+      expect(singleBinding(balancer, "lb-no-target").targetId).toBe("a");
+
+      const applied = balancer.moveBinding(moveFor(balancer, "lb-no-target", "c"));
+      expect(applied.kind).toBe("applied");
+
+      // The next request asks for node c, which this pipeline cannot serve, so the reservation is
+      // handed back and the request goes out through the ordinary route. Nothing was proven, so
+      // the move stays exactly where the write left it.
+      const answer = await post(port, "/v1/chat/completions", body, headers);
+      expect(answer.status).toBe(200);
+      expect(echoed(answer.body).node).toBe("healthy");
+      expect(balancer.migrationOperations()[0]?.state).toBe("applied");
+      expect(balancer.migrationOperations().some((record) => record.state === "observed")).toBe(
+        false,
+      );
+      expect(singleBinding(balancer, "lb-no-target").targetId).toBe("c");
+
+      const finished = eventRecords(records, "request_finished");
+      const lastRoute = routeOf(finished.at(-1));
+      expect(lastRoute["route_mode"]).toBeUndefined();
+      expect(lastRoute["load_balance"]).toBeUndefined();
+    } finally {
+      await listener.close();
+      await close(healthy.server);
+      await close(other.server);
+    }
+  });
+
+  it("TRI-08 a request refused before it was dispatched never observes a move", async () => {
+    const healthy = await startIdlessNode("healthy");
+    const other = await startEchoNode("other");
+    const balancer = new LoadBalancer("pair-lb");
+    balancer.reconfigure(
+      pair(
+        [target("a", healthy.port), target("b", other.port)],
+        [group("lb-pre-dispatch", ["a", "b"])],
+      ),
+    );
+    // The traffic log refuses every record, so a request fails before anything is sent upstream.
+    const trafficLog = rejectingWriter("the traffic database is full");
+    const pipeline = new ProxyRequestPipeline({
+      pairId: "pair-lb",
+      defaultTargetId: "a",
+      loadBalancer: balancer,
+      loadSamples: () => EMPTY_LOAD_SAMPLES,
+      targets: [
+        pipelineTarget("a", healthy.port, trafficLog),
+        pipelineTarget("b", other.port, trafficLog),
+      ],
+    });
+    const { port, listener } = await startListener((request, response, context) =>
+      pipeline.handle(request, response, context),
+    );
+
+    try {
+      const body = chatBodyFor("Qwen3.8-Flash-Next", "review prompt");
+      const headers = session("pre-dispatch-probe");
+      const refused = await post(port, "/v1/chat/completions", body, headers);
+      expect(refused.status).toBe(500);
+      expect(balancer.inFlight("a")).toBe(0);
+      expect(balancer.inFlight("b")).toBe(0);
+
+      // A move applied to the binding that request left behind is not observed by it: nothing
+      // was dispatched anywhere, so there is no destination to credit.
+      const applied = balancer.moveBinding(moveFor(balancer, "lb-pre-dispatch", "b"));
+      expect(applied.kind).toBe("applied");
+      expect(balancer.migrationOperations()[0]?.state).toBe("applied");
+      expect(balancer.migrationOperations().some((record) => record.state === "observed")).toBe(
+        false,
+      );
+    } finally {
+      await listener.close();
+      await close(healthy.server);
+      await close(other.server);
+    }
   });
 });

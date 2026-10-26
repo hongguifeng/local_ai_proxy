@@ -1,6 +1,6 @@
 import type { BindingActivity, BindingCostSource } from "./binding-activity.js";
 import type { LoadBalancer, LoadBalancerNode, LoadBalancerBindingEntry } from "./load-balancer.js";
-import type { MigrationState } from "./load-migration-contract.js";
+import type { MigrationAnswerEffect, MigrationAnswerState } from "./load-migration.js";
 import type {
   MigrationOperationView,
   MigrationRejectionCode,
@@ -408,15 +408,21 @@ export interface LoadBalancerTaskMoveRejection {
 }
 
 /** What a move did to the route: `next_request` changed it, `none` changed nothing. */
-export type LoadBalancerMoveEffect = "next_request" | "none";
+export type LoadBalancerMoveEffect = MigrationAnswerEffect;
 
-/** The states an answer can report: the intent's own states, plus the one that needed no intent. */
-export type LoadBalancerMoveState = MigrationState | "already_there";
+/**
+ * The states an answer can report: what the submit decided, plus `cancelled`, which is what a
+ * cancel of a parked intent answers with. The rest of the state machine - `observed`, `expired`,
+ * `expired_after_apply` - belongs to the intent's life after the answer, which the binding list
+ * projection reports (TRI-09); a repeated POST repeats the receipt it was answered with.
+ */
+export type LoadBalancerMoveState = MigrationAnswerState | "cancelled";
 
 /**
  * The answer of one submit or one cancel. `state` and the outcome fields travel together, and
- * none of them says the upstream answered: `applied` means the in-memory route changed, `pending_boundary`
- * means nothing changed yet, `observed` means a later request was seen using the destination.
+ * none of them says the upstream answered: `applied` means the in-memory route changed,
+ * `pending_boundary` means nothing changed yet, `already_there` means no write was needed and
+ * `cancelled` means a parked intent was called off without ever reaching a route.
  *
  * `runtimeEpoch` and `groupRevision` ride along so a client can see whether the runtime it
  * addressed is still the one this pair is running, instead of guessing from a number that
@@ -593,7 +599,7 @@ export function createLoadBalancerAdminService(
         };
       }
       const outcome = balancer.moveBinding(moveRequestOf(query));
-      return describeMove(balancer, group.id, outcome, query);
+      return describeMove(outcome);
     },
     /**
      * Call off an intent that has not been applied. Migration records live in the runtime of the
@@ -816,27 +822,6 @@ function failureOf(failure: HistoryQueryFailure): LoadBalancerHistoryFailure {
 
 // ------------------------------------------ [TRI-08] the two helpers the migration answers use
 
-/**
- * The binding's own numbers as the runtime sees them, read through the side-effect-free
- * projection: no TTL is refreshed, no counter is bumped, no target is moved and nothing is
- * evicted. A replay and a move that was already at the destination wrote nothing, so the count
- * a client needs next is what the ledger says right now, not a number the record recorded.
- * Nothing is found when the binding left the table in the meantime, which is reported as no
- * request running on it rather than as a number that belongs to a different binding.
- */
-function liveBindingOf(
-  balancer: LoadBalancer,
-  groupId: string,
-  bindingId: number,
-  incarnation: number,
-): LoadBalancerBindingEntry | undefined {
-  return balancer
-    .bindingSnapshot(groupId)
-    ?.entries.find(
-      (entry) => entry.ref.bindingId === bindingId && entry.ref.incarnation === incarnation,
-    );
-}
-
 /** The balancer's own request shape, built from the address the client carried. */
 function moveRequestOf(query: LoadBalancerBindingMoveQuery): MoveBindingRequest {
   return {
@@ -855,66 +840,42 @@ function moveRequestOf(query: LoadBalancerBindingMoveQuery): MoveBindingRequest 
 }
 
 /**
- * The answer of one submit, in the fields the console reads. What `state` claims and what it
- * does not is the balancer's contract: `applied` means the in-memory route changed, `pending_boundary`
- * means nothing changed yet, `observed` means a later request was seen on the destination. None
- * of them says the upstream answered, and none of them is decided here - this only reports what
- * `moveBinding()` did.
+ * The answer of one submit, in the fields the console reads. Every number comes from the answer
+ * the migration service decided, never from the route as it stands now: a same-key retry is
+ * handed back the first submission's receipt, so it repeats the status, the effect, the counts
+ * and the versions that were true when that answer was given. What the intent became afterwards -
+ * observed, cancelled, expired - is the binding list's question (TRI-09), not this answer's, and
+ * reading it here would stamp a later move's revision and counts onto an earlier instruction.
  *
- * `inFlightAtRequest` is what this runtime observed when the answer was decided. An immediate
- * write proves the count was zero, because anything in flight would have parked the intent; a
- * parked intent carries the count it was parked under; a replay and a move that was already
- * there wrote nothing, so their count is the one the ledger shows now.
+ * A refusal is answered on a retry exactly as it was answered the first time: the same code and
+ * the same sentence, which is what gives the route the same status to map. None of these answers
+ * says the upstream answered - `applied` means the in-memory route changed, `pending_boundary`
+ * means nothing changed yet, `already_there` means no write was needed - and none of them is
+ * decided here: this only reports what `moveBinding()` answered.
  */
-function describeMove(
-  balancer: LoadBalancer,
-  groupId: string,
-  outcome: MoveBindingOutcome,
-  query: LoadBalancerBindingMoveQuery,
-): LoadBalancerTaskMoveReply {
+function describeMove(outcome: MoveBindingOutcome): LoadBalancerTaskMoveReply {
   if (outcome.kind === "rejected") {
     return { rejection: { code: outcome.rejection.code, detail: outcome.rejection.reason } };
   }
-  if (outcome.kind === "already_there") {
-    const live = liveBindingOf(balancer, groupId, query.bindingId, query.incarnation);
-    return {
-      response: {
-        bindingId: query.bindingId,
-        effect: "none",
-        fromTargetId: outcome.targetId,
-        groupRevision: balancer.groupRevision(groupId) ?? query.groupRevision,
-        inFlightAtRequest: live?.activity.inFlight ?? 0,
-        operationId: null,
-        routingRevision: live?.routingRevision ?? query.expectedRoutingRevision,
-        runtimeEpoch: balancer.runtimeEpoch,
-        state: "already_there",
-        toTargetId: outcome.targetId,
-      },
-    };
+  const answer = outcome.answer;
+  if (answer.kind === "refused") {
+    // The first answer was a refusal, so the retry is refused the same way: the code and the
+    // sentence the gate gave are kept in the receipt and answered again, not rewritten as a
+    // success that reports a rejected state.
+    return { rejection: { code: answer.rejection.code, detail: answer.rejection.reason } };
   }
-  const operation = outcome.operation;
-  const live = liveBindingOf(balancer, groupId, operation.bindingId, operation.incarnation);
-  const inFlightAtRequest =
-    outcome.kind === "pending_boundary"
-      ? outcome.inFlightAtSubmit
-      : outcome.kind === "applied"
-        ? 0
-        : (live?.activity.inFlight ?? 0);
   return {
     response: {
-      bindingId: operation.bindingId,
-      effect: outcome.effect,
-      fromTargetId: operation.sourceTargetId,
-      groupRevision: balancer.groupRevision(groupId) ?? operation.groupRevision,
-      inFlightAtRequest,
-      operationId: operation.operationId,
-      routingRevision:
-        live?.routingRevision ??
-        operation.appliedRoutingRevision ??
-        operation.sourceRoutingRevision,
-      runtimeEpoch: balancer.runtimeEpoch,
-      state: operation.state,
-      toTargetId: operation.destinationTargetId,
+      bindingId: answer.bindingId,
+      effect: answer.effect,
+      fromTargetId: answer.fromTargetId,
+      groupRevision: answer.groupRevision,
+      inFlightAtRequest: answer.inFlightAtRequest,
+      operationId: answer.operationId,
+      routingRevision: answer.routingRevision,
+      runtimeEpoch: answer.runtimeEpoch,
+      state: answer.state,
+      toTargetId: answer.toTargetId,
     },
   };
 }
@@ -938,26 +899,27 @@ function describeCancellation(
     });
     if (answer.kind === "cancelled") {
       const operation = answer.operation;
-      const live = liveBindingOf(
-        balancer,
-        operation.groupId,
-        operation.bindingId,
-        operation.incarnation,
-      );
       return {
         response: {
           bindingId: operation.bindingId,
           effect: "none",
           fromTargetId: operation.sourceTargetId,
-          groupRevision: balancer.groupRevision(operation.groupId) ?? operation.groupRevision,
-          inFlightAtRequest: live?.activity.inFlight ?? 0,
+          // The group revision the intent was opened under: a cancel writes nothing, so the
+          // version a client has to carry is the one it submitted against, not whatever the
+          // group reached while the intent waited.
+          groupRevision: operation.groupRevision,
+          // The count the intent was accepted under, which `park()` keeps on the record: only a
+          // parked intent is ever answered `cancelled`, and parking is what records a count. The
+          // binding it waited for may have left the table by now, and a count read off a route
+          // that is gone would be a guess reported as a measurement.
+          inFlightAtRequest: operation.inFlightAtSubmit ?? 0,
           operationId: operation.operationId,
-          routingRevision:
-            live?.routingRevision ??
-            operation.appliedRoutingRevision ??
-            operation.sourceRoutingRevision,
+          // Nothing was written, so the route is still at the revision the submit named.
+          routingRevision: operation.sourceRoutingRevision,
           runtimeEpoch: balancer.runtimeEpoch,
-          state: operation.state,
+          // The balancer only answers `cancelled` for an intent it actually called off, and this
+          // branch is reached only when that is what it answered.
+          state: "cancelled",
           toTargetId: operation.destinationTargetId,
         },
       };

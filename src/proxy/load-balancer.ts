@@ -25,7 +25,10 @@ import {
   type MigrationOperationView,
   type MigrationRejection,
   type MigrationRejectionCode,
+  type MigrationAnswerEffect,
+  type MigrationAnswerState,
   type MigrationRouteMeta,
+  type MigrationSubmissionAnswer,
   type MoveBindingOutcome,
   type MoveBindingRequest,
 } from "./load-migration.js";
@@ -113,11 +116,16 @@ export interface LoadBalancerReservation {
   readonly binding: AffinityBinding;
   readonly bindingRef: BindingRef;
   /**
-   * The move this request is the first to use, when there is one. The route record of the
-   * request that reserved the destination carries it, which is what makes `observed` a fact a
-   * later reader can check in the traffic log instead of only in this process's memory.
+   * Confirm that the destination this reservation named actually received the request, and
+   * return the route record of the move it proves - or nothing when no intent was waiting for
+   * this binding, this destination and this revision.
+   *
+   * The request path calls this once it has the upstream's response headers: a connection that
+   * came up is the evidence that the route the migration service changed is in use. A business
+   * status is not needed, and a destination whose connection never came up must not be confirmed
+   * at all - planning a move proves nothing about where the request went.
    */
-  readonly migrationRoute: MigrationRouteMeta | undefined;
+  confirmRouted(): MigrationRouteMeta | undefined;
   markDispatched(now?: number): void;
   release(): void;
 }
@@ -425,23 +433,31 @@ export class LoadBalancer {
    *
    * What an answer claims, and what it does not: `applied` means the in-memory route changed
    * and the next request will see it; `pending_boundary` means nothing has changed yet;
-   * `observed` is only reached later, when a request actually reserved the destination. None of
-   * them says the upstream answered, and none of them touches a request already in flight.
+   * `observed` is only reached later, when the request path proves the destination received a
+   * request. None of them says the upstream answered, and none of them touches a request already
+   * in flight. A retry of a key this runtime already answered is handed back the answer it gave
+   * the first time, including a refusal: it neither re-evaluates the gates nor writes again.
    */
   moveBinding(request: MoveBindingRequest): MoveBindingOutcome {
     const digest = migrationRequestDigest(request);
     const idempotencyKey = request.idempotencyKey;
     if (idempotencyKey !== undefined) {
-      const replay = this.#migrations.findReplay(request.runtimeEpoch, idempotencyKey, digest);
-      if (replay !== undefined) {
-        // The same key with the same parameters never writes twice.
-        return { kind: "replayed", operation: this.#migrations.viewOf(replay), effect: "none" };
+      const lookup = this.#migrations.findReplay(request.runtimeEpoch, idempotencyKey, digest);
+      if (lookup.kind === "match") {
+        // The same key with the same parameters is answered the answer this runtime gave the
+        // first time - the same status, the same body, the same effect - and never a reading of
+        // the route as it stands now.
+        return {
+          kind: "replayed",
+          answer: lookup.answer,
+          operation:
+            lookup.operation === undefined ? undefined : this.#migrations.viewOf(lookup.operation),
+        };
       }
-      const clash = this.#migrations.findByIdempotencyKey(request.runtimeEpoch, idempotencyKey);
-      if (clash !== undefined) {
+      if (lookup.kind === "conflict") {
         return {
           kind: "rejected",
-          operationId: clash.operationId,
+          operationId: lookup.operationId,
           rejection: {
             code: "idempotency_conflict",
             reason: "That idempotency key was already used for a different move in this runtime.",
@@ -455,8 +471,26 @@ export class LoadBalancer {
     if (rejection === undefined && binding !== undefined) {
       if (binding.targetId === request.destinationTargetId) {
         // Nothing to move, so nothing is recorded: no write happened and there is no outcome
-        // worth auditing. A retry of the same key answers the same way.
-        return { kind: "already_there", targetId: binding.targetId };
+        // worth auditing. The answer is still bound to its key and its digest, so a retry of the
+        // same instruction repeats it and a key reused for a different destination is refused
+        // rather than allowed to move the route.
+        const answer: MigrationSubmissionAnswer = {
+          kind: "answered",
+          state: "already_there",
+          effect: "none",
+          bindingId: request.bindingId,
+          fromTargetId: binding.targetId,
+          toTargetId: binding.targetId,
+          routingRevision: binding.routingRevision,
+          // What this binding was carrying at the moment the answer was decided, read off the
+          // ledger the binding itself is kept in - not a count guessed at a later time.
+          inFlightAtRequest: this.#activity.read(binding.incarnation).inFlight,
+          groupRevision: request.groupRevision,
+          runtimeEpoch: request.runtimeEpoch,
+          operationId: null,
+        };
+        this.#migrations.recordNoOpAnswer(request, digest, answer);
+        return { kind: "already_there", targetId: binding.targetId, answer };
       }
       rejection =
         this.#eligibilityRejection(request.groupId, binding, request.destinationTargetId) ??
@@ -481,6 +515,9 @@ export class LoadBalancer {
     }
     if (rejection !== undefined) {
       this.#migrations.reject(operation, rejection);
+      // The refusal is the first answer, so it is the answer a retry gets back: the same code,
+      // the same sentence and therefore the same status the route mapped the first time.
+      this.#migrations.recordAnswer(operation, { kind: "refused", rejection });
       return {
         kind: "rejected",
         operationId: operation.operationId,
@@ -491,14 +528,26 @@ export class LoadBalancer {
     const attempt = this.#attemptMove(operation);
     if (attempt.kind === "applied") {
       this.#migrations.apply(operation, attempt.routingRevision);
+      const answer = submitAnswer(
+        operation,
+        "applied",
+        "next_request",
+        // An immediate write is only reached with nothing in flight, so this zero is a fact the
+        // submit proved, not a count guessed later.
+        0,
+        attempt.routingRevision,
+      );
+      this.#migrations.recordAnswer(operation, answer);
       return {
         kind: "applied",
         operation: this.#migrations.viewOf(operation),
         effect: "next_request",
+        answer,
       };
     }
     if (attempt.kind === "blocked") {
       this.#migrations.reject(operation, attempt.rejection);
+      this.#migrations.recordAnswer(operation, { kind: "refused", rejection: attempt.rejection });
       return {
         kind: "rejected",
         operationId: operation.operationId,
@@ -506,11 +555,20 @@ export class LoadBalancer {
       };
     }
     this.#migrations.park(operation, attempt.inFlight);
+    const answer = submitAnswer(
+      operation,
+      "pending_boundary",
+      "next_request",
+      attempt.inFlight,
+      operation.sourceRoutingRevision,
+    );
+    this.#migrations.recordAnswer(operation, answer);
     return {
       kind: "pending_boundary",
       operation: this.#migrations.viewOf(operation),
       inFlightAtSubmit: attempt.inFlight,
       effect: "next_request",
+      answer,
     };
   }
 
@@ -685,16 +743,19 @@ export class LoadBalancer {
   }
 
   /**
-   * Mark the applied intent this reservation proves - the request that reserved the destination
-   * is the `observed` the state machine waits for - and hand back the record it proved, so the
-   * stored route can name the operation, the two ends and the revision.
+   * The applied intent this use of the destination would be the first to prove, if there is
+   * one. Looking it over changes nothing: the intent stays `applied` until the request path
+   * confirms the destination received the request, because a plan that named a target proves
+   * nothing about where the request actually went.
    *
    * At most one intent can match: an intent only stays `applied` while the route still carries
    * the revision its own write produced, so two of them on one binding never point at the same
    * destination at the same revision.
    */
-  #observedMigration(binding: AffinityBinding, targetId: string): MigrationOperation | undefined {
-    let observed: MigrationOperation | undefined;
+  #intentAwaitingLanding(
+    binding: AffinityBinding,
+    targetId: string,
+  ): MigrationOperation | undefined {
     for (const operation of this.#migrations.appliedFor(binding.incarnation)) {
       if (operation.destinationTargetId !== targetId) {
         continue;
@@ -702,10 +763,28 @@ export class LoadBalancer {
       if (operation.appliedRoutingRevision !== binding.routingRevision) {
         continue;
       }
-      this.#migrations.observe(operation);
-      observed = operation;
+      return operation;
     }
-    return observed;
+    return undefined;
+  }
+
+  /**
+   * The request path's evidence that the destination took the move: `observed`, and the route
+   * record of the move it proved, so the stored request can name the operation, the two ends and
+   * the revision. Nothing is claimed when no intent was waiting for this binding, this
+   * destination and this revision, and an intent already called off cannot be revived by a later
+   * request that happens to land on the same node.
+   */
+  #confirmMigrationLanding(
+    binding: AffinityBinding,
+    targetId: string,
+  ): MigrationRouteMeta | undefined {
+    const intent = this.#intentAwaitingLanding(binding, targetId);
+    if (intent === undefined) {
+      return undefined;
+    }
+    this.#migrations.observe(intent);
+    return migrationRouteMeta(intent);
   }
 
   /**
@@ -1309,16 +1388,17 @@ export class LoadBalancer {
     // the binding's own activity count goes up. It counts against the incarnation the
     // reservation was created with, never against a later binding reusing the number.
     this.#activity.begin(bindingRef.incarnation, now);
-    const observedMove = this.#observedMigration(binding, targetId);
     let released = false;
     return {
       decision,
       binding,
       bindingRef,
-      // A request that reserves the destination is what proves the move took effect, so this is
-      // where the route record gets the material to name it. Nothing is claimed when no intent
-      // matches this binding, this target and this revision.
-      migrationRoute: observedMove === undefined ? undefined : migrationRouteMeta(observedMove),
+      // A move stays a plan until the request path confirms the destination received the
+      // request. Nothing is claimed here: a reservation that never reached the upstream - one
+      // whose connection failed, one for a target this pipeline cannot reach - leaves the intent
+      // exactly where the write left it, and a failover calls it off before it could be proven.
+      confirmRouted: (): MigrationRouteMeta | undefined =>
+        this.#confirmMigrationLanding(binding, targetId),
       markDispatched: (now?: number): void => {
         this.markDispatched(targetId, now);
       },
@@ -1507,6 +1587,34 @@ type MoveAttempt =
 /** One refusal, named once, with the sentence a reader or a log line shows. */
 function migrationRejection(code: MigrationRejectionCode, reason: string): MigrationRejection {
   return { code, reason };
+}
+
+/**
+ * The answer a submit that wrote something gave, told from the record it belongs to and the
+ * write it did. The numbers are the ones this runtime held while it decided the answer - the
+ * revision the write produced, or the one the intent was opened under when there was no write -
+ * so a retry of the same key repeats this answer instead of reading a route that moved since.
+ */
+function submitAnswer(
+  operation: MigrationOperation,
+  state: MigrationAnswerState,
+  effect: MigrationAnswerEffect,
+  inFlightAtRequest: number,
+  routingRevision: number,
+): MigrationSubmissionAnswer {
+  return {
+    kind: "answered",
+    state,
+    effect,
+    bindingId: operation.bindingId,
+    fromTargetId: operation.sourceTargetId,
+    toTargetId: operation.destinationTargetId,
+    routingRevision,
+    inFlightAtRequest,
+    groupRevision: operation.groupRevision,
+    runtimeEpoch: operation.runtimeEpoch,
+    operationId: operation.operationId,
+  };
 }
 
 /**

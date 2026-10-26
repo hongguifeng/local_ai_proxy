@@ -29,10 +29,10 @@ const BINDING_LIST_NOT_FOUND_MESSAGES: Readonly<
 /**
  * Every way a move can be refused, and the answer it becomes. The design fixes the code names
  * and the statuses: a version the caller no longer has is a conflict, a destination that cannot
- * take the task is a conflict, a server-side state that cannot be proven portable is refused as
- * unprocessable, a full migration store is unavailable rather than a bad parameter, and a pair,
- * group, runtime or binding that does not exist is not found - one code, with the reason the
- * service gave for each of the four causes so they stay readable apart.
+ * take the task is a conflict, a server-side state or a model compatibility that cannot be proven
+ * portable is refused as unprocessable, a full migration store is unavailable rather than a bad
+ * parameter, and a pair, group, runtime or binding that does not exist is not found - one code,
+ * with the reason the service gave for each of the four causes so they stay readable apart.
  *
  * `message` is the sentence used when the service had none of its own to give. Where it did give
  * one - every balancer refusal, and every cause this service found before the call - that sentence
@@ -115,8 +115,8 @@ const TASK_MOVE_REJECTIONS: Readonly<
     message: "That destination is another spelling of the engine the binding is already on.",
   },
   model_mismatch: {
-    status: 409,
-    code: "target_not_eligible",
+    status: 422,
+    code: "state_not_migratable",
     message: "That destination forwards a different model name.",
   },
   response_state_dependency: {
@@ -213,8 +213,10 @@ export function registerLoadBalancerRoutes(
    * [TRI-08] Register one binding to move. `applied` and `already_there` answer 200 because the
    * route is settled - the first changed it, the second needed no change - and `pending_boundary`
    * answers 202 because nothing has been written yet: the intent waits for the next request
-   * boundary. A same-key retry of a submit that already answered is returned the first answer,
-   * which is what makes a network retry unable to move the route twice.
+   * boundary. A same-key retry of a submit that already answered is handed back that submit's
+   * receipt - the same status, the same body, the same effect - which is what makes a network
+   * retry unable to move the route twice and unable to turn a refusal into a success. What the
+   * operation looks like now is the binding list's answer (TRI-09), not this one's.
    */
   server.post<{ Body: AdminTaskMoveRequest }>(
     "/api/load-balancer/task-moves",
@@ -242,7 +244,8 @@ export function registerLoadBalancerRoutes(
       // The state carried by the answer is what fixes the status: `pending_boundary` means
       // nothing was written and the intent waits for a request boundary, so the answer is 202.
       // `applied` and `already_there` settle the route and answer 200, and a same-key retry is
-      // answered the state the record reached - never a second write.
+      // answered the state that submission was answered with - never a second write, and never a
+      // state the intent only reached later.
       if (response.state === "pending_boundary") {
         return reply.code(202).send(response);
       }

@@ -191,9 +191,12 @@ export {
   type CancelRejection,
   type CancelRejectionCode,
   type MigrationActor,
+  type MigrationAnswerEffect,
+  type MigrationAnswerState,
   type MigrationOperationView,
   type MigrationRejection,
   type MigrationRejectionCode,
+  type MigrationSubmissionAnswer,
   type MoveBindingOutcome,
   type MoveBindingRequest,
 } from "./load-migration.js";

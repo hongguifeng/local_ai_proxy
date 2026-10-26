@@ -297,6 +297,12 @@ export class ProxyRequestPipeline {
           });
         }
         responseStatus = upstream.statusCode ?? 502;
+        // The connection came up and a status line arrived: that is the evidence that the node
+        // this request was planned for actually received it, and it is the point where a planned
+        // move becomes `observed`. A business status is not required - a 4xx or 5xx from this
+        // engine is still a request that travelled to the destination the move wrote - and an
+        // attempt whose connection never came up never reaches this line.
+        this.#noteMigrationLanding(activeReservation, baseRecord);
         // A connection that came up ends the node's failure history and cooldown.
         if (selection.loadBalance !== undefined) {
           this.#options.loadBalancer?.noteSuccess(activeTarget.id);
@@ -405,6 +411,48 @@ export class ProxyRequestPipeline {
       return;
     }
     this.#options.loadBalancer?.noteBindingRequestBytes(reservation.bindingRef, requestBytes);
+  }
+
+  /**
+   * Write the move this request proved into the stored route, once the destination has answered
+   * the connection. The keys come from the migration record, so a reader can confirm the
+   * destination was really used after this process is gone, and none of them is request text, a
+   * session key or an upstream key - the reason is the bounded audit label.
+   *
+   * A planned move is not written here, and a move that failed to land is never written at all:
+   * the route names only what the request path confirmed. The earlier lifecycle records are left
+   * as they were written, so the move appears exactly where the proof of it appears.
+   */
+  #noteMigrationLanding(
+    reservation: LoadBalancerReservation | undefined,
+    baseRecord: TrafficRequestDraft,
+  ): void {
+    if (reservation === undefined) {
+      return;
+    }
+    const landed = reservation.confirmRouted();
+    if (landed === undefined) {
+      return;
+    }
+    const modelRoute = baseRecord.request.model_route;
+    if (modelRoute === undefined) {
+      return;
+    }
+    baseRecord.request = {
+      ...baseRecord.request,
+      model_route: {
+        ...modelRoute,
+        load_balance: {
+          ...(modelRoute.load_balance ?? {}),
+          move_operation_id: landed.operationId,
+          moved_by: landed.movedBy,
+          moved_from: landed.movedFrom,
+          moved_to: landed.movedTo,
+          move_routing_revision: landed.routingRevision,
+          ...(landed.reason === "" ? {} : { move_reason: landed.reason }),
+        },
+      },
+    };
   }
 
   /**
@@ -778,13 +826,19 @@ function withRequestDetails(
   };
 }
 
-/** Short load balancing fields for `request.model_route`; candidate detail stays in runtime state. */
+/**
+ * Short load balancing fields for `request.model_route`; candidate detail stays in runtime state.
+ *
+ * A move is not written here. The `move_*` keys are added later, by `#noteMigrationLanding`, once
+ * the destination answered the connection: what the plan chose is not evidence of where the
+ * request went, and a route that named a destination and then failed to reach it must not leave
+ * a record claiming the move took effect.
+ */
 function loadBalanceRoute(loadBalance: LoadBalanceSelection | undefined): TrafficModelRoute {
   if (loadBalance === undefined) {
     return {};
   }
   const decision = loadBalance.reservation.decision;
-  const migration = loadBalance.reservation.migrationRoute;
   return {
     route_mode: "load_balance",
     load_balance: {
@@ -797,20 +851,6 @@ function loadBalanceRoute(loadBalance: LoadBalanceSelection | undefined): Traffi
       ...(decision.kvUsage === undefined ? {} : { kv_usage: decision.kvUsage }),
       ...(decision.metricsSource === undefined ? {} : { metrics_source: decision.metricsSource }),
       failover_from: null,
-      // The move this request is the first to use, if any. Source, destination, who asked, the
-      // operation and the revision all come from the migration record, so a reader can confirm
-      // the destination was really used without this process still being alive. No body, no
-      // session key and no upstream key is in any of it: the reason is the bounded audit label.
-      ...(migration === undefined
-        ? {}
-        : {
-            move_operation_id: migration.operationId,
-            moved_by: migration.movedBy,
-            moved_from: migration.movedFrom,
-            moved_to: migration.movedTo,
-            move_routing_revision: migration.routingRevision,
-            ...(migration.reason === "" ? {} : { move_reason: migration.reason }),
-          }),
     },
   };
 }

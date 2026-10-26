@@ -114,6 +114,8 @@ export interface MigrationOperation {
   readonly createdAt: number;
   readonly expiresAt: number;
   state: MigrationState;
+  /** How many requests were running on this binding when the intent parked, if it ever did. */
+  inFlightAtSubmit: number | undefined;
   /** The routing revision the write produced, once the write happened. */
   appliedRoutingRevision: number | undefined;
   /** When a later request was seen using the destination. */
@@ -142,6 +144,7 @@ export interface MigrationOperationView {
   readonly createdAt: number;
   readonly expiresAt: number;
   readonly state: MigrationState;
+  readonly inFlightAtSubmit: number | undefined;
   readonly appliedRoutingRevision: number | undefined;
   readonly observedAt: number | undefined;
   readonly endReason: string | undefined;
@@ -149,9 +152,47 @@ export interface MigrationOperationView {
 }
 
 /**
- * What `moveBinding()` answered. Each kind says something different about the route, and none
+ * The states a submit can answer with. `requested` is absent because a record is opened at
+ * that state and answered before `moveBinding()` returns, and the four terminal states are
+ * absent because a submit never reports them: what happened to an intent after the submit is
+ * the list projection's question, not this answer's.
+ */
+export type MigrationAnswerState = "already_there" | "applied" | "pending_boundary";
+
+/** Whether the submit changed the route: `next_request` moved it, `none` wrote nothing. */
+export type MigrationAnswerEffect = "next_request" | "none";
+
+/**
+ * What one submit answered, written down exactly as it was answered.
+ *
+ * This is the receipt a same-key retry is answered from. It is immutable on purpose: the
+ * numbers in it are the ones this runtime observed while it decided the answer, so a retry
+ * repeats the first submission instead of reading a route that may have moved since. In
+ * particular, a receipt of a refusal carries the refusal itself - the code and the sentence
+ * the gate gave - so a retry of a refused submit is refused the same way again.
+ */
+export type MigrationSubmissionAnswer =
+  | { readonly kind: "refused"; readonly rejection: MigrationRejection }
+  | {
+      readonly kind: "answered";
+      readonly state: MigrationAnswerState;
+      readonly effect: MigrationAnswerEffect;
+      readonly bindingId: number;
+      readonly fromTargetId: string;
+      readonly toTargetId: string;
+      readonly routingRevision: number;
+      readonly inFlightAtRequest: number;
+      readonly groupRevision: number;
+      readonly runtimeEpoch: string;
+      /** The id the submit answered with, and `null` for a move that needed no record. */
+      readonly operationId: string | null;
+    };
+
+/** What `moveBinding()` answered. Each kind says something different about the route, and none
  * of them says the upstream request succeeded: `applied` means the in-memory route changed,
- * `pending_boundary` means nothing changed yet, `already_there` means no write was needed.
+ * `pending_boundary` means nothing changed yet, `already_there` means no write was needed, and
+ * `replayed` means the runtime already answered this instruction and is handing back that
+ * answer - the same status, the same body, the same effect - without looking at the route again.
  */
 export type MoveBindingOutcome =
   | {
@@ -160,24 +201,31 @@ export type MoveBindingOutcome =
       readonly operationId: string | undefined;
       readonly rejection: MigrationRejection;
     }
-  | { readonly kind: "already_there"; readonly targetId: string }
+  | {
+      readonly kind: "already_there";
+      readonly targetId: string;
+      readonly answer: MigrationSubmissionAnswer;
+    }
   | {
       readonly kind: "applied";
       readonly operation: MigrationOperationView;
       /** The route changed; the effect is on the next request, never on one in flight. */
       readonly effect: "next_request";
+      readonly answer: MigrationSubmissionAnswer;
     }
   | {
       readonly kind: "pending_boundary";
       readonly operation: MigrationOperationView;
       readonly inFlightAtSubmit: number;
       readonly effect: "next_request";
+      readonly answer: MigrationSubmissionAnswer;
     }
   | {
       readonly kind: "replayed";
-      readonly operation: MigrationOperationView;
-      /** A replay never writes again; the recorded outcome says what the route did. */
-      readonly effect: "none";
+      /** The record the answer belongs to, or nothing when the answer needed no record. */
+      readonly operation: MigrationOperationView | undefined;
+      /** A replay restates the first answer; it never performs a write and never re-evaluates. */
+      readonly answer: MigrationSubmissionAnswer;
     };
 
 /**
@@ -284,6 +332,7 @@ function toView(operation: MigrationOperation): MigrationOperationView {
     createdAt: operation.createdAt,
     expiresAt: operation.expiresAt,
     state: operation.state,
+    inFlightAtSubmit: operation.inFlightAtSubmit,
     appliedRoutingRevision: operation.appliedRoutingRevision,
     observedAt: operation.observedAt,
     endReason: operation.endReason,
@@ -296,6 +345,35 @@ function idempotencyLookupKey(runtimeEpoch: string, idempotencyKey: string): str
 }
 
 /**
+ * What the idempotency index holds for one key: the answer this runtime gave the first time,
+ * and the digest of the parameters that answer was decided from.
+ *
+ * A receipt is not a migration record. A move that needed no write - one already at the
+ * destination - has no record to carry its answer, so the receipt stands on its own and the
+ * answer it holds carries `operationId: null`. It is kept under the same runtime scope, the
+ * same capacity and the same retention window as a record, because it costs the same kind of
+ * memory and answers the same question: "what did my first submission get?".
+ */
+interface StoredReceipt {
+  readonly requestDigest: string;
+  readonly answeredAt: number;
+  readonly expiresAt: number;
+  /** The record the answer belongs to, when the submit opened one. */
+  readonly operation: MigrationOperation | undefined;
+  readonly answer: MigrationSubmissionAnswer;
+}
+
+/** What looking a key over can find: the first answer, a different instruction, or nothing. */
+export type MigrationReplayLookup =
+  | {
+      readonly kind: "match";
+      readonly operation: MigrationOperation | undefined;
+      readonly answer: MigrationSubmissionAnswer;
+    }
+  | { readonly kind: "conflict"; readonly operationId: string | undefined }
+  | { readonly kind: "nothing" };
+
+/**
  * The bounded, in-memory record set behind `moveBinding()`. Nothing here outlives the runtime:
  * a pair stop drops everything, and a rebuilt `LoadBalancer` starts with an empty store, so a
  * request replayed after a restart finds no record and cannot act on the new state.
@@ -305,12 +383,13 @@ function idempotencyLookupKey(runtimeEpoch: string, idempotencyKey: string): str
  * | event                              | store behavior                                            |
  * | ---------------------------------- | --------------------------------------------------------- |
  * | submit                             | one record at `requested`, then its submit outcome         |
+ * | an answer handed to the caller     | its receipt stored under the key, digest included          |
  * | applied                            | keeps the routing revision the write produced              |
- * | a later request used the destination | `observed`, terminal                                    |
+ * | the destination was proven to receive a request | `observed`, terminal                    |
  * | cancel of a parked intent          | `cancelled`, terminal                                      |
  * | lifecycle or version drift         | `expired`, terminal                                        |
  * | binding lost after the write       | `expired_after_apply`, terminal                            |
- * | terminal and past the retention    | record dropped, and its idempotency entry goes with it     |
+ * | terminal and past the retention    | record dropped, and its receipt goes with it               |
  */
 export class MigrationOperationStore {
   readonly #pairId: string;
@@ -320,8 +399,11 @@ export class MigrationOperationStore {
   readonly #logger: Pick<StructuredLogger, "info">;
 
   readonly #records = new Map<string, MigrationOperation>();
-  /** Idempotency index, scoped to the runtime that recorded it. */
-  readonly #byIdempotencyKey = new Map<string, MigrationOperation>();
+  /**
+   * Idempotency index, scoped to the runtime that answered, holding what that answer said.
+   * Bounded by the same capacity as the records and dropped by the same retention clock.
+   */
+  readonly #byIdempotencyKey = new Map<string, StoredReceipt>();
   /** Records that may still move: `requested`, `pending_boundary` and `applied`. */
   readonly #live = new Set<MigrationOperation>();
   /**
@@ -371,6 +453,7 @@ export class MigrationOperationStore {
       createdAt: now,
       expiresAt: now + this.#retentionMs,
       state: "requested",
+      inFlightAtSubmit: undefined,
       appliedRoutingRevision: undefined,
       observedAt: undefined,
       endReason: undefined,
@@ -381,35 +464,77 @@ export class MigrationOperationStore {
     const indexed = this.#byIncarnation.get(operation.incarnation) ?? new Set<MigrationOperation>();
     indexed.add(operation);
     this.#byIncarnation.set(operation.incarnation, indexed);
-    if (idempotencyKey !== undefined) {
-      this.#byIdempotencyKey.set(
-        idempotencyLookupKey(request.runtimeEpoch, idempotencyKey),
-        operation,
-      );
-    }
+    // The idempotency index is written when the answer is known, not here: the key is only
+    // worth remembering once there is an answer to hand back under it.
     this.#audit(operation, "requested");
     return operation;
   }
 
-  /** The record a same-key, same-parameters retry should return instead of acting again. */
+  /**
+   * Look one idempotency key over against the parameters the retry carries: the same digest
+   * finds the first answer to hand back, a different digest finds the instruction the key was
+   * already spent on, and nothing at all means this runtime has never answered this key.
+   */
   findReplay(
     runtimeEpoch: string,
     idempotencyKey: string,
     requestDigest: string,
-  ): MigrationOperation | undefined {
-    const found = this.findByIdempotencyKey(runtimeEpoch, idempotencyKey);
-    if (found?.requestDigest !== requestDigest) {
-      return undefined;
+  ): MigrationReplayLookup {
+    const receipt = this.#byIdempotencyKey.get(idempotencyLookupKey(runtimeEpoch, idempotencyKey));
+    if (receipt === undefined) {
+      return { kind: "nothing" };
     }
-    return found;
+    if (receipt.requestDigest !== requestDigest) {
+      return {
+        kind: "conflict",
+        operationId: receipt.operation?.operationId,
+      };
+    }
+    return { kind: "match", operation: receipt.operation, answer: receipt.answer };
   }
 
-  /** Whatever this runtime last recorded under that key, whatever its parameters were. */
-  findByIdempotencyKey(
-    runtimeEpoch: string,
-    idempotencyKey: string,
-  ): MigrationOperation | undefined {
-    return this.#byIdempotencyKey.get(idempotencyLookupKey(runtimeEpoch, idempotencyKey));
+  /**
+   * Keep the answer a submit gave under its own key, so a retry of that key is answered from
+   * the answer rather than from whatever the route looks like now. A submit with no idempotency
+   * key has nothing to be retried by, so nothing is kept for it.
+   */
+  recordAnswer(operation: MigrationOperation, answer: MigrationSubmissionAnswer): void {
+    const idempotencyKey = operation.idempotencyKey;
+    if (idempotencyKey === undefined) {
+      return;
+    }
+    const now = this.#now();
+    this.#storeReceipt(idempotencyLookupKey(operation.runtimeEpoch, idempotencyKey), {
+      requestDigest: operation.requestDigest,
+      answeredAt: now,
+      expiresAt: now + this.#retentionMs,
+      operation,
+      answer,
+    });
+  }
+
+  /**
+   * Keep the answer of a move that needed no write. There is no record to attach it to, so the
+   * receipt stands on its own; it is still scoped to the runtime, still bounded by the same
+   * capacity and still dropped by the same retention clock.
+   */
+  recordNoOpAnswer(
+    request: MoveBindingRequest,
+    requestDigest: string,
+    answer: MigrationSubmissionAnswer,
+  ): void {
+    const idempotencyKey = request.idempotencyKey;
+    if (idempotencyKey === undefined) {
+      return;
+    }
+    const now = this.#now();
+    this.#storeReceipt(idempotencyLookupKey(request.runtimeEpoch, idempotencyKey), {
+      requestDigest,
+      answeredAt: now,
+      expiresAt: now + this.#retentionMs,
+      operation: undefined,
+      answer,
+    });
   }
 
   get(operationId: string): MigrationOperation | undefined {
@@ -453,6 +578,10 @@ export class MigrationOperationStore {
   }
 
   park(operation: MigrationOperation, inFlightAtSubmit: number): void {
+    // The count is kept on the record because the answer a cancel gives has to be told from the
+    // record itself: the binding the intent waited for may be gone by the time it is called off,
+    // and a number read off a route that no longer exists is not an answer.
+    operation.inFlightAtSubmit = inFlightAtSubmit;
     this.#transition(operation, "pending_boundary");
     this.#audit(operation, "pending_boundary", { inFlightAtSubmit });
   }
@@ -499,6 +628,10 @@ export class MigrationOperationStore {
    * moment ago is exactly the answer the console needs, so the clock for dropping starts when the
    * record ended, not when it began. A replay much later then becomes a fresh evaluation rather
    * than a phantom hit on a record nobody could explain any more.
+   *
+   * A receipt that stands on its own - the answer of a move that needed no record - follows the
+   * same rule from the moment it was answered; a receipt attached to a record that is still live
+   * is kept, because it is still the answer a retry of that key has to repeat.
    */
   dropExpiredRecords(): number {
     const cutoff = this.#now() - this.#retentionMs;
@@ -509,6 +642,16 @@ export class MigrationOperationStore {
         continue;
       }
       this.#drop(operation);
+      dropped += 1;
+    }
+    for (const [lookup, receipt] of [...this.#byIdempotencyKey]) {
+      if (receipt.expiresAt > cutoff) {
+        continue;
+      }
+      if (receipt.operation !== undefined && this.#live.has(receipt.operation)) {
+        continue;
+      }
+      this.#byIdempotencyKey.delete(lookup);
       dropped += 1;
     }
     return dropped;
@@ -571,6 +714,38 @@ export class MigrationOperationStore {
     }
   }
 
+  /**
+   * Put one answer under its key. The index is bounded by the same capacity as the records and
+   * makes room the same way: the oldest answer whose intent is finished goes first. When every
+   * receipt still held belongs to an intent that may move, the new answer is not kept - a later
+   * retry of that key is then evaluated fresh, which is the honest answer when the runtime
+   * cannot afford to remember the first one.
+   */
+  #storeReceipt(lookup: string, receipt: StoredReceipt): void {
+    while (this.#byIdempotencyKey.size >= this.#maxRecords) {
+      const oldest = this.#oldestFinishedReceipt();
+      if (oldest === undefined) {
+        return;
+      }
+      this.#byIdempotencyKey.delete(oldest[0]);
+    }
+    this.#byIdempotencyKey.set(lookup, receipt);
+  }
+
+  #oldestFinishedReceipt(): readonly [string, StoredReceipt] | undefined {
+    let oldest: readonly [string, StoredReceipt] | undefined;
+    for (const entry of this.#byIdempotencyKey) {
+      const receipt = entry[1];
+      if (receipt.operation !== undefined && this.#live.has(receipt.operation)) {
+        continue;
+      }
+      if (oldest === undefined || receipt.answeredAt < oldest[1].answeredAt) {
+        oldest = entry;
+      }
+    }
+    return oldest;
+  }
+
   #drop(operation: MigrationOperation): void {
     this.#records.delete(operation.operationId);
     this.#live.delete(operation);
@@ -584,7 +759,8 @@ export class MigrationOperationStore {
     const key = operation.idempotencyKey;
     if (key !== undefined) {
       const lookup = idempotencyLookupKey(operation.runtimeEpoch, key);
-      if (this.#byIdempotencyKey.get(lookup) === operation) {
+      const receipt = this.#byIdempotencyKey.get(lookup);
+      if (receipt?.operation === operation) {
         this.#byIdempotencyKey.delete(lookup);
       }
     }

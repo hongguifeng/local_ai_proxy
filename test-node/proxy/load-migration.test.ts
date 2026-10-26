@@ -24,6 +24,7 @@ import {
   type MigrationActor,
   type MigrationOperationView,
   type MigrationRejectionCode,
+  type MigrationSubmissionAnswer,
   type MoveBindingOutcome,
   type MoveBindingRequest,
 } from "../../src/proxy/index.js";
@@ -197,7 +198,31 @@ function operationIdOf(outcome: MoveBindingOutcome): string {
     }
     return outcome.operationId;
   }
+  if (outcome.kind === "replayed") {
+    if (outcome.operation === undefined) {
+      throw new Error("The replayed answer needed no record, so it has no operation id.");
+    }
+    return outcome.operation.operationId;
+  }
   return outcome.operation.operationId;
+}
+
+/** What a submit answered, read the way every replay test reads it. */
+function answerOf(outcome: MoveBindingOutcome): MigrationSubmissionAnswer {
+  if (outcome.kind === "rejected") {
+    throw new Error("A refusal that was never recorded has no answer to replay.");
+  }
+  return outcome.answer;
+}
+
+/** The answered fields of an answer, with the refusal case refused by name. */
+function answered(
+  answer: MigrationSubmissionAnswer,
+): Extract<MigrationSubmissionAnswer, { readonly kind: "answered" }> {
+  if (answer.kind !== "answered") {
+    throw new Error(`The answer was a refusal: ${answer.rejection.code}.`);
+  }
+  return answer;
 }
 
 function bindingEntry(
@@ -448,11 +473,69 @@ describe("TRI-07 submitting a move", () => {
 
     const outcome = subject.moveBinding(moveRequest(subject, "node-a"));
 
-    expect(outcome).toEqual({ kind: "already_there", targetId: "node-a" });
+    expect(outcome.kind).toBe("already_there");
+    if (outcome.kind !== "already_there") {
+      throw new Error("A move to the target the binding is already on must not write.");
+    }
+    expect(outcome.targetId).toBe("node-a");
+    // The answer needs no record, so it names no operation; its versions are the ones the
+    // binding actually carries, read from the binding itself rather than guessed later.
+    const answer = answered(answerOf(outcome));
+    expect(answer.state).toBe("already_there");
+    expect(answer.effect).toBe("none");
+    expect(answer.operationId).toBeNull();
+    expect(answer.routingRevision).toBe(INITIAL_ROUTING_REVISION);
+    expect(answer.inFlightAtRequest).toBe(0);
     expect(records(subject)).toHaveLength(0);
     expect(audit).toHaveLength(0);
     expect(onlyBinding(subject).routingRevision).toBe(INITIAL_ROUTING_REVISION);
     expect(onlyBinding(subject).targetId).toBe("node-a");
+  });
+
+  it("TRI-08 a no-op answer is bound to its key, so a retry repeats it and a reused key cannot move", () => {
+    const { subject } = harness();
+    configured(subject, threeEngines());
+    tableOf(subject).bind(chatIdentity("session-noop-key"), "node-a");
+    const noop = moveRequest(subject, "node-a", { idempotencyKey: "key-noop" });
+
+    const first = subject.moveBinding(noop);
+    expect(first.kind).toBe("already_there");
+
+    // The same instruction under the same key is answered the same answer. Nothing was written
+    // the first time, so there is nothing to write again, and the binding stays where it was.
+    const retry = subject.moveBinding(noop);
+    expect(retry.kind).toBe("replayed");
+    if (retry.kind !== "replayed") {
+      throw new Error("A repeated no-op must not be evaluated as a new instruction.");
+    }
+    expect(answerOf(retry)).toEqual(answerOf(first));
+    expect(onlyBinding(subject).targetId).toBe("node-a");
+    expect(records(subject)).toHaveLength(0);
+
+    // The same key carrying a different destination is a different instruction, so design
+    // section 5.3 refuses it instead of letting it move the route: no no-op outcome is exempt.
+    const reused = subject.moveBinding(
+      moveRequest(subject, "node-b", { idempotencyKey: "key-noop" }),
+    );
+    expect(codeOf(reused)).toBe("idempotency_conflict");
+    expect(onlyBinding(subject).targetId).toBe("node-a");
+    expect(onlyBinding(subject).routingRevision).toBe(INITIAL_ROUTING_REVISION);
+    expect(records(subject)).toHaveLength(0);
+
+    // A pair stop drops the receipt with the records, so the key is not remembered across the
+    // stop: the same instruction is evaluated fresh on the new state, and then binds its key
+    // again exactly as it did the first time - a runtime's key never acts on another runtime.
+    subject.clear();
+    configured(subject, threeEngines());
+    tableOf(subject).bind(chatIdentity("session-noop-key"), "node-a");
+    expect(
+      subject.moveBinding(moveRequest(subject, "node-a", { idempotencyKey: "key-noop" })).kind,
+    ).toBe("already_there");
+    expect(
+      codeOf(subject.moveBinding(moveRequest(subject, "node-b", { idempotencyKey: "key-noop" }))),
+    ).toBe("idempotency_conflict");
+    expect(onlyBinding(subject).targetId).toBe("node-a");
+    expect(onlyBinding(subject).routingRevision).toBe(INITIAL_ROUTING_REVISION);
   });
 
   it("TRI-07 only one of two same-tick submits writes and the other is refused as stale", () => {
@@ -490,10 +573,82 @@ describe("TRI-07 submitting a move", () => {
     if (first.kind !== "applied") {
       throw new Error("The first submit must apply.");
     }
-    expect(replay.operation.operationId).toBe(first.operation.operationId);
-    expect(replay.effect).toBe("none");
+    // The replay is the first submission's receipt: the same answer, including the effect that
+    // first submission had on the route, and the same record it was answered from.
+    expect(replay.answer).toEqual(first.answer);
+    expect(replay.operation?.operationId).toBe(first.operation.operationId);
+    expect(answered(answerOf(replay)).effect).toBe("next_request");
     expect(records(subject)).toHaveLength(1);
     expect(onlyBinding(subject).routingRevision).toBe(INITIAL_ROUTING_REVISION + 1);
+  });
+
+  it("TRI-08 a refused submit is replayed as the refusal it was answered with", () => {
+    const { subject } = harness();
+    configured(subject, threeEngines());
+    tableOf(subject).bind(responsesIdentity("session-refused"), "node-a");
+    const request = moveRequest(subject, "node-b", { idempotencyKey: "key-refused" });
+
+    const first = subject.moveBinding(request);
+    expect(first.kind).toBe("rejected");
+    if (first.kind !== "rejected") {
+      throw new Error("A responses binding whose state cannot be proven portable must be refused.");
+    }
+
+    // A retry of the refused instruction is refused again by the same gate and the same
+    // sentence, so a client that repeats a request the server refused cannot be told the route
+    // moved or that the refusal became a success.
+    const retry = subject.moveBinding(request);
+    expect(retry.kind).toBe("replayed");
+    if (retry.kind !== "replayed") {
+      throw new Error("A retry of a recorded refusal must be answered from that refusal.");
+    }
+    expect(retry.answer).toEqual({ kind: "refused", rejection: first.rejection });
+    expect(retry.answer.kind).toBe("refused");
+    if (retry.answer.kind !== "refused") {
+      throw new Error("The replayed answer must stay a refusal.");
+    }
+    expect(retry.answer.rejection.code).toBe(first.rejection.code);
+    expect(retry.answer.rejection.reason).toBe(first.rejection.reason);
+
+    // Nothing moved, and the refusal is the only record this key ever opened.
+    expect(onlyBinding(subject).targetId).toBe("node-a");
+    expect(records(subject).map((record) => record.state)).toEqual(["rejected"]);
+  });
+
+  it("TRI-08 a receipt is not a status query: a later state change does not rewrite it", () => {
+    const { time, subject } = harness();
+    configured(subject, twoEngines());
+    const identity = chatIdentity("session-receipt");
+    const running = inFlight(subject, time, identity);
+    const request = moveRequest(subject, "node-b", { idempotencyKey: "key-p" });
+
+    const parked = subject.moveBinding(request);
+    expect(parked.kind).toBe("pending_boundary");
+    const receipt = answerOf(parked);
+
+    // The boundary the intent was waiting for applies it, and the destination is later proven to
+    // have taken the move. Neither is a reason to answer the submit differently: the answer a
+    // client got was 202 with nothing written, and a retry says exactly that again.
+    running.release();
+    expect(recordById(subject, operationIdOf(parked)).state).toBe("applied");
+    const following = inFlight(subject, time, identity);
+    expect(following.decision.targetId).toBe("node-b");
+    expect(following.confirmRouted()).toBeDefined();
+    following.release();
+    expect(recordById(subject, operationIdOf(parked)).state).toBe("observed");
+
+    const retry = subject.moveBinding(request);
+    expect(retry.kind).toBe("replayed");
+    expect(answerOf(retry)).toEqual(receipt);
+    expect(answered(receipt).state).toBe("pending_boundary");
+    expect(answered(receipt).inFlightAtRequest).toBe(1);
+    expect(answered(receipt).routingRevision).toBe(INITIAL_ROUTING_REVISION);
+    // One instruction, one write: the retry neither wrote again nor read the later route.
+    expect(records(subject)).toHaveLength(1);
+    expect(onlyBinding(subject).routingRevision).toBe(INITIAL_ROUTING_REVISION + 1);
+
+    // The current state of the intent is still there for a reader that asks for it.
+    expect(recordById(subject, operationIdOf(parked)).state).toBe("observed");
   });
 
   it("TRI-07 one idempotency key carrying different parameters is refused", () => {
@@ -1088,7 +1243,7 @@ describe("TRI-07 the request boundary", () => {
     expect(onlyBinding(subject).routingRevision).toBe(INITIAL_ROUTING_REVISION + 1);
   });
 
-  it("TRI-07 the next request that reserves the destination is what makes a move observed", () => {
+  it("TRI-07 the request that proves the destination received the move is what makes it observed", () => {
     const { time, subject } = harness();
     configured(subject, twoEngines());
     const identity = chatIdentity("session-1");
@@ -1102,11 +1257,97 @@ describe("TRI-07 the request boundary", () => {
 
     expect(next.decision.targetId).toBe("node-b");
     expect(next.decision.matchedBy).toBe("exact_key");
+    // Reserving the destination is not yet proof: the request still has to reach that engine.
+    expect(recordById(subject, operationId).state).toBe("applied");
+    expect(recordById(subject, operationId).observedAt).toBeUndefined();
+
+    // The request path confirms the destination answered the connection. That is the evidence the
+    // state machine waits for, and it is not a business result: nothing has been answered yet.
+    const route = next.confirmRouted();
+    expect(route).toBeDefined();
+    expect(route?.movedFrom).toBe("node-a");
+    expect(route?.movedTo).toBe("node-b");
+    expect(route?.movedBy).toBe("manual");
+    expect(route?.routingRevision).toBe(INITIAL_ROUTING_REVISION + 1);
     expect(recordById(subject, operationId).state).toBe("observed");
     expect(recordById(subject, operationId).observedAt).toBe(time.now());
-    // `observed` is a routing fact, not a business result: nothing has answered yet.
     next.release();
     expect(recordById(subject, operationId).state).toBe("observed");
+
+    // Confirming twice proves nothing further: `observed` is terminal, and a terminal record is
+    // never rewritten or revived.
+    expect(next.confirmRouted()).toBeUndefined();
+    expect(recordById(subject, operationId).state).toBe("observed");
+  });
+
+  it("TRI-08 planning a move proves nothing, and a move that never landed is never observed", () => {
+    const { time, subject } = harness();
+    configured(subject, twoEngines());
+    const identity = chatIdentity("session-no-landing");
+    tableOf(subject).bind(identity, "node-a");
+
+    const applied = subject.moveBinding(moveRequest(subject, "node-b"));
+    expect(applied.kind).toBe("applied");
+    const operationId = operationIdOf(applied);
+
+    // A later request is planned onto the destination and then handed back without ever reaching
+    // it - the way a request whose upstream connection failed is left, or one whose target this
+    // pipeline does not have. Reserving a node proves nothing about where the request went.
+    const planned = inFlight(subject, time, identity);
+    expect(planned.decision.targetId).toBe("node-b");
+    planned.release();
+    expect(recordById(subject, operationId).state).toBe("applied");
+    expect(recordById(subject, operationId).observedAt).toBeUndefined();
+
+    // Nobody followed the write, so when its own window runs out the record says the write
+    // happened and was never followed. It is never reported as observed.
+    time.advance(MIGRATION_RETENTION_MS + 1);
+    expect(subject.sweepPendingMigrations()).toBe(1);
+    expect(recordById(subject, operationId).state).toBe("expired_after_apply");
+    expect(recordById(subject, operationId).endReason).toContain("no next request arrived");
+  });
+
+  it("TRI-08 a failover before the landing expires the applied intent and cannot be confirmed", () => {
+    const { time, subject } = harness();
+    configured(subject, twoEngines());
+    const identity = chatIdentity("session-failed-landing");
+    tableOf(subject).bind(identity, "node-a");
+
+    const applied = subject.moveBinding(moveRequest(subject, "node-b"));
+    expect(applied.kind).toBe("applied");
+    const operationId = operationIdOf(applied);
+
+    // The next request is planned onto the destination and its connection fails. This is the
+    // sequence the pipeline runs for a load balancing group: mark the node failed, call the
+    // migration intents off before the release that would have been their boundary, hand the
+    // reservation back, and plan again with the failed node excluded.
+    const onto = inFlight(subject, time, identity);
+    expect(onto.decision.targetId).toBe("node-b");
+    subject.markFailure("node-b", time.now());
+    expect(subject.invalidateMigrationsFor(onto.bindingRef, "failover")).toBe(1);
+    expect(recordById(subject, operationId).state).toBe("expired_after_apply");
+    expect(recordById(subject, operationId).observedAt).toBeUndefined();
+
+    // A terminal record cannot be revived, and a confirmation that arrives afterwards - the way
+    // a late response could - claims nothing and writes nothing.
+    expect(onto.confirmRouted()).toBeUndefined();
+    expect(recordById(subject, operationId).state).toBe("expired_after_apply");
+    onto.release();
+
+    const switched = subject.plan({
+      group: groupOf(subject, "lb-1"),
+      identity,
+      samples: EMPTY_LOAD_SAMPLES,
+      now: time.now(),
+      exclude: new Set(["node-b"]),
+    });
+    expect(switched?.decision.targetId).toBe("node-a");
+    // The node that answered is not the destination the move wrote, so nothing is proven.
+    expect(switched?.confirmRouted()).toBeUndefined();
+    expect(recordById(subject, operationId).state).toBe("expired_after_apply");
+    switched?.release();
+    expect(onlyBinding(subject).targetId).toBe("node-a");
+    expect(onlyBinding(subject).routingRevision).toBe(INITIAL_ROUTING_REVISION + 2);
   });
 
   it("TRI-07 a parked move that is cancelled is never written at its boundary", () => {
@@ -1536,9 +1777,12 @@ describe("TRI-07 what invalidates an intent", () => {
       "migration_backlog_full",
     );
 
-    // Following the move is what makes the record terminal and frees the space.
+    // Following the move is what makes the record terminal and frees the space: the request has
+    // to be proven at the destination, not merely planned onto it.
     const next = inFlight(subject, time, identity);
     expect(next.decision.targetId).toBe("node-b");
+    expect(subject.migrationOperations()[0]?.state).toBe("applied");
+    expect(next.confirmRouted()).toBeDefined();
     expect(subject.migrationOperations()[0]?.state).toBe("observed");
     next.release();
     expect(subject.moveBinding(moveRequest(subject, "node-a")).kind).toBe("applied");

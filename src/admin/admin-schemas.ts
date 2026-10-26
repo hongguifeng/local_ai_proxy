@@ -570,21 +570,14 @@ export type AdminLoadBalancerTasksResponse = AdminDto<typeof loadBalancerTasksRe
  */
 
 /**
- * What an answer may report as the state of a move. `requested` is absent on purpose: a record is
- * opened at that state and the submit answers it before it returns, so no answer can ever carry
- * it. `rejected` appears only on a replay of a submit that was refused, because the record of the
- * refusal is what a same-key retry is answered from.
+ * What an answer may report as the state of a move. A POST repeats the receipt its submission was
+ * answered with - `applied`, `pending_boundary` or `already_there` - and a DELETE that calls off a
+ * parked intent answers `cancelled`. Every other state the migration service uses belongs to what
+ * the intent became after the answer was given, which the binding list reports; a refusal is
+ * answered by the error contract and never by this body, and `requested` is never answered because
+ * a record is opened at that state and answered before the submit returns.
  */
-const migrationStateDto = z.enum([
-  "already_there",
-  "applied",
-  "cancelled",
-  "expired",
-  "expired_after_apply",
-  "observed",
-  "pending_boundary",
-  "rejected",
-]);
+const migrationStateDto = z.enum(["already_there", "applied", "cancelled", "pending_boundary"]);
 
 /** Whether the route changed: `next_request` moved it, `none` wrote nothing. */
 const migrationEffectDto = z.enum(["next_request", "none"]);

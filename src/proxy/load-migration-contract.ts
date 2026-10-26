@@ -18,6 +18,7 @@
  * | `plan` for a new task                           | calls `bind(..., { allowRebind: true })`               |
  * | the pipeline's one failover attempt             | releases, then plans with the old node excluded, which moves the target and bumps the revision |
  * | `invalidateMigrationsFor` at that failover      | parks become `expired`, an applied intent becomes `expired_after_apply` |
+ * | `confirmRouted()` once the upstream answered    | the applied intent the destination proves becomes `observed`, terminal  |
  * | `attachResponseIds`                             | no target change; refused once the binding is gone      |
  * | `pruneTargets`, `clear`, `sweepExpired`, `remove` | bindings are removed; versions are never replayed      |
  * | `reconfigure`                                   | `groupRevision` +1 when a group's routing signature moved; waiting intents are re-checked |
@@ -50,8 +51,9 @@ export interface BindingRef {
 
 /**
  * Lifecycle of one migration intent, from design section 5.2. `applied` means the in-memory
- * route changed; `observed` means a later request actually recorded the new target. Neither
- * says anything about the upstream's business result.
+ * route changed; `observed` means a later request proved the destination received it - the
+ * request path confirms it once the upstream answered the connection, not when the request was
+ * planned. Neither says anything about the upstream's business result.
  */
 export type MigrationState =
   | "requested"

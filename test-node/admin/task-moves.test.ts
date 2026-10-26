@@ -487,13 +487,79 @@ describe("[TRI-08] the manual move route on the service the proxy runs", () => {
     expect(first.payload["fromTargetId"]).toBe("node-a");
     expect(first.payload["toTargetId"]).toBe("node-a");
 
-    // Nothing was written, so there is nothing to record; a retry of the same key is answered
-    // the same way because there was no first answer to replay.
+    // Nothing was written, so there is nothing to record; a retry of the same key repeats the
+    // answer that was given, and still records nothing.
     expect(balancer.migrationOperations()).toEqual([]);
     const retry = await submit(server, moveBody(balancer, "node-a", { idempotencyKey: "key-3" }));
     expect(retry.status).toBe(200);
+    expect(retry.payload).toEqual(first.payload);
     expect(retry.payload["state"]).toBe("already_there");
     expect(balancer.migrationOperations()).toEqual([]);
+  });
+
+  it("binds a no-op answer to its key so a changed destination cannot move under it", async () => {
+    const { balancer, server } = fixture();
+    bind(balancer, chatIdentity("noop-key"), "node-a");
+
+    const first = await submit(
+      server,
+      moveBody(balancer, "node-a", { idempotencyKey: "key-noop" }),
+    );
+    expect(first.status).toBe(200);
+    expect(first.payload["state"]).toBe("already_there");
+
+    // The same instruction under the same key repeats the answer; nothing was written the first
+    // time, so there is nothing to write again.
+    const retry = await submit(
+      server,
+      moveBody(balancer, "node-a", { idempotencyKey: "key-noop" }),
+    );
+    expect(retry.status).toBe(200);
+    expect(retry.payload).toEqual(first.payload);
+    expect(onlyEntry(balancer).targetId).toBe("node-a");
+
+    // The same key carrying only a different destination is a different instruction, so design
+    // section 5.3 refuses it with 409 instead of replaying it: a no-op outcome binds its key and
+    // its digest just like a move that wrote, and the route must not move under a spent key.
+    const changed = await submit(
+      server,
+      moveBody(balancer, "node-b", { idempotencyKey: "key-noop" }),
+    );
+    expect(changed.status).toBe(409);
+    expect(changed.code).toBe("idempotency_conflict");
+    expect(changed.message).toContain("idempotency key");
+    expect(onlyEntry(balancer).targetId).toBe("node-a");
+    expect(onlyEntry(balancer).routingRevision).toBe(INITIAL_ROUTING_REVISION);
+    expect(balancer.migrationOperations()).toEqual([]);
+  });
+
+  it("answers a no-op retry with its own receipt after an unrelated move carried the route away", async () => {
+    const { balancer, server } = fixture();
+    bind(balancer, chatIdentity("noop-later"), "node-a");
+    const noopBody = moveBody(balancer, "node-a", { idempotencyKey: "key-noop-later" });
+
+    const first = await submit(server, noopBody);
+    expect(first.status).toBe(200);
+    expect(first.payload["toTargetId"]).toBe("node-a");
+    expect(numberOf(first.payload, "routingRevision")).toBe(INITIAL_ROUTING_REVISION);
+
+    // Another instruction, another key, moves the route away. The live binding is now on node-b.
+    const later = await submit(server, moveBody(balancer, "node-b"));
+    expect(later.status).toBe(200);
+    expect(onlyEntry(balancer).targetId).toBe("node-b");
+    expect(onlyEntry(balancer).routingRevision).toBe(INITIAL_ROUTING_REVISION + 1);
+
+    // The no-op retry repeats the answer it was given and writes nothing: the receipt is not a
+    // query about where the route stands now, so it neither reports the later destination nor
+    // carries the later revision, and it certainly does not undo the later move.
+    const retry = await submit(server, noopBody);
+    expect(retry.status).toBe(200);
+    expect(retry.payload).toEqual(first.payload);
+    expect(retry.payload["effect"]).toBe("none");
+    expect(retry.payload["toTargetId"]).toBe("node-a");
+    expect(onlyEntry(balancer).targetId).toBe("node-b");
+    expect(onlyEntry(balancer).routingRevision).toBe(INITIAL_ROUTING_REVISION + 1);
+    expect(balancer.migrationOperations()).toHaveLength(1);
   });
 
   it("replays the same key, epoch and parameters with the first answer and moves the route once", async () => {
@@ -505,14 +571,12 @@ describe("[TRI-08] the manual move route on the service the proxy runs", () => {
     expect(first.status).toBe(200);
     const replay = await submit(server, body);
     expect(replay.status).toBe(200);
+    // A repeated POST is a submission receipt, not a query about the operation's current state:
+    // the whole body - state, effect, counts and versions - is the one the first submit answered
+    // with, and the retry writes nothing.
+    expect(replay.payload).toEqual(first.payload);
     expect(replay.payload["state"]).toBe("applied");
-    // A replay performs no write, so its own effect is `none`; every other field is the first
-    // answer's, which is what makes a network retry unable to move the route twice.
-    const { effect: replayEffect, ...replayFields } = replay.payload;
-    const { effect: firstEffect, ...firstFields } = first.payload;
-    expect(replayEffect).toBe("none");
-    expect(firstEffect).toBe("next_request");
-    expect(replayFields).toEqual(firstFields);
+    expect(replay.payload["effect"]).toBe("next_request");
 
     // One retry does not move the route twice: one record, one revision step.
     const record = onlyRecord(balancer);
@@ -530,6 +594,40 @@ describe("[TRI-08] the manual move route on the service the proxy runs", () => {
     });
     expect(reworded.status).toBe(200);
     expect(reworded.payload["operationId"]).toBe(first.payload["operationId"]);
+    expect(balancer.migrationOperations()).toHaveLength(1);
+  });
+
+  it("keeps a refused submission's refusal when the same key and parameters are retried", async () => {
+    const { balancer, server } = fixture();
+    bind(balancer, emptyChatIdentity("refused-retry"), "node-a");
+    const body = moveBody(balancer, "node-b");
+
+    const first = await submit(server, body);
+    expect(first.status).toBe(422);
+    expect(first.code).toBe("state_not_migratable");
+    expect(first.message).toContain("no user content");
+
+    // A retry of a submission the state gate refused is refused the same way again: the same
+    // status, the same code and the same sentence, so a network retry cannot turn a refusal into
+    // a success that reports a rejected state.
+    const retry = await submit(server, body);
+    expect(retry.status).toBe(422);
+    expect(retry.code).toBe("state_not_migratable");
+    expect(retry.message).toBe(first.message);
+    expect(retry.payload["state"]).toBeUndefined();
+    expect(retry.payload["operationId"]).toBeUndefined();
+
+    // Nothing moved and nothing was recorded twice: the refusal is the only record this key opened.
+    expect(balancer.migrationOperations()).toHaveLength(1);
+    expect(onlyEntry(balancer).targetId).toBe("node-a");
+
+    // The same key with a different destination is a different instruction, so it is refused as
+    // spent rather than replayed - and it does not move the route either.
+    const changed = await submit(server, { ...body, destinationTargetId: "node-c" });
+    expect(changed.status).toBe(409);
+    expect(changed.code).toBe("idempotency_conflict");
+    expect(changed.message).toContain("idempotency key");
+    expect(onlyEntry(balancer).targetId).toBe("node-a");
     expect(balancer.migrationOperations()).toHaveLength(1);
   });
 
@@ -628,7 +726,7 @@ describe("[TRI-08] the manual move route on the service the proxy runs", () => {
     expect(onlyEntry(balancer).targetId).toBe("node-a");
   });
 
-  it("refuses every destination gate with 409 target_not_eligible and its own sentence", async () => {
+  it("refuses every destination gate that is an eligibility conflict with 409 and its own sentence", async () => {
     const { balancer, server } = fixture();
     bind(balancer, chatIdentity("gate-1"), "node-a");
 
@@ -724,18 +822,28 @@ describe("[TRI-08] the manual move route on the service the proxy runs", () => {
     });
     bind(modelFixture.balancer, chatIdentity("gate-7"), "node-a");
     const wrongModel = await submit(modelFixture.server, moveBody(modelFixture.balancer, "node-b"));
-    expect(wrongModel.status).toBe(409);
-    expect(wrongModel.code).toBe("target_not_eligible");
+    // Design section 6.2 puts model compatibility with the safety refusals, not with the
+    // eligibility conflicts: what cannot be proven safe is answered 422 `state_not_migratable`.
+    expect(wrongModel.status).toBe(422);
+    expect(wrongModel.code).toBe("state_not_migratable");
     expect(wrongModel.message).toContain("model id");
 
-    // Seven causes, seven sentences, one code: a client can tell why it was refused without
-    // guessing, and none of them touched the route.
-    const messages = [outside, unknown, cooling, asleep, disabled, sameEngine, wrongModel];
-    expect(new Set(messages.map((answer) => answer.message)).size).toBe(7);
-    for (const answer of messages) {
+    // Six destination conditions, six sentences, one conflict code: a client can tell which
+    // condition refused it without guessing, and none of them touched the route. The model
+    // condition is refused as unprocessable by design, with its own sentence.
+    const eligibility = [outside, unknown, cooling, asleep, disabled, sameEngine];
+    expect(new Set(eligibility.map((answer) => answer.message)).size).toBe(6);
+    for (const answer of eligibility) {
+      expect(answer.status).toBe(409);
+      expect(answer.code).toBe("target_not_eligible");
+      expect(answer.payload["state"]).toBeUndefined();
+    }
+    expect(new Set([...eligibility.map((a) => a.message), wrongModel.message]).size).toBe(7);
+    for (const answer of [...eligibility, wrongModel]) {
       expect(answer.payload["state"]).toBeUndefined();
     }
     expect(onlyEntry(balancer).targetId).toBe("node-a");
+    expect(onlyEntry(modelFixture.balancer).targetId).toBe("node-a");
   });
 
   it("refuses the two state gates with 422 state_not_migratable", async () => {
@@ -1032,15 +1140,15 @@ describe("[TRI-08] the manual move route on the service the proxy runs", () => {
     ]);
   });
 
-  it("reports an observed move when the next request reserves the destination", async () => {
+  it("reports an observed move only once the request path proves the destination received it", async () => {
     const { balancer, server } = fixture();
     bind(balancer, chatIdentity("observe-1"), "node-a");
     const observedBody = moveBody(balancer, "node-b", { idempotencyKey: "key-obs" });
     const applied = await submit(server, observedBody);
     expect(applied.status).toBe(200);
 
-    // The next request is what proves the move took effect, and it carries the material the
-    // stored route is written from: source, destination, who asked, the operation and the revision.
+    // Planning the next request onto the destination proves nothing by itself: the request still
+    // has to reach that engine before the move can be called observed.
     const group = groupOf(balancer);
     const nextRequest = balancer.plan({
       group,
@@ -1048,7 +1156,13 @@ describe("[TRI-08] the manual move route on the service the proxy runs", () => {
       samples: EMPTY_LOAD_SAMPLES,
     });
     expect(nextRequest?.decision.targetId).toBe("node-b");
-    const meta = nextRequest?.migrationRoute;
+    expect(onlyRecord(balancer).state).toBe("applied");
+    expect(onlyRecord(balancer).observedAt).toBeUndefined();
+
+    // The request path confirms the destination answered the connection, and hands back the
+    // material the stored route is written from: source, destination, who asked, the operation
+    // and the revision.
+    const meta = nextRequest?.confirmRouted();
     expect(meta).toBeDefined();
     expect(meta?.operationId).toBe(applied.payload["operationId"]);
     expect(meta?.movedBy).toBe("manual");
@@ -1059,12 +1173,205 @@ describe("[TRI-08] the manual move route on the service the proxy runs", () => {
     expect(onlyRecord(balancer).state).toBe("observed");
     nextRequest?.release();
 
-    // A retry of the same key now answers the state the record reached, and writes nothing again.
+    // A second confirmation proves nothing further: `observed` is terminal and is never rewritten.
+    expect(nextRequest?.confirmRouted()).toBeUndefined();
+    expect(onlyRecord(balancer).state).toBe("observed");
+
+    // A retry of the same key is answered the receipt the submit was answered with - the applied
+    // answer, its own effect, its own revision - while the operation's current state stays
+    // `observed` for a reader that asks for it. Nothing is written again.
     const replay = await submit(server, observedBody);
     expect(replay.status).toBe(200);
-    expect(replay.payload["state"]).toBe("observed");
-    expect(replay.payload["effect"]).toBe("none");
+    expect(replay.payload).toEqual(applied.payload);
+    expect(replay.payload["state"]).toBe("applied");
+    expect(replay.payload["effect"]).toBe("next_request");
+    expect(numberOf(replay.payload, "routingRevision")).toBe(INITIAL_ROUTING_REVISION + 1);
+    expect(onlyRecord(balancer).state).toBe("observed");
     expect(balancer.migrationOperations()).toHaveLength(1);
+  });
+
+  it("answers a parked submission with its own 202 after a lifecycle event called it off", async () => {
+    const { balancer, server } = fixture();
+    const identity = chatIdentity("expired-replay");
+    bind(balancer, identity, "node-a");
+    const running = reserveOneRequest(balancer, identity);
+    const body = moveBody(balancer, "node-b");
+
+    const parked = await submit(server, body);
+    expect(parked.status).toBe(202);
+    const parkedFields = fields(parked);
+    const entry = onlyEntry(balancer);
+
+    // A failover is an availability action and outranks the parked intent: it calls the intent off
+    // before the boundary it was waiting for could run.
+    balancer.invalidateMigrationsFor(entry.ref, "failover");
+    expect(onlyRecord(balancer).state).toBe("expired");
+
+    // The retry is answered the submission's own receipt: still 202, still `pending_boundary`,
+    // still the count and the revision the submit was answered with. Nothing turns a called-off
+    // intent into a 200, and nothing re-evaluates the route.
+    const retry = await submit(server, body);
+    expect(retry.status).toBe(202);
+    expect(retry.code).toBeUndefined();
+    expect(retry.payload).toEqual(parkedFields);
+    expect(retry.payload["state"]).toBe("pending_boundary");
+    expect(retry.payload["effect"]).toBe("next_request");
+    expect(numberOf(retry.payload, "inFlightAtRequest")).toBe(1);
+    expect(numberOf(retry.payload, "routingRevision")).toBe(INITIAL_ROUTING_REVISION);
+    expect(onlyEntry(balancer).targetId).toBe("node-a");
+    expect(balancer.migrationOperations()).toHaveLength(1);
+    expect(onlyRecord(balancer).state).toBe("expired");
+    running.release();
+  });
+
+  it("answers a parked submit's retry with its own 202 after the boundary applied the intent", async () => {
+    const { balancer, server } = fixture();
+    const identity = chatIdentity("applied-receipt");
+    bind(balancer, identity, "node-a");
+    const running = reserveOneRequest(balancer, identity);
+    const body = moveBody(balancer, "node-b");
+
+    const parked = await submit(server, body);
+    expect(parked.status).toBe(202);
+    const parkedFields = fields(parked);
+
+    // The request coming back is the boundary the intent waited for, and the route moves.
+    running.release();
+    expect(onlyRecord(balancer).state).toBe("applied");
+    expect(onlyEntry(balancer).targetId).toBe("node-b");
+    expect(onlyEntry(balancer).routingRevision).toBe(INITIAL_ROUTING_REVISION + 1);
+
+    // The retry is still answered the submission's own receipt: 202, `pending_boundary`, the
+    // count and the revision it was answered with. The route moved afterwards, and that is not
+    // this answer's news.
+    const retry = await submit(server, body);
+    expect(retry.status).toBe(202);
+    expect(retry.payload).toEqual(parkedFields);
+    expect(retry.payload["state"]).toBe("pending_boundary");
+    expect(numberOf(retry.payload, "inFlightAtRequest")).toBe(1);
+    expect(numberOf(retry.payload, "routingRevision")).toBe(INITIAL_ROUTING_REVISION);
+    expect(balancer.migrationOperations()).toHaveLength(1);
+
+    // Nor is a landing: once the destination is proven to have received a request, the receipt
+    // is still the same 202 the submit was answered with.
+    const nextRequest = balancer.plan({
+      group: groupOf(balancer),
+      identity,
+      samples: EMPTY_LOAD_SAMPLES,
+    });
+    expect(nextRequest?.decision.targetId).toBe("node-b");
+    expect(nextRequest?.confirmRouted()).toBeDefined();
+    expect(onlyRecord(balancer).state).toBe("observed");
+    nextRequest?.release();
+
+    const afterLanding = await submit(server, body);
+    expect(afterLanding.status).toBe(202);
+    expect(afterLanding.payload).toEqual(parkedFields);
+    expect(afterLanding.payload["state"]).toBe("pending_boundary");
+    expect(onlyRecord(balancer).state).toBe("observed");
+    expect(balancer.migrationOperations()).toHaveLength(1);
+  });
+
+  it("answers a parked submit's retry with its own 202 after the intent was called off", async () => {
+    const { balancer, server } = fixture();
+    const identity = chatIdentity("cancelled-receipt");
+    bind(balancer, identity, "node-a");
+    const running = reserveOneRequest(balancer, identity);
+    const body = moveBody(balancer, "node-b");
+
+    const parked = await submit(server, body);
+    expect(parked.status).toBe(202);
+    const parkedFields = fields(parked);
+    const operationId = textOf(parked.payload, "operationId");
+
+    // The user calls the intent off, and the cancel is answered `cancelled`. That is the intent's
+    // own news; it is not a reason to answer the original submit differently.
+    const cancelled = await callOff(server, operationId);
+    expect(cancelled.status).toBe(200);
+    expect(fields(cancelled)["state"]).toBe("cancelled");
+    expect(onlyRecord(balancer).state).toBe("cancelled");
+
+    const retry = await submit(server, body);
+    expect(retry.status).toBe(202);
+    expect(retry.code).toBeUndefined();
+    expect(retry.payload).toEqual(parkedFields);
+    expect(retry.payload["state"]).toBe("pending_boundary");
+    expect(onlyRecord(balancer).state).toBe("cancelled");
+    // Nothing was written by the retry, and the route is still where the refusal left it.
+    expect(onlyEntry(balancer).targetId).toBe("node-a");
+    expect(balancer.migrationOperations()).toHaveLength(1);
+    running.release();
+  });
+
+  it("repeats the count a submit proved instead of a count read off a binding that is gone", async () => {
+    const { balancer, server } = fixture();
+    const identity = chatIdentity("vanished-receipt");
+    bind(balancer, identity, "node-a");
+    const running = reserveOneRequest(balancer, identity);
+    const body = moveBody(balancer, "node-b");
+
+    const parked = await submit(server, body);
+    expect(parked.status).toBe(202);
+    expect(numberOf(parked.payload, "inFlightAtRequest")).toBe(1);
+
+    // The binding leaves the table while its request is still running, so there is no live
+    // binding for a retry to read. A retry still repeats what the submit proved - one request
+    // running, this binding id, the revision the intent was opened under - rather than reading a
+    // route that no longer exists and reporting the absence as zero.
+    const table = balancer.tableFor(GROUP_ID);
+    if (table === undefined) {
+      throw new Error(`The group ${GROUP_ID} must have a binding table.`);
+    }
+    const binding = table.bindingForId(numberOf(parked.payload, "bindingId"));
+    if (binding === undefined) {
+      throw new Error("The binding must still be in the table.");
+    }
+    table.remove(binding);
+    expect(balancer.bindingSnapshot(GROUP_ID)?.entries ?? []).toHaveLength(0);
+
+    const retry = await submit(server, body);
+    expect(retry.status).toBe(202);
+    expect(retry.payload).toEqual(parked.payload);
+    expect(numberOf(retry.payload, "inFlightAtRequest")).toBe(1);
+    expect(numberOf(retry.payload, "routingRevision")).toBe(INITIAL_ROUTING_REVISION);
+    expect(balancer.migrationOperations()).toHaveLength(1);
+    expect(onlyRecord(balancer).state).toBe("pending_boundary");
+
+    // The request coming back is the boundary the intent was waiting for, and the attempt
+    // re-resolves the reference and finds nothing: the intent says the binding left instead of
+    // being written against whatever reused the number.
+    running.release();
+    expect(onlyRecord(balancer).state).toBe("expired");
+    expect(onlyRecord(balancer).endReason).toContain("left the table");
+    expect(onlyRecord(balancer).appliedRoutingRevision).toBeUndefined();
+    expect(balancer.inFlight("node-b")).toBe(0);
+  });
+
+  it("answers the first receipt with its own revision when a later move has already moved on", async () => {
+    const { balancer, server } = fixture();
+    bind(balancer, chatIdentity("versions"), "node-a");
+    const firstBody = moveBody(balancer, "node-b");
+
+    const first = await submit(server, firstBody);
+    expect(first.status).toBe(200);
+    expect(numberOf(first.payload, "routingRevision")).toBe(INITIAL_ROUTING_REVISION + 1);
+
+    // A second, different instruction carries the route further.
+    const second = await submit(server, moveBody(balancer, "node-c"));
+    expect(second.status).toBe(200);
+    expect(numberOf(second.payload, "routingRevision")).toBe(INITIAL_ROUTING_REVISION + 2);
+    expect(onlyEntry(balancer).targetId).toBe("node-c");
+
+    // The retry of the first instruction repeats that instruction's own answer. The later move's
+    // revision belongs to node-c, so it must not be stamped onto the first receipt.
+    const replay = await submit(server, firstBody);
+    expect(replay.status).toBe(200);
+    expect(replay.payload).toEqual(first.payload);
+    expect(numberOf(replay.payload, "routingRevision")).toBe(INITIAL_ROUTING_REVISION + 1);
+    expect(replay.payload["toTargetId"]).toBe("node-b");
+    expect(replay.payload["operationId"]).not.toBe(second.payload["operationId"]);
+    expect(onlyEntry(balancer).targetId).toBe("node-c");
+    expect(balancer.migrationOperations()).toHaveLength(2);
   });
 
   it("keeps request content, session material and upstream keys out of every answer", async () => {
