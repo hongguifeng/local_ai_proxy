@@ -59,7 +59,10 @@ the end and is read on demand.
   Node tests die at startup, and two writers in one checkout also fight over the same working
   tree. Create the worktrees yourself and pass an explicit `cwd` per child instead of asking for
   managed isolation; a `robocopy /MT` copy of `node_modules` costs no GPU and leaves each lane
-  free to switch its own ABI.
+  free to switch its own ABI. Hand robocopy native `D:\...` paths with `MSYS_NO_PATHCONV=1`:
+  Git Bash rewrites those arguments and robocopy answers with its usage text and copies nothing.
+  `cp -r` works too, but only into a destination that does not exist yet — into an existing one
+  it nests `node_modules/node_modules`, which must be flattened before any script runs.
 - The builtin `worker` agent pins `thinking: high`, which the local lmstudio endpoint rejects
   (`xhigh`, `medium` and `low` only), so the child dies in about two seconds with HTTP 400. The
   level is requested as a suffix on the child `model` (`provider/id:xhigh`), and that suffix is
@@ -160,6 +163,12 @@ the end and is read on demand.
   typechecks and shows up only as `undefined` in the UI.
 - `passWithNoTests` is off, so a Vitest filter that matches nothing exits 1 instead of looking
   like a pass.
+- "Does this task still have a request open?" is answered by the group summary's
+  `cost.pending_request_count`, not by which event a row carries: `pricing_status = 'pending'`
+  covers exactly the requests the proxy has not finished answering, and opening a log root
+  flips the ones a dead process left behind to `unpriced`, while an abandoned row keeps
+  `request_pending_response` forever (two of them sit in the user's own history). Any "still
+  running" mark built on the event column therefore glows for a request nobody waits for.
 
 ## Where the long verification recipes live
 
