@@ -1,6 +1,6 @@
 # Task 路由功能实现 TODO
 
-基线：`1c983a10751aaf102a55e223a92e09c1b74e6391`。设计权威：[Task 路由观测、手动迁移与自动再均衡设计](./task-routing-design.md)。当前状态：8 / 12 项验收通过；TRI-08 的两轮返工与 TRI-06 的三个提交（原实现、复审返工、行上限修正）都已通过父代理独立复审并按顺序整合进主 checkout；TRI-09 明确未开始——迁移 UI、`POST`/`DELETE` 接线与真实请求验证都没有动过，自动策略同样未验收。
+基线：`1c983a10751aaf102a55e223a92e09c1b74e6391`。设计权威：[Task 路由观测、手动迁移与自动再均衡设计](./task-routing-design.md)。当前状态：8 / 12 项验收通过；TRI-08 的两轮返工与 TRI-06 的三个提交（原实现、复审返工、行上限修正）都已通过父代理独立复审并按顺序整合进主 checkout；TRI-09 已实现、待父代理独立复审，本清单不自接为 9 / 12：迁移控件、`POST`/`DELETE` 接线与真实浏览器请求闭环都已落地并在本 lane 的一个提交里，但尚未被任何人接为验收通过，自动策略同样未验收。
 
 本文是供本地 AI 按依赖顺序执行的开发清单。每项任务都必须完成实现、测试、文档同步和本项验收后才能标记为完成。研究稿、模型比较文档和历史负载均衡文档只提供背景，不得覆盖设计权威中的状态、并发和安全合同。
 
@@ -71,7 +71,7 @@
 | [x]  | TRI-06 | P1     | 实现节点 binding 列表 UI             | TRI-05                 | 已完成 |
 | [x]  | TRI-07 | P1     | 实现统一安全迁移服务                 | TRI-01、TRI-02、TRI-03 | 已完成 |
 | [x]  | TRI-08 | P1     | 实现手动迁移 API、幂等和生命周期处理 | TRI-04、TRI-05、TRI-07 | 已完成 |
-| [ ]  | TRI-09 | P1     | 实现手动迁移 UI 和真实请求验证       | TRI-06、TRI-08         | 未开始 |
+| [ ]  | TRI-09 | P1     | 实现手动迁移 UI 和真实请求验证       | TRI-06、TRI-08         | 已实现，待父代理复审 |
 | [ ]  | TRI-10 | P2     | 实现 advise 模式和建议状态           | TRI-03、TRI-07、TRI-09 | 未开始 |
 | [ ]  | TRI-11 | P2     | 真实引擎校准并决定是否开启 auto      | TRI-10                 | 未开始 |
 | [ ]  | TRI-12 | P2     | 自动执行、最终回归和交付收口         | TRI-11                 | 未开始 |
@@ -215,14 +215,14 @@
 
 入口：[load-balancing.js](../src/admin/static/modules/load-balancing.js)、UI API helper、[admin-ui-load-balancing.test.ts](../test-node/ui/admin-ui-load-balancing.test.ts)。
 
-- [ ] 把节点列表的 `migration` 与 `movable` 接到 TRI-07 的迁移服务上，按钮只在服务端说可以时才可用。
-- [ ] 增加目标选择器和“只影响下一次请求”的明确文案。
-- [ ] `inFlight > 0` 时允许登记 pending，但不显示“已迁移”；应用、观察、过期、取消和冲突状态要分别显示。
-- [ ] 冲突时保留用户选择，刷新当前 binding 行，并提示状态已变化；不要静默重试覆盖新 revision。
-- [ ] 多 task binding 显示影响范围，目标 unknown 显示警告，明确不可用时禁用提交。
-- [ ] 通过浏览器测试验证完整流程：展开节点、查看 binding、提交迁移、看到 pending/applied、发起下一请求、看到 observed。
-- [ ] 增加一个长 SSE 集成用例，证明迁移期间旧响应完整结束且下一请求才去目标节点。
-- [ ] 按 UI skill 更新视觉基线和英文截图检查；按 CSS cascade skill 审计新增样式归属。
+- [x] 把节点列表的 `migration` 与 `movable` 接到 TRI-07 的迁移服务上，按钮只在服务端说可以时才可用。
+- [x] 增加目标选择器和“只影响下一次请求”的明确文案。
+- [x] `inFlight > 0` 时允许登记 pending，但不显示“已迁移”；应用、观察、过期、取消和冲突状态要分别显示。
+- [x] 冲突时保留用户选择，刷新当前 binding 行，并提示状态已变化；不要静默重试覆盖新 revision。
+- [x] 多 task binding 显示影响范围，目标 unknown 显示警告，明确不可用时禁用提交。
+- [x] 通过浏览器测试验证完整流程：展开节点、查看 binding、提交迁移、看到 pending/applied、发起下一请求、看到 observed。
+- [x] 增加一个长 SSE 集成用例，证明迁移期间旧响应完整结束且下一请求才去目标节点。
+- [x] 按 UI skill 更新视觉基线和英文截图检查；本轮没有新增样式，CSS cascade 审计因此不适用。
 
 验收：用户能够从节点列表完成一次安全的 binding 迁移；页面不会把 API accepted 显示为业务已迁移；重启和 reload 后状态文案符合运行态合同。
 
@@ -1177,14 +1177,66 @@
 
 ### TRI-09
 
-- 状态：未开始（TRI-06 与 TRI-08 两个前置都已完成并整合，但本项一行代码、一个用例、一份文档都没
-  动过：UI 里没有 `POST /api/load-balancer/task-moves` 与 `DELETE /api/load-balancer/task-moves/
-  :operationId` 的任何调用，TRI-06 交付的迁移按钮仍然始终禁用并写着服务端的 `migration_unavailable`
-  理由，`GET /api/load-balancer/tasks` 的 `migration` 与 `movable` 也仍没接到迁移服务。回执状态机与
-  已验收的 TRI-08 语义不因 TRI-06 整合而改变。）
-- 修改文件：
-- 验证：
+- 状态：已实现，待父代理独立复审（本清单仍记 8 / 12，不自接为 9 / 12）。本 lane 交两个提交：
+  `d24af5b`（完整哈希 d24af5be3f881c33b546ed67e12daadf1d3d7417）交产品与测试，基线截图与它的哈希行
+  另成一个提交；两者都只在 `D:/code/local_ai_proxy-wt-tri09`，没有 push、没有 version/tag、没有进主
+  checkout，也没有跑便携版打包——本 lane 禁 Electron ABI 切换，尾交付留给整合阶段。
+- 修改文件：`src/proxy/load-balancer.ts`（新增 `moveGatesFor()`，复用 `#stateRejection()` 与
+  `#eligibilityRejection()`，不另建第二权威，读它不写任何东西）、`src/proxy/load-balancer-admin.ts`
+  （`migration` 按有没有可寻址的运行时回答，`movable.destinations` 带服务端拒绝码与
+  `metricsUnknown`，`migrationOperations` 是去掉 `requestDigest` 与 `idempotencyKey` 的净化投影且不随
+  `targetId` 过滤消失）、`src/admin/admin-schemas.ts`（zod 闭集）、`src/admin/ui-contracts.d.ts`、
+  `src/proxy/index.ts`（导出）、`src/admin/static/modules/load-balancing.js`（目标选择器、未知确认、
+  一份冻结 payload 配一个 key、409 保留选择且不自动重发、操作块、空页仍出操作）、
+  `src/admin/static/modules/core.js`（中英词典）、`test-node/admin/load-balancer-tasks.test.ts`、
+  `test-node/admin/api-contract.test.ts`、`test-node/admin/response-schema-openness.test.ts`、
+  `test-node/admin/admin-service-fixtures.ts`、`test-node/ui/admin-ui-fixture.ts`、
+  `test-node/ui/admin-ui-server.ts`、`test-node/ui/admin-ui-load-balancing.test.ts`，以及新增的
+  `test-node/ui/real-app-load-move.test.ts`，共 15 个跟踪路径。没有新增样式，所以 css-cascade-audit
+  本轮不适用。
+- 验证：`npm run format:check`、`npm run lint`、`npm run typecheck`、`npm run check:modules`（138 个模块，
+  323 条运行时边，0 环 0 越界）与 `npm run check:skills` 各自 `exit 0`；`test-node/ui/real-app-load-move.test.ts`
+  3 项全过，`test-node/ui/admin-ui-load-balancing.test.ts`（44 项）、`test-node/admin/load-balancer-tasks.test.ts`
+  （22 项）、`test-node/admin/api-contract.test.ts` 与 `test-node/admin/response-schema-openness.test.ts` 一起
+  跑为 5 文件 89 项全过；`npm run regen:ui-baselines` 重录 10 张并重写哈希行，两张负载均衡基线因接上
+  选择器与操作块长高（中文 1278×2720，英文 1278×2857），已按实际尺寸改行并全尺寸看过，英文画面无中文残留。
+  `git diff --check` 干净。
+- 声明对账：基线 `eee78a0` 是 146 个含声明的测试文件与 1308 条声明，`git grep -cE` 同一口径下本提交是
+  147 个文件与 1330 条声明，增量 22 条就是 UI 的 +11（原 33 → 44）、API 的 +8（原 14 → 22）与真实 app
+  用例的 +3；Vitest 收集 148 文件（147 跑、1 跳过）共 1501 项，与 1479 + 22 逐项对得上。UI 那一档里
+  TRI-06 原本那条“每个迁移按钮都禁用并写着服务端给的理由”不是被删掉凑绿，而是改写成
+  `[TRI-09] shows the server's refusal where it will not offer a destination`，保住的还是同一个有效意图：
+  按钮的可用与否由服务端回答。
+- 真实浏览器闭环：`test-node/ui/real-app-load-move.test.ts` 开的是产品自己的 admin 服务、产品自己的
+  proxy 监听和产品自己的页面，只有两个上游是本地可控 HTTP。上游在第一帧后停住，等这个文件自己放行，
+  不再靠抢四秒窗口；客户端真的读到第一帧、列表说这条 binding `inFlight` 为 1，此时通过现有状态轮询驱动
+  的界面登记意图，看到 `pending_boundary`、可取消，且源节点没换、下一帧没多、上游计数没动；放行到
+  `[DONE]` 后客户端手里全部 frame 按原序齐全，路由才在这个边界上变成 `applied` 并把 binding 移到目标；
+  下一份同身份请求（同一个 `conversation_id`，第一条用户消息重复在前）实到目的地，只有目的地接到它，
+  而 `observed` 是在目的地的响应头到达之后才成立的；界面靠现有的 2 秒轮询读到 `observed`，源节点页在行
+  消失之后仍然显示这条记录；持久记录用产品自己的字段名对齐：`move_operation_id`、`moved_by` 为 `manual`、
+  `moved_from`、`moved_to` 与 `move_routing_revision`，而被移动的那一条是唯一带这些字段的一条，先前那条
+  SSE 记录里没有迁移元数据。这一条链是真实 HTTP 请求经过产品到本地控制服务，不是真实 LM 引擎，TRI-11
+  的真实引擎收益不在本项。三个用例各自开自己的对话并重置自己碰到的夹具，不串成一条依赖链。
 - 结果与限制：
+  - 全量 `npm run check` 在本 lane 尚未跑绿：`format:check`、`lint`、`typecheck`、`check:modules`、
+    `check:skills` 都过，卡在 `test` 那一步的一项上——`test-node/app/runtime.test.ts` 的
+    `[AI-09] answers every write route on its own assembled application` 在启用 `managed-pair` 时拿到
+    `409 listen_conflict`（`listen_port: 0` 的绑定撞上 `EADDRINUSE`）。这一项单跑 7 项全过，与本 lane
+    新增文件一起跑时必挂，`--maxWorkers=1` 串行跑两个文件则过，`test-node/app` 整个目录并发跑也过；本
+    lane 新增文件同时占住四个 `127.0.0.1` 的 ephemeral 端口约 35 秒，并发下 Windows 把同一个端口交给了
+    两个进程。这是测试进程之间抢 ephemeral 端口的环境问题，不是迁移合同的缺陷，也不是本轮改过的产品
+    代码路径；本轮没有去改 `test-node/app/runtime.test.ts` 那句断言，也没有为它加重试，因为那会掩掉
+    真实的启动失败。父代理需要就“要不要在本仓库里给并发测试固定端口段、或把真实 app 用例排到单独
+    worker”做决断。
+  - `npm run build`（`check` 的最后一步）与便携版打包、`smoke:delivery`、`abi:node` 都还没跑；本 lane
+    禁 ABI 切换，留给整合阶段。
+  - 截图给人亲看的一份留在 `.pi/tri09-review/screenshots/`（仓库忽略该目录）：
+    `lb-{zh,en}-1278-bindings-expanded.png`、`lb-{zh,en}-1278-group-edit.png`、
+    `lb-{zh,en}-380-bindings-expanded.png`、`lb-{zh,en}-380-group-edit.png`，共 8 张。
+  - 真实 app 用例现在只覆盖一次成功移动的全闭环、一个被拒绝的成员和一个 response id 造成的保守
+    拒绝；pending 的真取消、跨 runtime 的迟到回答与 `expired_after_apply` 在真实装配里还没走一遍，
+    它们目前有 API 与 UI 桩用例覆盖。
 
 ### TRI-10
 

@@ -25,6 +25,7 @@ flowchart LR
 | --- | --- |
 | Multiple proxy ports | Create multiple local listeners from one console, each connected to different upstreams. |
 | Multiple upstreams | Configure several upstreams for one proxy and choose a default fallback. |
+| Load balancing groups | Several upstreams that serve the same model can be grouped behind one proxy port; a task stays on the node it first landed on, and a node's **Route bindings** list ends each row in a target dropdown plus a **Move this binding** button. The server decides which members are eligible and why the rest are refused, and the page only shows what it answers. A move rewrites that one binding's own target and takes effect on its next request, so a response already in flight is never interrupted; a target whose metrics are not usable is labelled unknown and needs one explicit confirmation before the move can be submitted. |
 | Model-based routing | Select an upstream from the top-level `model` field; the first matching rule wins and matching is case-sensitive. |
 | Upstream order | Drag the ⠿ handle at the top-left of an upstream card (or focus the handle and use the arrow keys) to reorder upstreams; the order is the model-mapping priority, so earlier upstreams match first. |
 | Model rewriting | Use `local-model => upstream-model` to rename the model sent upstream. |

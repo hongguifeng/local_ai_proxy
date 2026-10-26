@@ -222,7 +222,26 @@ GET /api/load-balancer/tasks?pairId=p1&groupId=g1&targetId=node-a&limit=50&offse
   "offset": 0,
   "hasMore": false,
   "nextOffset": 0,
-  "migration": "unavailable",
+  "migration": "available",
+  "migrationOperations": [
+    {
+      "operationId": "0f3c…",
+      "state": "pending_boundary",
+      "cancellable": true,
+      "bindingId": 1,
+      "incarnation": 1,
+      "groupId": "g1",
+      "groupRevision": 12,
+      "sourceTargetId": "node-a",
+      "destinationTargetId": "node-b",
+      "sourceRoutingRevision": 0,
+      "appliedRoutingRevision": null,
+      "createdAt": 1764557090000,
+      "expiresAt": 1764557990000,
+      "endedAt": null,
+      "endReason": null
+    }
+  ],
   "nodes": [
     {
       "targetId": "node-a",
@@ -335,8 +354,22 @@ GET /api/load-balancer/tasks?pairId=p1&groupId=g1&targetId=node-a&limit=50&offse
         }
       },
       "movable": {
-        "ok": false,
-        "reasons": ["migration_unavailable", "in_flight"]
+        "ok": true,
+        "reasons": [],
+        "destinations": [
+          {
+            "targetId": "node-b",
+            "eligible": true,
+            "metricsUnknown": true,
+            "reason": null
+          },
+          {
+            "targetId": "node-c",
+            "eligible": false,
+            "metricsUnknown": true,
+            "reason": "target_disabled"
+          }
+        ]
       }
     }
   ]
@@ -357,14 +390,26 @@ GET /api/load-balancer/tasks?pairId=p1&groupId=g1&targetId=node-a&limit=50&offse
 4. 没有 `lastServedTargetId`，只有每个历史 task 的 `historyTargetNode`（`same`、`different`、
    `unknown`）；成本信号的名字跟账本一致，是 `normalized_usage`、`request_bytes`、`none`。
 
-`migration` 现在只有一个取值 `unavailable`，`movable.ok` 因此一律为 `false`（理由
-`migration_unavailable`，有在途请求时再加 `in_flight`）。TRI-08 只新增迁移接口，不动这份列表；
-把列表接到 TRI-07 的迁移服务上是 TRI-09 的工作，因为 TRI-06 的按钮先于提交逻辑存在，先放开
-`movable.ok` 会交给用户一个能点、点了无效的按钮。TRI-09 接线后这个字段会变成可用，
-`movable.reasons` 改用迁移服务的拒绝码命名，前端仍然只看服务端给的 `movable`，不自己判断。
-TRI-06 已经落地，而它交付的正是这个约定：节点行下的列表读这份投影，行尾的迁移按钮一律按
-`movable.ok` 渲染，所以在当前装配下它始终禁用，旁边写的就是服务端给的 `migration_unavailable`
-原句；按钮上没有提交路径，也没有目标选择器，`POST` 与 `DELETE` 两条迁移路由在 UI 里仍然零调用。
+`migration` 取 `available` 或 `unavailable`，判据是这一对 pair 有没有可以寻址的运行时：没有运行时
+就没有能改写路由的 `moveBinding()`，这也是未启动的 pair 答空 `items` 的同一个理由。`movable` 不再是
+装饰字段：`ok` 为真当且仅当这条 binding 过了状态门并且组里至少有一个成员过了资格门，
+`destinations` 逐个列出除自己所在节点以外的成员，带服务端自己的拒绝码、`reason` 和
+`metricsUnknown`。`metricsUnknown` 不是拒绝：数字缺失、过期或不完整的节点仍然可以手动选择，但界面
+必须写明它没有被测量并要求一次显式确认；明确不可用的目标禁止提交。判断全部在服务端完成，界面不比
+较 target URL、model 名或 cooldown，只把服务端给的 `reason` 翻译后显示。
+
+读这份投影复用 `moveBinding()` 在提交和写入时跑的同一组 predicate（`LoadBalancer.moveGatesFor()`），
+所以这里的一个“可以”只是同一个问题会被再问一次的承诺，不是第二权威；读它不写任何东西——没有续
+TTL、没有计数、没有目标改写、没有预留也没有记录。`inFlight > 0` 在这份投影里不是拒绝：登记的 intent
+等的是下一次请求边界，这件事行上的 `inFlight` 与 `activity` 已经说清楚了。
+
+顶层 `migrationOperations` 是本组的迁移记录，最新在前，上限 `MAX_MIGRATION_OPERATION_ROWS`，并且不随
+`targetId` 过滤而消失：一个 intent 被应用后 binding 立刻离开它原来被列出的那个节点页，记录必须还在那
+一页读得到，否则一次移动看起来永远停在 pending。它是 `MigrationOperationView` 的净化投影，不含
+`requestDigest` 与 `idempotencyKey`——那两个字段绑住一条指令并允许重放，而要知道路由去了哪里并不需要
+它们。`cancellable` 由服务端回答，页面不再自己推状态机。操作的当前状态只从这份列表读取，不靠重复
+`POST` 查询：TRI-08 交的是按 idempotency key 冻结回执，重发一次提交既不是查询，也会改写用户已经确认
+过的那一条。
 
 响应禁止包含 exact key、session ID、请求正文、用户消息哈希、认证信息和 target API key。`taskIds` 可以使用已有日志 task ID；如果关联不确定，返回多个候选和 `ambiguous: true`，不返回一个伪造的代表 task。
 
@@ -511,9 +556,21 @@ TRI-06 已经落地的部分（现行事实，与上面的草图不同处已标�
 - 行里写的是绑定自己的编号、模型、端点与三行事实，加关联 task 行与置信度；一个 binding 连到多个
   task 仍是一行一个操作。历史覆盖状态、截断与日志可能未写入各自单独标记，历史读失败与“没有
   traffic.db”“没有日志根”是三句话，不合并成一个空态。
-- 草图里的 `[迁移到节点 B]` 与 `[登记迁移到节点 B]` 尚未存在：现行画面只有一个始终禁用的
-  “迁移此绑定 / Move this binding”按钮和服务端给的原因。`inFlight > 0` 的 pending 登记、
-  `applied` / `observed` 的文案、冲突后的重新提交与目标选择器都属于 TRI-09。
+- TRI-09 已实现，待父代理复审：行尾现在是目标选择器加一个“迁移此绑定 / Move this binding”按钮。
+  选择器里的选项就是服务端的 `movable.destinations`，第一项是占位，只有 `eligible` 的目标可选，被拒绝
+  的成员带着服务端那句 `reason` 出现在同一列表里但带 `disabled`；`metricsUnknown` 的合格目标在名字后
+  追加“目标指标未知”，并且必须再勾一次确认才放开提交。一次确认的意图只生成一次 idempotency key 并冻结
+  整份 payload，网络结果不确定时唯一的重试是同一 key 同一 payload；409 保留目标选择与用户输入，刷新该
+  行并提示状态已变，由用户显式重新提交，页面不自己换成新的 revision 再发一次，也不会用一个新 key 重发
+  一个未知结果。面板被状态轮询重建时，选择、确认与冲突提示都不丢。
+- 操作状态在列表自己的 `migrationOperations` 里，跟在行下面独立成一块：`pending_boundary` 可取消，
+  `applied` 不伪装成可取消，`observed` 只说已观测到后续请求使用目标节点，不承诺上游业务成功，
+  `rejected` / `cancelled` / `expired` / `expired_after_apply` 各一句。runtime 或组版本换了代、记录被回收
+  时，这条状态叫“未知”而不是继续挂着旧的那个词。源节点页在行消失以后仍然显示这条记录，因为记录不决于
+  行在同一页上。
+- 写只有 `moveBinding()` 与 `cancelMoveBinding()` 两条路径：UI 不直接赋值 `targetId`，也不为读投影调用
+  `moveBinding()` 或会 touch binding 的 `lookup()`。列表 GET 没有续 TTL、没有学习 exact key、没有扫除、
+  没有写回执，也不向上游发请求。
 
 ## 7. 自动再均衡功能
 
