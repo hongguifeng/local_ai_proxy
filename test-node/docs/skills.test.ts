@@ -14,6 +14,7 @@ const expectedSkills = [
   "ci-triage",
   "css-cascade-audit",
   "design-doc-readability",
+  "feature-design-review",
   "live-ui-probing",
   "packaging-smoke",
   "proxy-runtime",

@@ -48,16 +48,17 @@ npm test -- test-node/docs
 
 ## Reading the result
 
-- Compare the document with the peer it will be judged against: average sentence length,
-  the count of long sentences and bold marks per 1k chars are what separate a prose-first
-  draft from a merged spec. A factor of roughly two in sentence length is a factor of two in
-  reading time for the same decisions.
+- Compare average sentence length, the count of long sentences and bold marks per 1k chars
+  as signals for editing. These measurements describe document structure; they do not
+  establish reading time, comprehension or design correctness.
 - A document that sets a constant without a measured source is unfinished, not concise.
 - `npx prettier --ignore-path .gitignore --check` must pass on the file you touched; a
   file under `docs/` is not covered by `npm run format:check`.
 
 ## Deeper material
 
+- [feature-design-review](../feature-design-review/SKILL.md) — evidence, state ownership,
+  lifecycle and API/UI consistency checks before adopting a design.
 - [reference.md](./reference.md) — the measured draft-versus-merged comparison.
 - [ai-development-optimization-todo.md](../../../docs/ai-development-optimization-todo.md)
   — the document shape this project uses for its own plan, with completion records.

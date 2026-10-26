@@ -183,6 +183,7 @@ result, and links to its reference file and deeper docs.
 - `ci-triage` - Actions REST API triage without gh
 - `real-upstream-acceptance` - proving changes against real traffic
 - `design-doc-readability` - measured readability for design documents
+- `feature-design-review` - evidence, state ownership, lifecycle contracts, experiments and design changes
 - `safe-deletion` - proving a removal is complete
 
 After completing a task, write a brief retrospective into this file **only** when project-level

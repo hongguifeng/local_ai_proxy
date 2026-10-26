@@ -10,10 +10,10 @@ measurement pass over both, taken once on this machine, reported:
 | Draft    | 54.7               | 43                      | 7.4                     |
 | Merged   | 30.7               | 3                       | 1.1                     |
 
-That is about 2.6× the reading time for the same decisions, and it is what turned
-"this document feels long" into a review comment with a number behind it. The three
-metrics are cheap to compute and hard to argue with; they are also the reason the shape
-rules in the skill are stated as they are:
+These are structural measurements, not a timed reading experiment. They make a review
+comment about sentence length and emphasis checkable, but do not establish a reading-time
+ratio or comprehension benefit. They motivated the following editing heuristics; the
+thresholds are local review guidance, not validated universal limits:
 
 - Sentences over 80 chars are almost always a paragraph that has not been turned into a
   table or a decision item.
