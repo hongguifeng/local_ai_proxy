@@ -183,14 +183,15 @@ applied
    └─ binding 在下一次请求前失效 → expired_after_apply
 ```
 
-`applied` 只表示内存路由已改；`observed` 表示至少有一条后续请求的路由记录证实使用了新 target；它不表示上游业务成功。若没有下一次请求，操作停在 `applied` 或过期，不把它计为已经支付了冷 prefill。
+`applied` 只表示内存路由已改；`observed` 表示至少有一条后续请求的路由记录证实使用了新 target；它不表示上游业务成功。把请求计划或预约到目标不算证实：证实要等到那条请求真的连上了目标并拿到目标的响应头或状态行，4xx 与 5xx 同样算。目标连不上时 failover 先把 `applied` 变成 `expired_after_apply`，从别的节点答复的请求不能把它复活。若没有下一次请求，操作停在 `applied` 或过期，不把它计为已经支付了冷 prefill。
 
 应用 pending 操作的顺序固定为：读取当前 binding 和 revision → 验证目标与协议条件 → 同步改变目标并递增 revision → 为本次请求建立 reservation。单事件循环保证这段同步操作不被另一个 `plan()` 插入。
 
 ### 5.3 并发、幂等和迟到回调
 
 - 管理请求带 `expectedRoutingRevision` 和 `expectedSourceTargetId`；任何不匹配返回 409，不允许后写覆盖。
-- 管理请求带 `idempotencyKey`。同一 runtimeEpoch、参数摘要和幂等键重试返回第一次结果；同一键携带不同参数返回 409。幂等记录只在当前 runtimeEpoch 内保留，重启后的旧请求返回 409 或 404。
+- 管理请求带 `idempotencyKey`。同一 runtimeEpoch、参数摘要和幂等键重试返回第一次的提交回执；同一键携带不同参数返回 409。回执由幂等键与参数摘要一起绑定，`already_there` 这种没有写记录的答复同样绑定（`operationId` 为 `null`），所以换一个目的地复用同一键不能移动路由。幂等记录只在当前 runtimeEpoch 内保留，重启后的旧请求返回 409 或 404。给出成功答复之前必须先确认这个键还存得下：记录索引与回执索引同样受限，但是两个独立索引，回执索引里只剩仍可能移动的操作的回答时，`already_there` 这种不写记录的答复以 503 `migration_backlog_full` 拒绝且不写任何东西；存储装不下的拒绝不享受这条，因为它不是成功，后来按新状态重新评估。这条幂等保证的作用域是当前 runtime 内、回执仍在容量与保留窗口里的那些键；503 背压没有接受这次提交，也就什么都没写，因此它不被记住，空间腾出后同键按新状态重新评估沿用既有口径，不需要新的授权或新的状态。回执与记录共用同一个保留时钟，各自只用自己的起算点：记录从 `endedAt` 起保留一个窗口，独立回执从 `answeredAt` 起保留一个窗口，附在记录上的回执随记录一起释放，而仍活着的操作的回执不按时间清除。交给调用方的答复与记录都是副本，调用方改自己手里那份不影响以后的重放。
+- `POST` 的答复是提交回执，不是状态查询：`state`、`effect`、`inFlightAtRequest` 和 `routingRevision` 冻结在第一次答复被决定的那一刻，之后 `applied`、`observed`、`cancelled`、`expired` 都不改写它，读不到的证据也不会被伪造成 0；被拒绝的提交重放仍是同一状态码、同一 `code` 和同一句话。操作当前走到哪一步由第 6.1 节的列表读给出（TRI-09），不由这条 `POST` 给出。
 - 连接期 failover 是可用性动作，优先于 pending 人工或自动动作。failover 改变 revision，并使尚未应用的迁移意图失效；后续请求重新建立新的意图。
 - 配置 reload 如果保留 group 和 target，binding 与 pending 操作继续有效，但执行时仍检查 group revision 和目标配置摘要。目标 URL、模型名、请求转换规则或日志根发生实质变化时递增 group revision，使旧操作失效。
 - pair 停止、重启、group 删除、目标删除和 binding 淘汰会使未应用操作失效。pair 停止清空 binding；运行态迁移不恢复。
@@ -428,6 +429,14 @@ Content-Type: application/json
 `runtimeEpoch` 与 `groupRevision`，客户端据此判断自己是不是已经落在另一个运行时上；
 `already_there` 不写记录，所以 `operationId` 是 `null`。
 
+`POST` 的答复体是这次提交的回执，不是这条操作的当前状态。同一键重放时答复逐字段
+等于第一次的答复：`state`、`effect`、`inFlightAtRequest` 与 `routingRevision` 停在第一次
+被决定的那一刻，之后的 `applied`、`observed`、`cancelled`、`expired` 都不改写它，绑定
+消失了也不会被读成 0。被拒绝的提交重放拿回同一份拒绝，所以状态码、`code` 与句子
+都和第一次一致，网络重试不会把一次 422 报成 `rejected` 状态的 200。操作现在走到
+哪一步属于第 6.1 节列表读的字段（TRI-09）；这条 `POST` 从不报 `observed`、
+`expired`、`expired_after_apply` 或 `cancelled`。
+
 如果 binding 有在途请求，返回 `202` 和 `state: "pending_boundary"`；如果已经在目标节点，使用同一幂等合同返回 `200` 的 `already_there`。错误合同如下：
 
 | HTTP | code                   | 场景                                                 |
@@ -443,6 +452,12 @@ Content-Type: application/json
 `migration_backlog_full` 走 503：它说的是这个运行时的迁移意图存储已经装不下新工作，稍后重试
 即可，不是用户参数错误，也不算 409 冲突。取消一个已经 `applied` 的操作走 409
 `operation_already_applied`，告知用户只能反向迁移，不能把已改的路由伪装成取消。
+
+三类 404 定位在问回执之前完成：pair、runtime 与 `runtimeEpoch` 都要先对上现存的运行时，
+因为运行时没了或被换掉就没有回执可答，停机与换 epoch 仍是各自的 404。第四类 `group` 只对
+本运行时从未答过的键查：同一 runtime 内已经答过的键必须先匹配或冲突，即使那个 group 已经
+离开配置也答第一次的回执，同键只改成一个不存在的 groupId 是 409 `idempotency_conflict`；只
+有新键第一次问一个不存在的 group 才走 404。服务层不另立回执权威，也不自己算摘要。
 
 取消尚未应用的操作：
 

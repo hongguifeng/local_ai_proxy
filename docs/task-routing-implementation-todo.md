@@ -1,6 +1,6 @@
 # Task 路由功能实现 TODO
 
-基线：`1c983a10751aaf102a55e223a92e09c1b74e6391`。设计权威：[Task 路由观测、手动迁移与自动再均衡设计](./task-routing-design.md)。当前状态：7 / 12 项完成；统一安全迁移服务、只读管理 API 与手动迁移 API 都已进入主 checkout，UI（TRI-06、TRI-09）与自动策略仍未实现。
+基线：`1c983a10751aaf102a55e223a92e09c1b74e6391`。设计权威：[Task 路由观测、手动迁移与自动再均衡设计](./task-routing-design.md)。当前状态：7 / 12 项验收通过；TRI-08 的两轮返工已通过父代理独立复审并整合进主 checkout，TRI-06 已在独立工作树实现但尚未父代理复审与整合，所以不计入验收；TRI-09 与自动策略仍未验收。
 
 本文是供本地 AI 按依赖顺序执行的开发清单。每项任务都必须完成实现、测试、文档同步和本项验收后才能标记为完成。研究稿、模型比较文档和历史负载均衡文档只提供背景，不得覆盖设计权威中的状态、并发和安全合同。
 
@@ -68,7 +68,7 @@
 | [x]  | TRI-03 | P0     | 修复指标完整性并建立自动判定输入     | TRI-01                 | 已完成 |
 | [x]  | TRI-04 | P1     | 实现 task/binding 历史关联查询       | TRI-02                 | 已完成 |
 | [x]  | TRI-05 | P1     | 建立只读管理 API 和服务装配          | TRI-02、TRI-03、TRI-04 | 已完成 |
-| [ ]  | TRI-06 | P1     | 实现节点 binding 列表 UI             | TRI-05                 | 未开始 |
+| [ ]  | TRI-06 | P1     | 实现节点 binding 列表 UI             | TRI-05                 | 已实现，待复审与整合 |
 | [x]  | TRI-07 | P1     | 实现统一安全迁移服务                 | TRI-01、TRI-02、TRI-03 | 已完成 |
 | [x]  | TRI-08 | P1     | 实现手动迁移 API、幂等和生命周期处理 | TRI-04、TRI-05、TRI-07 | 已完成 |
 | [ ]  | TRI-09 | P1     | 实现手动迁移 UI 和真实请求验证       | TRI-06、TRI-08         | 未开始 |
@@ -707,10 +707,16 @@
 
 ### TRI-06
 
-- 状态：未开始
-- 修改文件：
-- 验证：
-- 结果与限制：
+- 状态：已实现，未验收。独立工作树 `D:/code/local_ai_proxy-wt-tri06` 的源提交 `c8a57d7`（完整哈希
+  c8a57d77da37f6a4dea6258c20bcf7611f5e80c6，10 个文件、2151 增 12 删）已经把每个节点的
+  route binding 装进负载均衡卡片；父代理尚未复审，也尚未整合进主 checkout，所以本项不标记
+  完成，TRI-09 的前置条件仍未满足。
+- 修改文件：（复审通过并整合后再填。）源提交动过的路径是 `src/admin/static/app.css`、
+  `modules/core.js`、`modules/load-balancing.js`、`src/admin/ui-contracts.d.ts`、
+  `test-node/ui/admin-ui-fixture.ts`、`test-node/ui/admin-ui-load-balancing.test.ts`、
+  `test-node/ui/admin-ui-server.ts`、两份 UI 截图与 `docs/refactoring/ui-visual-baseline.md`。
+- 验证：（待父代理复审与主树门禁后再填；UI 改动需要截图验证与基线重生成。）
+- 结果与限制：（待复审整合后再填。）
 
 ### TRI-07
 
@@ -824,7 +830,103 @@
 
 ### TRI-08
 
-- 状态：已完成
+- 状态：已完成，父代理独立复审已通过。两轮返工（第一轮五条缺陷、第二轮三条回执边界加一条
+  答复隔离）已经三个源提交按顺序整合进主 checkout；整合之前父代理亲自重跑 8 条独立
+  正确断言与正式定向 5 文件 145 项，全部通过。前轮错误验收已由父代理撤回，撤回记录与
+  第一轮的实现、验证记录保留在下面，只作历史，不再代表当前验收结论。
+- 撤回记录：父代理曾在本清单把本项记成“已完成”，独立复审把那次验收撤回，改写成“已实现并合入；
+  独立复审未通过，返工中”，并写下前轮验收与验证记录保留在下面但不再代表当前验收结论；两条
+  返工通过复审并整合之后，本项才重新记成已完成。撤回与返工之间的主树计数、定向实跑与整合记录
+  逐项保留，并标所属版本。
+- 复审发现：拒绝结果同键重试变为 200；`already_there` 未保留幂等键，改目标可再次执行；重试结果混入后一次迁移的 revision 与实时计数；已失效意图重试变为 200；目标连接失败并 failover 回原节点时操作却已终结为 `observed`。现有 4 文件 / 73 项通过，新增 5 条独立诊断复现确认上述行为；需要补入真正的回归测试后再次验收。另有前轮派发与设计 §6.2 的冲突：`model_mismatch` 应按设计返回 422 `state_not_migratable`。
+- 复审发现（第二轮，父代理独立复审查出的三条回执边界加一条答复隔离）：满容量下的
+  `already_there` 答 200 而键没被记住，腾出空间后同键改目的地会再答 `applied`；独立回执的
+  保留窗口被算成两倍；管理层的 group 预检越过第一份回执；存与取都交回调用方手里那个
+  答复对象，运行时写会改写以后的重放。四条都由下面第二轮返工关掉。
+- 第一轮返工（五条全部关掉；源提交 `7c8cd7a`，完整哈希
+  7c8cd7af4806b5d2b3e09e4f1eb204daf1045053，整合后是主树 `439c43d`，完整哈希
+  439c43dcad33123d8fc7917baeb2af97ff32ad6e）：
+  1. 拒绝不再变 200。存储把第一次答复本身按幂等键记下来（`MigrationSubmissionAnswer`，
+     `kind: "refused"` 带拒绝码与句子），`describeMove` 只看这份答复，所以同键同参重试拿回
+     同一 `code` 与同一 `detail`，路由也就映射出同一个状态码；首次拒绝与重放拒绝走同一条
+     答复链。真实路由回归：`keeps a refused submission's refusal when the same key and parameters
+     are retried`（真 Fastify、真 `LoadBalancer`）。
+  2. `already_there` 绑定键与摘要。没有写记录就没有可携带答复的记录，所以回执单独成立
+     （`StoredReceipt`，`operation` 为空，答复里 `operationId: null`），与记录同容量、同保留
+     窗口、同 runtime 作用域；换目的地复用同一键一律 409，路由不动。单元与真实路由两条回归：
+     `a no-op answer is bound to its key…` 与 `binds a no-op answer to its key…`。
+  3. `POST` 是提交回执，不是状态查询。答复一律从答复本身取值：`liveBindingOf` 整个删掉，
+     不再读实时 binding 的计数与版本，也不再把缺失读成 0；`park()` 把 `inFlightAtSubmit` 记在
+     记录上，取消用它自己的字段。之后的 `applied`、`observed`、`cancelled`、`expired` 都不改写
+     回执，后一次迁移的 revision 也不会盖到前一条上。主管此前“重试返回当前状态、
+     `effect` 为 `none`”的结论作废，按设计 §5.3/§6.2 改为回执口径，两份任务文档已随本整合
+     一并改为回执口径，不把“回放当前状态、`effect: none`”留作最终行为。新增真实路由回归：
+     `answers a parked submission with its own 202 after a lifecycle event called it off`、
+     `repeats the count a submit proved instead of a count read off a binding that is gone`、
+     `answers the first receipt with its own revision…`、`answers a parked submit's retry with its
+     own 202 after the boundary applied the intent`（涵盖后来 `applied` 与 `observed`）与
+     `… after the intent was called off`（后来 `cancelled`），以及既有 replay 用例改为逐字段
+     等于第一次答复。
+  4. `observed` 需要真实落点证据。reservation 不再带 `migrationRoute` 字段，改成一个
+     `confirmRouted()`：计划与预约都不改变状态，只有请求路径拿到上游响应行后才证实；4xx 与
+     5xx 同样算落点，连接没起来的尝试根本走不到那一行。failover 先把 `applied` 变成
+     `expired_after_apply`，终态记录不能被后来的请求复活；`move_*` 键由这次证实写入，因此
+     failover 的最终记录一个 `move_*` 键都没有。TRI-07 的 proxy 源码同改（同一缺陷是从
+     TRI-07 带进来的），长 SSE 与“迟到 release 不复活”的既有用例原样保留。新增真实上游
+     回归四条：连接失败回原节点、目标答 503 仍算落点、pipeline 没有那个 target、派发前被
+     流量记录拒绝；单元侧新增“计划不证实”与“failover 后不能复活”两条。
+  5. `model_mismatch` 改回设计 §6.2 的 422 `state_not_migratable`（设计权威为准，前轮派发给
+     的 409 是派发侧与设计的冲突）；目标资格用例现在把六条资格冲突与这条安全拒绝分开。
+- 第一轮返工改动的文件：产品源码 8 个（`load-migration.ts`、`load-balancer.ts`、
+  `load-balancer-admin.ts`、`proxy-request-pipeline.ts`、`load-migration-contract.ts`、
+  `src/admin/routes/load-balancer.ts`、`src/admin/admin-schemas.ts`、`src/proxy/index.ts`），测试
+  3 个（`load-migration.test.ts`、`task-moves.test.ts`、`load-balancer-pipeline.test.ts`），共 11
+  个文件，源提交 `7c8cd7a`（1387 增、221 删）。另有一个独立文档提交 `eb2a3ab`（整合后是主树
+  `cdff341`，完整哈希 cdff341aaab7058900b04c6a7f2a9324f10c3ab0）只改 `admin-api-probing` 的
+  计数与方法清单。
+- 第一轮返工验证（源工作树；下面的 1451 是那一版的计数）：`npm run check` 全链 `exit 0`（format:check、lint `--max-warnings=0`、两个 tsconfig typecheck、`check:modules` 138 模块 323 条运行时边 114 条类型边 0 环 0 越界、test、build），`npm run check:skills` 7 项全过，`git diff --check` 无空白错误，`npm run abi:node` 用真实查询证明装的是 Node ABI（`NODE_MODULE_VERSION 137`）。定向实跑：`load-migration` 52 项、`task-moves` 27 项、`load-balancer-pipeline` 36 项（共 115 项）全过；admin 与 assembly 六个文件（`api-contract`、`response-schema-openness`、`service-assembly`、`load-balancer-tasks`、`load-balancer`、`admin-contract-types`）6 文件 60 项全过；全量 Vitest 147 文件（146 通过、1 跳过）、1451 通过、2 跳过（属源提交 `7c8cd7a` 与 `eb2a3ab` 时的源工作树版本）。按 AGENTS 的声明式口径复核 `git grep -cE "^[[:space:]]*(it|test)(\.[a-z]+)?\(" 6c769bd -- test-node` 为 1265 项 / 146 个文件，源工作树 1282 项 / 146 个文件，增量 17 项正好等于三个文件各自的 +5、+8、+4，没有用例被删掉；被改写的旧用例是修正断言，不是删除。
+- 第二轮返工（三条回执边界与一条答复隔离，全部关掉；源提交 `48d1f85`，完整哈希
+  48d1f85e4738348a61e63392d90a40c3f52adeed，整合后是主树 `2210fb8`，完整哈希
+  2210fb83ac80f179d1f7ed32598b85a59d34ac4a）：上一轮五条修正已由独立旧复现 5/5 与正式定向
+  115/115 确认有效，但回执还有三处已独立复现的边界缺陷。复现是源工作树
+  `.pi/independent-recheck/review.test.ts` 末尾 `receipt edge probes` 那三条（断言写的是坏
+  行为，该文件未被改动），下面逐项关掉。
+  1. 存储满时的 `already_there` 不再是没有回执保护的成功。记录索引与回执索引同受
+     `MAX_MIGRATION_RECORDS` 约束，但是两个索引；`#storeReceipt` 过去在找不到可淘汰的回执时
+     静默 `return`，于是满容量的 no-op 答 200 而键没被记住，腾出空间后同键改目的地会再答
+     200 `applied`，幂等就破了。现在 `moveBinding()` 在给出成功答复之前先问
+     `MigrationOperationStore.canRecordAnswer()`：存不下就以 503 `migration_backlog_full`
+     拒绝，且不写任何东西；腾空间仍然只淘汰已完成的答案，绝不提前丢仍活着的操作的回执。
+     真实路由用例 `refuses a no-op the runtime cannot remember with 503 instead of a receipt
+     it cannot keep` 与两条单元用例（满时拒绝且无写、满时先淘汰已完成的答案）钉住这条，
+     记录上限全程保持。容量正常时同键改目的地仍是 409 `idempotency_conflict`。
+  2. 管理层的 group 预检不再越过第一份回执。`moveBinding()` 先定位 pair、runtime 与
+     `runtimeEpoch`（停机与换 epoch 各自仍是 404），然后问
+     `LoadBalancer.lookUpIdempotencyKey()`——摘要仍只由 balancer 自己算，admin 层不另立回执
+     权威也不复制摘要逻辑——只有本运行时答过 `nothing` 的指令才走 group 预检。于是 group
+     已从配置删除、epoch 未变且回执仍在时，原 pending POST 重试仍拿回第一次的 202；同键只
+     改成不存在的 groupId 是 409 而不是绕过摘要直接 404；新键第一次问未知 group 仍是
+     “Load balancer group not found.” 那条 404。
+  3. 独立回执的保留窗口不再被算两次。`recordNoOpAnswer` 过去写 `expiresAt = answeredAt +
+     retentionMs`，`dropExpiredRecords` 又拿它与 `now - retentionMs` 比，实际保留的是
+     `2 * retentionMs`。现在两个索引用同一个 cutoff，各自只用自己的起算点：记录从 `endedAt`
+     起保留一个窗口，独立回执从 `answeredAt` 起保留一个窗口，附在记录上的回执随记录同生
+     同死，仍活着的操作的回执永不被时间清掉。单元侧三条用例分别钉住到期前、到期那一刻、
+     到期之后，以及 live 回执不会被错删与两个索引同时释放。
+  4. 回执对象的隔离：`recordAnswer` 过去存的是调用方手里的 answer 原对象，`findReplay` 又把
+     同一个对象交出去，而 `readonly` 只挡 TS 写法不挡运行时写。现在存与取都过
+     `toAnswerCopy()`，与 `migrationOperations()` 深复制快照的既有约定同一口径；一条单元用例
+     证明改写答复对象或改写拒绝句子都不影响以后的重放。
+- 第二轮返工改动的文件：产品源码 3 个（`load-migration.ts`、`load-balancer.ts`、
+  `load-balancer-admin.ts`），测试 2 个（`load-migration.test.ts` +6 项、
+  `task-moves.test.ts` +2 项），共 5 个文件。上一轮已经通过的修正一字未改，特别是确认上游
+  响应行才算 `observed`、失败目的节点 `expired_after_apply`、`model_mismatch` 422。
+- 第二轮返工验证（源工作树；下面的 1459 既是那一版的计数，也是本整合后主树的计数）：定向先跑 `load-migration` 58 项、`task-moves` 29 项、`load-balancer-pipeline` 36 项、`api-contract` 12 项、`service-assembly` 10 项（5 文件 145 项）全过；再跑 proxy、admin、app 三个区域 63 文件 785 项全过；`npm run check` 全链 `exit 0`（format:check、lint `--max-warnings=0`、两个 tsconfig typecheck、`check:modules` 138 模块 323 条运行时边 114 条类型边 0 环 0 越界、test、build），`npm run check:skills` 7 项全过，`git diff --check` 无空白错误。按 AGENTS 的声明式口径复核 `git grep -cE "^[[:space:]]*(it|test)(\.[a-z]+)?\(" eb2a3ab -- test-node` 为 1282 项 / 146 个文件，源工作树 1290 项 / 146 个文件，增量 8 项正好等于两个文件各自的 +6 与 +2，没有用例被删掉。全量 Vitest 147 文件（146 通过、1 跳过）、1459 通过、2 跳过。
+- 第二轮那条待主管定夺的口径已经定夺，不需要新的授权或新的状态：三条诊断在源工作树原样重跑（诊断文件未被改动，mtime 仍是上一轮的时间），修复后各自翻到正确方向——`EDGE capacity` 的 no-op 现在是 503 `migration_backlog_full`，`EDGE retention` 在 1101（即 `answeredAt` 加一个保留窗口）就已经是 `nothing`，`EDGE removed group` 的重试回到 202 且与第一次逐字段相同。那条 `EDGE capacity` 诊断的第二句仍然答 200：503 这个拒绝本身存不下、也就没被记住，空间腾出后同键改目的地会按新状态重新评估。父代理定夺维持这个口径，设计第 5.3 节已写明幂等保证的作用域是当前 runtime 内、回执仍在容量与保留窗口里的那些键：503 背压没有接受这次提交也就什么都没写，因此它不被记住，空间恢复后按新状态重新评估沿用既有合同。这与“存储装不下的拒绝后来按新状态重新评估”一致，也没有把任何一次成功改成没有保护的成功。
+- 两轮返工的范围：只动上面这些产品源码与测试。UI、CSS、视觉基线、`GET /api/load-balancer/tasks` 的 `migration` 与 `movable` 字段、config schema、DB schema 与持久化表一字未动；没有做便携版打包、Electron ABI 重建或真实上游实验；没有读写用户正在跑的 portable 实例、它的配置或 traffic database。
+- 父代理整合前的独立复验：8 条独立正确断言全过（源工作树 `.pi/independent-recheck/accepted.test.ts` 7 条加 `landing.test.ts` 1 条落点探针，2 文件 8 项全过），正式定向 5 文件 145 项全过（`load-migration` 58、`task-moves` 29、`load-balancer-pipeline` 36、`api-contract` 12、`service-assembly` 10）。
+- 两轮返工的整合：三个源提交按顺序显式 `git cherry-pick -x` 合入主 checkout，保留原 author 与 subject。源 `7c8cd7a` → 主 `439c43d`，源 `eb2a3ab` → 主 `cdff341`，源 `48d1f85` → 主 `2210fb8`。前后两个产品提交自动合并、零冲突；只有 `eb2a3ab` 的两份技能文档冲突——主树已在 `9ca1c38` 把计数写成 29 / 34 并补上半装配与响应闭集两段说明，源工作树的原基点还写着 28 / 33。解法是保留主树那两段独有说明，把计数收敛到 31 / 36（`test-node/admin/api-contract.test.ts` 钉住 36 条注册，五条没有响应 schema 的仍是两条流加三个静态），四个 HTTP 动词照源文合入（TRI-08 的取消是第一条 `DELETE`），并把服务方法清单补成 `getStatus`、`getBindings`、`moveBinding` 与 `cancelMoveBinding`——`src/admin/admin-contracts.ts` 的 `LoadBalancerAdminService` 与 `assertAdminServicesComplete` 的方法表现在都是这四条，文字不能再停在两条上。整合后逐项比对：11 个产品源码与测试文件的 blob 哈希与源工作树 `48d1f85` 完全相同；主树与源工作树的 tracked 差异只剩这两份技能文档里主树独有的两段说明。`git diff 50b621b..HEAD` 不含 UI、CSS、视觉基线、config schema、DB schema 或持久化表路径，`git diff --check` 无空白错误。
+- 本整合的主树门禁（从大写盘符在主树跑）：全量 `npm test` 147 文件（146 通过、1 跳过）、1459 通过、2 跳过，与源工作树报告的 147 文件 / 1459 通过 / 2 跳过一致——主树没有 TRI-06 的 UI 测试，所以文件数相同而不是更多。按声明式口径复核 `git grep -cE "^[[:space:]]*(it|test)(\.[a-z]+)?\(" HEAD -- test-node` 为 1290 项 / 146 个跟踪测试文件，整合前 `50b621b` 为 1265 项 / 146 个文件，增量 25 项正等于第一轮返工的 +17 与第二轮的 +8，没有用例被删掉。
 - 修改文件：新增 [load-balancer-admin.ts](../src/proxy/load-balancer-admin.ts) 的
   `moveBinding()` / `cancelMoveBinding()` 与其查询、答复类型，
   [load-migration.ts](../src/proxy/load-migration.ts) 的 `MigrationRouteMeta` 与
@@ -843,7 +945,7 @@
   `LOAD_BALANCE_RECORD_KEYS`）、`test-node/admin/admin-service-fixtures.ts`、
   `test-node/admin/load-balancer-tasks.test.ts` 与 `test-node/ui/admin-ui-server.ts`（两处纯增量
   stub，返回真实服务的具名拒绝）；合计 19 个文件。
-- 验证：`npm run typecheck`（`tsconfig.json` 与 `tsconfig.ui.json` 均 `exit 0`，两处
+- 验证（第一轮，源提交 `6c769bd` 合入为主树 `5069a99` 之后的主树）：`npm run typecheck`（`tsconfig.json` 与 `tsconfig.ui.json` 均 `exit 0`，两处
   `@ts-expect-error` 反例仍是指望的错误）、`npm run lint`（`--max-warnings=0`）、
   `npx prettier --check .` 全绿、`npm run check:modules` 报 138 模块、323 条运行时边、114 条类型边、
   0 环 0 越界、`npm run check` 全链 `exit 0`、`git diff --check` 无空白错误。定向实跑：
@@ -852,7 +954,8 @@
   `load-balancer-tasks`）5 文件 63 项全过；proxy 与 logging 七文件
   （`load-migration`、`load-balancer-integration`、`load-balancer-pipeline`、
   `load-balancer-log-records`、`binding-activity`、`runtime`、`operation-sequence`）7 文件 123 项
-  全过；`npm test` 全量 147 文件（146 通过、1 跳过）、1434 通过、2 跳过。
+  全过；`npm test` 全量 147 文件（146 通过、1 跳过）、1434 通过、2 跳过（该计数属第一轮合入
+  `5069a99` 后的主树版本）。
   按 AGENTS 的声明式口径复核 `git grep -cE "^[[:space:]]*(it|test)(\.[a-z]+)?\(" 8b825c8 -- test-node`
   为 1243 与 146 个测试文件，本工作树跟踪文件 1245 项（+2 全在 `api-contract`），加
   `service-assembly` 的 +1 与未跟踪新文件的 19 项声明，测试文件数 146 → 147，增量 22 项正等于
@@ -860,12 +963,14 @@
   本项范围不含便携版打包、Electron ABI 重建、UI 基线与真实上游实验；所有夹具都在临时目录或用
   `listen(0)` 自选端口，只写内存记录收集器，没有读写用户实例的配置或 traffic database，也没有停
   或改用户正在跑的 portable 实例。
-- 状态与错误映射：路由用答复自己带的 `state` 定状态码——`pending_boundary` 显式回 202，`applied`
-  与 `already_there` 回 200，重放回第一次那条记录现在的状态且永不重写。服务拒绝码到 HTTP 的映射
-  固定为设计第 6.2 节：三类版本/源不一致归 409 `binding_stale`，`target_not_in_group`、
-  `target_unknown`、`target_disabled`、`target_cooldown`、`target_asleep`、`same_physical_key` 与
-  `model_mismatch` 七条各带自己的句子但共用 409 `target_not_eligible`，两道状态门共用 422
-  `state_not_migratable`，`migration_backlog_full` 归 503，`idempotency_conflict` 归 409；pair、
+- 状态与错误映射（当前行为）：路由用答复自己带的 `state` 定状态码——`pending_boundary` 显式回 202，`applied`
+  与 `already_there` 回 200，重放交回第一次的提交回执、逐字段等于第一次且永不改写；第一轮写成过
+  “重放回第一次那条记录现在的状态”，父代理独立复审把它判为缺陷，已由上面返工第 3 条替换，那一句
+  只作历史。服务拒绝码到 HTTP 的映射固定为设计第 6.2 节：三类版本/源不一致归 409 `binding_stale`，
+  `target_not_in_group`、`target_unknown`、`target_disabled`、`target_cooldown`、`target_asleep` 与
+  `same_physical_key` 六条各带自己的句子但共用 409 `target_not_eligible`，`model_mismatch` 与两道状态门
+  共用 422 `state_not_migratable`（第一轮把 `model_mismatch` 映射成 409 `target_not_eligible`，那是
+  派发与设计第 6.2 节的冲突，已由上面返工第 5 条按设计改回 422），`migration_backlog_full` 归 503，`idempotency_conflict` 归 409；pair、
   group、runtime 未启动与 runtime epoch 不一致四类前置检查统一映射成 404 `binding_not_found` 且
   句子各不相同（真实路由测试逐个比对句子互不相同），取消侧 `operation_not_found` 归 404、
   `operation_already_applied`/`operation_expired`/`operation_not_cancellable` 归 409，被 reload、
@@ -878,7 +983,8 @@
   的键试出来被丢掉）。请求体在本项经主管批准的偏离里把 `groupRevision` 与 `incarnation` 定成必填
   （列表已经提供这两个字段，客户端必须原样带回才能证明它看的是那条路由），设计文档的相应行由主管
   另行更新，本项不改设计权威。
-- 迁移路由元数据：`observed` 由第一条真正为该目标建 reservation 的请求写入路由记录，字段为
+- 迁移路由元数据：`observed` 由那条请求真的连上目标、拿到上游响应行之后由 `confirmRouted()`
+  写入路由记录（计划与预约都不写状态，4xx 与 5xx 同样算落点），字段为
   `move_operation_id`、`moved_by`、`moved_from`、`moved_to`、`move_routing_revision` 与可选
   `move_reason`；没有匹配的意图时一个键都不写。`load-balancer-pipeline` 的 TRI-07 实时用例现在直接
   检查那条流量记录带齐这六个键且不含用户正文，failover 的记录被证明不带任何 `move_*` 键。自动策略
@@ -889,17 +995,29 @@
   覆盖；`reason` 不进幂等摘要（换个说法仍是同一次移动），长度上限取审计标签的
   `MAX_MIGRATION_REASON_CHARS`，超出由 schema 拒。本项没有动 `GET /api/load-balancer/tasks` 的形状
   与 `migration`/`movable` 字段，没有动 UI、CSS、视觉基线、config schema、DB schema 版本与持久化
-  表；`test-node/ui/admin-ui-server.ts` 只加两个 stub 方法，UI 断言一字未改。
+  表；`test-node/ui/admin-ui-server.ts` 只加两个 stub 方法，UI 断言一字未改。第二轮返工后本项还
+  钉住：回执索引与记录索引同容量但是两个独立索引，存不下就以 503 拒绝且不写任何东西；一个保留
+  时钟两个起算点，记录从 `endedAt`、独立回执从 `answeredAt`，仍活着的操作的回执不被时间清掉；
+  group 预检排在回执查询之后且只对从未答过的键生效；答复的存与取都过副本。
 - 提交：`6c769bd`（完整哈希 6c769bda4b4ec028d82d603c69f731b1f45ff835），19 个文件、
   2237 增 13 删。用显式 `git add` 逐个挑选产品源码与测试路径，没有 `git add -A` 或 `git add .`；
   在本工作树里两份任务文档仍是未跟踪的副本，没进提交（主 checkout 已在 `9ca1c38` 把它们纳入
   版本控制）。
-- 整合：cherry-pick 到主 checkout 后是 `5069a99`（完整哈希
+- 整合（第一轮）：cherry-pick 到主 checkout 后是 `5069a99`（完整哈希
   5069a990870c5af84596fae805d368cccb69bf68），无冲突、文件集与源提交逐项相同。主 checkout 随后的
   全量 `npm run check` 为 `exit 0`：Vitest 147 文件（146 通过、1 跳过）与 1434 通过、2 跳过，
   `check:modules` 0 环 0 越界，Prettier 全绿。设计权威也在 `2b947fe` 补上了 `groupRevision` 与
   `incarnation` 两个必填字段、响应新增的 `runtimeEpoch` 与 `groupRevision`，以及 `reason` 的上限
   与拒绝口径，本节与设计不再互相矛盾。
+- 文档收口：设计权威随本整合补上两轮返工与设计初稿的分歧——第 5.2 节的 `observed` 需要真实落点
+  （计划与预约不算证实，4xx 与 5xx 同样算，连不上的目的节点由 failover 先叫停成
+  `expired_after_apply` 且不能被后来的请求复活）、第 5.3 节的首次不可变提交回执与容量、保留时钟、
+  副本口径以及幂等保证的作用域（当前 runtime 内、回执仍在容量与保留窗口里的那些键）、第 6.2 节的
+  提交回执段落与 group 预检排在回执查询之后的顺序。收口单独成提交，不与产品源码或测试混在同一
+  提交里；本清单前轮写成“重放回第一次那条记录现在的状态”的口径已作废，设计第 5.3 节原先只写
+  “重试返回第一次结果”，现在写明交回第一次的提交回执：最终行为是回执，不是当前状态查询，
+  `effect` 也不再被重写成 `none`。第 6.2 节那句“把一次 422 变成报成 `rejected` 状态的 200”的语病
+  也已改掉。
 
 ### TRI-09
 
