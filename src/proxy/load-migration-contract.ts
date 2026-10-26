@@ -36,7 +36,8 @@ export const INITIAL_GROUP_REVISION = 1;
  * How a caller addresses one binding. The numeric `bindingId` is only unique inside the
  * affinity table of one runtime, so it is never carried alone: `runtimeEpoch` says which
  * runtime the binding lived in, `routingRevision` says which version of it the caller saw,
- * and `incarnation` — the field a management client does not send — is the write-side
+ * and `incarnation` — which the management API carries as the binding list gives it out, since
+ * design section 6.1 puts it on the row for exactly this reason — is the write-side
  * guard that keeps a late reference off a binding that happened to reuse the number.
  */
 export interface BindingRef {

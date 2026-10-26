@@ -784,6 +784,7 @@ function loadBalanceRoute(loadBalance: LoadBalanceSelection | undefined): Traffi
     return {};
   }
   const decision = loadBalance.reservation.decision;
+  const migration = loadBalance.reservation.migrationRoute;
   return {
     route_mode: "load_balance",
     load_balance: {
@@ -796,6 +797,20 @@ function loadBalanceRoute(loadBalance: LoadBalanceSelection | undefined): Traffi
       ...(decision.kvUsage === undefined ? {} : { kv_usage: decision.kvUsage }),
       ...(decision.metricsSource === undefined ? {} : { metrics_source: decision.metricsSource }),
       failover_from: null,
+      // The move this request is the first to use, if any. Source, destination, who asked, the
+      // operation and the revision all come from the migration record, so a reader can confirm
+      // the destination was really used without this process still being alive. No body, no
+      // session key and no upstream key is in any of it: the reason is the bounded audit label.
+      ...(migration === undefined
+        ? {}
+        : {
+            move_operation_id: migration.operationId,
+            moved_by: migration.movedBy,
+            moved_from: migration.movedFrom,
+            moved_to: migration.movedTo,
+            move_routing_revision: migration.routingRevision,
+            ...(migration.reason === "" ? {} : { move_reason: migration.reason }),
+          }),
     },
   };
 }
@@ -876,13 +891,22 @@ function applyFailoverRoute(
       target_name: servedTarget.name,
       // The answering node may forward under another model name than the planned one.
       ...(forwarded.upstreamModel === undefined ? {} : { upstream_model: forwarded.upstreamModel }),
+      // Written from the decision rather than carried over from the stored block on purpose:
+      // a failover is not the move taking effect. The node that answered is not the destination
+      // the migration service moved to, and `invalidateMigrationsFor` has already called that
+      // intent off, so a record that kept the `move_*` keys here would claim a landing that
+      // never happened. The group, the strategy and how the task was matched are the same
+      // facts the plan recorded, restated from the decision that produced them.
       load_balance: {
-        ...modelRoute?.load_balance,
+        group_id: decision.groupId,
+        group_name: decision.groupName,
         decision: "failover",
-        failover_from: fromTargetId,
+        strategy: decision.strategy,
+        matched_by: decision.matchedBy,
         load: decision.load,
         ...(decision.kvUsage === undefined ? {} : { kv_usage: decision.kvUsage }),
         ...(decision.metricsSource === undefined ? {} : { metrics_source: decision.metricsSource }),
+        failover_from: fromTargetId,
       },
     },
     // The retry sent its own body: what was written is what the answering node received.

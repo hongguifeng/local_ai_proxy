@@ -1,5 +1,12 @@
 import type { BindingActivity, BindingCostSource } from "./binding-activity.js";
 import type { LoadBalancer, LoadBalancerNode, LoadBalancerBindingEntry } from "./load-balancer.js";
+import type { MigrationState } from "./load-migration-contract.js";
+import type {
+  MigrationOperationView,
+  MigrationRejectionCode,
+  MoveBindingOutcome,
+  MoveBindingRequest,
+} from "./load-migration.js";
 import {
   assessLoadSample,
   type LoadSampleAssessment,
@@ -354,9 +361,110 @@ export interface LoadBalancerBindingListResponse {
   readonly totalBindings: number;
 }
 
+// ------------------------------------------ [TRI-08] the manual move the console submits
+
+/**
+ * What a client has to name to ask for one move. Every version is required because the safe
+ * entry re-checks all of them: `groupRevision` and `routingRevision` are what makes a late
+ * submit refuse to overwrite a newer one, `expectedSourceTargetId` is what proves the caller is
+ * looking at the route it thinks it is, and `incarnation` is the write-side guard that keeps a
+ * reference off a binding that happened to reuse the number. The binding list hands all of them
+ * out - `runtimeEpoch` and `groupRevision` on the page, `incarnation` and `routingRevision` on
+ * the row - so a client never has to read twice to build one instruction.
+ *
+ * `reason` is a bounded audit label, not an operation parameter: the same move worded
+ * differently is still the same move, so it stays out of the idempotency digest.
+ */
+export interface LoadBalancerBindingMoveQuery {
+  readonly pairId: string;
+  readonly groupId: string;
+  readonly runtimeEpoch: string;
+  readonly bindingId: number;
+  readonly incarnation: number;
+  readonly groupRevision: number;
+  readonly expectedRoutingRevision: number;
+  readonly expectedSourceTargetId: string;
+  readonly destinationTargetId: string;
+  readonly idempotencyKey: string;
+  readonly reason: string | undefined;
+}
+
+/** The four causes this service finds before it ever reaches a balancer. */
+export type LoadBalancerMovePreflightCode =
+  "pair_not_found" | "group_not_found" | "runtime_not_running" | "runtime_epoch_mismatch";
+
+/** Every way a move submit can be refused, service causes and balancer causes together. */
+export type LoadBalancerTaskMoveRejectionCode =
+  MigrationRejectionCode | LoadBalancerMovePreflightCode;
+
+/**
+ * A refusal, in the service's own words. `detail` is the sentence the migration service or the
+ * balancer gave - the two 404 causes and the runtime causes each say which one it was - and is
+ * absent when the cause is a configuration fact the route names itself.
+ */
+export interface LoadBalancerTaskMoveRejection {
+  readonly code: LoadBalancerTaskMoveRejectionCode;
+  readonly detail: string | undefined;
+}
+
+/** What a move did to the route: `next_request` changed it, `none` changed nothing. */
+export type LoadBalancerMoveEffect = "next_request" | "none";
+
+/** The states an answer can report: the intent's own states, plus the one that needed no intent. */
+export type LoadBalancerMoveState = MigrationState | "already_there";
+
+/**
+ * The answer of one submit or one cancel. `state` and the outcome fields travel together, and
+ * none of them says the upstream answered: `applied` means the in-memory route changed, `pending_boundary`
+ * means nothing changed yet, `observed` means a later request was seen using the destination.
+ *
+ * `runtimeEpoch` and `groupRevision` ride along so a client can see whether the runtime it
+ * addressed is still the one this pair is running, instead of guessing from a number that
+ * changed while its page was open.
+ */
+export interface LoadBalancerTaskMoveResult {
+  readonly bindingId: number;
+  readonly effect: LoadBalancerMoveEffect;
+  readonly fromTargetId: string;
+  readonly groupRevision: number;
+  readonly inFlightAtRequest: number;
+  readonly operationId: string | null;
+  readonly routingRevision: number;
+  readonly runtimeEpoch: string;
+  readonly state: LoadBalancerMoveState;
+  readonly toTargetId: string;
+}
+
+/** Every way a cancel can be refused, named the way design section 6.2 names them. */
+export type LoadBalancerCancelMoveRejectionCode =
+  | "operation_not_found"
+  | "operation_already_applied"
+  | "operation_expired"
+  | "operation_not_cancellable";
+
+export interface LoadBalancerCancelMoveRejection {
+  readonly code: LoadBalancerCancelMoveRejectionCode;
+  readonly detail: string | undefined;
+}
+
+export type LoadBalancerTaskMoveReply =
+  | { readonly response: LoadBalancerTaskMoveResult }
+  | { readonly rejection: LoadBalancerTaskMoveRejection };
+
+export type LoadBalancerCancelMoveReply =
+  | { readonly response: LoadBalancerTaskMoveResult }
+  | { readonly rejection: LoadBalancerCancelMoveRejection };
+
 export interface LoadBalancerAdminService {
   getStatus(): LoadBalancerStatusResponse;
   getBindings(query: LoadBalancerBindingListQuery): LoadBalancerBindingListReply;
+  /**
+   * Ask for one binding to move. The service never assigns a target: it turns the client's
+   * address into a `MoveBindingRequest` and hands it to the one safe entry the balancer owns.
+   */
+  moveBinding(query: LoadBalancerBindingMoveQuery): LoadBalancerTaskMoveReply;
+  /** Call off an intent that has not been applied yet; a write is never rewritten as a cancel. */
+  cancelMoveBinding(operationId: string): LoadBalancerCancelMoveReply;
 }
 
 export function createLoadBalancerAdminService(
@@ -449,6 +557,68 @@ export function createLoadBalancerAdminService(
           totalBindings,
         },
       };
+    },
+    /**
+     * Ask for one binding to move. This method writes nothing: it turns the client's address into
+     * a `MoveBindingRequest` and hands it to `LoadBalancer.moveBinding()`, the single entry that
+     * checks every version and target twice and then writes through the table's one `rebind()`.
+     * A pair that is configured but not running has no runtime to address, and a runtime epoch
+     * that is not the current one names a runtime that no longer exists; both are reported before
+     * the call so the two causes stay readable in the answer.
+     */
+    moveBinding(query: LoadBalancerBindingMoveQuery): LoadBalancerTaskMoveReply {
+      const pair = source.pairs().find((item) => item.id === query.pairId);
+      if (pair === undefined) {
+        return { rejection: { code: "pair_not_found", detail: undefined } };
+      }
+      const group = pair.load_balancers.find((item) => item.id === query.groupId);
+      if (group === undefined) {
+        return { rejection: { code: "group_not_found", detail: undefined } };
+      }
+      const balancer = source.loadBalancer(pair.id);
+      if (balancer === undefined) {
+        return {
+          rejection: {
+            code: "runtime_not_running",
+            detail: "This pair is not running, so no runtime holds a binding to move.",
+          },
+        };
+      }
+      if (query.runtimeEpoch !== balancer.runtimeEpoch) {
+        return {
+          rejection: {
+            code: "runtime_epoch_mismatch",
+            detail: "The runtime epoch in the request is not the one this pair is running now.",
+          },
+        };
+      }
+      const outcome = balancer.moveBinding(moveRequestOf(query));
+      return describeMove(balancer, group.id, outcome, query);
+    },
+    /**
+     * Call off an intent that has not been applied. Migration records live in the runtime of the
+     * pair that was asked, and an operation id is unique across the process, so the search walks
+     * the running pairs until one holds the record; looking a record over has no effect on it.
+     *
+     * The balancer's own refusal cannot tell "a lifecycle event called this off" from "the user
+     * already cancelled this", and design section 6.2 names those separately, so the record's own
+     * state decides which of the four codes the answer carries.
+     */
+    cancelMoveBinding(operationId: string): LoadBalancerCancelMoveReply {
+      for (const pair of source.pairs()) {
+        const balancer = source.loadBalancer(pair.id);
+        if (balancer === undefined) {
+          continue;
+        }
+        const record = balancer
+          .migrationOperations()
+          .find((operation) => operation.operationId === operationId);
+        if (record === undefined) {
+          continue;
+        }
+        return describeCancellation(balancer, record, operationId);
+      }
+      return { rejection: { code: "operation_not_found", detail: undefined } };
     },
   };
 }
@@ -641,5 +811,171 @@ function failureOf(failure: HistoryQueryFailure): LoadBalancerHistoryFailure {
     errorName: failure.errorName,
     message: failure.message.slice(0, MAX_HISTORY_FAILURE_MESSAGE),
     phase: failure.phase,
+  };
+}
+
+// ------------------------------------------ [TRI-08] the two helpers the migration answers use
+
+/**
+ * The binding's own numbers as the runtime sees them, read through the side-effect-free
+ * projection: no TTL is refreshed, no counter is bumped, no target is moved and nothing is
+ * evicted. A replay and a move that was already at the destination wrote nothing, so the count
+ * a client needs next is what the ledger says right now, not a number the record recorded.
+ * Nothing is found when the binding left the table in the meantime, which is reported as no
+ * request running on it rather than as a number that belongs to a different binding.
+ */
+function liveBindingOf(
+  balancer: LoadBalancer,
+  groupId: string,
+  bindingId: number,
+  incarnation: number,
+): LoadBalancerBindingEntry | undefined {
+  return balancer
+    .bindingSnapshot(groupId)
+    ?.entries.find(
+      (entry) => entry.ref.bindingId === bindingId && entry.ref.incarnation === incarnation,
+    );
+}
+
+/** The balancer's own request shape, built from the address the client carried. */
+function moveRequestOf(query: LoadBalancerBindingMoveQuery): MoveBindingRequest {
+  return {
+    runtimeEpoch: query.runtimeEpoch,
+    groupId: query.groupId,
+    groupRevision: query.groupRevision,
+    bindingId: query.bindingId,
+    incarnation: query.incarnation,
+    expectedRoutingRevision: query.expectedRoutingRevision,
+    expectedSourceTargetId: query.expectedSourceTargetId,
+    destinationTargetId: query.destinationTargetId,
+    requestedBy: "manual",
+    reason: query.reason ?? "",
+    idempotencyKey: query.idempotencyKey,
+  };
+}
+
+/**
+ * The answer of one submit, in the fields the console reads. What `state` claims and what it
+ * does not is the balancer's contract: `applied` means the in-memory route changed, `pending_boundary`
+ * means nothing changed yet, `observed` means a later request was seen on the destination. None
+ * of them says the upstream answered, and none of them is decided here - this only reports what
+ * `moveBinding()` did.
+ *
+ * `inFlightAtRequest` is what this runtime observed when the answer was decided. An immediate
+ * write proves the count was zero, because anything in flight would have parked the intent; a
+ * parked intent carries the count it was parked under; a replay and a move that was already
+ * there wrote nothing, so their count is the one the ledger shows now.
+ */
+function describeMove(
+  balancer: LoadBalancer,
+  groupId: string,
+  outcome: MoveBindingOutcome,
+  query: LoadBalancerBindingMoveQuery,
+): LoadBalancerTaskMoveReply {
+  if (outcome.kind === "rejected") {
+    return { rejection: { code: outcome.rejection.code, detail: outcome.rejection.reason } };
+  }
+  if (outcome.kind === "already_there") {
+    const live = liveBindingOf(balancer, groupId, query.bindingId, query.incarnation);
+    return {
+      response: {
+        bindingId: query.bindingId,
+        effect: "none",
+        fromTargetId: outcome.targetId,
+        groupRevision: balancer.groupRevision(groupId) ?? query.groupRevision,
+        inFlightAtRequest: live?.activity.inFlight ?? 0,
+        operationId: null,
+        routingRevision: live?.routingRevision ?? query.expectedRoutingRevision,
+        runtimeEpoch: balancer.runtimeEpoch,
+        state: "already_there",
+        toTargetId: outcome.targetId,
+      },
+    };
+  }
+  const operation = outcome.operation;
+  const live = liveBindingOf(balancer, groupId, operation.bindingId, operation.incarnation);
+  const inFlightAtRequest =
+    outcome.kind === "pending_boundary"
+      ? outcome.inFlightAtSubmit
+      : outcome.kind === "applied"
+        ? 0
+        : (live?.activity.inFlight ?? 0);
+  return {
+    response: {
+      bindingId: operation.bindingId,
+      effect: outcome.effect,
+      fromTargetId: operation.sourceTargetId,
+      groupRevision: balancer.groupRevision(groupId) ?? operation.groupRevision,
+      inFlightAtRequest,
+      operationId: operation.operationId,
+      routingRevision:
+        live?.routingRevision ??
+        operation.appliedRoutingRevision ??
+        operation.sourceRoutingRevision,
+      runtimeEpoch: balancer.runtimeEpoch,
+      state: operation.state,
+      toTargetId: operation.destinationTargetId,
+    },
+  };
+}
+
+/**
+ * The answer of one cancel, decided by the state the record had when it was looked over. A
+ * parked intent goes through the balancer's own entry, which is the only thing that moves it;
+ * everything already finished is refused by name so a route that changed is never reported as
+ * having been called off. An `expired` record says what invalidated it, because that is the
+ * sentence the console needs to explain why the button stopped working.
+ */
+function describeCancellation(
+  balancer: LoadBalancer,
+  record: MigrationOperationView,
+  operationId: string,
+): LoadBalancerCancelMoveReply {
+  if (record.state === "pending_boundary") {
+    const answer = balancer.cancelMoveBinding({
+      operationId,
+      runtimeEpoch: balancer.runtimeEpoch,
+    });
+    if (answer.kind === "cancelled") {
+      const operation = answer.operation;
+      const live = liveBindingOf(
+        balancer,
+        operation.groupId,
+        operation.bindingId,
+        operation.incarnation,
+      );
+      return {
+        response: {
+          bindingId: operation.bindingId,
+          effect: "none",
+          fromTargetId: operation.sourceTargetId,
+          groupRevision: balancer.groupRevision(operation.groupId) ?? operation.groupRevision,
+          inFlightAtRequest: live?.activity.inFlight ?? 0,
+          operationId: operation.operationId,
+          routingRevision:
+            live?.routingRevision ??
+            operation.appliedRoutingRevision ??
+            operation.sourceRoutingRevision,
+          runtimeEpoch: balancer.runtimeEpoch,
+          state: operation.state,
+          toTargetId: operation.destinationTargetId,
+        },
+      };
+    }
+    // The record was still waiting when it was looked over and was not by the time the call
+    // landed. Whatever it became, the balancer's own refusal is the answer the client gets.
+    return { rejection: { code: "operation_not_cancellable", detail: answer.reason.reason } };
+  }
+  if (record.state === "applied" || record.state === "observed") {
+    return { rejection: { code: "operation_already_applied", detail: undefined } };
+  }
+  if (record.state === "expired" || record.state === "expired_after_apply") {
+    return { rejection: { code: "operation_expired", detail: record.endReason } };
+  }
+  return {
+    rejection: {
+      code: "operation_not_cancellable",
+      detail: `A ${record.state} operation cannot be cancelled.`,
+    },
   };
 }

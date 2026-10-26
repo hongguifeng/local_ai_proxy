@@ -112,6 +112,11 @@ export function completeAdminServices(
     loadBalancerService: {
       getStatus: () => ({ now: 0, pairs: [] }),
       getBindings: () => ({ response: emptyBindingListResponse() }),
+      // [TRI-08] A stub that holds nothing configured answers the same named refusals the real
+      // service gives an empty assembly: the pair the move names is not there, and no record
+      // carries the id a cancel names.
+      moveBinding: () => ({ rejection: { code: "pair_not_found", detail: undefined } }),
+      cancelMoveBinding: () => ({ rejection: { code: "operation_not_found", detail: undefined } }),
     },
     summaryModelService: summaryMethods(),
     modelCatalogService: { importModelPrices: () => Promise.resolve(modelPriceImportResult()) },

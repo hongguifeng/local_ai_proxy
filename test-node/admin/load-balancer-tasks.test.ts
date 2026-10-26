@@ -992,6 +992,10 @@ describe("GET /api/load-balancer/tasks", () => {
             ),
           };
         },
+        // [TRI-08] The migration methods are part of the service the route table answers from,
+        // so this stub delegates to the real one: the smuggled field is the only difference.
+        moveBinding: (query) => real.moveBinding(query),
+        cancelMoveBinding: (operationId) => real.cancelMoveBinding(operationId),
       },
     });
     servers.push(server);

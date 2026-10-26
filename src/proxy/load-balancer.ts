@@ -18,12 +18,14 @@ import { INITIAL_GROUP_REVISION, type BindingRef } from "./load-migration-contra
 import {
   MigrationOperationStore,
   migrationRequestDigest,
+  migrationRouteMeta,
   type CancelMoveOutcome,
   type CancelMoveRequest,
   type MigrationOperation,
   type MigrationOperationView,
   type MigrationRejection,
   type MigrationRejectionCode,
+  type MigrationRouteMeta,
   type MoveBindingOutcome,
   type MoveBindingRequest,
 } from "./load-migration.js";
@@ -110,6 +112,12 @@ export interface LoadBalancerReservation {
   readonly decision: LoadBalancerDecision;
   readonly binding: AffinityBinding;
   readonly bindingRef: BindingRef;
+  /**
+   * The move this request is the first to use, when there is one. The route record of the
+   * request that reserved the destination carries it, which is what makes `observed` a fact a
+   * later reader can check in the traffic log instead of only in this process's memory.
+   */
+  readonly migrationRoute: MigrationRouteMeta | undefined;
   markDispatched(now?: number): void;
   release(): void;
 }
@@ -676,8 +684,17 @@ export class LoadBalancer {
     }
   }
 
-  /** Mark an applied intent observed when this reservation actually routes to its destination. */
-  #markMigrationObserved(binding: AffinityBinding, targetId: string): void {
+  /**
+   * Mark the applied intent this reservation proves - the request that reserved the destination
+   * is the `observed` the state machine waits for - and hand back the record it proved, so the
+   * stored route can name the operation, the two ends and the revision.
+   *
+   * At most one intent can match: an intent only stays `applied` while the route still carries
+   * the revision its own write produced, so two of them on one binding never point at the same
+   * destination at the same revision.
+   */
+  #observedMigration(binding: AffinityBinding, targetId: string): MigrationOperation | undefined {
+    let observed: MigrationOperation | undefined;
     for (const operation of this.#migrations.appliedFor(binding.incarnation)) {
       if (operation.destinationTargetId !== targetId) {
         continue;
@@ -686,7 +703,9 @@ export class LoadBalancer {
         continue;
       }
       this.#migrations.observe(operation);
+      observed = operation;
     }
+    return observed;
   }
 
   /**
@@ -1290,12 +1309,16 @@ export class LoadBalancer {
     // the binding's own activity count goes up. It counts against the incarnation the
     // reservation was created with, never against a later binding reusing the number.
     this.#activity.begin(bindingRef.incarnation, now);
-    this.#markMigrationObserved(binding, targetId);
+    const observedMove = this.#observedMigration(binding, targetId);
     let released = false;
     return {
       decision,
       binding,
       bindingRef,
+      // A request that reserves the destination is what proves the move took effect, so this is
+      // where the route record gets the material to name it. Nothing is claimed when no intent
+      // matches this binding, this target and this revision.
+      migrationRoute: observedMove === undefined ? undefined : migrationRouteMeta(observedMove),
       markDispatched: (now?: number): void => {
         this.markDispatched(targetId, now);
       },

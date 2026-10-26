@@ -1127,7 +1127,12 @@ function errorOf(record: Readonly<Record<string, unknown>> | undefined): string 
   return typeof error === "string" ? error : "";
 }
 
-/** The only `load_balance` keys a record may carry; detail stays in memory. */
+/**
+ * The only `load_balance` keys a record may carry; detail stays in memory. The `move_*` keys are
+ * the exception that proves a manual move took effect: they appear only on the record of the
+ * request that first reserved the destination a migration wrote, so a later reader can see where
+ * the route came from without opening this process's memory. [TRI-08]
+ */
 const LOAD_BALANCE_RECORD_KEYS: readonly string[] = [
   "decision",
   "failover_from",
@@ -1138,6 +1143,12 @@ const LOAD_BALANCE_RECORD_KEYS: readonly string[] = [
   "logged_by",
   "matched_by",
   "metrics_source",
+  "move_operation_id",
+  "move_reason",
+  "move_routing_revision",
+  "moved_by",
+  "moved_from",
+  "moved_to",
   "strategy",
 ];
 
@@ -2554,6 +2565,25 @@ describe("TRI-07 the migration service around the live pipeline", () => {
     expect(echoed(nextAnswer.body).node).toBe("a");
     expect(balancer.migrationOperations()[0]?.state).toBe("observed");
 
+    // [TRI-08] The traffic record of the request that first used the moved route is where the
+    // move becomes visible outside this process: it names the operation, who asked, the two ends
+    // and the revision the write produced. Nothing of what the user typed travels with it.
+    const movedRecord = eventRecords(records, "request_finished").at(-1);
+    const movedRoute = routeOf(movedRecord);
+    const movedBalance = isRecord(movedRoute["load_balance"]) ? movedRoute["load_balance"] : {};
+    expect(movedRoute["route_mode"]).toBe("load_balance");
+    expect(movedBalance["decision"]).toBe("affinity");
+    expect(movedBalance["move_operation_id"]).toBe(applied?.operationId);
+    expect(movedBalance["moved_by"]).toBe("manual");
+    expect(movedBalance["moved_from"]).toBe("target-b");
+    expect(movedBalance["moved_to"]).toBe("target-a");
+    expect(movedBalance["move_routing_revision"]).toBe(INITIAL_ROUTING_REVISION + 1);
+    expect(movedBalance["move_reason"]).toBe("moved from the console");
+    expect(JSON.stringify(movedBalance)).not.toContain("stream that will not end");
+    expect(Object.keys(movedBalance).every((key) => LOAD_BALANCE_RECORD_KEYS.includes(key))).toBe(
+      true,
+    );
+
     await listener.close();
     await close(nodeA.server);
     await close(stalled.server);
@@ -2609,6 +2639,18 @@ describe("TRI-07 the migration service around the live pipeline", () => {
       target_id: "target-bare",
       load_balance: { decision: "failover", failover_from: "target-held" },
     });
+    // [TRI-08] A failover record explains the switch availability made; it is not a migration
+    // record, so it carries none of the move keys - and the move that was called off never
+    // reached a route for a record to describe.
+    const failoverRoute = routeOf(finished);
+    const failoverBalance = isRecord(failoverRoute["load_balance"])
+      ? failoverRoute["load_balance"]
+      : {};
+    expect(
+      Object.keys(failoverBalance).filter(
+        (key) => key.startsWith("move_") || key.startsWith("moved_"),
+      ),
+    ).toEqual([]);
 
     // The route that broke was the boundary the intent was waiting for. Availability wins, and
     // it wins before that boundary runs: the intent is called off first, so the release that

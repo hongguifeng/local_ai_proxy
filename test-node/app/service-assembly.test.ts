@@ -196,6 +196,28 @@ describe("[AI-09] admin service assembly", () => {
         targetId: undefined,
       }),
     ).toEqual({ error: "pair_not_found" });
+    // [TRI-08] The migration write and its cancel are assembled from the same manager, so with no
+    // pair configured they name the pair and the record they cannot find. Those are the answers
+    // the routes give, not a missing-method hole.
+    expect(
+      services.loadBalancerService.moveBinding({
+        bindingId: 1,
+        destinationTargetId: "target-1",
+        expectedRoutingRevision: 0,
+        expectedSourceTargetId: "target-1",
+        groupId: "lb-1",
+        groupRevision: 1,
+        idempotencyKey: "assembly-move-key",
+        incarnation: 1,
+        pairId: "pair-1",
+        runtimeEpoch: "epoch-1",
+        // The route writes this key explicitly; the assembly check mirrors the wire shape.
+        reason: undefined,
+      }),
+    ).toEqual({ rejection: { code: "pair_not_found", detail: undefined } });
+    expect(services.loadBalancerService.cancelMoveBinding("operation-from-a-pair")).toEqual({
+      rejection: { code: "operation_not_found", detail: undefined },
+    });
     expect(services.logService.listGroups("", 10, 0)).toMatchObject({ groups: [], total: 0 });
     // Generation needs the summary model the manager holds, and there is none here.
     await expect(services.logService.summarizeRecord("record-1")).rejects.toThrow(
@@ -262,6 +284,34 @@ describe("[AI-09] admin service assembly", () => {
       "getBindings",
     );
     expect(halfWired).toBeDefined();
+  });
+
+  /**
+   * [TRI-08] The two migration routes answer from the same service, so a half-wired one has to be
+   * refused twice over: at startup with each method's name, because a service built through a cast
+   * is exactly the hole the type system cannot see, and at compile time, because both methods are
+   * required on the interface the production set is typed against.
+   */
+  it("[TRI-08] refuses a load balancer service that cannot answer the migration routes", () => {
+    const services = completeAdminServices();
+    const silent: string[] = [];
+    for (const method of ["moveBinding", "cancelMoveBinding"] as const) {
+      // The shape stays assignable and only the method is gone, so the startup check is what has
+      // to read the missing route as the name of the method behind it.
+      const castHole = withoutKey(services.loadBalancerService, method) as LoadBalancerAdminService;
+      const message = refusal({ ...services, loadBalancerService: castHole });
+      if (!message.includes(`loadBalancerService.${method}`)) {
+        silent.push(`${method}: ${message === "" ? "accepted" : message}`);
+      }
+
+      // @ts-expect-error a load balancer service without this write cannot stand in for the assembled set
+      const halfWired: AdminServerOptions["loadBalancerService"] = withoutKey(
+        services.loadBalancerService,
+        method,
+      );
+      expect(halfWired).toBeDefined();
+    }
+    expect(silent).toEqual([]);
   });
 
   it("names the pair writes and the summary test the assembly left out", () => {

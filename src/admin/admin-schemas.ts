@@ -159,6 +159,15 @@ export function adminResponseSchemas(ok: AdminJsonSchema): Record<number, AdminJ
   return { 200: ok };
 }
 
+/**
+ * The response map of a route whose accepted answer is 202 where another route would answer 200.
+ * Both statuses carry the same closed DTO: without the 202 entry the serializer would print that
+ * answer unvalidated, and an undeclared key would reach the browser instead of being dropped.
+ */
+export function adminAcceptedResponseSchemas(ok: AdminJsonSchema): Record<number, AdminJsonSchema> {
+  return { 200: ok, 202: ok };
+}
+
 // -------------------------------------------------------------------------------- 2. health
 
 const healthSnapshotDto = z.object({
@@ -546,6 +555,89 @@ export const LOAD_BALANCER_TASKS_QUERY_SCHEMA = toAdminJsonSchema(loadBalancerTa
  */
 export type AdminLoadBalancerTasksQuery = z.input<typeof loadBalancerTasksQueryDto>;
 export type AdminLoadBalancerTasksResponse = AdminDto<typeof loadBalancerTasksResponseDto>;
+
+// ------------------------------------------- 6c. [TRI-08] submitting and calling off a move
+
+/**
+ * The migration write and its answer. Both sides are closed: this project writes every key of
+ * the answer and reads every key of the request, so a drift shows up as a rejected body or a
+ * failing contract test rather than as `undefined` in the browser.
+ *
+ * Nothing in this section carries a request or response body, an exact key, a session id, a user
+ * message or a user-message hash, an upstream key or a prompt-cache key. The only free text is
+ * the caller's own `reason`, which the service truncates to the audit-label length below; it is a
+ * description of why the move was asked for, never a place to put request content.
+ */
+
+/**
+ * What an answer may report as the state of a move. `requested` is absent on purpose: a record is
+ * opened at that state and the submit answers it before it returns, so no answer can ever carry
+ * it. `rejected` appears only on a replay of a submit that was refused, because the record of the
+ * refusal is what a same-key retry is answered from.
+ */
+const migrationStateDto = z.enum([
+  "already_there",
+  "applied",
+  "cancelled",
+  "expired",
+  "expired_after_apply",
+  "observed",
+  "pending_boundary",
+  "rejected",
+]);
+
+/** Whether the route changed: `next_request` moved it, `none` wrote nothing. */
+const migrationEffectDto = z.enum(["next_request", "none"]);
+
+const taskMoveResponseDto = z.object({
+  bindingId: z.number().int().min(0),
+  effect: migrationEffectDto,
+  fromTargetId: z.string().max(512),
+  groupRevision: z.number().int().min(0),
+  inFlightAtRequest: z.number().int().min(0),
+  // No record is written for a move that was already at the destination, so there is no id to give.
+  operationId: z.string().max(512).nullable(),
+  routingRevision: z.number().int().min(0),
+  runtimeEpoch: z.string().max(512),
+  state: migrationStateDto,
+  toTargetId: z.string().max(512),
+});
+
+/**
+ * What the browser may send to submit one move. Every version is required: the safe entry
+ * re-checks them at submit and again at the write, and a retry that repeats the key while naming
+ * a different one is a different instruction, not a retry.
+ *
+ * `reason` is capped at the same length the migration audit label is capped at, so an over-long
+ * one is refused as a bad parameter instead of being silently truncated.
+ */
+const taskMoveRequestDto = z.object({
+  bindingId: z.number().int().min(0),
+  destinationTargetId: z.string().min(1).max(512),
+  expectedRoutingRevision: z.number().int().min(0),
+  expectedSourceTargetId: z.string().min(1).max(512),
+  groupId: z.string().min(1).max(512),
+  groupRevision: z.number().int().min(0),
+  idempotencyKey: z.string().min(1).max(512),
+  incarnation: z.number().int().min(0),
+  pairId: z.string().min(1).max(512),
+  reason: z.string().max(200).optional(),
+  runtimeEpoch: z.string().min(1).max(512),
+});
+
+/** The one path parameter a cancel needs: the operation the submit answered with. */
+const taskMoveOperationParamsDto = z.object({
+  operationId: z.string().min(1).max(512),
+});
+
+export const LOAD_BALANCER_TASK_MOVE_REQUEST_SCHEMA = toAdminJsonSchema(taskMoveRequestDto);
+export const LOAD_BALANCER_TASK_MOVE_RESPONSE_SCHEMA = toAdminJsonSchema(taskMoveResponseDto);
+export const LOAD_BALANCER_TASK_MOVE_OPERATION_PARAMS_SCHEMA = toAdminJsonSchema(
+  taskMoveOperationParamsDto,
+);
+
+export type AdminTaskMoveRequest = z.input<typeof taskMoveRequestDto>;
+export type AdminTaskMoveResponse = AdminDto<typeof taskMoveResponseDto>;
 
 // ------------------------------------------------------------------------ 7. money and cost
 

@@ -9,6 +9,7 @@ import {
   PAIR_RESPONSE_SCHEMA,
   PAIRS_RESPONSE_SCHEMA,
   type AdminJsonSchema,
+  type AdminTaskMoveResponse,
 } from "../../src/admin/admin-schemas.js";
 import {
   applicationHealth,
@@ -171,6 +172,20 @@ function errorBody(body: Record<string, unknown>): Record<string, unknown> {
   expect(error).toBeTypeOf("object");
   return error as Record<string, unknown>;
 }
+
+/** A complete move body the closed request schema accepts. */
+const moveRequestBody = {
+  bindingId: 1,
+  destinationTargetId: "target-2",
+  expectedRoutingRevision: 1,
+  expectedSourceTargetId: "target-1",
+  groupId: "group-1",
+  groupRevision: 1,
+  idempotencyKey: "openness-move-key",
+  incarnation: 1,
+  pairId: "pair-1",
+  runtimeEpoch: "epoch",
+} as const;
 
 /** The value of a key in a parsed JSON object, checked to be an object. */
 function field(parent: Record<string, unknown>, key: string): Record<string, unknown> {
@@ -676,6 +691,59 @@ describe("[AI-08] declared decisions through a running admin server", () => {
       "status",
       "version",
     ]);
+
+    // [TRI-08] The move answer is closed all the way to its top level: the field the stub invented
+    // is dropped by the serializer, and the answer carries exactly the ten keys the schema
+    // declares - no more, so nothing a service might add can slip through to the browser.
+    const move = await server?.inject({
+      method: "POST",
+      url: "/api/load-balancer/task-moves",
+      headers: { "content-type": "application/json" },
+      payload: JSON.stringify(moveRequestBody),
+    });
+    expect(move?.statusCode).toBe(200);
+    const moveAnswer = JSON.parse(move?.payload ?? "") as Record<string, unknown>;
+    expect(moveAnswer["smuggled_move_field"]).toBeUndefined();
+    expect(sortedKeys(moveAnswer)).toEqual(
+      [
+        "bindingId",
+        "effect",
+        "fromTargetId",
+        "groupRevision",
+        "inFlightAtRequest",
+        "operationId",
+        "routingRevision",
+        "runtimeEpoch",
+        "state",
+        "toTargetId",
+      ].sort(),
+    );
+    expect(moveAnswer["state"]).toBe("applied");
+    expect(moveAnswer["effect"]).toBe("next_request");
+    // The closed body deletes a key the schema does not declare before the handler sees it.
+    const undeclaredKey = await server?.inject({
+      method: "POST",
+      url: "/api/load-balancer/task-moves",
+      headers: { "content-type": "application/json" },
+      payload: JSON.stringify({ ...moveRequestBody, surprise: "not declared" }),
+    });
+    expect(undeclaredKey?.statusCode).toBe(400);
+    expect(
+      errorBody(JSON.parse(undeclaredKey?.payload ?? "") as Record<string, unknown>)["code"],
+    ).toBe("FST_ERR_VALIDATION");
+
+    // A cancel is refused by name, and the refusal is the same `{ code, message }` shape every
+    // other error answer on this surface uses.
+    const cancelled = await server?.inject({
+      method: "DELETE",
+      url: "/api/load-balancer/task-moves/move-op-1",
+    });
+    expect(cancelled?.statusCode).toBe(404);
+    const cancelFailure = errorBody(
+      JSON.parse(cancelled?.payload ?? "") as Record<string, unknown>,
+    );
+    expect(Object.keys(cancelFailure)).toEqual(["code", "message"]);
+    expect(cancelFailure["code"]).toBe("operation_not_found");
   });
 
   it("accepts a pair body with a key no schema names and answers it back", async () => {
@@ -1049,6 +1117,29 @@ function adminStubs(): PartialAdminServerOptions {
           "smuggled_list_field",
           "gone",
         ),
+      }),
+      // [TRI-08] The move answer is closed, so the field this stub invents must not reach the
+      // browser; the cancel answer is the named refusal an assembly with nothing configured gives.
+      moveBinding: () => ({
+        response: smuggle(
+          {
+            bindingId: 7,
+            effect: "next_request",
+            fromTargetId: "target-1",
+            groupRevision: 1,
+            inFlightAtRequest: 0,
+            operationId: "move-op-1",
+            routingRevision: 2,
+            runtimeEpoch: "epoch",
+            state: "applied",
+            toTargetId: "target-2",
+          } satisfies AdminTaskMoveResponse,
+          "smuggled_move_field",
+          "gone",
+        ),
+      }),
+      cancelMoveBinding: () => ({
+        rejection: { code: "operation_not_found", detail: undefined },
       }),
     },
     summaryModelService: {

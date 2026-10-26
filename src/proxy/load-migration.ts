@@ -180,6 +180,39 @@ export type MoveBindingOutcome =
       readonly effect: "none";
     };
 
+/**
+ * What the stored route of a later request has to say about a move that is now in effect:
+ * the operation, who asked for it, the two ends and the revision the write left behind.
+ * Every field is metadata the migration record already carries; none of it is request text,
+ * an exact key, a user message or a key of any kind. The reason is the bounded audit label,
+ * which is why it is kept to `MAX_MIGRATION_REASON_CHARS` before it ever gets here.
+ */
+export interface MigrationRouteMeta {
+  readonly operationId: string;
+  readonly movedBy: MigrationActor;
+  readonly movedFrom: string;
+  readonly movedTo: string;
+  readonly routingRevision: number;
+  readonly reason: string;
+}
+
+/**
+ * The route meta of one intent, read off the record itself. `routingRevision` is the number
+ * the write produced when there was a write, and the number the intent was opened under when
+ * there was not - the two are never confused, because an intent that moved the route carries
+ * `appliedRoutingRevision` from the moment `apply()` ran.
+ */
+export function migrationRouteMeta(operation: MigrationOperation): MigrationRouteMeta {
+  return {
+    operationId: operation.operationId,
+    movedBy: operation.requestedBy,
+    movedFrom: operation.sourceTargetId,
+    movedTo: operation.destinationTargetId,
+    routingRevision: operation.appliedRoutingRevision ?? operation.sourceRoutingRevision,
+    reason: operation.reason,
+  };
+}
+
 /** What `cancelMoveBinding()` answered. */
 export type CancelMoveOutcome =
   | { readonly kind: "cancelled"; readonly operation: MigrationOperationView }

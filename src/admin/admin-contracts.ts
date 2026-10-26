@@ -23,7 +23,10 @@ import type {
 import type {
   LoadBalancerBindingListQuery,
   LoadBalancerBindingListReply,
+  LoadBalancerBindingMoveQuery,
+  LoadBalancerCancelMoveReply,
   LoadBalancerStatusResponse,
+  LoadBalancerTaskMoveReply,
   TargetCheckApiType,
   TargetCheckRequest,
   TargetCheckResponse,
@@ -168,14 +171,31 @@ export interface TargetModelsAdminService {
 }
 
 /**
- * Read-only load balancing state. `getStatus` is answered entirely from memory; `getBindings`
- * composes the runtime's side-effect-free binding projection with the traffic-log reader, and
- * names which of its two 404 causes it hit when there is no page to answer.
+ * Read-only load balancing state plus the one way a binding may be moved. `getStatus` is
+ * answered entirely from memory; `getBindings` composes the runtime's side-effect-free binding
+ * projection with the traffic-log reader, and names which of its two 404 causes it hit when there
+ * is no page to answer. `moveBinding` and `cancelMoveBinding` answer from the migration service
+ * the balancer owns: they address a binding, they never assign a target, and they report the
+ * refusal by name so the route can turn it into the status design section 6.2 fixed.
  */
 export interface LoadBalancerAdminService {
   getStatus(): LoadBalancerStatusResponse;
   getBindings(query: LoadBalancerBindingListQuery): LoadBalancerBindingListReply;
+  moveBinding(query: LoadBalancerBindingMoveQuery): LoadBalancerTaskMoveReply;
+  cancelMoveBinding(operationId: string): LoadBalancerCancelMoveReply;
 }
+
+/** The migration answer shapes the routes and the browser read, re-exported from the proxy side. */
+export type {
+  LoadBalancerCancelMoveRejection,
+  LoadBalancerCancelMoveRejectionCode,
+  LoadBalancerMoveEffect,
+  LoadBalancerMovePreflightCode,
+  LoadBalancerMoveState,
+  LoadBalancerTaskMoveRejection,
+  LoadBalancerTaskMoveRejectionCode,
+  LoadBalancerTaskMoveResult,
+} from "../proxy/index.js";
 
 export interface AdminRequestLogger {
   info(message: string, context?: Readonly<Record<string, unknown>>): void;

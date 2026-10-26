@@ -28,6 +28,7 @@ import { emptyBindingListResponse } from "./admin-service-fixtures.js";
 // Pinned so a renamed path, a dropped method, or a route that moves under a new
 // condition fails here instead of answering 404 in front of the browser.
 const ROUTE_TABLE = [
+  "DELETE /api/load-balancer/task-moves/:operationId",
   "GET /",
   "GET /api/health",
   "GET /api/load-balancer/status",
@@ -51,6 +52,7 @@ const ROUTE_TABLE = [
   "GET /api/usage-statistics/trend",
   "GET /static/app.css",
   "GET /static/app.js",
+  "POST /api/load-balancer/task-moves",
   "POST /api/log-groups/:id/brief",
   "POST /api/logs/:id/summary",
   "POST /api/logs/cleanup",
@@ -117,6 +119,24 @@ const contractConfig = {
 
 const windowStart = "2026-01-01T00:00:00.000Z";
 const windowEnd = "2026-01-02T00:00:00.000Z";
+
+/**
+ * A complete move body for the pair this configuration holds. The pair is disabled, so the
+ * runtime it would need does not exist: what this body proves is that the route reads every
+ * field the closed schema declares and then names the cause it found.
+ */
+const contractMoveBody = {
+  bindingId: 1,
+  destinationTargetId: "target-1",
+  expectedRoutingRevision: 0,
+  expectedSourceTargetId: "target-1",
+  groupId: "lb-1",
+  groupRevision: 1,
+  idempotencyKey: "contract-move-key",
+  incarnation: 1,
+  pairId: "pair-1",
+  runtimeEpoch: "contract-epoch",
+} as const;
 
 // Kept at module scope because afterAll has to stop the same instance the probes
 // ran against.
@@ -238,6 +258,12 @@ describe("admin route table", () => {
       loadBalancerService: {
         getStatus: () => ({ now: 0, pairs: [] }),
         getBindings: () => ({ response: emptyBindingListResponse() }),
+        // [TRI-08] The two migration routes are registered because the assembly supplies their
+        // methods, so the stub has to answer them too; an empty assembly names the causes.
+        moveBinding: () => ({ rejection: { code: "pair_not_found", detail: undefined } }),
+        cancelMoveBinding: () => ({
+          rejection: { code: "operation_not_found", detail: undefined },
+        }),
       },
       summaryModelService: {
         getConfig: () => undefined,
@@ -477,6 +503,61 @@ describe("assembled admin surface", () => {
     });
   });
 
+  /**
+   * [TRI-08] Both migration routes are registered on the assembled application, and each answers
+   * with a code the route owns. A body the closed schema refuses carries Fastify's
+   * `FST_ERR_VALIDATION`, not the handler's `bad_request` fallback; a pair that is configured but
+   * never started names the cause the service found before it ever reached a balancer, which is
+   * not the not-found handler's `not_found`; and a cancel that names an id no record carries is
+   * named as its own 404. None of these can be produced by a route that was never wired.
+   */
+  it("[TRI-08] registers both migration routes and answers a pair that never started", async () => {
+    const submitMove = async (body: unknown) =>
+      await fetch(`http://127.0.0.1:${adminPort}/api/load-balancer/task-moves`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify(body),
+      });
+
+    const rejectedBodies: readonly Record<string, unknown>[] = [
+      {},
+      { ...contractMoveBody, bindingId: -1 },
+      { ...contractMoveBody, expectedRoutingRevision: 1.5 },
+      { ...contractMoveBody, runtimeEpoch: "" },
+      { ...contractMoveBody, idempotencyKey: "" },
+      { ...contractMoveBody, surprise: "not declared" },
+      { ...contractMoveBody, reason: "x".repeat(201) },
+    ];
+    for (const body of rejectedBodies) {
+      const response = await submitMove(body);
+      expect(response.status).toBe(400);
+      expect(errorCodeIn(parseBody(await response.text()))).toBe("FST_ERR_VALIDATION");
+    }
+
+    const stopped = await submitMove(contractMoveBody);
+    expect(stopped.status).toBe(404);
+    expect(parseBody(await stopped.text())).toEqual({
+      error: {
+        code: "binding_not_found",
+        message: "This pair is not running, so no runtime holds a binding to move.",
+      },
+    });
+
+    // A cancel that names an id the store has never issued is refused by name, and the answer is
+    // the same two-key body every other error on this surface uses - not a body of the move's own.
+    const cancelled = await fetch(
+      `http://127.0.0.1:${adminPort}/api/load-balancer/task-moves/missing-operation`,
+      { method: "DELETE" },
+    );
+    expect(cancelled.status).toBe(404);
+    expect(parseBody(await cancelled.text())).toEqual({
+      error: {
+        code: "operation_not_found",
+        message: "No migration record in this runtime carries that id.",
+      },
+    });
+  });
+
   it("serves the page and the static assets with their current cache headers", async () => {
     const page = await get("/");
     expect(page.status).toBe(200);
@@ -594,6 +675,37 @@ describe("assembled statistics without any log root", () => {
     expect(tasks.status).toBe(404);
     expect(parseBody(await tasks.text())).toEqual({
       error: { code: "pair_not_found", message: "Proxy pair not found." },
+    });
+  });
+
+  /**
+   * [TRI-08] With no pair configured at all, both migration routes are still registered and still
+   * answer a named cause. The move names the pair it cannot find - the route's own code, with the
+   * binding list's sentence for the same cause - and the cancel names the record it cannot find.
+   * Neither answer is the not-found handler's `not_found`, which is what an unwired route looks
+   * like and what this assembly cannot produce.
+   */
+  it("[TRI-08] registers both migration routes and names the cause with nothing configured", async () => {
+    const move = await fetch(`http://127.0.0.1:${adminPort}/api/load-balancer/task-moves`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ ...contractMoveBody, runtimeEpoch: "epoch-after-restart" }),
+    });
+    expect(move.status).toBe(404);
+    expect(parseBody(await move.text())).toEqual({
+      error: { code: "binding_not_found", message: "Proxy pair not found." },
+    });
+
+    const cancelled = await fetch(
+      `http://127.0.0.1:${adminPort}/api/load-balancer/task-moves/operation-from-the-old-runtime`,
+      { method: "DELETE" },
+    );
+    expect(cancelled.status).toBe(404);
+    expect(parseBody(await cancelled.text())).toEqual({
+      error: {
+        code: "operation_not_found",
+        message: "No migration record in this runtime carries that id.",
+      },
     });
   });
 });

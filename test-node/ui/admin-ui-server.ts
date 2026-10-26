@@ -143,6 +143,15 @@ export async function startStubAdminServer(): Promise<void> {
       // The binding list is not part of the UI yet (TRI-06): the page has no rows to ask for,
       // so the stub answers the empty page the service would give with nothing configured.
       getBindings: () => ({ response: emptyBindingListResponse() }),
+      // [TRI-08] The migration write and its cancel are not part of the UI either (TRI-09): the
+      // page has no button that asks for a move, so the stub answers the named refusal an empty
+      // assembly gives. The shape is the reply the real service returns, not a new one.
+      moveBinding: () => ({
+        rejection: { code: "pair_not_found", detail: undefined },
+      }),
+      cancelMoveBinding: () => ({
+        rejection: { code: "operation_not_found", detail: undefined },
+      }),
     },
     pairService: {
       listPairs: () => pairs,

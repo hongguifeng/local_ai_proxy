@@ -101,7 +101,7 @@ export function assembleAdminServices(assembly: AdminServiceAssembly): Assembled
 /**
  * What the route table answers from, stated as services. A route is registered only when the
  * service and method behind it are present, so this list is the route table's requirement read
- * the other way round: every route in the 34 registrations pinned by
+ * the other way round: every route in the 36 registrations pinned by
  * `test-node/admin/api-contract.test.ts` has an entry here, and an entry that goes missing would
  * take a route with it. `/api/health` is the exception: `createAdminServer` registers it itself,
  * and `getHealth` is required by both shapes, so there is no wiring for this check to catch.
@@ -136,7 +136,10 @@ const REQUIRED_ADMIN_SERVICES: readonly {
   { member: "targetCheckService", methods: ["checkTarget"] },
   { member: "targetMetricsService", methods: ["fetchTargetMetrics"] },
   { member: "targetModelsService", methods: ["fetchTargetModels"] },
-  { member: "loadBalancerService", methods: ["getStatus", "getBindings"] },
+  {
+    member: "loadBalancerService",
+    methods: ["getStatus", "getBindings", "moveBinding", "cancelMoveBinding"],
+  },
   { member: "summaryModelService", methods: ["getConfig", "setConfig", "testConfig"] },
   { member: "modelCatalogService", methods: ["importModelPrices"] },
   { member: "usageStatisticsService", methods: ["overview", "trend", "repositoryRows"] },
