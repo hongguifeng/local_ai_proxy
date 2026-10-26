@@ -32,10 +32,12 @@ to report the measured delta.
 - If the committed baseline came from another machine, a local regeneration can shift hashes
   for every page at once. Compare against a stash of the pre-change source to separate your
   effect from environment drift.
-- Environment drift can also shift the document height by a few pixels with identical visible
-  content, which is why the helper tolerates a 4 px delta when the extra rows are blank. A
-  one-pixel viewport drift on `windows-latest` failed the stricter rule, because the splitter
-  border (213,221,231) is not near-white in six pixels of each bottom row.
+- Environment drift also shifts the document height with identical visible content: the
+  adaptive viewport follows the font's wrapping, so the load-balancing page came out 17 px
+  shorter in Chinese and 16 px taller in English on the Linux runner than on Windows. The helper
+  therefore asserts the width only and asks that the other capture's extra rows be blank. A
+  one-pixel viewport drift still fails that check when the splitter border (213,221,231) sits in
+  the bottom row, because six pixels of it are not near-white.
 - The `ui_stats_*` captures have drifted for a second, unrelated reason: the trend grouping
   fallback. See `statistics-charts`.
 

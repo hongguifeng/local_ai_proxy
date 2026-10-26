@@ -27,7 +27,7 @@
 sha256sum doc/ui_proxy_cn.png doc/ui_proxy_en.png doc/ui_lb_cn.png doc/ui_lb_en.png doc/ui_logs_cn.png doc/ui_logs_en.png doc/ui_stats_cn.png doc/ui_stats_en.png doc/ui_task_detail_cn.png doc/ui_task_detail_en.png
 ```
 
-比较规则（`screenshotDifference`，test-node/ui/admin-ui-page.ts）：宽度必须一致；高度相差 ≤ 4 px（多余行必须为近白背景，容忍不同环境下分数像素舍入造成的文档高度漂移）；重叠区域像素差异比例小于 0.25（Proxy 与 Load balancing 两组基线用更严的 0.12）。
+比较规则（`screenshotDifference`，test-node/ui/admin-ui-page.ts）：宽度必须一致；高度不做断言，只要求一方多出的行是空白背景——自适应视口的高度随系统字体换行变化（同一 Load balancing 页在 Linux 上中文矮 17 px、英文高 16 px），断言相等会把字体差异当成内容回归；重叠区域像素差异比例小于 0.25（Proxy 与 Load balancing 两组基线用更严的 0.12）。内容丢失会让多出的行出现深色像素，内容位移会体现在像素比例上。
 
 ## Proxy 页面状态
 

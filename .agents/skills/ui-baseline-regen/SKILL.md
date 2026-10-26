@@ -35,10 +35,12 @@ description: >-
 - The task-detail (pricing) and statistics baselines use an adaptive viewport: the test resizes
   to the panel's `scrollHeight` plus 52. Adding a panel block therefore changes the image
   height, which means the doc row (size column and hash) changes too.
-- `screenshotDifference` tolerates a document-height drift of up to 4 px as long as the taller
-  side's extra rows carry no content, where "blank" means channels of at least 200 — the pane
-  splitter border (213,221,231) sits in the bottom rows of the adaptive capture. Do not
-  reintroduce a strict size assertion.
+- `screenshotDifference` asserts the width and never the height: it requires only that the
+  rows one capture has and the other lacks carry no content, where "blank" means channels of at
+  least 200 — the pane splitter border (213,221,231) sits in the bottom rows of the adaptive
+  capture. A height assertion cannot hold, because the adaptive viewport follows how the
+  installed fonts wrapped the text (the same load-balancing page is 17 px shorter in Chinese and
+  16 px taller in English on the Linux runner). Do not reintroduce one.
 - A hash change with a pixel-identical image can mean encoder metadata non-determinism, or a
   stale on-disk file: outside `REGEN_BASELINES` mode the helper only reads, so a green test
   proves nothing about the committed PNG.
