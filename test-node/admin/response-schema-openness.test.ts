@@ -33,6 +33,7 @@ import {
   recordDetail,
   taskBrief,
 } from "./log-service-fixtures.js";
+import { emptyBindingListResponse } from "./admin-service-fixtures.js";
 
 /**
  * [AI-08] Fastify prints a response through the schema attached to the route, and a closed
@@ -190,6 +191,11 @@ function item(parent: unknown[], index: number): Record<string, unknown> {
   const value = parent[index];
   expect(value).toBeTypeOf("object");
   return value as Record<string, unknown>;
+}
+
+/** The keys a parsed JSON object answered with, in an order a comparison can rely on. */
+function sortedKeys(value: Record<string, unknown>): string[] {
+  return Object.keys(value).sort();
 }
 
 /** The properties a JSON Schema declares, checked to be there. */
@@ -489,6 +495,181 @@ describe("[AI-08] declared decisions through a running admin server", () => {
     expect(field(node, "metrics")["smuggled_metric_field"]).toBeUndefined();
     expect(field(node, "metrics")["running"]).toBe(2);
 
+    // [TRI-05] the binding list carries eight nested declared objects on top of the page
+    // itself, and each one is as closed as the page around it: an invented field disappears at
+    // every depth, and the answer carries exactly the keys the schema declares - no more.
+    const tasks = await server?.inject({
+      method: "GET",
+      url: "/api/load-balancer/tasks?pairId=pair-1&groupId=group-1",
+    });
+    expect(tasks?.statusCode).toBe(200);
+    const tasksBody = JSON.parse(tasks?.payload ?? "") as Record<string, unknown>;
+    expect(tasksBody["smuggled_list_field"]).toBeUndefined();
+    expect(sortedKeys(tasksBody)).toEqual(
+      [
+        "groupRevision",
+        "groupId",
+        "hasMore",
+        "items",
+        "limit",
+        "migration",
+        "nextOffset",
+        "nodes",
+        "now",
+        "offset",
+        "pairId",
+        "runtimeEpoch",
+        "targetFilter",
+        "totalBindings",
+      ].sort(),
+    );
+
+    const bindingRow = item(list(tasksBody, "items"), 0);
+    expect(bindingRow["smuggled_binding_field"]).toBeUndefined();
+    expect(bindingRow["bindingId"]).toBe(1);
+    expect(bindingRow["activity"]).toBe("idle");
+    expect(bindingRow["endpointKind"]).toBe("responses");
+    expect(bindingRow["routingRevision"]).toBe(0);
+    // The stub also invented a TTL, an expiry and an evidence flag; none of them is declared,
+    // so none of them reaches the browser.
+    for (const invented of [
+      "evidenceComplete",
+      "expiresAt",
+      "expiresInSeconds",
+      "ttlPolicy",
+      "userMessageCount",
+      "userMessagesBounded",
+    ]) {
+      expect(bindingRow[invented]).toBeUndefined();
+    }
+    expect(sortedKeys(bindingRow)).toEqual(
+      [
+        "activity",
+        "associations",
+        "bindingId",
+        "context",
+        "endpoint",
+        "endpointKind",
+        "incarnation",
+        "inFlight",
+        "lastBoundAt",
+        "lastRequestStartedAt",
+        "lastResponseEndedAt",
+        "lastSeenAt",
+        "model",
+        "movable",
+        "recentRequestStarts",
+        "requestCount",
+        "routingRevision",
+        "targetId",
+      ].sort(),
+    );
+
+    expect(field(bindingRow, "movable")["smuggled_movable_field"]).toBeUndefined();
+    expect(field(bindingRow, "movable")["reasons"]).toEqual(["in_flight"]);
+    expect(sortedKeys(field(bindingRow, "movable"))).toEqual(["ok", "reasons"]);
+    // The cost signal keeps the ledger's own names; the stub's `summaryPresent` and
+    // `taskCount` are not declared and so never appear.
+    const context = field(bindingRow, "context");
+    expect(context["smuggled_context_field"]).toBeUndefined();
+    expect(context["observedAt"]).toBeNull();
+    expect(context["requestBytes"]).toBeNull();
+    expect(context["summaryPresent"]).toBeUndefined();
+    expect(context["taskCount"]).toBeUndefined();
+    expect(sortedKeys(context)).toEqual(
+      ["cacheReadTokens", "inputTokens", "observedAt", "requestBytes", "source"].sort(),
+    );
+
+    const associations = field(bindingRow, "associations");
+    expect(associations["smuggled_associations_field"]).toBeUndefined();
+    expect(associations["confidence"]).toBe("high");
+    expect(sortedKeys(associations)).toEqual(
+      ["ambiguous", "confidence", "coverage", "reasons", "taskIds", "tasks"].sort(),
+    );
+    const coverage = field(associations, "coverage");
+    expect(coverage["smuggled_coverage_field"]).toBeUndefined();
+    expect(coverage["state"]).toBe("available");
+    expect(coverage["failure"]).toBeNull();
+    expect(sortedKeys(coverage)).toEqual(
+      [
+        "candidateRowsRead",
+        "candidateScanLimit",
+        "exactKeysExamined",
+        "exactKeysLinked",
+        "exactKeysOmitted",
+        "exactKeysRequested",
+        "exactKeysWithoutLink",
+        "exactLinkRowsRead",
+        "failure",
+        "historyRowsRead",
+        "historyTruncated",
+        "latestStoredRecordAt",
+        "linkedTasksRead",
+        "logWriteMayBePending",
+        "returnedTaskLimit",
+        "state",
+      ].sort(),
+    );
+
+    const historyTask = item(list(associations, "tasks"), 0);
+    expect(historyTask["smuggled_task_field"]).toBeUndefined();
+    expect(historyTask["taskId"]).toBe("task-1");
+    expect(historyTask["level"]).toBe("high");
+    expect(historyTask["endpoint"]).toBe("/v1/responses");
+    expect(historyTask["kind"]).toBe("responses");
+    expect(historyTask["requestCount"]).toBe(1);
+    expect(sortedKeys(historyTask)).toEqual(
+      [
+        "endpoint",
+        "exactKeyMatches",
+        "historyTargetNode",
+        "kind",
+        "lastResponseAt",
+        "lastSeenAt",
+        "level",
+        "model",
+        "pendingRequestOnly",
+        "requestCount",
+        "taskId",
+      ].sort(),
+    );
+
+    const taskNode = item(list(tasksBody, "nodes"), 0);
+    expect(taskNode["smuggled_task_node_field"]).toBeUndefined();
+    // A node's `stale` flag belongs to the status read; the list does not declare it.
+    expect(taskNode["stale"]).toBeUndefined();
+    expect(sortedKeys(taskNode)).toEqual(
+      [
+        "bindings",
+        "canonicalKey",
+        "cooldownRemainingMs",
+        "enabled",
+        "failures",
+        "inFlight",
+        "inRotation",
+        "lastDispatchedAt",
+        "metrics",
+        "targetId",
+      ].sort(),
+    );
+    const taskMetrics = field(taskNode, "metrics");
+    expect(taskMetrics["smuggled_node_metric_field"]).toBeUndefined();
+    expect(taskMetrics["completeness"]).toBe("complete");
+    expect(taskMetrics["freshness"]).toBe("fresh");
+    expect(sortedKeys(taskMetrics)).toEqual(
+      [
+        "awake",
+        "completeness",
+        "freshness",
+        "kvUsage",
+        "running",
+        "sampleSequence",
+        "sampledAt",
+        "source",
+        "usableForLoadJudgement",
+        "waiting",
+      ].sort(),
+    );
     const health = await server?.inject({ method: "GET", url: "/api/health" });
     expect(Object.keys(JSON.parse(health?.payload ?? "") as Record<string, unknown>)).toEqual([
       "applicationState",
@@ -723,6 +904,152 @@ function adminStubs(): PartialAdminServerOptions {
           "smuggled_pair_field",
           "gone",
         ),
+      getBindings: () => ({
+        response: smuggle(
+          {
+            ...emptyBindingListResponse(),
+            items: [
+              smuggle(
+                {
+                  activity: "idle",
+                  associations: smuggle(
+                    {
+                      ambiguous: false,
+                      confidence: "high",
+                      coverage: smuggle(
+                        {
+                          candidateRowsRead: 1,
+                          candidateScanLimit: 50,
+                          exactKeysExamined: 1,
+                          exactKeysLinked: 1,
+                          exactKeysOmitted: 0,
+                          exactKeysRequested: 1,
+                          exactKeysWithoutLink: 0,
+                          exactLinkRowsRead: 1,
+                          failure: null,
+                          historyRowsRead: 2,
+                          historyTruncated: false,
+                          latestStoredRecordAt: "2026-07-18T09:30:00.000+08:00",
+                          linkedTasksRead: 1,
+                          logWriteMayBePending: false,
+                          returnedTaskLimit: 50,
+                          state: "available",
+                        },
+                        "smuggled_coverage_field",
+                        "gone",
+                      ),
+                      reasons: ["exact_key_links"],
+                      tasks: [
+                        smuggle(
+                          {
+                            boundaryEvidenceMatches: true,
+                            endpoint: "/v1/responses",
+                            exactKeyMatches: 1,
+                            historyTargetNode: "same",
+                            kind: "responses",
+                            lastResponseAt: "2026-07-18T09:00:00.000+08:00",
+                            lastSeenAt: "2026-07-18T09:00:00.000+08:00",
+                            latestLogRecordAt: "2026-07-18T09:30:00.000+08:00",
+                            level: "high",
+                            model: "gpt-test",
+                            pendingRequestOnly: false,
+                            requestCount: 1,
+                            taskId: "task-1",
+                          },
+                          "smuggled_task_field",
+                          "gone",
+                        ),
+                      ],
+                      taskIds: ["task-1"],
+                    },
+                    "smuggled_associations_field",
+                    "gone",
+                  ),
+                  bindingId: 1,
+                  context: smuggle(
+                    {
+                      cacheReadTokens: null,
+                      inputTokens: null,
+                      observedAt: null,
+                      requestBytes: null,
+                      source: "none",
+                      summaryPresent: false,
+                      taskCount: 0,
+                      taskIds: [],
+                    },
+                    "smuggled_context_field",
+                    "gone",
+                  ),
+                  endpoint: "/v1/responses",
+                  endpointKind: "responses",
+                  evidenceComplete: true,
+                  expiresAt: null,
+                  expiresInSeconds: null,
+                  incarnation: 2,
+                  inFlight: 0,
+                  lastBoundAt: 1,
+                  lastRequestStartedAt: 1,
+                  lastResponseEndedAt: 1,
+                  lastSeenAt: 1,
+                  model: "gpt-test",
+                  movable: smuggle(
+                    { ok: false, reasons: ["in_flight"] },
+                    "smuggled_movable_field",
+                    "gone",
+                  ),
+                  recentRequestStarts: [],
+                  requestCount: 1,
+                  routingRevision: 0,
+                  targetId: "target-1",
+                  ttlPolicy: "turn_progress",
+                  userMessageCount: 1,
+                  userMessagesBounded: false,
+                },
+                "smuggled_binding_field",
+                "gone",
+              ),
+            ],
+            nodes: [
+              smuggle(
+                {
+                  bindings: 1,
+                  canonicalKey: "canonical",
+                  cooldownRemainingMs: 0,
+                  enabled: true,
+                  failures: 0,
+                  inFlight: 0,
+                  inRotation: true,
+                  lastDispatchedAt: null,
+                  metrics: smuggle(
+                    {
+                      awake: null,
+                      completeness: "complete",
+                      freshness: "fresh",
+                      kvUsage: 1,
+                      running: 2,
+                      sampleSequence: 1,
+                      sampledAt: 3,
+                      source: "fixture",
+                      usableForLoadJudgement: true,
+                      waiting: 4,
+                    },
+                    "smuggled_node_metric_field",
+                    "gone",
+                  ),
+                  stale: false,
+                  targetId: "target-1",
+                },
+                "smuggled_task_node_field",
+                "gone",
+              ),
+            ],
+            runtimeEpoch: "epoch",
+            totalBindings: 1,
+          },
+          "smuggled_list_field",
+          "gone",
+        ),
+      }),
     },
     summaryModelService: {
       getConfig: () => undefined,

@@ -7,6 +7,7 @@ import {
   type SummaryModelAdminService,
 } from "../../src/admin/index.js";
 import type { SummaryModelConfig } from "../../src/config/index.js";
+import type { LoadBalancerBindingListResponse } from "../../src/proxy/index.js";
 import { UsageStatisticsService } from "../../src/maintenance/usage-statistics-service.js";
 import {
   cleanupResult,
@@ -68,6 +69,26 @@ function summaryMethods(): Required<SummaryModelAdminService> {
   };
 }
 
+/** An empty binding-list page: what a stub answers when it holds nothing configured. */
+export function emptyBindingListResponse(): LoadBalancerBindingListResponse {
+  return {
+    groupRevision: null,
+    groupId: "",
+    hasMore: false,
+    items: [],
+    limit: 50,
+    migration: "unavailable",
+    nextOffset: 0,
+    nodes: [],
+    now: 0,
+    offset: 0,
+    pairId: "",
+    runtimeEpoch: null,
+    targetFilter: null,
+    totalBindings: 0,
+  };
+}
+
 /**
  * The complete admin service set. The health answer is a parameter because the caller is the
  * one that knows which lifecycle state a test is pretending to be in; everything else is the
@@ -88,7 +109,10 @@ export function completeAdminServices(
     targetModelsService: {
       fetchTargetModels: () => Promise.resolve({ ok: true, models: [], durationMs: 1 }),
     },
-    loadBalancerService: { getStatus: () => ({ now: 0, pairs: [] }) },
+    loadBalancerService: {
+      getStatus: () => ({ now: 0, pairs: [] }),
+      getBindings: () => ({ response: emptyBindingListResponse() }),
+    },
     summaryModelService: summaryMethods(),
     modelCatalogService: { importModelPrices: () => Promise.resolve(modelPriceImportResult()) },
     usageStatisticsService: new UsageStatisticsService({ usageStatisticsRows: () => [] }),

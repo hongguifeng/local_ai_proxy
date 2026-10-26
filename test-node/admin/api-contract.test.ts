@@ -9,6 +9,7 @@ import {
   type AdminServerOptions,
   type PartialAdminServerOptions,
 } from "../../src/admin/index.js";
+import type { AdminLoadBalancerTasksResponse } from "../../src/admin/admin-schemas.js";
 import { createNodeApplication, type NodeApplication } from "../../src/app/index.js";
 import type { SummaryModelConfig } from "../../src/config/index.js";
 import { UsageStatisticsService } from "../../src/maintenance/usage-statistics-service.js";
@@ -21,6 +22,7 @@ import {
   recordBatch,
   taskBrief,
 } from "./log-service-fixtures.js";
+import { emptyBindingListResponse } from "./admin-service-fixtures.js";
 
 // The full route table Fastify builds when every optional service is wired.
 // Pinned so a renamed path, a dropped method, or a route that moves under a new
@@ -29,6 +31,7 @@ const ROUTE_TABLE = [
   "GET /",
   "GET /api/health",
   "GET /api/load-balancer/status",
+  "GET /api/load-balancer/tasks",
   "GET /api/log-groups/:id/brief",
   "GET /api/log-groups/:id/logs",
   "GET /api/log-groups/:id/pricing",
@@ -94,6 +97,20 @@ const contractConfig = {
       log_root: "logs",
       redact_logs: false,
       model_mappings: [],
+      // A group the binding-list read can name while the pair stays stopped: the route must
+      // then answer a legal empty page rather than an error.
+      load_balancers: [
+        {
+          id: "lb-1",
+          name: "contract-lb",
+          enabled: true,
+          model_pattern: "contract-model",
+          members: [{ target_id: "target-1", model_id: "" }],
+          strategy: "least_load",
+          metrics_enabled: false,
+          failover_enabled: true,
+        },
+      ],
     },
   ],
 };
@@ -162,6 +179,10 @@ function probeUrl(route: string): string {
       return `/api/usage-statistics/trend?from=${windowStart}&to=${windowEnd}&metric=token&granularity=day`;
     case "/api/usage-statistics/options":
       return `/api/usage-statistics/options?from=${windowStart}&to=${windowEnd}`;
+    case "/api/load-balancer/tasks":
+      // The route needs a pair and a group to be answered at all; this one names a pair the
+      // configuration holds and a group it does not.
+      return "/api/load-balancer/tasks?pairId=pair-1&groupId=missing";
     default:
       return route;
   }
@@ -214,7 +235,10 @@ describe("admin route table", () => {
       targetModelsService: {
         fetchTargetModels: () => Promise.resolve({ ok: true, models: [], durationMs: 1 }),
       },
-      loadBalancerService: { getStatus: () => ({ now: 0, pairs: [] }) },
+      loadBalancerService: {
+        getStatus: () => ({ now: 0, pairs: [] }),
+        getBindings: () => ({ response: emptyBindingListResponse() }),
+      },
       summaryModelService: {
         getConfig: () => undefined,
         setConfig: (config: SummaryModelConfig) => Promise.resolve(config),
@@ -305,7 +329,7 @@ describe("assembled admin surface", () => {
 
     const unwired: string[] = [];
     // An empty list would pass silently, so the count is pinned against the table.
-    expect(routes).toHaveLength(19);
+    expect(routes).toHaveLength(20);
     for (const route of routes) {
       const response = await get(route);
       const text = await response.text();
@@ -326,6 +350,22 @@ describe("assembled admin surface", () => {
       "/api/logs/records?ids=missing": ["records"],
       "/api/pairs": ["pairs"],
       "/api/load-balancer/status": ["now", "pairs"],
+      "/api/load-balancer/tasks?pairId=pair-1&groupId=lb-1": [
+        "groupRevision",
+        "groupId",
+        "hasMore",
+        "items",
+        "limit",
+        "migration",
+        "nextOffset",
+        "nodes",
+        "now",
+        "offset",
+        "pairId",
+        "runtimeEpoch",
+        "targetFilter",
+        "totalBindings",
+      ],
       "/api/usage-statistics/overview": [
         "dataVersion",
         "totals",
@@ -366,6 +406,10 @@ describe("assembled admin surface", () => {
       "/api/logs/missing": "log_record_not_found",
       "/api/log-groups/missing/pricing": "log_group_not_found",
       "/api/log-groups/missing/logs": "log_group_not_found",
+      // [TRI-05] The two causes a binding list can miss are named separately: a pair the
+      // configuration does not hold, and a group that is not in the pair it does hold.
+      "/api/load-balancer/tasks?pairId=missing&groupId=lb-1": "pair_not_found",
+      "/api/load-balancer/tasks?pairId=pair-1&groupId=missing-group": "group_not_found",
     } as const;
     for (const [route, code] of Object.entries(cases)) {
       const response = await get(route);
@@ -373,6 +417,64 @@ describe("assembled admin surface", () => {
       const parsed = parseBody(await response.text());
       expect(errorCodeIn(parsed)).toBe(code);
     }
+  });
+
+  /**
+   * [TRI-05] The binding list is a closed query: a missing pair or group id, a page size out
+   * of range and a key the schema does not declare are all Fastify validation 400s. They carry
+   * `FST_ERR_VALIDATION`, not the handler's `bad_request` fallback, because the error carries a
+   * code. A pair that is configured but never started answers a legal empty page: the group
+   * exists in the configuration, so there is nothing missing to report - only no runtime.
+   */
+  it("[TRI-05] rejects a bad binding-list query and answers a stopped pair", async () => {
+    const rejectedRoutes = [
+      "/api/load-balancer/tasks",
+      "/api/load-balancer/tasks?pairId=pair-1",
+      "/api/load-balancer/tasks?pairId=pair-1&groupId=lb-1&limit=0",
+      "/api/load-balancer/tasks?pairId=pair-1&groupId=lb-1&limit=201",
+      "/api/load-balancer/tasks?pairId=pair-1&groupId=lb-1&offset=-1",
+      "/api/load-balancer/tasks?pairId=pair-1&groupId=lb-1&extra=1",
+    ];
+    for (const route of rejectedRoutes) {
+      const response = await get(route);
+      expect(response.status).toBe(400);
+      expect(errorCodeIn(parseBody(await response.text()))).toBe("FST_ERR_VALIDATION");
+    }
+
+    const stopped = await get("/api/load-balancer/tasks?pairId=pair-1&groupId=lb-1");
+    expect(stopped.status).toBe(200);
+    const body = (await stopped.json()) as AdminLoadBalancerTasksResponse;
+    expect(body.runtimeEpoch).toBeNull();
+    expect(body.groupRevision).toBeNull();
+    expect(body.items).toEqual([]);
+    expect(body.totalBindings).toBe(0);
+    expect(body.hasMore).toBe(false);
+    expect(body.nextOffset).toBe(0);
+    expect(body.targetFilter).toBeNull();
+    expect(body.migration).toBe("unavailable");
+    expect(body.limit).toBe(50);
+    expect(body.offset).toBe(0);
+    expect(body.pairId).toBe("pair-1");
+    expect(body.groupId).toBe("lb-1");
+
+    // The node still shows what the configuration says about it, with an engine that was
+    // never sampled rather than an idle one.
+    expect(body.nodes).toHaveLength(1);
+    const node = body.nodes[0];
+    expect(node?.targetId).toBe("target-1");
+    expect(node?.enabled).toBe(true);
+    expect(node?.bindings).toBe(0);
+    expect(node?.metrics).toMatchObject({
+      awake: null,
+      completeness: "no_load_numbers",
+      freshness: "never_sampled",
+      kvUsage: null,
+      running: null,
+      sampleSequence: null,
+      sampledAt: null,
+      usableForLoadJudgement: false,
+      waiting: null,
+    });
   });
 
   it("serves the page and the static assets with their current cache headers", async () => {
@@ -470,5 +572,28 @@ describe("assembled statistics without any log root", () => {
     expect(exported.status).toBe(200);
     expect(exported.headers.get("content-type")).toContain("text/csv");
     expect(await exported.text()).toContain("bucket,requests,tasks");
+  });
+
+  /**
+   * [TRI-05] A configuration with no pair must still answer both load balancer routes. The
+   * status read gives an empty list; the binding list names the pair it cannot find, which is
+   * the route's own code and not the not-found handler's `not_found` - the difference between
+   * "nothing is configured" and "nothing was wired".
+   */
+  it("[TRI-05] registers the load balancer routes and answers a stable empty configuration", async () => {
+    const status = await fetch(`http://127.0.0.1:${adminPort}/api/load-balancer/status`);
+    expect(status.status).toBe(200);
+    const statusBody = parseBody(await status.text());
+    expect(Object.keys(statusBody ?? {})).toEqual(["now", "pairs"]);
+    expect(statusBody?.["pairs"]).toEqual([]);
+    expect(statusBody?.["now"]).toBeTypeOf("number");
+
+    const tasks = await fetch(
+      `http://127.0.0.1:${adminPort}/api/load-balancer/tasks?pairId=pair-1&groupId=lb-1`,
+    );
+    expect(tasks.status).toBe(404);
+    expect(parseBody(await tasks.text())).toEqual({
+      error: { code: "pair_not_found", message: "Proxy pair not found." },
+    });
   });
 });

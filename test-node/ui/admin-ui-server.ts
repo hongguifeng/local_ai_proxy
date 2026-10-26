@@ -41,6 +41,7 @@ import {
   useLargeLogFixture,
   useLargeLogRequestCount,
 } from "./admin-ui-fixture.js";
+import { emptyBindingListResponse } from "../admin/admin-service-fixtures.js";
 
 export let browser: Browser;
 export let page: Page;
@@ -139,6 +140,9 @@ export async function startStubAdminServer(): Promise<void> {
         lbStatusReads.push(lbStatusReads.length);
         return loadBalancerStatusFixture();
       },
+      // The binding list is not part of the UI yet (TRI-06): the page has no rows to ask for,
+      // so the stub answers the empty page the service would give with nothing configured.
+      getBindings: () => ({ response: emptyBindingListResponse() }),
     },
     pairService: {
       listPairs: () => pairs,

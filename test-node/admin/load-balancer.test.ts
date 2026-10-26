@@ -16,6 +16,7 @@ import {
   type LoadBalancerAdminSource,
   type LoadBalancerStatusResponse,
 } from "../../src/proxy/index.js";
+import type { BindingHistoryAssociation } from "../../src/maintenance/index.js";
 
 type GroupShape = ProxyPair["load_balancers"][number];
 
@@ -96,14 +97,46 @@ function emptyPair(id: string): ProxyPair {
   return { ...createDefaultProxyPair("logs"), id, load_balancers: [] };
 }
 
+/**
+ * What a status-only stub reports when it holds no log root at all. The status endpoint never
+ * asks this question, so the answer is only there to keep the source complete.
+ */
+const NO_HISTORY: BindingHistoryAssociation = {
+  ambiguous: false,
+  confidence: "none",
+  coverage: {
+    candidateRowsRead: 0,
+    candidateScanLimit: 100,
+    exactKeysExamined: 0,
+    exactKeysLinked: 0,
+    exactKeysOmitted: 0,
+    exactKeysRequested: 0,
+    exactKeysWithoutLink: 0,
+    exactLinkRowsRead: 0,
+    failure: null,
+    historyRowsRead: 0,
+    historyTruncated: false,
+    latestStoredRecordAt: null,
+    linkedTasksRead: 0,
+    logRoot: null,
+    logWriteMayBePending: false,
+    returnedTaskLimit: 50,
+    state: "no_log_configured",
+  },
+  reasons: ["no_log_configured"],
+  tasks: [],
+};
+
 function source(
   pairs: readonly ProxyPair[],
   balancer: LoadBalancer | undefined,
   monitor: LoadMonitor | undefined,
 ): LoadBalancerAdminSource {
   return {
+    bindingHistory: { queryBindingHistory: () => NO_HISTORY },
     loadBalancer: (pairId) => (pairId === "pair-a" ? balancer : undefined),
     loadMonitor: (pairId) => (pairId === "pair-a" ? monitor : undefined),
+    logRootForTarget: () => undefined,
     pairs: () => pairs.map((item) => publicPair(item, item.id === "pair-a")),
   };
 }

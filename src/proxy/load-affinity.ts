@@ -89,7 +89,15 @@ export interface AffinitySnapshot {
   readonly byTarget: Readonly<Record<string, number>>;
 }
 
-/** Plain copy of one binding, safe to hand to a reader that must not change it. */
+/**
+ * Plain copy of one binding, safe to hand to a reader that must not change it.
+ *
+ * The boundary evidence and the exact keys ride along because a management reader has to
+ * ask the traffic log what it knows about this binding, and that question needs them. They
+ * are the binding's identity material, not display data: a reader that hands this entry on
+ * to a browser leaks exact keys and user-message hashes, so the admin projection passes
+ * them to the history query and keeps them out of every response.
+ */
 export interface AffinityBindingEntry {
   readonly bindingId: number;
   readonly incarnation: number;
@@ -98,6 +106,8 @@ export interface AffinityBindingEntry {
   readonly lastSeenAt: number;
   readonly lastBoundAt: number;
   readonly requestCount: number;
+  readonly evidence: AffinityEvidence;
+  readonly exactKeys: readonly string[];
 }
 
 export class LoadAffinityTable {
@@ -344,6 +354,8 @@ export class LoadAffinityTable {
       lastSeenAt: binding.lastSeenAt,
       lastBoundAt: binding.lastBoundAt,
       requestCount: binding.requestCount,
+      evidence: copyEvidence(binding.evidence),
+      exactKeys: [...binding.exactKeys],
     }));
   }
 
@@ -451,6 +463,21 @@ function bucketKeyFor(identity: TaskIdentity): string {
     model: identity.model ?? null,
     boundary: identity.boundaryWithoutUser,
   });
+}
+
+/**
+ * A copy of the evidence, nested objects included. `readonly` is a TypeScript promise rather
+ * than a runtime lock, so handing out the binding's own objects would let a reader write
+ * back into the table's evidence.
+ */
+function copyEvidence(evidence: AffinityEvidence): AffinityEvidence {
+  return {
+    kind: evidence.kind,
+    endpoint: evidence.endpoint,
+    model: evidence.model,
+    boundaryWithoutUser: { ...evidence.boundaryWithoutUser },
+    userHashes: [...evidence.userHashes],
+  };
 }
 
 function evidenceFor(identity: TaskIdentity): AffinityEvidence {

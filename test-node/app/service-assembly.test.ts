@@ -8,6 +8,7 @@ import {
   applicationHealth,
   type AdminControlPlaneOptions,
   type AdminServerOptions,
+  type LoadBalancerAdminService,
   type LogAdminService,
   type PairAdminService,
   type PartialAdminServerOptions,
@@ -184,6 +185,17 @@ describe("[AI-09] admin service assembly", () => {
     expect(services.pairService.listPairs()).toEqual([]);
     expect(services.summaryModelService.getConfig()).toBeUndefined();
     expect(services.loadBalancerService.getStatus()).toMatchObject({ pairs: [] });
+    // [TRI-05] The binding list is assembled from the same manager, so with no pair configured it
+    // names the pair it cannot find. That is the answer the route gives, not a missing-method hole.
+    expect(
+      services.loadBalancerService.getBindings({
+        groupId: "lb-1",
+        limit: 50,
+        offset: 0,
+        pairId: "pair-1",
+        targetId: undefined,
+      }),
+    ).toEqual({ error: "pair_not_found" });
     expect(services.logService.listGroups("", 10, 0)).toMatchObject({ groups: [], total: 0 });
     // Generation needs the summary model the manager holds, and there is none here.
     await expect(services.logService.summarizeRecord("record-1")).rejects.toThrow(
@@ -223,6 +235,33 @@ describe("[AI-09] admin service assembly", () => {
       }
     }
     expect(silent).toEqual([]);
+  });
+
+  /**
+   * [TRI-05] The binding list is the second route the load balancer service answers from, so a
+   * half-wired service has to be refused twice: by the compiler, because `getBindings` is required
+   * on the interface the production set is typed against, and at startup with its name, because a
+   * service built through a cast is exactly the hole the type system cannot see.
+   */
+  it("[TRI-05] refuses a load balancer service that cannot answer the binding list", () => {
+    const services = completeAdminServices();
+
+    // The startup check names the method, so a route that would go missing is read as its name
+    // instead of as the `404 { code: "not_found" }` an unregistered route produces. The shape stays
+    // assignable and only the method is gone: exactly the hole the compiler cannot see.
+    const castHole = withoutKey(
+      services.loadBalancerService,
+      "getBindings",
+    ) as LoadBalancerAdminService;
+    const message = refusal({ ...services, loadBalancerService: castHole });
+    expect(message).toContain("loadBalancerService.getBindings");
+
+    // @ts-expect-error a load balancer service without the binding read cannot stand in for the assembled set
+    const halfWired: AdminServerOptions["loadBalancerService"] = withoutKey(
+      services.loadBalancerService,
+      "getBindings",
+    );
+    expect(halfWired).toBeDefined();
   });
 
   it("names the pair writes and the summary test the assembly left out", () => {

@@ -114,6 +114,20 @@ export class ProxyManager {
     ];
   }
 
+  /**
+   * The log root one configured target writes to, resolved the same way the runtime resolves
+   * it. A read-only view for the management API: it answers where the traffic log of that
+   * target lives without creating anything there.
+   */
+  logRootForTarget(pairId: string, targetId: string): string | undefined {
+    const target = this.#config.pairs
+      .find((pair) => pair.id === pairId)
+      ?.targets.find((item) => item.id === targetId);
+    return target === undefined
+      ? undefined
+      : resolveRuntimeLogRoot(target.log_root, this.#logRootBaseDirectory);
+  }
+
   startEnabled(): Promise<StartEnabledResult> {
     return this.#registry.startEnabled(this.#config.pairs.map((pair) => this.#runtimePair(pair)));
   }

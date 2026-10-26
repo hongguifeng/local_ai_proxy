@@ -13,7 +13,7 @@ import {
   type BindingActivity,
   type BindingUsageObservation,
 } from "./binding-activity.js";
-import { LoadAffinityTable, type AffinityBinding } from "./load-affinity.js";
+import { LoadAffinityTable, type AffinityBinding, type AffinityEvidence } from "./load-affinity.js";
 import { INITIAL_GROUP_REVISION, type BindingRef } from "./load-migration-contract.js";
 import {
   MigrationOperationStore,
@@ -151,6 +151,11 @@ export interface LoadBalancerSnapshot {
  * One binding as the activity projection sees it: its identity, its target and the
  * ledger of what the request path has recorded against it. Built without calling
  * `lookup()`, so reading a list changes no TTL, no counter and no target.
+ *
+ * The evidence and the exact keys are here because a reader that wants to know what the
+ * traffic log says about this binding has to ask with them. They are identity material,
+ * not display data: a management projection hands them to the history query and never
+ * puts them on the wire.
  */
 export interface LoadBalancerBindingEntry {
   readonly ref: BindingRef;
@@ -160,6 +165,8 @@ export interface LoadBalancerBindingEntry {
   readonly lastBoundAt: number;
   readonly requestCount: number;
   readonly activity: BindingActivity;
+  readonly evidence: AffinityEvidence;
+  readonly exactKeys: readonly string[];
 }
 
 /** The whole group's binding list with the versions a reader needs to trust it. */
@@ -993,6 +1000,8 @@ export class LoadBalancer {
       lastBoundAt: binding.lastBoundAt,
       requestCount: binding.requestCount,
       activity: this.#activity.read(binding.incarnation),
+      evidence: binding.evidence,
+      exactKeys: binding.exactKeys,
     }));
     return {
       runtimeEpoch: this.#runtimeEpoch,

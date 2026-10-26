@@ -346,6 +346,207 @@ const loadBalancerStatusDto = z.object({
 
 export const LOAD_BALANCER_STATUS_RESPONSE_SCHEMA = toAdminJsonSchema(loadBalancerStatusDto);
 
+// ------------------------------------------- 6b. [TRI-05] binding list and history association
+
+/**
+ * The binding-list read and its answer. Everything here is closed: this project writes every
+ * key of both sides, so a field that drifts is dropped by the serializer and shows up as a
+ * failing contract test instead of `undefined` in the browser. The page caps live on this
+ * schema, which is what makes a client's `limit` a server-side limit rather than a suggestion.
+ *
+ * Nothing in this section carries an exact key, a request or response body, a user message,
+ * a user-message hash, an API key or a session id; the boundary evidence the history query
+ * needs stays inside the service.
+ */
+
+/** How much of the load an engine answered, and whether its answer still says "now". */
+const metricCompletenessDto = z.enum(["complete", "partial", "no_load_numbers"]);
+const sampleFreshnessDto = z.enum(["fresh", "stale", "never_sampled"]);
+
+const loadBalancerNodeMetricsDto = z.object({
+  awake: z.boolean().nullable(),
+  completeness: metricCompletenessDto,
+  freshness: sampleFreshnessDto,
+  // A share the engine reported is printed as it stands; no bound is declared because the
+  // exposition is not ours to constrain and a rejected number would answer 500.
+  kvUsage: z.number().nullable(),
+  running: z.number().int().min(0).nullable(),
+  sampleSequence: z.number().int().min(0).nullable(),
+  sampledAt: z.number().int().min(0).nullable(),
+  source: z.string().max(256).nullable(),
+  usableForLoadJudgement: z.boolean(),
+  waiting: z.number().int().min(0).nullable(),
+});
+
+const loadBalancerBindingNodeDto = z.object({
+  bindings: z.number().int().min(0),
+  canonicalKey: z.string().max(8_192),
+  cooldownRemainingMs: z.number().int().min(0),
+  enabled: z.boolean(),
+  failures: z.number().int().min(0),
+  inFlight: z.number().int().min(0),
+  inRotation: z.boolean(),
+  lastDispatchedAt: z.number().int().nullable(),
+  metrics: loadBalancerNodeMetricsDto,
+  targetId: z.string().max(512),
+});
+
+/** Where the latest cost signal came from, in the ledger's own vocabulary. */
+const bindingCostSourceDto = z.enum(["normalized_usage", "request_bytes", "none"]);
+
+const loadBalancerBindingContextDto = z.object({
+  cacheReadTokens: z.number().int().min(0).nullable(),
+  inputTokens: z.number().int().min(0).nullable(),
+  observedAt: z.number().int().min(0).nullable(),
+  requestBytes: z.number().int().min(0).nullable(),
+  source: bindingCostSourceDto,
+});
+
+const endpointKindDto = z.enum(["responses", "messages", "chat", "completions", "other"]);
+
+/** The three states the activity ledger can support; none of them says a task finished. */
+const bindingActivityStateDto = z.enum(["in_flight", "idle", "unknown"]);
+
+const movableReasonDto = z.enum(["migration_unavailable", "in_flight"]);
+
+const loadBalancerBindingMovabilityDto = z.object({
+  ok: z.boolean(),
+  reasons: z.array(movableReasonDto).max(2),
+});
+
+const historyAssociationLevelDto = z.enum(["high", "candidate"]);
+const historyAssociationConfidenceDto = z.enum(["high", "candidate", "none"]);
+const historyCoverageStateDto = z.enum([
+  "no_log_configured",
+  "no_traffic_database",
+  "available",
+  "failed",
+]);
+
+/** Why an association ended up the way it did, spelled exactly as the history reader spells it. */
+const historyAssociationReasonDto = z.enum([
+  "exact_key_links",
+  "several_linked_tasks",
+  "key_without_link",
+  "key_without_task",
+  "link_boundary_mismatch",
+  "key_limit_exceeded",
+  "boundary_candidates",
+  "candidate_scan_truncated",
+  "task_list_truncated",
+  "no_log_configured",
+  "no_traffic_database",
+  "history_query_failed",
+  "log_write_may_be_pending",
+]);
+
+const historyFailureDto = z.object({
+  code: z.string().max(128).nullable(),
+  errorName: z.string().max(256),
+  message: z.string().max(512),
+  phase: z.enum(["open", "read"]),
+});
+
+const loadBalancerHistoryCoverageDto = z.object({
+  candidateRowsRead: z.number().int().min(0),
+  candidateScanLimit: z.number().int().min(0),
+  exactKeysExamined: z.number().int().min(0),
+  exactKeysLinked: z.number().int().min(0),
+  exactKeysOmitted: z.number().int().min(0),
+  exactKeysRequested: z.number().int().min(0),
+  exactKeysWithoutLink: z.number().int().min(0),
+  exactLinkRowsRead: z.number().int().min(0),
+  failure: historyFailureDto.nullable(),
+  historyRowsRead: z.number().int().min(0),
+  historyTruncated: z.boolean(),
+  latestStoredRecordAt: z.string().max(64).nullable(),
+  linkedTasksRead: z.number().int().min(0),
+  logWriteMayBePending: z.boolean(),
+  returnedTaskLimit: z.number().int().min(0),
+  state: historyCoverageStateDto,
+});
+
+const loadBalancerAssociatedTaskDto = z.object({
+  endpoint: z.string().max(512).nullable(),
+  exactKeyMatches: z.number().int().min(0),
+  historyTargetNode: z.enum(["same", "different", "unknown"]),
+  kind: z.string().max(64),
+  lastResponseAt: z.string().max(64).nullable(),
+  lastSeenAt: z.string().max(64),
+  level: historyAssociationLevelDto,
+  model: z.string().max(512).nullable(),
+  pendingRequestOnly: z.boolean(),
+  requestCount: z.number().int().min(0),
+  taskId: z.string().max(512),
+});
+
+const loadBalancerBindingAssociationsDto = z.object({
+  ambiguous: z.boolean(),
+  confidence: historyAssociationConfidenceDto,
+  coverage: loadBalancerHistoryCoverageDto,
+  reasons: z.array(historyAssociationReasonDto).max(13),
+  taskIds: z.array(z.string().max(512)).max(200),
+  tasks: z.array(loadBalancerAssociatedTaskDto).max(200),
+});
+
+const loadBalancerBindingItemDto = z.object({
+  activity: bindingActivityStateDto,
+  associations: loadBalancerBindingAssociationsDto,
+  bindingId: z.number().int().min(0),
+  context: loadBalancerBindingContextDto,
+  endpoint: z.string().max(512),
+  endpointKind: endpointKindDto,
+  incarnation: z.number().int().min(0),
+  inFlight: z.number().int().min(0),
+  lastBoundAt: z.number().int().min(0),
+  lastRequestStartedAt: z.number().int().nullable(),
+  lastResponseEndedAt: z.number().int().nullable(),
+  lastSeenAt: z.number().int().min(0),
+  model: z.string().max(512).nullable(),
+  movable: loadBalancerBindingMovabilityDto,
+  recentRequestStarts: z.array(z.number().int().min(0)).max(16),
+  requestCount: z.number().int().min(0),
+  routingRevision: z.number().int().min(0),
+  targetId: z.string().max(512),
+});
+
+const loadBalancerTasksResponseDto = z.object({
+  groupRevision: z.number().int().min(0).nullable(),
+  groupId: z.string().max(512),
+  hasMore: z.boolean(),
+  items: z.array(loadBalancerBindingItemDto).max(200),
+  limit: z.number().int().min(1).max(200),
+  // The migration service (TRI-07) does not exist yet, so no move can be performed; this is
+  // the capability answer and `movable.reasons` is the per-binding one.
+  migration: z.enum(["unavailable"]),
+  nextOffset: z.number().int().min(0),
+  nodes: z.array(loadBalancerBindingNodeDto).max(256),
+  now: z.number().int().min(0),
+  offset: z.number().int().min(0),
+  pairId: z.string().max(512),
+  runtimeEpoch: z.string().max(512).nullable(),
+  targetFilter: z.string().max(512).nullable(),
+  totalBindings: z.number().int().min(0),
+});
+
+const loadBalancerTasksQueryDto = z.object({
+  pairId: z.string().min(1).max(512),
+  groupId: z.string().min(1).max(512),
+  targetId: z.string().min(1).max(512).optional(),
+  limit: z.number().int().min(1).max(200).default(50),
+  offset: z.number().int().min(0).default(0),
+});
+
+export const LOAD_BALANCER_TASKS_RESPONSE_SCHEMA = toAdminJsonSchema(loadBalancerTasksResponseDto);
+export const LOAD_BALANCER_TASKS_QUERY_SCHEMA = toAdminJsonSchema(loadBalancerTasksQueryDto);
+
+/**
+ * What the browser may send to the binding list, before the schema's defaults are applied -
+ * the same convention the log query types use.
+ */
+export type AdminLoadBalancerTasksQuery = z.input<typeof loadBalancerTasksQueryDto>;
+export type AdminLoadBalancerTasksResponse = AdminDto<typeof loadBalancerTasksResponseDto>;
+
 // ------------------------------------------------------------------------ 7. money and cost
 
 /** How one request's price stands, as `LogQueryService` reports it. */

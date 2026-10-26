@@ -21,6 +21,8 @@ import type {
   HealthStatus,
 } from "./admin-schemas.js";
 import type {
+  LoadBalancerBindingListQuery,
+  LoadBalancerBindingListReply,
   LoadBalancerStatusResponse,
   TargetCheckApiType,
   TargetCheckRequest,
@@ -165,9 +167,14 @@ export interface TargetModelsAdminService {
   fetchTargetModels(request: TargetModelsRequest): Promise<TargetModelsResponse>;
 }
 
-/** Read-only load balancing state, answered entirely from memory. */
+/**
+ * Read-only load balancing state. `getStatus` is answered entirely from memory; `getBindings`
+ * composes the runtime's side-effect-free binding projection with the traffic-log reader, and
+ * names which of its two 404 causes it hit when there is no page to answer.
+ */
 export interface LoadBalancerAdminService {
   getStatus(): LoadBalancerStatusResponse;
+  getBindings(query: LoadBalancerBindingListQuery): LoadBalancerBindingListReply;
 }
 
 export interface AdminRequestLogger {
