@@ -1599,6 +1599,133 @@ describe("admin UI load balancing groups", { timeout: UI_TEST_TIMEOUT_MS }, () =
     );
   });
 
+  it("[TRI-06] stops at the row cap when pages repeat shown bindings", async () => {
+    await page.clock.install();
+    const card = await openTwoNodeStates();
+    const [firstTarget] = savedMemberIds();
+    if (firstTarget === undefined) throw new Error("the saved group has no node");
+    // Paging is driven by the clicks alone, so the two-second status poll must not answer in
+    // the middle of them. The read the page made when it loaded is applied first, and then the
+    // clock is held at the time the page reports. An accepted poll refills every open panel from
+    // offset 0, which replaces the deduped rows with the contiguous top window, so an append
+    // that followed one would ask at that window's own progress instead of the progress the
+    // pages left behind. Holding the clock keeps the poll still until the test advances it on
+    // purpose, which is the one refresh this test checks at the end.
+    await expectPage(nodeState(card, 1).locator('[data-lb-fact="cooldown"]')).toHaveText(
+      "Cooldown: 4s",
+    );
+    const frozenAt = await page.evaluate(() => Date.now());
+    await page.clock.pauseAt(frozenAt);
+    try {
+      const asked = bindingReadParameters();
+      const table = lbBindingLongTable(firstTarget, 300);
+      // The cap and the dedup together: a table longer than one read's cap whose order keeps
+      // shifting while the user pages, so each page carries a binding the panel already holds
+      // and the rows on screen never line up with the pages. A new binding became the most
+      // recently seen one before each of the first nine appends, which moved every existing row
+      // down one place; after the ninth shift the arrivals stop, so the table settles and the
+      // page that fills the room left under the cap carries nothing already shown.
+      const shiftsWhilePaging = 9;
+      let appends = 0;
+      await page.route("**/api/load-balancer/tasks*", (route) => {
+        const query = taskReadQuery(new URL(route.request().url()));
+        const reply = lbBindingFixturePage(query);
+        if (!("response" in reply)) throw new Error("the stub refused the binding list");
+        const rows = table.slice(query.offset, query.offset + query.limit);
+        if (query.offset > 0) {
+          appends += 1;
+          const boundary = table[query.offset - 1];
+          if (boundary === undefined) throw new Error("the long binding table has no boundary row");
+          if (appends <= shiftsWhilePaging) rows[0] = boundary;
+        }
+        const hasMore = query.offset + rows.length < table.length;
+        void route.fulfill({
+          json: {
+            ...reply.response,
+            items: rows,
+            totalBindings: table.length,
+            hasMore,
+            nextOffset: hasMore ? query.offset + rows.length : query.offset,
+            nodes: reply.response.nodes.map((node) =>
+              node.targetId === firstTarget ? { ...node, bindings: table.length } : node,
+            ),
+          },
+        });
+      });
+      const panel = await openBindingList(card, 0);
+      const listedIds = async (): Promise<string[]> =>
+        panel
+          .locator(".lb-binding")
+          .evaluateAll((elements) =>
+            elements.map((element) => element.getAttribute("data-lb-binding-id") ?? ""),
+          );
+      await expectPage(panel.locator(".lb-binding")).toHaveCount(20);
+      const more = panel.locator("[data-lb-binding-more]");
+      const shownCounts: number[] = [];
+
+      // One row short of a full page every time, so the panel never sits on a round page and
+      // never reaches the cap by an even stride. The next read is asked with the server's
+      // progress, which runs ahead of the rows held here.
+      for (let step = 1; step <= shiftsWhilePaging; step += 1) {
+        await more.click();
+        const held = 20 + 19 * step;
+        await expectPage(panel.locator(".lb-binding")).toHaveCount(held);
+        shownCounts.push(held);
+        await expectPage(panel.locator("[data-lb-binding-limit]")).toHaveCount(0);
+        await expect.poll(() => asked.at(-1)).toEqual({ offset: 20 * step, limit: 20 });
+        expect(new Set(await listedIds()).size).toBe(held);
+      }
+      // The panel holds 191 rows while the server's progress is 200: the button says the panel's
+      // own number, and the room left is what the next read asks for - 9, not a whole page. Only
+      // the click that opened the list read from the top, so these rows came from paging alone.
+      expect(asked.filter((read) => read.offset === 0)).toHaveLength(1);
+      await expectPage(more).toHaveText("Load more (191/300)");
+      await more.click();
+      await expectPage(panel.locator(".lb-binding")).toHaveCount(200);
+      shownCounts.push(200);
+      await expect.poll(() => asked.at(-1)).toEqual({ offset: 200, limit: 9 });
+      // The cap is a stated limit, not a silent truncation, and it hides the pager. No row was
+      // ever listed twice, and the list never passed 200 rows at any step.
+      expect(shownCounts.every((held) => held <= 200)).toBe(true);
+      expect(asked.every((read) => read.limit <= 200)).toBe(true);
+      expect(new Set(await listedIds()).size).toBe(200);
+      await expectPage(panel.locator("[data-lb-binding-limit]")).toHaveText(
+        "Reached the cap of one read",
+      );
+      await expectPage(more).toHaveCount(0);
+      await expectPage(panel.locator("[data-lb-binding-summary]")).toContainText("200 / 300");
+      // Progress is the server's: every append asked deeper than the one before it, and the
+      // last one asked at 200 rather than at the 191 rows held here.
+      expect(asked.filter((read) => read.offset > 0).map((read) => read.offset)).toEqual(
+        Array.from({ length: shiftsWhilePaging + 1 }, (_, index) => 20 * (index + 1)),
+      );
+
+      // The poll that refreshes this panel reads from the top with the cap, never more, and the
+      // list keeps its 200 rows and its stated limit.
+      const seen = lbStatusReads.length;
+      await page.clock.runFor(2_000);
+      await waitForLbPoll(seen);
+      await expect
+        .poll(() => asked.some((read) => read.offset === 0 && read.limit === 200), {
+          timeout: UI_TEST_TIMEOUT_MS,
+          interval: 200,
+        })
+        .toBe(true);
+      await expectPage(panel.locator(".lb-binding")).toHaveCount(200);
+      await expectPage(panel.locator("[data-lb-binding-limit]")).toHaveText(
+        "Reached the cap of one read",
+      );
+      await expectPage(more).toHaveCount(0);
+      expect(new Set(await listedIds()).size).toBe(200);
+      await expectPage(panel.locator("[data-lb-binding-loading]")).toHaveCount(0);
+      await expectPage(panel.locator("[data-lb-binding-error]")).toHaveCount(0);
+    } finally {
+      // closeTestPage drains the page with a setTimeout inside it, and a held clock never runs
+      // that timer, so the clock goes back to real time before the hook can close the page.
+      await page.clock.resume();
+    }
+  });
+
   it("[TRI-06] does not report a cancelled read as a failure and reads again afterwards", async () => {
     await page.clock.install();
     const card = await openTwoNodeStates();

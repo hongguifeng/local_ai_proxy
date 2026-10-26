@@ -633,7 +633,9 @@ export function createLoadBalancing({
   /** Put an accepted page into the panel. Offset 0 replaces the rows, so a refresh shows what
    *  the server answers now; a larger offset adds the next page without dropping the rows the
    *  user paged to. A row that came back under an address the panel already holds is dropped,
-   *  because one binding listed twice reads as two bindings. */
+   *  because one binding listed twice reads as two bindings. Either way the panel ends with at
+   *  most `lbBindingReadRowCap` rows: the read asks for no more than the room left, and a page
+   *  that still answers with more than that is cut to the cap rather than shown past it. */
   function storeBindingPage(panel, data, append) {
     panel.total = data.totalBindings;
     panel.hasMore = data.hasMore;
@@ -645,12 +647,11 @@ export function createLoadBalancing({
     panel.errorDetail = "";
     if (append) {
       const held = new Set(panel.items.map(bindingAddress));
-      panel.items = panel.items.concat(
-        data.items.filter((item) => !held.has(bindingAddress(item))),
-      );
+      const fresh = data.items.filter((item) => !held.has(bindingAddress(item)));
+      panel.items = panel.items.concat(fresh).slice(0, lbBindingReadRowCap);
       return;
     }
-    panel.items = data.items.slice();
+    panel.items = data.items.slice(0, lbBindingReadRowCap);
     panel.version = bindingVersionKey(data.runtimeEpoch, data.groupRevision);
   }
 
@@ -669,18 +670,23 @@ export function createLoadBalancing({
   /**
    * One read of one node's list. Offset 0 replaces the rows and asks for as many as the user
    * already paged through, so a refresh never drops rows that are on screen; a larger offset
-   * appends the next page at the server's own progress. A late answer is dropped: a newer read
-   * owns the panel, and its numbers are the ones the user should see. A page that reports a
-   * different runtime epoch or group revision than the rows already shown belongs to another
-   * generation, so those rows are dropped and the new one is read from offset 0 - one restart
-   * per answer, never a loop. A cancelled read is not a failed read: the panel keeps whatever
-   * it already showed, and a callback whose surface is gone touches nothing.
+   * appends the next page at the server's own progress. An append asks for no more than the
+   * room left under the row cap, and a panel already at the cap starts no read at all - the
+   * page would only push the list past the stated limit. The server's `nextOffset` stays the
+   * paging progress, so dropping a repeated row shortens the list without rewinding it.
+   * A late answer is dropped: a newer read owns the panel, and its numbers are the ones the
+   * user should see. A page that reports a different runtime epoch or group revision than the
+   * rows already shown belongs to another generation, so those rows are dropped and the new
+   * one is read from offset 0 - one restart per answer, never a loop. A cancelled read is not
+   * a failed read: the panel keeps whatever it already showed, and a callback whose surface is
+   * gone touches nothing.
    */
   async function readBindingPage(context, panel, offset) {
     if (lifecycle === null) return;
     const append = offset > 0;
+    if (append && panel.items.length >= lbBindingReadRowCap) return;
     const limit = append
-      ? lbBindingPageRows
+      ? Math.min(lbBindingPageRows, lbBindingReadRowCap - panel.items.length)
       : Math.min(lbBindingReadRowCap, Math.max(lbBindingPageRows, panel.items.length));
     const serial = panel.serial + 1;
     panel.serial = serial;
