@@ -1,6 +1,6 @@
 # Task 路由功能实现 TODO
 
-基线：`1c983a10751aaf102a55e223a92e09c1b74e6391`。设计权威：[Task 路由观测、手动迁移与自动再均衡设计](./task-routing-design.md)。当前状态：7 / 12 项验收通过；TRI-08 的两轮返工已通过父代理独立复审并整合进主 checkout，TRI-06 已在独立工作树实现但尚未父代理复审与整合，所以不计入验收；TRI-09 与自动策略仍未验收。
+基线：`1c983a10751aaf102a55e223a92e09c1b74e6391`。设计权威：[Task 路由观测、手动迁移与自动再均衡设计](./task-routing-design.md)。当前状态：8 / 12 项验收通过；TRI-08 的两轮返工与 TRI-06 的三个提交（原实现、复审返工、行上限修正）都已通过父代理独立复审并按顺序整合进主 checkout；TRI-09 明确未开始——迁移 UI、`POST`/`DELETE` 接线与真实请求验证都没有动过，自动策略同样未验收。
 
 本文是供本地 AI 按依赖顺序执行的开发清单。每项任务都必须完成实现、测试、文档同步和本项验收后才能标记为完成。研究稿、模型比较文档和历史负载均衡文档只提供背景，不得覆盖设计权威中的状态、并发和安全合同。
 
@@ -68,7 +68,7 @@
 | [x]  | TRI-03 | P0     | 修复指标完整性并建立自动判定输入     | TRI-01                 | 已完成 |
 | [x]  | TRI-04 | P1     | 实现 task/binding 历史关联查询       | TRI-02                 | 已完成 |
 | [x]  | TRI-05 | P1     | 建立只读管理 API 和服务装配          | TRI-02、TRI-03、TRI-04 | 已完成 |
-| [ ]  | TRI-06 | P1     | 实现节点 binding 列表 UI             | TRI-05                 | 已实现，待复审与整合 |
+| [x]  | TRI-06 | P1     | 实现节点 binding 列表 UI             | TRI-05                 | 已完成 |
 | [x]  | TRI-07 | P1     | 实现统一安全迁移服务                 | TRI-01、TRI-02、TRI-03 | 已完成 |
 | [x]  | TRI-08 | P1     | 实现手动迁移 API、幂等和生命周期处理 | TRI-04、TRI-05、TRI-07 | 已完成 |
 | [ ]  | TRI-09 | P1     | 实现手动迁移 UI 和真实请求验证       | TRI-06、TRI-08         | 未开始 |
@@ -162,13 +162,13 @@
 
 入口：[load-balancing.js](../src/admin/static/modules/load-balancing.js)、相关 UI 模块、[admin-ui-load-balancing.test.ts](../test-node/ui/admin-ui-load-balancing.test.ts)。
 
-- [ ] 在现有负载均衡状态卡片的节点行下增加可展开 binding 列表，不创建全局 task 页面。
-- [ ] 分开显示 binding 数、inFlight、最近请求、最后服务 target、关联 task 数、置信度和状态 unknown。
-- [ ] 对共享 binding 显示受影响 task 数和覆盖范围；没有精确关联时显示 unknown 或 candidate。
-- [ ] UI 不自行判断可迁移性，只使用服务端 `movable.ok` 和原因。
-- [ ] 处理空态、加载态、历史截断、查询失败、窄屏、长模型名、中英文和刷新期间未保存状态。
-- [ ] 保持已有轮询和生命周期，避免重复 listener、重复 timer 和旧响应覆盖新状态。
-- [ ] 遵循 UI markup、render internals 和 static module 的现有合同，不引入第二套全局状态。
+- [x] 在现有负载均衡状态卡片的节点行下增加可展开 binding 列表，不创建全局 task 页面。
+- [x] 分开显示 binding 数、inFlight、最近请求、最后服务 target、关联 task 数、置信度和状态 unknown。
+- [x] 对共享 binding 显示受影响 task 数和覆盖范围；没有精确关联时显示 unknown 或 candidate。
+- [x] UI 不自行判断可迁移性，只使用服务端 `movable.ok` 和原因。
+- [x] 处理空态、加载态、历史截断、查询失败、窄屏、长模型名、中英文和刷新期间未保存状态。
+- [x] 保持已有轮询和生命周期，避免重复 listener、重复 timer 和旧响应覆盖新状态。
+- [x] 遵循 UI markup、render internals 和 static module 的现有合同，不引入第二套全局状态。
 
 验收：页面不会把 binding 数称为 task 数；没有在途请求、unknown 指标和多 task 关联时文案准确；刷新和展开状态符合现有 UI 行为。
 
@@ -684,7 +684,9 @@
   本项的完成记录只写实现事实，设计权威现在与响应 schema 一致。
 - 后续边界：TRI-06 的节点列表 UI 还没有读这个路由——`test-node/ui/admin-ui-server.ts` 里那句
   `getBindings` 只是为了让桩管理端服务集完整、类型能编译，页面上没有任何 binding 行，UI 基线
-  与截图因此也未重录（本项无 UI 改动）。TRI-07 的 `moveBinding()` 已在主 checkout 落地，但本路由
+  与截图因此也未重录（本项无 UI 改动）；TRI-06 整合之后这条边界已过——节点行下的列表真的读
+  这一路由，桩服务按夹具答它并记下每次读取的参数，两张负载均衡基线也因为画面里多了展开区而重录，
+  见下面 TRI-06 的记录。TRI-07 的 `moveBinding()` 已在主 checkout 落地，但本路由
   刻意不读它，所以 `migration: "unavailable"` 与每个 `movable.ok: false`（理由 `migration_unavailable`，
   在途时再加 `in_flight`）仍是本项能给的全部可迁移性答案：目标是否可选、cooldown、asleep、物理引擎
   与模型兼容一律没有判断，要等 TRI-08 把这条列表接到迁移服务上；TRI-08 的
@@ -709,16 +711,168 @@
 
 ### TRI-06
 
-- 状态：已实现，未验收。独立工作树 `D:/code/local_ai_proxy-wt-tri06` 的源提交 `c8a57d7`（完整哈希
-  c8a57d77da37f6a4dea6258c20bcf7611f5e80c6，10 个文件、2151 增 12 删）已经把每个节点的
-  route binding 装进负载均衡卡片；父代理尚未复审，也尚未整合进主 checkout，所以本项不标记
-  完成，TRI-09 的前置条件仍未满足。
-- 修改文件：（复审通过并整合后再填。）源提交动过的路径是 `src/admin/static/app.css`、
-  `modules/core.js`、`modules/load-balancing.js`、`src/admin/ui-contracts.d.ts`、
-  `test-node/ui/admin-ui-fixture.ts`、`test-node/ui/admin-ui-load-balancing.test.ts`、
-  `test-node/ui/admin-ui-server.ts`、两份 UI 截图与 `docs/refactoring/ui-visual-baseline.md`。
-- 验证：（待父代理复审与主树门禁后再填；UI 改动需要截图验证与基线重生成。）
-- 结果与限制：（待复审整合后再填。）
+- 状态：已完成，父代理独立复审已通过，三个提交按顺序整合进主 checkout。lane
+  `D:/code/local_ai_proxy-wt-tri06`（基线 `8b825c8`）不含主树的 TRI-07/TRI-08 修正，所以整合是
+  三次 cherry-pick，不 reset、不把整棵 lane 树盖回主树：原实现 `c8a57d7`（完整哈希
+  c8a57d77da37f6a4dea6258c20bcf7611f5e80c6，10 个文件、2151 增 12 删）在主树是 `cc727df`（完整哈希
+  cc727df10c7dcdda1baa931d91be377895981b7c），复审返工 `458baac`（完整哈希
+  458baac1e1ead5fe7547940edc831f3504c9b44f，7 个文件、492 增 21 删）在主树是 `d844249`（完整哈希
+  d84424996ddb1b2be3d116a23760d7f549ff8da6），行上限修正 `ce7a924`（完整哈希
+  ce7a9240d88c4dd5a07cd47b69aae308d39f8d8a，2 个文件、145 增 12 删）在主树是 `7ac7e50`（完整哈希
+  7ac7e50d72fd9ffa303e8aa067a0be2ab4f57eb0）。三次都是显式 `git add --` 逐路径，没有
+  `git add -A` 或 `git add .`，`.pi/` 下的探针脚本与日志不进提交。
+- 整合冲突只有一处：`test-node/ui/admin-ui-server.ts` 的 `loadBalancerService` 块。lane 用真实
+  只读桩（`lbBindingFixturePage` 答这一路由、`lbBindingReads` 记下每次读取的参数）换掉原来那句
+  `getBindings: () => ({ response: emptyBindingListResponse() })`，而主树紧接着有 TRI-08 的
+  `moveBinding` 与 `cancelMoveBinding` 两个命名拒绝桩（`pair_not_found`、`operation_not_found`，
+  shape 是真实服务的答复）。按“三者都留”解决：读取桩换成 lane 的实现，TRI-08 的两个方法与原有
+  shape 一字不动，主树其余改动全部保留；后两次 cherry-pick 无冲突，`git diff 2b583da HEAD` 只含
+  TRI-06 的 13 个跟踪文件，`git diff HEAD ce7a924` 只含主树自己的 TRI-07/TRI-08 与文档差异。
+- 修改文件：三个提交在主树合起来 13 个跟踪文件。产品侧 4 个：`src/admin/static/app.css`
+  （`SECTION: load balancing` 由 53 条增至 86 条）、`modules/core.js`（中英文各新增 56 个键，两边
+  键集逐项相同）、`modules/load-balancing.js`（节点行里的绑定面板：开合、读取、随状态轮询刷新、
+  分页、代次身份、去重、取消、迟到答案丢弃、关闭态持久化与面板回收）、
+  `src/admin/ui-contracts.d.ts`（`ApiRoutes` 多一条 `/api/load-balancer/tasks?${string}`）。测试侧 4
+  个：`admin-ui-fixture.ts`（按真实响应语义搭的绑定列表夹具与两个旋钮）、
+  `admin-ui-load-balancing.test.ts`（声明数 15 → 33，新增 18 项 `[TRI-06]`）、
+  `admin-ui-page.ts`（`loadLbBaseline`：真的展开节点状态段与第一个节点的列表，先等到一次真实状态
+  读取再量高截图，按代表行缩短列表）、`admin-ui-server.ts`（桩服务按夹具答这一路由并记下参数）。
+  基线侧 5 个：`doc/ui_lb_cn.png`、`doc/ui_lb_en.png`、`doc/ui_task_detail_cn.png`、
+  `doc/ui_task_detail_en.png` 与 `docs/refactoring/ui-visual-baseline.md`。
+- 验证（主树整合后实际跑，不引用 lane 的报告）：`npm run check` 从大写盘符 `exit 0`——
+  `format:check` 全绿、`lint` 零告警（`--max-warnings=0`）、`tsconfig.json` 与 `tsconfig.ui.json`
+  两份 typecheck 均 `exit 0`、`check:modules` 报 138 模块 / 323 运行时边 / 114 类型边 / 0 环 /
+  0 越界、Vitest 147 文件（146 通过、1 跳过）与 1477 通过、2 跳过、`build` 通过；整合前的同一
+  条链是 147 文件 / 1459 通过 / 2 跳过，1459 + 18 = 1477 正对上新增的 18 项。`npm run
+  check:skills` 7 项全过，本项整合后跑过两次（改 skill 之前与之后）。`git diff --check` 为空。
+  按 AGENTS.md 的声明式口径复核
+  `git grep -cE "^[[:space:]]*(it|test)(\.[a-z]+)?\(" <rev> -- test-node`：整合前 `2b583da` 为
+  1290 项声明，整合后为 1308 项，增量 18 正等于原实现的 12 项、返工的 5 项与上限修正的 1 项；
+  测试文件总数用 `git ls-tree -r <rev> --name-only` 后精确匹配 `*.test.ts` 得到 147 → 147，
+  `admin-ui-load-balancing.test.ts` 的声明数 15 → 33（本项正式 33 项），没有用例被删掉。Vitest
+  实跑总数 1479 高于声明数 1308，差额是 `it.each` 一类按夹具展开的动态用例，不是计数口径问题。
+- 基线：`npm run regen:ui-baselines` 重拍全部十张并同步哈希行；十张图的实际 sha256 与文档行逐项
+  相同，实际尺寸与文档“图片尺寸”列逐项相同。负载均衡两张现在是 1278 x 2487
+  （`c1f3b25828a753aeff615d66d1eb195b91467bba4beece366c5a7d5661c4b3d0`）与 1278 x 2648
+  （`ee658f2976429980e0e361f52773091a23dc1d0ec982e703f1bc187feba983b2`），与父代理复审时核对过的
+  两张一致；其余八张与整合前已提交图字节相同、哈希相同，所以本轮没有环境漂移。十张图全尺寸逐张
+  读过（两张新 LB 图里展开的节点行六项事实、五行代表 binding、汇总句 `5 / 5`、没有“继续读取”按钮、
+  折叠的邻居与超长模型名的省略号都在画面里）；英文界面另用 DOM 扫描五个页面状态（代理列表、展开
+  一个节点的绑定列表、历史记录明细、使用统计、任务明细面板）：渲染出来的中日韩文本零命中，两处非
+  渲染命中是 fixture 里第二张代理卡的名称值“新代理”（`input` 的值，不是界面文案）与统计页预设组的
+  `aria-label="统计时间范围"`（`81e1da8` 带来的遗留，不进画面也非本项引入）；两张 LB 英文图连属性
+  命中都没有，`admin-ui-load-balancing.test.ts` 里“切回英文后面板不含中日韩字符”那条断言也在钉它。
+  与整合前 `2b583da` 的已提交图逐像素比对：LB 两张在重叠区分别差 2087（0.1420%）与 1974
+  （0.1294%）个像素，另外 1337 与 1454 行是新增内容、含 53590 与 58868 个非空白像素——展开区带来的
+  真实变化，不是编码器噪声；其余八张 0 个像素差。任务明细两张各差 60 个像素，位置是 x 32–39、
+  y 211–218 的一枚绿色圆点，即 `4323f3f`（历史列表“请求仍在进行”标记）落定时没跟着重拍的基线遗留，
+  本轮全量重拍把它补正，不是本项引入的画面变化；两张尺寸仍是 1180 x 1779，README 按路径引用这些
+  图，无需改字。父代理复审留下的 4 张临时展开图（`.pi/tri06-review/screenshots/lb-bindings-open-*`，
+  1278 与 380 两种宽度、中英两种语言）留在原处未删，`.pi/` 被 gitignore，不进提交。
+- 交付证据（本项整合后在主树跑）：`npm run package:electron:portable` `exit 0`；
+  `release/LLM-Proxy-0.4.10-x64-portable.exe` 111917861 字节、sha256
+  `d010a71d03c8f676071b95071515760d3793e74ef6b0d1775483296f741f3151`；
+  `release/win-unpacked/LLM Proxy.exe` 213991424 字节、sha256
+  `4b7bc0b75507c1ab16ed7f5dfe8b182ce1ca1821f372622f42b20ad36a0aad54`；
+  `release/win-unpacked/resources/app.asar` 3173 项、18055103 字节。读包内的
+  `dist-node\src\admin\static-bundle\admin-app.js` 与 `modules\load-balancing.js` 能看到
+  `bindingVersionKey`、`lbBindingReadRowCap`、`panel.version`、`data-lb-bindings-toggle`、
+  `lb-binding-panel`、`迁移此绑定` / `Move this binding` 与 `migration service is not wired yet`；
+  读包内的 `dist-node\src\admin\routes\load-balancer.js` 仍能看到 `/api/load-balancer/task-moves`、
+  `/api/load-balancer/task-moves/:operationId` 与 `moveBinding` / `cancelMoveBinding`，即 TRI-08 的
+  迁移逻辑没有被这次整合挤掉；归档里 `static-bundle` 只有 `admin-app.js` 一项，上一版残留的
+  `modules-bridge.js` 已被构建路径清掉。`npm run smoke:delivery` 两步都过：解包载荷 547 ms 健康、
+  一次真实代理往返 200、`GET /api/logs?limit=5` 200 且 `total` 为 1、该次运行的日志根里出现
+  `traffic.db`（4096 字节）、退出码 0；portable 包装器 2588 ms 健康，同样三项、同样退出码 0，两次
+  都用独立临时配置与独立 `LLM_PROXY_DATA_DIR`，事后临时目录被删除。之后 `npm run rebuild:node` 与
+  `npm run abi:node` 用一次真实查询把 Node ABI 恢复到 `NODE_MODULE_VERSION 137`；`rebuild:electron`
+  与 `electron-builder` 之间没有跑过任何 Node 重建。只终止本任务启动的进程，用户的便携实例、其配置
+  与 traffic database 未被读写。
+- 结果与限制：列表只在用户按下节点行上的“路由绑定”按钮后才被读一次，关闭的面板与折起节点状态段里的
+  面板从不被问；已开的面板跟着本文件已有的状态轮询刷新，不新增计时器或监听。读取串行且丢弃迟到答案：
+  一个面板同时只有一条在途读取，序号不同或启动它的那次 init 已不是当前这一次即整条答案作废，迟到的
+  那一行数字不会覆盖更新的那一份（测试用一次被扣住 800 ms 的第一答与一次立刻答的第二答钉住）。面板按
+  `(pair, group, node)` 三元组寻址，绑定号单独不是地址；答案里 `pairId`、`groupId` 或 `targetFilter`
+  与面板不符即整页丢弃，不把别的节点的绑定挂到这个节点名下。404 的两个原因按服务端 code 存成翻译键、
+  渲染时才取句子，所以切换语言后那句原因跟着换语言，而不是停在读失败当时说的语言；服务端自己的消息与
+  code 原样保留，不假装是能翻译的文案。闭集值一律查词表（活动三态、成本来源、置信、task 级别、
+  `historyTargetNode` 三态、coverage 四态、13 条关联理由、两条移动理由），词表没有的值原样报线名而不是
+  吐出一个翻译键。一个 binding 的三个 exact key 连到三个 task 时仍是一行、一个移动入口、一处
+  `Linked tasks: 3`，地址行只写绑定本身，不挑一个 task 当代表；`historyTargetNode` 的同一节点/别的节点/
+  历史落点未知三态与只有进行中请求的标记同屏可见。历史读取失败说 `history query failed` 并带
+  `phase · errorName · code · message`，与“还没有 traffic.db”“没有配日志根”三句话各自独立，绝不把读坏
+  当成“这个绑定没有历史”；扫描被截断与日志可能还没写进去作为单独标签写在置信度旁边。节点自己的
+  `Bindings:` 与 `In flight:` 始终来自状态响应，面板里的行不改写它们；空列表说“这个节点目前没有
+  binding”并留下节点行原来的数字，不凭空造一行。移动按钮只按 `movable.ok` 渲染启用与否，当前服务端
+  一律答 `migration_unavailable`，所以画面里它一直是禁用的，旁边写着服务端给的理由，按钮上没有提交路径，
+  也没有目标选择器——那是 TRI-09 的工作，本项不提前做。长名字（模型名、端点、task id、年龄、成本）一律
+  省略号截断并用 `title` 留全值，卡片宽度不因开列表而变，窄屏下容器不横向溢出：断言钉住开列表前后卡片
+  同宽、`document.scrollWidth` 不超过视口、列出的容器都不裁切，只有末端标签自己截。中英文两侧断言同样
+  的九条事实行、覆盖状态词、移动理由与三态落点。
+  未做与遗留：一，本项不碰 TRI-08/09/10，不新建全局页面、全局状态、路由或服务端 schema，服务端
+  `migration` 与 `movable` 原样消费，`GET /api/load-balancer/tasks` 的 `migration: "unavailable"` 与
+  每个 `movable.ok: false` 一字未改；二，列表没有按 task 或按模型筛选的入口，只有按节点过滤；三，面板
+  内容存在内存里（`Map`），只有开合状态进 `localStorage`，刷新页面后已开的面板会回到“正在读取”并在
+  下一次状态读取后填上，行本身不跨刷新保留；四，状态轮询每两秒一次，面板在读取中被状态 tick 重绘的机会
+  存在，Playwright 的动作会自动重试解绑元素，本项测试连跑两轮全过，但真机上更长的读取仍可能撞上。
+
+#### TRI-06 返工（父代理独立复审的两项缺陷）
+
+- 状态：已完成（在原提交 `c8a57d7` 上增量修正成 `458baac`，不 reset、不重做；主树为 `d844249`）。
+- 缺陷一，分页混代。`readBindingPage` 的 append 只校了 `pairId`/`groupId`/`targetFilter`，没管响应
+  信封里的 `runtimeEpoch` 与 `groupRevision`，所以把 offset 20 的尾页直接 `concat` 到已显示的 20 行上，
+  一个面板里同时挂着 20 行旧运行时与 5 行新运行时，列表失去一致身份。现在面板持有自己那一代的版本
+  （`version` 是接受的那一页的 `JSON.stringify([runtimeEpoch, groupRevision])`，`""` 表示还没收过任何
+  一页，两个字段本身可以合法地为 `null`，所以不能用 `null` 当“未知”），append 一旦发现版本换了就整代
+  丢掉并从 offset 0 重读新的一代：旧代的尾页不是新代的首屏，而重读只有一个来回，不是无限 loading。
+  offset 0 的正常刷新仍是完整替换。追加进度改用服务端的 `nextOffset`，不再用 `items.length`：同一
+  binding 的 `bindingId + incarnation` 已经在面板里出现过时那一行被丢弃，所以行数会比服务端的进度短，
+  用行数问下一页就会反复问同一页。
+- 缺陷二，取消被当成查询失败。面板创建的 `AbortController` 从来没被主动 `abort`，生命周期 `abort` 的是
+  `requestWithCancellation` 合成的那个 signal，所以 `catch` 里的 `pending.signal.aborted` 为假，走到
+  `applyBindingError`：父代理在浏览器里把列表打开后读取一直不答、再 `proxyConfig.dispose()`，面板就显出
+  "Aborted by lifecycle"。现在面板存这条读取真正的 owner（`readOwner`）与启动它的 surface
+  （`readLifecycle`）：关闭列表、`updatePolling` 判定不可见、`dispose` 和节点离开卡片时的
+  `pruneBindingPanels` 都会 `abort` 它并把标志位当场清掉；回调作废的条件从“序号不同”扩为“序号不同，或
+  启动它的那次 init 已经不是当前这一次”。取消不写 `errorKey`/`errorMessage`，面板留着已经显示的行，
+  下一轮状态读取照常把它读回来。
+- 新增回归 5 项（该文件声明数 27 → 32，原 27 项一项未删）：换代后只答新一代的 20 行并从 offset 0 重读、
+  同一 runtime 下只有 `groupRevision` 换时同样不混代、表在翻页途中下移一位时同一 binding 只列一次且
+  下一次问的是服务端的 `nextOffset` 而不是行数、翻满 200 行后说“已到单次读取上限”且所有读的 `limit`
+  都不超 200、关列表与 dispose 各取消一条在途读取都不显错误且之后还能正常读。
+- 父代理留下的两份只读探针（`.pi/tri06-review/` 下，未改未删）在返工后都失败，正是坏行为没了的证明：
+  混代那条点“继续读取”后只答到 20 行而不是 20+5，取消那条在 dispose 后 `[data-lb-binding-error]` 根本没有
+  元素。
+- 基线范围变更（本返工内做的，理由写在基线文档的负载均衡小节里）：`loadLbBaseline` 之前停在节点状态
+  details 折叠，十张图里没有任何一张覆盖这个列表。现在它展开左边那张组的节点状态段与第一个节点的路由
+  绑定列表，先等到一次真实状态读取再量高、截图，并把列表用只给基线用的旋钮 `setLbBindingVisualRows` 缩到
+  5 行代表行（多 task 共享一个 binding、候选且历史被截断、超长模型名、历史查询失败、没有日志根）：留下的
+  行仍是 UI 用例读到的同一批 item，`totalBindings`、`hasMore`、`nextOffset` 与节点计数都按同一批行算，所以
+  画面是真实服务能答出的较小一页；第二个节点与第二张组卡片保持折叠，折叠与展开、组配置与布局仍全覆盖。
+
+#### TRI-06 上限修正（一次读取的行数上限与分页时钟）
+
+- 状态：已完成（在 `458baac` 上增量修正成 `ce7a924`；主树为 `7ac7e50`，改 2 个跟踪文件：产品 1
+  `load-balancing.js`、测试 1 `admin-ui-load-balancing.test.ts`）。
+- 补正内容：一个面板任何时刻都不超过一次读取声明的 200 行。append 先问剩下的空间
+  （`Math.min(lbBindingPageRows, lbBindingReadRowCap - panel.items.length)`），已经满 200 行时根本不再
+  发起那一页；`storeBindingPage` 两条分支各 `slice(0, lbBindingReadRowCap)`，所以服务端答得比要得多也会被
+  裁到上限而不是显示过去。分页进度仍是服务端给的 `nextOffset`：重复出现的 `bindingId + incarnation` 被丢弃
+  只让列表比进度短，不会把进度倒回去。产品计时器、CSS、夹具、基线与服务端都没动。
+- 新回归用例的时序（该项 1 项，该文件声明数 32 → 33）：`page.clock.install()` 之后先等页面载入时那条状态
+  读取落屏，再用 `page.clock.pauseAt(page.evaluate(() => Date.now()))` 把时钟停在页面自己报的时间上；9 次
+  点击各追加 19 行（20→39→…→191），第 10 次以 `{offset:200, limit:9}` 问剩下的 9 行并填满 200，此后是“已到
+  上限”那句而不是“继续读取”按钮；最后 `runFor(2000)` 只放一次受控轮询，那次刷新读 `{offset:0, limit:200}`，
+  列表仍是 200 行、互不重复、同一句上限声明。`finally` 里 `page.clock.resume()`：`closeTestPage` 用页面内的
+  `setTimeout(resolve, 0)` 排空任务队列，冻住的时钟永远不会跑那条计时器，不恢复就会让 `afterEach` 超时 30 秒
+  盖住真实结果。
+- 此前这一项为什么不稳，已被写进 `ui-test-quirks`：`install()` 本身不冻时间，真实等待一旦超过 2 秒状态轮询
+  就答一次，`refreshOpenBindingPanels` 以 offset 0 整窗重读，把去重后的 191 行换成服务端首窗，下一次 append
+  于是按那扇窗自己的 191 去问，而不是按翻页留下的 200。这是轮询的合法刷新，不是产品 cursor 退回，所以修的是
+  测试的时间控制，不是产品的计时器。
+- 结果与限制：满 200 行以后面板显示的是服务端的首窗，轮询刷新会把屏幕上这一批换成当前首窗，所以“刷新保留
+  用户翻到的那批行”在满上限时退化为“保留上限这么多数量的行”——条数、互不重复与上限声明三条仍逐项钉住，
+  具体是哪一批行由服务端决定。
 
 ### TRI-07
 
@@ -1023,7 +1177,11 @@
 
 ### TRI-09
 
-- 状态：未开始
+- 状态：未开始（TRI-06 与 TRI-08 两个前置都已完成并整合，但本项一行代码、一个用例、一份文档都没
+  动过：UI 里没有 `POST /api/load-balancer/task-moves` 与 `DELETE /api/load-balancer/task-moves/
+  :operationId` 的任何调用，TRI-06 交付的迁移按钮仍然始终禁用并写着服务端的 `migration_unavailable`
+  理由，`GET /api/load-balancer/tasks` 的 `migration` 与 `movable` 也仍没接到迁移服务。回执状态机与
+  已验收的 TRI-08 语义不因 TRI-06 整合而改变。）
 - 修改文件：
 - 验证：
 - 结果与限制：

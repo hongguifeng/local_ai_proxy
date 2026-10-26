@@ -362,6 +362,9 @@ GET /api/load-balancer/tasks?pairId=p1&groupId=g1&targetId=node-a&limit=50&offse
 把列表接到 TRI-07 的迁移服务上是 TRI-09 的工作，因为 TRI-06 的按钮先于提交逻辑存在，先放开
 `movable.ok` 会交给用户一个能点、点了无效的按钮。TRI-09 接线后这个字段会变成可用，
 `movable.reasons` 改用迁移服务的拒绝码命名，前端仍然只看服务端给的 `movable`，不自己判断。
+TRI-06 已经落地，而它交付的正是这个约定：节点行下的列表读这份投影，行尾的迁移按钮一律按
+`movable.ok` 渲染，所以在当前装配下它始终禁用，旁边写的就是服务端给的 `migration_unavailable`
+原句；按钮上没有提交路径，也没有目标选择器，`POST` 与 `DELETE` 两条迁移路由在 UI 里仍然零调用。
 
 响应禁止包含 exact key、session ID、请求正文、用户消息哈希、认证信息和 target API key。`taskIds` 可以使用已有日志 task ID；如果关联不确定，返回多个候选和 `ambiguous: true`，不返回一个伪造的代表 task。
 
@@ -495,6 +498,22 @@ DELETE /api/load-balancer/task-moves/:operationId
 - 冲突：保留用户输入，刷新该行并显示“状态已变化，请重新提交”。
 
 前端只根据服务端的 `movable` 和状态字段决定按钮，不自行判断 task 是否可迁移。UI 模块继续使用 `src/admin/static/modules/` 的 ES module 图，修改后必须重生成相关视觉基线。
+
+TRI-06 已经落地的部分（现行事实，与上面的草图不同处已标明）：
+
+- 列表在用户按下节点行的“路由绑定”后才读一次，关闭的面板从不被问；已开的面板跟着已有的状态
+  轮询刷新，不新增计时器或监听。一次读取最多 200 行，面板也最多 200 行：追加只问剩下的空间，
+  满了就不再发起，服务端答得比要得多也会被裁到上限。
+- 一个面板只认它那一代：`runtimeEpoch` 或 `groupRevision` 换了就整代丢掉并从 offset 0 重读，
+  重复出现的 `bindingId + incarnation` 只列一次；翻页进度取服务端的 `nextOffset`，不是本地行数。
+- 列表被关掉、页面被切走、surface 被 dispose 或节点离开卡片时，在途读取会被主动取消，且不写成
+  查询失败；面板留着已经显示的行。
+- 行里写的是绑定自己的编号、模型、端点与三行事实，加关联 task 行与置信度；一个 binding 连到多个
+  task 仍是一行一个操作。历史覆盖状态、截断与日志可能未写入各自单独标记，历史读失败与“没有
+  traffic.db”“没有日志根”是三句话，不合并成一个空态。
+- 草图里的 `[迁移到节点 B]` 与 `[登记迁移到节点 B]` 尚未存在：现行画面只有一个始终禁用的
+  “迁移此绑定 / Move this binding”按钮和服务端给的原因。`inFlight > 0` 的 pending 登记、
+  `applied` / `observed` 的文案、冲突后的重新提交与目标选择器都属于 TRI-09。
 
 ## 7. 自动再均衡功能
 
