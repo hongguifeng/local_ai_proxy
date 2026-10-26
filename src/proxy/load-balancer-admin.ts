@@ -14,12 +14,17 @@ export interface LoadBalancerAdminSource {
   loadMonitor(pairId: string): LoadMonitor | undefined;
 }
 
+/**
+ * One node's upstream numbers as the console sees them. Null means the engine did not
+ * answer that field; a zero the engine really reported stays a zero, so an unmeasured node
+ * is never shown as an idle one.
+ */
 export interface LoadBalancerMetricsSnapshot {
   readonly kvUsage: number | undefined;
-  readonly running: number;
+  readonly running: number | null;
   readonly sampledAt: number;
   readonly source: string;
-  readonly waiting: number;
+  readonly waiting: number | null;
 }
 
 export interface LoadBalancerStatusNode {
@@ -33,7 +38,9 @@ export interface LoadBalancerStatusNode {
   /** Enabled and out of cooldown; a sleeping engine is judged per request, not here. */
   readonly inRotation: boolean;
   readonly lastDispatchedAt: number | null;
+  /** Null when no read ever produced a number: never sampled, or the last read failed. */
   readonly metrics: LoadBalancerMetricsSnapshot | null;
+  /** True when the stored sample is older than the freshness window, or there is none. */
   readonly stale: boolean;
   readonly targetId: string;
 }

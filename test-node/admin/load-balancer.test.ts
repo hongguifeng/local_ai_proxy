@@ -386,3 +386,67 @@ describe("GET /api/load-balancer/status", () => {
     expect(balancer.bindingRefFor("lb-live", binding).runtimeEpoch).toBe(balancer.runtimeEpoch);
   });
 });
+
+describe("[TRI-03] what the status endpoint says about an incomplete answer", () => {
+  it("prints null for a number the engine skipped and keeps a real zero a zero", async () => {
+    const idleEngine = await startCountingServer((_request, response) => {
+      response.writeHead(200, { "content-type": "text/plain" });
+      response.end(IDLE_EXPOSITION);
+    });
+    const quietEngine = await startCountingServer((_request, response) => {
+      response.writeHead(200, { "content-type": "text/plain" });
+      response.end('vllm:kv_cache_usage_perc{engine="0"} 0.35\n');
+    });
+    const balancer = new LoadBalancer("pair-a");
+    const configured = pair(
+      "pair-a",
+      [
+        target("target-idle", `http://127.0.0.1:${idleEngine.port}`),
+        target("target-quiet", `http://127.0.0.1:${quietEngine.port}`),
+        target("target-none", "http://127.0.0.1:1"),
+      ],
+      [group("lb-live", ["target-idle", "target-quiet", "target-none"])],
+    );
+    balancer.reconfigure(configured);
+    const monitor = new LoadMonitor(balancer, { now: () => 1_000 });
+    await monitor.sampleNow();
+
+    const server = createAdminServer({
+      getHealth: () => applicationHealth("running"),
+      loadBalancerService: createLoadBalancerAdminService(source([configured], balancer, monitor)),
+    });
+    servers.push(server);
+
+    const response = await server.inject({ method: "GET", url: "/api/load-balancer/status" });
+    expect(response.statusCode).toBe(200);
+    const body: LoadBalancerStatusResponse = response.json();
+    const nodes = body.pairs[0]?.groups[0]?.nodes ?? [];
+    const byId = new Map(nodes.map((node) => [node.targetId, node]));
+
+    const idle = byId.get("target-idle");
+    expect(idle?.stale).toBe(false);
+    expect(idle?.metrics?.running).toBe(0);
+    expect(idle?.metrics?.waiting).toBe(0);
+
+    // A node the engine never measured is shown as unknown, with the KV it did answer still
+    // present, and it is not the same row as "no sample at all".
+    const quiet = byId.get("target-quiet");
+    expect(quiet?.metrics).not.toBeNull();
+    expect(quiet?.stale).toBe(false);
+    expect(quiet?.metrics?.running).toBeNull();
+    expect(quiet?.metrics?.waiting).toBeNull();
+    expect(quiet?.metrics?.kvUsage).toBe(0.35);
+    expect(quiet?.metrics?.source).toBe("vllm");
+
+    const unmeasured = byId.get("target-none");
+    expect(unmeasured?.metrics).toBeNull();
+    expect(unmeasured?.stale).toBe(true);
+
+    // On the wire the unknown is an explicit null, so the browser cannot read it as a zero.
+    expect(response.payload).toContain('"running":null');
+    expect(response.payload).toContain('"waiting":null');
+
+    await close(idleEngine.server);
+    await close(quietEngine.server);
+  });
+});

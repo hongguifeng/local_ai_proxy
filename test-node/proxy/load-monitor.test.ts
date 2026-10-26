@@ -195,11 +195,18 @@ describe("upstream metrics sampling", () => {
         awake: undefined,
         kvUsage: 0.35,
         running: 3,
+        sampleSequence: 1,
         sampledAt: 1_000,
         source: "vllm",
         waiting: 2,
       });
     }
+    // Both spellings resolve to one physical engine, so one sample serves both targets and
+    // both carry the same read number: one engine, one sample, whatever the alias count.
+    expect(balancer.sampleFor("target-loopback")?.sampleSequence).toBe(
+      balancer.sampleFor("target-name")?.sampleSequence,
+    );
+    expect(balancer.sampleFor("target-loopback")).toBe(balancer.sampleFor("target-name"));
     // Both spellings resolve to one physical engine, so one sample serves both targets.
     const canonicalKey = balancer.nodeFor("target-loopback")?.canonicalKey ?? "";
     expect(balancer.targetsForCanonicalKey(canonicalKey)).toEqual([
@@ -366,5 +373,197 @@ describe("upstream metrics sampling", () => {
     expect(first?.decision.metricsSource).toBeUndefined();
     first?.release();
     balancer.release("target-a");
+  });
+});
+
+describe("[TRI-03] metric completeness through the sampler", () => {
+  /** An engine that answers the cache share and nothing else. */
+  const KV_ONLY = `# TYPE vllm:kv_cache_usage_perc gauge
+vllm:kv_cache_usage_perc{engine="0",model_name="Qwen3.8-Flash-Next"} 0.35
+`;
+
+  /** An engine that says, in so many words, that it is idle. */
+  const REPORTED_ZEROS = `vllm:num_requests_running{engine="0"} 0.0
+vllm:num_requests_waiting{engine="0"} 0.0
+`;
+
+  /** One number readable, one not, cache share present. */
+  const PARTIAL = `vllm:num_requests_running{engine="0"} 2.0
+vllm:num_requests_waiting{engine="0"} NaN
+vllm:kv_cache_usage_perc{engine="0"} 0.5
+`;
+
+  /** A 200 that is not an exposition at all. */
+  const NOT_METRICS = "<html><body>502 Bad Gateway</body></html>\n";
+
+  /** A sleep report with no load numbers behind it. */
+  const SLEEP_WITHOUT_LOAD = `vllm:kv_cache_usage_perc{engine="0"} 0.35
+vllm:engine_sleep_state{engine="0",sleep_state="awake"} 0.0
+vllm:engine_sleep_state{engine="0",sleep_state="weights_offloaded"} 1.0
+`;
+
+  function singleTargetPair(url: string): ProxyPair {
+    return pair([target("target-a", url)], [group("lb-tri-03", ["target-a"])]);
+  }
+
+  it("leaves the numbers an engine skipped missing, and shows them as unknown", async () => {
+    const engine = await startMetricsServer(KV_ONLY);
+    const balancer = new LoadBalancer("pair-1");
+    balancer.reconfigure(singleTargetPair(`http://127.0.0.1:${engine.port}`));
+    const monitor = new LoadMonitor(balancer, { now: () => 1_000 });
+    expect((await monitor.sampleNow()).sampled).toBe(1);
+
+    // This is the probe the task asks to keep: the stored sample reports the missing fields
+    // as missing, not as the zero an auto strategy would read as an idle node.
+    expect(balancer.sampleFor("target-a")).toMatchObject({
+      kvUsage: 0.35,
+      running: undefined,
+      sampleSequence: 1,
+      sampledAt: 1_000,
+      source: "vllm",
+      waiting: undefined,
+    });
+    expect(balancer.sampleFor("target-a")?.running).toBeUndefined();
+
+    const status = monitor.nodeStatuses()[0];
+    // A partial answer is still a sample, so the console must not call it "no sample", and
+    // must not call the unanswered fields zero either.
+    expect(status?.metrics).not.toBeNull();
+    expect(status?.metrics?.running).toBeNull();
+    expect(status?.metrics?.waiting).toBeNull();
+    expect(status?.metrics?.kvUsage).toBe(0.35);
+    expect(status?.metrics?.source).toBe("vllm");
+    expect(status?.stale).toBe(false);
+    await close(engine.server);
+  });
+
+  it("keeps a reported zero apart from an unanswered field on the same pair", async () => {
+    const idleEngine = await startMetricsServer(REPORTED_ZEROS);
+    const quietEngine = await startMetricsServer(KV_ONLY);
+    const balancer = new LoadBalancer("pair-1");
+    balancer.reconfigure(
+      pair(
+        [
+          target("target-idle", `http://127.0.0.1:${idleEngine.port}`),
+          target("target-quiet", `http://127.0.0.1:${quietEngine.port}`),
+        ],
+        [group("lb-tri-03", ["target-idle", "target-quiet"])],
+      ),
+    );
+    const monitor = new LoadMonitor(balancer, { now: () => 2_000 });
+    expect((await monitor.sampleNow()).sampled).toBe(2);
+
+    const idle = monitor.nodeStatuses().find((status) => status.targetId === "target-idle");
+    const quiet = monitor.nodeStatuses().find((status) => status.targetId === "target-quiet");
+    expect(idle?.metrics?.running).toBe(0);
+    expect(idle?.metrics?.waiting).toBe(0);
+    expect(quiet?.metrics?.running).toBeNull();
+    expect(quiet?.metrics?.waiting).toBeNull();
+    // The zero came from the engine, the null did not: only the first may say "idle".
+    expect(balancer.sampleFor("target-idle")?.running).toBe(0);
+    expect(balancer.sampleFor("target-quiet")?.running).toBeUndefined();
+    await close(idleEngine.server);
+    await close(quietEngine.server);
+  });
+
+  it("reports one readable and one broken number as a partial answer, not a full one", async () => {
+    const engine = await startMetricsServer(PARTIAL);
+    const balancer = new LoadBalancer("pair-1");
+    balancer.reconfigure(singleTargetPair(`http://127.0.0.1:${engine.port}`));
+    const monitor = new LoadMonitor(balancer, { now: () => 3_000 });
+    expect((await monitor.sampleNow()).sampled).toBe(1);
+
+    expect(balancer.sampleFor("target-a")?.running).toBe(2);
+    expect(balancer.sampleFor("target-a")?.waiting).toBeUndefined();
+    const status = monitor.nodeStatuses()[0];
+    expect(status?.metrics?.running).toBe(2);
+    expect(status?.metrics?.waiting).toBeNull();
+    expect(status?.metrics?.kvUsage).toBe(0.5);
+    expect(status?.stale).toBe(false);
+    await close(engine.server);
+  });
+
+  it("numbers every accepted read of an engine once, shared by its target aliases", async () => {
+    const engine = await startMetricsServer(VLLM_EXPOSITION);
+    const balancer = new LoadBalancer("pair-1");
+    balancer.reconfigure(
+      pair(
+        [
+          target("target-loopback", `http://127.0.0.1:${engine.port}`),
+          target("target-name", `http://localhost:${engine.port}`),
+        ],
+        [group("lb-tri-03", ["target-loopback", "target-name"])],
+      ),
+    );
+    const monitor = new LoadMonitor(balancer, { now: () => 4_000 });
+
+    await monitor.sampleNow();
+    expect(balancer.sampleFor("target-loopback")?.sampleSequence).toBe(1);
+    expect(balancer.sampleFor("target-name")?.sampleSequence).toBe(1);
+
+    await monitor.sampleNow();
+    expect(engine.requests()).toBe(2);
+    expect(balancer.sampleFor("target-loopback")?.sampleSequence).toBe(2);
+    expect(balancer.sampleFor("target-name")?.sampleSequence).toBe(2);
+    await close(engine.server);
+
+    // A read that failed produced no sample, so it spent no number: the next accepted read
+    // carries the next number after the last sample, not one per HTTP attempt.
+    const flaky = await startFlakyMetricsServer(VLLM_EXPOSITION);
+    balancer.reconfigure(singleTargetPair(`http://127.0.0.1:${flaky.port}`));
+    const monitor2 = new LoadMonitor(balancer, { now: () => 4_500 });
+    expect((await monitor2.sampleNow()).failed).toBe(1);
+    expect(balancer.sampleFor("target-a")).toBeUndefined();
+    expect((await monitor2.sampleNow()).sampled).toBe(1);
+    expect(balancer.sampleFor("target-a")?.sampleSequence).toBe(1);
+    await close(flaky.server);
+  });
+
+  it("treats a body that is not an exposition as no evidence at all", async () => {
+    const good = await startMetricsServer(VLLM_EXPOSITION);
+    const html = await startMetricsServer(NOT_METRICS);
+    const balancer = new LoadBalancer("pair-1");
+    let url = `http://127.0.0.1:${good.port}`;
+    balancer.reconfigure(singleTargetPair(url));
+    const monitor = new LoadMonitor(balancer, { now: () => 5_000 });
+    await monitor.sampleNow();
+    expect(balancer.sampleFor("target-a")?.running).toBe(3);
+
+    // Same engine address, same HTTP success, no exposition: the node goes back to unknown
+    // rather than keeping numbers that no longer describe it or inventing empty ones.
+    url = `http://127.0.0.1:${html.port}`;
+    balancer.reconfigure(singleTargetPair(url));
+    expect((await monitor.sampleNow()).sampled).toBe(1);
+    expect(balancer.sampleFor("target-a")).toBeUndefined();
+    const status = monitor.nodeStatuses()[0];
+    expect(status?.metrics).toBeNull();
+    expect(status?.stale).toBe(true);
+
+    // Recovery reports the next read number of that engine, so an old sample is never
+    // confused with a new one, and the failed-looking read in between spent nothing.
+    balancer.reconfigure(singleTargetPair(`http://127.0.0.1:${good.port}`));
+    expect((await monitor.sampleNow()).sampled).toBe(1);
+    expect(balancer.sampleFor("target-a")?.sampleSequence).toBe(2);
+    await close(good.server);
+    await close(html.server);
+  });
+
+  it("keeps a sleeping engine out of selection even when it answered no load numbers", async () => {
+    const engine = await startMetricsServer(SLEEP_WITHOUT_LOAD);
+    const balancer = new LoadBalancer("pair-1");
+    balancer.reconfigure(singleTargetPair(`http://127.0.0.1:${engine.port}`));
+    const monitor = new LoadMonitor(balancer, { now: () => 6_000 });
+    await monitor.sampleNow();
+
+    expect(balancer.sampleFor("target-a")?.awake).toBe(false);
+    expect(balancer.sampleFor("target-a")?.running).toBeUndefined();
+    expect(
+      balancer.plan({
+        group: group("lb-tri-03", ["target-a"]),
+        identity: identity("session-tri-03"),
+        now: 6_000,
+      }),
+    ).toBeUndefined();
+    await close(engine.server);
   });
 });

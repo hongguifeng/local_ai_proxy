@@ -84,12 +84,16 @@ function sample(
     kvUsage?: number;
     awake?: boolean;
     sampledAt?: number;
+    sampleSequence?: number;
   } = {},
 ): LoadSample {
   return {
+    sampleSequence: overrides.sampleSequence ?? 1,
     sampledAt: overrides.sampledAt ?? NOW,
-    running: overrides.running ?? 0,
-    waiting: overrides.waiting ?? 0,
+    // A field the caller leaves out stays missing, which is what the engine skipping a
+    // number looks like: it is not the same fact as reporting zero.
+    running: overrides.running,
+    waiting: overrides.waiting,
     kvUsage: overrides.kvUsage,
     source: "vllm",
     ...(overrides.awake === undefined ? {} : { awake: overrides.awake }),
@@ -355,6 +359,72 @@ describe("load balancing selection", () => {
 
     reservation.release();
     reservation.release();
+    expect(balancer.inFlight("node-a")).toBe(0);
+  });
+
+  it("[TRI-03] a metric the engine skipped stays missing instead of becoming a number", () => {
+    const balancer = startedBalancer();
+    // One node answered only the queue depth; the other answered both and says it is idle.
+    const answered = new Map<string, LoadSample>([
+      ["node-a", sample({ waiting: 7 })],
+      ["node-b", sample({ running: 0, waiting: 0 })],
+    ]);
+    const chosen = planned(balancer, identity("session-1", "one"), answered);
+    expect(chosen.decision).toMatchObject({ targetId: "node-b", load: 0 });
+    expect(answered.get("node-a")?.running).toBeUndefined();
+    expect(answered.get("node-a")?.waiting).toBe(7);
+    chosen.release();
+
+    // The same silence about `running` must not swallow the waiting the engine did report,
+    // so the node that stayed quiet is not preferred just because one of its numbers is
+    // absent. This is the stored-sample path, which is what the monitor feeds `plan`.
+    balancer.setSample("node-a", sample({ waiting: 7 }));
+    balancer.setSample("node-b", sample({ running: 0, waiting: 0 }));
+    const second = planned(balancer, identity("session-2", "two"));
+    expect(second.decision).toMatchObject({ targetId: "node-b", load: 0 });
+    expect(balancer.samples().get("node-a")?.running).toBeUndefined();
+    second.release();
+  });
+
+  it("[TRI-03] an answer with only KV reports its source, not an invented idle", () => {
+    const nodes = twoNodes();
+    const balancer = startedBalancer(
+      pair(
+        nodes.map((entry) => (entry.id === "node-b" ? { ...entry, enabled: false } : entry)),
+        [group("lb-1", ["node-a", "node-b"])],
+      ),
+    );
+    balancer.reserve("node-a");
+    balancer.reserve("node-a");
+    const samples = new Map<string, LoadSample>([["node-a", sample({ kvUsage: 0.35 })]]);
+
+    const reservation = planned(balancer, identity("session-1", "one"), samples);
+    // The proxy's own reservations are the whole load it knows when the engine is silent:
+    // no upstream number is claimed, and the KV that was answered still counts.
+    expect(reservation.decision).toMatchObject({
+      targetId: "node-a",
+      load: 2,
+      kvUsage: 0.35,
+      metricsSource: "vllm",
+    });
+    expect(samples.get("node-a")?.running).toBeUndefined();
+    expect(samples.get("node-a")?.waiting).toBeUndefined();
+    reservation.release();
+
+    // Once that answer ages out, even the source stops being reported.
+    const aged = new Map<string, LoadSample>([
+      ["node-a", sample({ kvUsage: 0.35, sampledAt: NOW - METRIC_FRESH_WINDOW_MS - 1 })],
+    ]);
+    const stalePlan = planned(balancer, identity("session-2", "two"), aged);
+    expect(stalePlan.decision).toMatchObject({
+      targetId: "node-a",
+      load: 2,
+      kvUsage: undefined,
+      metricsSource: undefined,
+    });
+    stalePlan.release();
+    balancer.release("node-a");
+    balancer.release("node-a");
     expect(balancer.inFlight("node-a")).toBe(0);
   });
 });

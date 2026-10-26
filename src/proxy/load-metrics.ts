@@ -41,6 +41,10 @@ const ENGINE_ALIASES: readonly EngineAlias[] = [
   },
 ];
 
+/**
+ * The numbers the balancer needs, plus what the engine said about sleeping. `undefined` means
+ * the exposition never answered that field; a zero the engine reported stays a zero.
+ */
 export interface LoadMetricsSnapshot {
   readonly running: number | undefined;
   readonly waiting: number | undefined;
@@ -50,6 +54,12 @@ export interface LoadMetricsSnapshot {
   readonly source: string | undefined;
 }
 
+/**
+ * Nothing readable came back: an empty body, a page that is not an exposition at all, or an
+ * exposition that names no engine. This is a read that told the proxy nothing, which is a
+ * different fact from a partial answer - a partial one keeps its `source` and `running` and
+ * leaves only the fields the engine skipped missing. Neither is ever turned into zero.
+ */
 export const EMPTY_LOAD_METRICS: LoadMetricsSnapshot = {
   awake: undefined,
   kvUsage: undefined,

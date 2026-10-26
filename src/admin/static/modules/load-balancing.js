@@ -523,13 +523,17 @@ export function createLoadBalancing({
         const stateWords = [node.enabled ? t("lbStateOn") : t("lbStateOff")];
         if (metrics === null) stateWords.push(t("lbStateNoSample"));
         else if (node.stale) stateWords.push(t("lbStateStale"));
+        // A null number is one the engine never answered, so it is shown as unknown. Only a
+        // zero the engine really reported is printed as a zero; nothing here invents idle.
+        else if (metrics.running === null || metrics.waiting === null)
+          stateWords.push(t("lbStatePartial"));
         setLbBadge(row, node.enabled, metrics, node.stale, stateWords);
         setLbFact(row, "inFlight", t("lbStateInFlight"), String(node.inFlight));
         setLbFact(
           row,
           "waiting",
           t("lbStateWaiting"),
-          metrics === null ? "-" : String(metrics.waiting),
+          metrics === null || metrics.waiting === null ? "-" : String(metrics.waiting),
         );
         setLbFact(
           row,

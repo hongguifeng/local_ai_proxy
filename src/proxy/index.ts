@@ -121,6 +121,15 @@ export {
   type LoadMetricsSnapshot,
 } from "./load-metrics.js";
 export {
+  assessLoadSample,
+  engineLoadViews,
+  type EngineLoadView,
+  type EngineTargetState,
+  type LoadSampleAssessment,
+  type MetricCompleteness,
+  type SampleFreshness,
+} from "./load-evidence.js";
+export {
   EMPTY_LOAD_SAMPLES,
   KV_TIER_THRESHOLD,
   MAX_COOLDOWN_MS,

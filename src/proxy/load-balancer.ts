@@ -37,10 +37,19 @@ const MISSING_KV_USAGE = 1;
 /** Until LB-08 samples the engines, selection runs on local reservations alone. */
 export const EMPTY_LOAD_SAMPLES: ReadonlyMap<string, LoadSample> = new Map<string, LoadSample>();
 
+/**
+ * What one upstream engine answered at one moment. The numbers are what the engine said,
+ * never what the proxy would have liked it to say: a field the engine left out stays
+ * missing, and a missing field is a different fact from a zero. Only `running: 0` may make
+ * a node look idle; `running: undefined` says the engine was asked and did not answer.
+ */
 export interface LoadSample {
+  /** Which read of its physical engine produced this. Aliases of one key share the number. */
+  readonly sampleSequence: number;
+  /** When that read happened, on the pair's own clock. */
   readonly sampledAt: number;
-  readonly running: number;
-  readonly waiting: number;
+  readonly running: number | undefined;
+  readonly waiting: number | undefined;
   readonly kvUsage: number | undefined;
   readonly source: string;
   /** False only when the engine says it is asleep; then it is not selectable. */
@@ -736,11 +745,15 @@ export class LoadBalancer {
   /**
    * `running` already counts the requests the engine sees from this proxy, so the local
    * reservation is never added to it. `max` covers both sampling lag and fresh metrics.
+   * A number the engine did not answer adds nothing to the sum, so what the engine gave is
+   * a lower bound rather than a claim; when neither number came back there is no upstream
+   * evidence to compare against, and the proxy's own reservation is the whole load it knows.
    */
   #loadOf(node: LoadBalancerNode, sample: LoadSample | undefined, now: number): number {
     const fresh = freshSample(sample, now);
-    const metricLoad = fresh === undefined ? 0 : fresh.running + fresh.waiting;
-    return Math.max(this.inFlight(node.targetId), metricLoad);
+    const reported = fresh === undefined ? undefined : reportedLoad(fresh);
+    const local = this.inFlight(node.targetId);
+    return reported === undefined ? local : Math.max(local, reported);
   }
 
   #pickLeastLoad(
@@ -873,6 +886,18 @@ function targetRoutingSettings(target: TargetConfig | undefined): Record<string,
     targetHeaders: target.target_headers,
     targetUrl: target.target_url,
   };
+}
+
+/**
+ * The load the engine actually reported. A missing field contributes nothing, so this is a
+ * lower bound on what the engine is doing, never an invented idle. Neither field present
+ * means no upstream number at all, which is reported as nothing rather than as zero.
+ */
+function reportedLoad(sample: LoadSample): number | undefined {
+  if (sample.running === undefined && sample.waiting === undefined) {
+    return undefined;
+  }
+  return (sample.running ?? 0) + (sample.waiting ?? 0);
 }
 
 function freshSample(sample: LoadSample | undefined, now: number): LoadSample | undefined {

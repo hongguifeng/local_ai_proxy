@@ -79,6 +79,9 @@ export let targetModelsOutcome: {
 
 export let lbStatusRound = 0;
 
+/** [TRI-03] When on, the second node reports null for the numbers its engine skipped. */
+export let lbStatusPartialMetrics = false;
+
 export let pairsSaveIssues: readonly { code: string; message: string; path: string }[] | null =
   null;
 
@@ -114,8 +117,10 @@ export function loadBalancerStatusFixture() {
           lastDispatchedAt: null,
           stale: false,
           metrics: {
-            running: 1 + index,
-            waiting: 3 + index,
+            // A null here means the engine did not answer that number. The console has to
+            // show it as unknown, never as the zero that would make the node look idle.
+            running: lbStatusPartialMetrics && index === 1 ? null : 1 + index,
+            waiting: lbStatusPartialMetrics && index === 1 ? null : 3 + index,
             kvUsage: 0.42,
             source: "vllm",
             sampledAt: 1_792_830_670_000,
@@ -1009,6 +1014,7 @@ export function resetFixtureData(): void {
   modelCatalogCalls.length = 0;
   modelCatalogError = null;
   lbStatusRound = 0;
+  lbStatusPartialMetrics = false;
   lbStatusReads.length = 0;
   pairsSaveIssues = null;
   modelCatalogOutcome = {
@@ -1051,6 +1057,9 @@ export function setPairsSaveIssues(value: typeof pairsSaveIssues): void {
 }
 export function setLbStatusRound(value: typeof lbStatusRound): void {
   lbStatusRound = value;
+}
+export function setLbStatusPartialMetrics(value: typeof lbStatusPartialMetrics): void {
+  lbStatusPartialMetrics = value;
 }
 export function setTaskBriefFixture(value: typeof taskBriefFixture): void {
   taskBriefFixture = value;

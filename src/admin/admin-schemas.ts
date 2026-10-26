@@ -297,10 +297,11 @@ export const MODEL_PRICES_IMPORT_RESPONSE_SCHEMA = toAdminJsonSchema(modelPrices
 
 const loadBalancerMetricsDto = z.object({
   kvUsage: z.number().nullable().optional(),
-  running: z.number().int().min(0),
+  // Null means the engine never answered that number; a zero it really reported stays zero.
+  running: z.number().int().min(0).nullable(),
   sampledAt: z.number().int().min(0),
   source: z.string().max(256),
-  waiting: z.number().int().min(0),
+  waiting: z.number().int().min(0).nullable(),
 });
 
 const loadBalancerNodeDto = z.object({

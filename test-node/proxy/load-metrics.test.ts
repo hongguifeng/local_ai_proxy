@@ -115,4 +115,32 @@ vllm:engine_sleep_state{engine="0",sleep_state="discard_all"} 1.0
     const noSleepMetric = parseLoadMetrics(`vllm:num_requests_running{engine="0"} 0.0\n`);
     expect(noSleepMetric.awake).toBeUndefined();
   });
+
+  it("[TRI-03] separates a read that told nothing from an answer that skipped a field", () => {
+    // No engine named, no numbers: the read is simply unusable, and it says so by having no
+    // source at all. That is a different fact from an engine that answered some fields.
+    expect(parseLoadMetrics("<html><body>502 Bad Gateway</body></html>\n")).toEqual(
+      EMPTY_LOAD_METRICS,
+    );
+    expect(parseLoadMetrics("").source).toBeUndefined();
+
+    // The same proxy answering only its cache share is still recognised, and the fields it
+    // skipped stay missing rather than becoming measured zeros.
+    expect(parseLoadMetrics(`vllm:kv_cache_usage_perc{engine="0"} 0.35\n`)).toEqual({
+      awake: undefined,
+      kvUsage: 0.35,
+      running: undefined,
+      source: "vllm",
+      waiting: undefined,
+    });
+
+    // An engine that says it is idle says it in numbers, and they survive as numbers.
+    const idle = parseLoadMetrics(
+      `vllm:num_requests_running{engine="0"} 0.0\nvllm:num_requests_waiting{engine="0"} 0.0\n`,
+    );
+    expect(idle.running).toBe(0);
+    expect(idle.waiting).toBe(0);
+    expect(idle.kvUsage).toBeUndefined();
+    expect(idle.source).toBe("vllm");
+  });
 });

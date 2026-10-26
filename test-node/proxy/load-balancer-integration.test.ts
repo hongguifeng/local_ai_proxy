@@ -417,8 +417,9 @@ function targetIdOf(record: Readonly<Record<string, unknown>> | undefined): stri
   return typeof target === "string" ? target : "";
 }
 
-function engineSample(running: number): LoadSample {
+function engineSample(running: number, sampleSequence = 1): LoadSample {
   return {
+    sampleSequence,
     sampledAt: Date.now(),
     running,
     waiting: 0,

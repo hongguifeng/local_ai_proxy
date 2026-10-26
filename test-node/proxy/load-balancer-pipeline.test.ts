@@ -1087,8 +1087,11 @@ function postTolerant(
   });
 }
 
-function engineSample(overrides: { awake?: boolean; running?: number } = {}): LoadSample {
+function engineSample(
+  overrides: { awake?: boolean; running?: number; sampleSequence?: number } = {},
+): LoadSample {
   return {
+    sampleSequence: overrides.sampleSequence ?? 1,
     sampledAt: Date.now(),
     running: overrides.running ?? 0,
     waiting: 0,

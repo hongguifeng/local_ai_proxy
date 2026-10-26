@@ -5,6 +5,7 @@ import {
   UI_TEST_TIMEOUT_MS,
   lbStatusReads,
   pairs,
+  setLbStatusPartialMetrics,
   setLbStatusRound,
   setPairsSaveIssues,
 } from "./admin-ui-fixture.js";
@@ -382,6 +383,51 @@ describe("admin UI load balancing groups", { timeout: UI_TEST_TIMEOUT_MS }, () =
     const stored = await page.evaluate(() => localStorage.getItem("llmProxyLbGroupOpen"));
     expect(stored).toContain("proxy-one");
     expect(stored).toContain("true");
+  });
+
+  it("[TRI-03] shows a metric the engine skipped as unknown instead of a fabricated zero", async () => {
+    const card = await openPairWithGroup();
+    await card.locator(".lb-card [data-lb-field='model_pattern']").fill("Qwen3.8-Flash-Next");
+    await tickMembers(card.locator(".lb-card"), [0, 1]);
+    await page.locator("#saveProxies").click();
+    await expectPage(page.locator("#toast")).toContainText("Config saved");
+    await card.locator(".lb-status > summary").click();
+    await expectPage(card.locator(".lb-node-state")).toHaveCount(2);
+
+    const quietWaiting = card.locator(".lb-node-state").nth(1).locator('[data-lb-fact="waiting"]');
+    const quietBadge = card.locator(".lb-node-state").nth(1).locator('[data-lb-fact="enabled"]');
+    const idleWaiting = card.locator(".lb-node-state").nth(0).locator('[data-lb-fact="waiting"]');
+
+    await waitForLbPoll(0);
+    await expectPage(quietWaiting).toHaveText("Waiting: 4");
+    await expectPage(quietBadge).not.toContainText("incomplete");
+
+    setLbStatusPartialMetrics(true);
+    const seen = lbStatusReads.length;
+    await waitForLbPoll(seen);
+    // The second node's engine stopped answering: the row says unknown, and the badge says
+    // why. Nothing here prints "0", "null" or "undefined" for a number that was never taken.
+    await expectPage(quietWaiting).toHaveText("Waiting: -");
+    await expectPage(quietBadge).toContainText("Metrics incomplete");
+    await expectPage(idleWaiting).toHaveText("Waiting: 3");
+    const rowText = await page.evaluate(() =>
+      [...document.querySelectorAll(".lb-node-state")]
+        .map((element) => element.textContent || "")
+        .join(" "),
+    );
+    expect(rowText).not.toMatch(/undefined|null/);
+
+    await page.locator("#languageSelect").selectOption("zh");
+    const zhSeen = lbStatusReads.length;
+    await waitForLbPoll(zhSeen);
+    await expectPage(quietWaiting).toHaveText("排队: -");
+    await expectPage(quietBadge).toContainText("指标不全");
+    await expectPage(idleWaiting).toHaveText("排队: 3");
+
+    await page.locator("#languageSelect").selectOption("en");
+    await waitForLbPoll(lbStatusReads.length);
+    await expectPage(quietWaiting).toHaveText("Waiting: -");
+    setLbStatusPartialMetrics(false);
   });
 
   it("stops polling while the page is hidden or another tab is showing", async () => {

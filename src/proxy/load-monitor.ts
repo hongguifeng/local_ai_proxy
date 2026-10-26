@@ -2,12 +2,8 @@ import { StructuredLogger } from "../shared/index.js";
 
 import { loadBalancerMemberTargetIds } from "../config/index.js";
 
-import {
-  METRIC_FRESH_WINDOW_MS,
-  type LoadBalancer,
-  type LoadBalancerNode,
-  type LoadSample,
-} from "./load-balancer.js";
+import { type LoadBalancer, type LoadBalancerNode, type LoadSample } from "./load-balancer.js";
+import { assessLoadSample } from "./load-evidence.js";
 import { parseLoadMetrics, type LoadMetricsSnapshot } from "./load-metrics.js";
 import { fetchTargetMetrics } from "./target-metrics.js";
 
@@ -40,36 +36,53 @@ export interface LoadMonitorSampleResult {
   readonly failed: number;
 }
 
-/** What the status API shows for one node. It never carries a key, a body or raw metrics. */
+/**
+ * What the status API shows for one node. It never carries a key, a body or raw metrics.
+ * `metrics` is null when no read ever produced a number; inside a sample, `running` or
+ * `waiting` being null means the engine answered the exposition but not that field. A real
+ * zero is printed as zero, so the console can tell "measured idle" from "not measured".
+ */
 export interface LoadNodeStatus {
   readonly canonicalKey: string;
   readonly metrics: {
     readonly kvUsage: number | undefined;
-    readonly running: number;
+    readonly running: number | null;
     readonly sampledAt: number;
     readonly source: string;
-    readonly waiting: number;
+    readonly waiting: number | null;
   } | null;
   readonly stale: boolean;
   readonly targetId: string;
 }
 
-function toLoadSample(snapshot: LoadMetricsSnapshot, sampledAt: number): LoadSample | undefined {
-  if (
-    snapshot.running === undefined &&
-    snapshot.waiting === undefined &&
-    snapshot.kvUsage === undefined
-  ) {
-    return undefined;
-  }
+/**
+ * Turns a parsed engine answer into a node sample. A field the answer left out stays
+ * missing: a zero that never existed would let an unmeasured node look idle, and a strategy
+ * reading that zero would move work to a node whose load is simply unknown.
+ */
+function toLoadSample(
+  snapshot: LoadMetricsSnapshot,
+  sampledAt: number,
+  sampleSequence: number,
+): LoadSample {
   return {
+    sampleSequence,
     sampledAt,
-    running: snapshot.running ?? 0,
-    waiting: snapshot.waiting ?? 0,
+    running: snapshot.running,
+    waiting: snapshot.waiting,
     kvUsage: snapshot.kvUsage,
     source: snapshot.source ?? "unknown",
     ...(snapshot.awake === undefined ? {} : { awake: snapshot.awake }),
   };
+}
+
+/** Whether the exposition answered at least one number, which is what makes it a sample. */
+function answeredAnyMetric(snapshot: LoadMetricsSnapshot): boolean {
+  return (
+    snapshot.running !== undefined ||
+    snapshot.waiting !== undefined ||
+    snapshot.kvUsage !== undefined
+  );
 }
 
 export class LoadMonitor {
@@ -82,6 +95,12 @@ export class LoadMonitor {
   #timer: ReturnType<typeof setInterval> | undefined;
   readonly #sampling = new Set<string>();
   readonly #failing = new Set<string>();
+  /**
+   * How many samples each physical engine has produced. Read across a stop on purpose:
+   * a restarted monitor must not hand out a number an older sample already used, or two
+   * different answers would look like the same one to anything that counts by sequence.
+   */
+  readonly #sampleSequences = new Map<string, number>();
   #lastSweepAt = 0;
 
   constructor(balancer: LoadBalancer, options: LoadMonitorOptions = {}) {
@@ -170,6 +189,9 @@ export class LoadMonitor {
     return this.#balancer.nodeIds().map((targetId) => {
       const node = this.#balancer.nodeFor(targetId);
       const sample = node?.sample;
+      // One place decides what "still current" means, so the badge and the ranking cannot
+      // drift apart on the same number.
+      const assessment = assessLoadSample(sample, now);
       return {
         canonicalKey: node?.canonicalKey ?? targetId,
         metrics:
@@ -177,12 +199,12 @@ export class LoadMonitor {
             ? null
             : {
                 kvUsage: sample.kvUsage,
-                running: sample.running,
+                running: sample.running ?? null,
                 sampledAt: sample.sampledAt,
                 source: sample.source,
-                waiting: sample.waiting,
+                waiting: sample.waiting ?? null,
               },
-        stale: sample === undefined || now - sample.sampledAt > METRIC_FRESH_WINDOW_MS,
+        stale: assessment.freshness !== "fresh",
         targetId,
       };
     });
@@ -242,9 +264,13 @@ export class LoadMonitor {
         this.#noteFailure(canonicalKey, response.error ?? "metrics unavailable");
         return "failed";
       }
-      // Anything the exposition does not answer stays missing: an unmeasured node is
-      // judged on local inFlight alone, never on an invented zero.
-      const sample = toLoadSample(parseLoadMetrics(response.text), this.#now());
+      // Anything the exposition does not answer stays missing. A read that produced no
+      // number at all is no sample, so the node keeps its unknown state instead of carrying
+      // an empty one, and a read that proved nothing spends no sequence number.
+      const snapshot = parseLoadMetrics(response.text);
+      const sample = answeredAnyMetric(snapshot)
+        ? toLoadSample(snapshot, this.#now(), this.#nextSampleSequence(canonicalKey))
+        : undefined;
       for (const node of nodes) {
         this.#balancer.setSample(node.targetId, sample);
       }
@@ -253,6 +279,17 @@ export class LoadMonitor {
     } finally {
       this.#sampling.delete(canonicalKey);
     }
+  }
+
+  /**
+   * Number the samples of one physical engine in the order they were accepted. Every target
+   * alias of that key shares the number, so a reader can tell one answer looked at twice
+   * from a second answer, and the same number is never handed out twice.
+   */
+  #nextSampleSequence(canonicalKey: string): number {
+    const next = (this.#sampleSequences.get(canonicalKey) ?? 0) + 1;
+    this.#sampleSequences.set(canonicalKey, next);
+    return next;
   }
 
   #nodesForKey(canonicalKey: string): LoadBalancerNode[] {
