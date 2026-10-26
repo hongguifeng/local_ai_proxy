@@ -144,6 +144,33 @@ function repoPathReferences(body: string): string[] {
   return [...new Set(references)].sort();
 }
 
+/**
+ * Repository paths and `npm run` script names a document names that no longer exist.
+ *
+ * Both AGENTS.md and every SKILL.md go through this, because a stale path in either one
+ * reads as current instructions: the failure mode is an agent following a file that was
+ * renamed two refactors ago.
+ */
+async function unresolvedReferences(
+  label: string,
+  body: string,
+  scripts: Record<string, string>,
+): Promise<string[]> {
+  const problems: string[] = [];
+  for (const reference of repoPathReferences(body)) {
+    if ((await stat(path.join(repositoryRoot, reference)).catch(() => undefined)) === undefined) {
+      problems.push(`${label}: ${reference} does not exist`);
+    }
+  }
+  for (const match of body.matchAll(/npm run ([A-Za-z0-9:_-]+)/g)) {
+    const script = match[1];
+    if (script !== undefined && scripts[script] === undefined) {
+      problems.push(`${label}: npm run ${script} is not in package.json`);
+    }
+  }
+  return problems;
+}
+
 describe("project skills", () => {
   it("keeps exactly the roster of skill directories Pi is meant to advertise", async () => {
     const directories = (await readdir(skillsRoot, { withFileTypes: true }))
@@ -248,18 +275,13 @@ describe("project skills", () => {
     const problems: string[] = [];
 
     for (const document of documents) {
-      for (const reference of repoPathReferences(document.body)) {
-        if ((await stat(path.join(repositoryRoot, reference)).catch(() => undefined)) === undefined) {
-          problems.push(`${document.directory}: ${reference} does not exist`);
-        }
-      }
-
-      for (const match of document.body.matchAll(/npm run ([A-Za-z0-9:_-]+)/g)) {
-        const script = match[1];
-        if (script !== undefined && packageJson.scripts?.[script] === undefined) {
-          problems.push(`${document.directory}: npm run ${script} is not in package.json`);
-        }
-      }
+      problems.push(
+        ...(await unresolvedReferences(
+          document.directory,
+          document.body,
+          packageJson.scripts ?? {},
+        )),
+      );
 
       for (const match of document.body.matchAll(/vitest run ([^\s`]+)/g)) {
         const target = match[1];
@@ -275,5 +297,18 @@ describe("project skills", () => {
     }
 
     expect(problems).toEqual([]);
+  });
+
+  // AGENTS.md is always in context while a skill is loaded on demand, so a path that
+  // rots there is the one nobody re-reads: `src/proxy/protocol/analysis.js` outlived the
+  // rename to `.ts` until an audit found it by hand. The same scan now covers it, so a
+  // stale path or script name fails here instead of waiting for the next reader.
+  it("[AI-26] names only commands and files that still exist in AGENTS.md", async () => {
+    const packageJson = JSON.parse(
+      await readFile(path.join(repositoryRoot, "package.json"), "utf8"),
+    ) as { scripts?: Record<string, string> };
+    const body = await readFile(path.join(repositoryRoot, "AGENTS.md"), "utf8");
+
+    expect(await unresolvedReferences("AGENTS.md", body, packageJson.scripts ?? {})).toEqual([]);
   });
 });
