@@ -317,6 +317,15 @@ export function createLoadBalancing({
       now: 0,
       serial: 0,
       pendingSerial: null,
+      // Paging progress is the server's own `nextOffset`, never the length of the rows held
+      // here: dropping a duplicate row shortens the list without advancing the page.
+      nextOffset: 0,
+      // The generation the rows on screen came from, or "" before any page was accepted.
+      version: "",
+      // The read still on its way and the surface that started it, so a close, a removal or
+      // a disposal can stop it and an old callback cannot reach a newer panel.
+      readOwner: null,
+      readLifecycle: null,
     };
     bindingPanels.set(key, created);
     return created;
@@ -580,10 +589,92 @@ export function createLoadBalancing({
   }
 
   /**
+   * The generation a page of bindings belongs to: which runtime holds the binding table and
+   * which version of the group's routing signature it was read under. Two pages carrying
+   * different versions are two different lists, so their rows must not be shown as one.
+   * JSON is used because both values are legally nullable, which leaves "" free to mean
+   * "no page has been accepted yet".
+   */
+  function bindingVersionKey(runtimeEpoch, groupRevision) {
+    return JSON.stringify([runtimeEpoch, groupRevision]);
+  }
+
+  /** The binding's own address: its number plus the incarnation that says whether a reused
+   *  number is the same binding. Ordering can shift while the user pages, so this is what
+   *  keeps one binding from being listed twice in one panel. */
+  function bindingAddress(item) {
+    return JSON.stringify([item.bindingId, item.incarnation]);
+  }
+
+  /** Whether a read still owns its panel: no newer serial took over, and the surface that
+   *  started it is still the live one. A callback from either situation is obsolete. */
+  function bindingReadIsCurrent(panel, serial) {
+    return panel.pendingSerial === serial && panel.readLifecycle === lifecycle;
+  }
+
+  /**
+   * Stop a read that is still on its way: the panel is closed, hidden, gone, or the whole
+   * surface was disposed, so nobody is waiting for that answer. The flags are cleared here
+   * because the callback of a cancelled read is not allowed to clear them later - it may
+   * belong to a lifecycle that no longer exists.
+   */
+  function cancelBindingRead(panel) {
+    panel.readOwner?.abort();
+    panel.readOwner = null;
+    panel.pendingSerial = null;
+    panel.loading = false;
+    panel.loadingMore = false;
+  }
+
+  function cancelAllBindingReads() {
+    bindingPanels.forEach((panel) => cancelBindingRead(panel));
+  }
+
+  /** Put an accepted page into the panel. Offset 0 replaces the rows, so a refresh shows what
+   *  the server answers now; a larger offset adds the next page without dropping the rows the
+   *  user paged to. A row that came back under an address the panel already holds is dropped,
+   *  because one binding listed twice reads as two bindings. */
+  function storeBindingPage(panel, data, append) {
+    panel.total = data.totalBindings;
+    panel.hasMore = data.hasMore;
+    panel.now = data.now;
+    panel.nextOffset = data.nextOffset;
+    panel.loaded = true;
+    panel.errorKey = null;
+    panel.errorMessage = "";
+    panel.errorDetail = "";
+    if (append) {
+      const held = new Set(panel.items.map(bindingAddress));
+      panel.items = panel.items.concat(
+        data.items.filter((item) => !held.has(bindingAddress(item))),
+      );
+      return;
+    }
+    panel.items = data.items.slice();
+    panel.version = bindingVersionKey(data.runtimeEpoch, data.groupRevision);
+  }
+
+  /** Forget the rows that came from another runtime epoch or another group revision, so the
+   *  panel holds one consistent list again. A fresh read then starts at offset 0: the tail of
+   *  the old generation is not the first page of the new one. */
+  function discardBindingGeneration(panel) {
+    panel.items = [];
+    panel.version = "";
+    panel.loaded = false;
+    panel.total = 0;
+    panel.hasMore = false;
+    panel.nextOffset = 0;
+  }
+
+  /**
    * One read of one node's list. Offset 0 replaces the rows and asks for as many as the user
    * already paged through, so a refresh never drops rows that are on screen; a larger offset
-   * appends the next page. A late answer is dropped: a newer read owns the panel, and its
-   * numbers are the ones the user should see.
+   * appends the next page at the server's own progress. A late answer is dropped: a newer read
+   * owns the panel, and its numbers are the ones the user should see. A page that reports a
+   * different runtime epoch or group revision than the rows already shown belongs to another
+   * generation, so those rows are dropped and the new one is read from offset 0 - one restart
+   * per answer, never a loop. A cancelled read is not a failed read: the panel keeps whatever
+   * it already showed, and a callback whose surface is gone touches nothing.
    */
   async function readBindingPage(context, panel, offset) {
     if (lifecycle === null) return;
@@ -596,7 +687,9 @@ export function createLoadBalancing({
     panel.pendingSerial = serial;
     panel.loading = true;
     panel.loadingMore = append;
+    panel.readLifecycle = lifecycle;
     const pending = new AbortController();
+    panel.readOwner = pending;
     const query = new URLSearchParams({
       pairId: context.pairId,
       groupId: context.groupId,
@@ -609,7 +702,7 @@ export function createLoadBalancing({
         signal: pending.signal,
       });
       if (pending.signal.aborted) return;
-      if (panel.pendingSerial !== serial) return;
+      if (!bindingReadIsCurrent(panel, serial)) return;
       // An answer that names another pair, group or node is not this panel's page, and
       // showing it here would put one node's bindings under another node's name.
       if (
@@ -618,27 +711,27 @@ export function createLoadBalancing({
         data.targetFilter !== context.targetId
       )
         return;
-      panel.items = append ? panel.items.concat(data.items) : data.items.slice();
-      panel.total = data.totalBindings;
-      panel.hasMore = data.hasMore;
-      panel.now = data.now;
-      panel.loaded = true;
-      panel.errorKey = null;
-      panel.errorMessage = "";
-      panel.errorDetail = "";
+      if (append && bindingVersionKey(data.runtimeEpoch, data.groupRevision) !== panel.version) {
+        discardBindingGeneration(panel);
+        void readBindingPage(context, panel, 0);
+        return;
+      }
+      storeBindingPage(panel, data, append);
     } catch (error) {
       // A cancelled read is a tab switch or a disposal, not a failed one: the panel keeps
       // whatever it already showed and waits for the next tick.
       if (pending.signal.aborted) return;
-      if (panel.pendingSerial !== serial) return;
+      if (!bindingReadIsCurrent(panel, serial)) return;
       applyBindingError(panel, error);
     } finally {
-      if (panel.pendingSerial === serial) {
+      if (bindingReadIsCurrent(panel, serial)) {
         panel.pendingSerial = null;
         panel.loading = false;
         panel.loadingMore = false;
       }
-      renderBindingPanel(context);
+      if (panel.readOwner === pending) panel.readOwner = null;
+      // A read whose surface is gone must not repaint a panel a newer lifecycle built.
+      if (panel.readLifecycle === lifecycle) renderBindingPanel(context);
     }
   }
 
@@ -700,7 +793,10 @@ export function createLoadBalancing({
     const stored = readLbNodeBindingsOpen();
     stored[key] = willOpen;
     writeLbNodeBindingsOpen(stored);
+    // Closing is a cancellation, not a failure: the answer would land in a list the user
+    // just put away, so the read on its way is stopped and its rows stay as they were.
     if (willOpen) void readBindingPage(context, panel, 0);
+    else cancelBindingRead(panel);
   }
 
   function loadMoreBindings(moreButton) {
@@ -710,7 +806,9 @@ export function createLoadBalancing({
     if (context === null) return;
     const panel = bindingPanelFor(context.pairId, context.groupId, context.targetId);
     if (!panel.hasMore || panel.pendingSerial !== null) return;
-    void readBindingPage(context, panel, panel.items.length);
+    // The server's progress, not the rows held here: dropping a row that came back under an
+    // address already shown would otherwise ask for the same page again.
+    void readBindingPage(context, panel, panel.nextOffset);
   }
 
   /**
@@ -728,8 +826,9 @@ export function createLoadBalancing({
     });
     const stored = readLbNodeBindingsOpen();
     let changed = false;
-    bindingPanels.forEach((_panel, key) => {
+    bindingPanels.forEach((panel, key) => {
       if (living.has(key)) return;
+      cancelBindingRead(panel);
       bindingPanels.delete(key);
       delete stored[key];
       changed = true;
@@ -1165,6 +1264,7 @@ export function createLoadBalancing({
     if (!lifecycle || !loadBalancerStatusVisible()) {
       statusRequest?.abort();
       statusRequest = null;
+      cancelAllBindingReads();
       closeLbPickers(null);
       return;
     }
@@ -1214,6 +1314,9 @@ export function createLoadBalancing({
     loadBalancerStatusTimer = null;
     statusRequest?.abort();
     statusRequest = null;
+    // The list reads have an owner of their own, so disposal stops them the same way the
+    // status read is stopped; a cancelled read is never shown as a query failure.
+    cancelAllBindingReads();
     closeLbPickers(null);
   }
   return {

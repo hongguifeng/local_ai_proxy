@@ -743,6 +743,52 @@ describe("admin UI load balancing groups", { timeout: UI_TEST_TIMEOUT_MS }, () =
     return reply.response;
   }
 
+  /** The reads the browser made of the binding list, in the order they were made. A page
+   *  answered by a route never reaches the stub, so the parameters are read back from the
+   *  requests themselves. */
+  function bindingReadParameters(): { offset: number; limit: number }[] {
+    const asked: { offset: number; limit: number }[] = [];
+    page.on("request", (request) => {
+      if (!request.url().includes("/api/load-balancer/tasks")) return;
+      const query = taskReadQuery(new URL(request.url()));
+      asked.push({ offset: query.offset, limit: query.limit });
+    });
+    return asked;
+  }
+
+  /** The models of the rows a panel shows, once every row of a page has been relabelled to
+   *  one of two names. Reading the rows back this way is what tells two generations of one
+   *  list apart, and how many of each are on screen. */
+  function shownModels(
+    panel: Locator,
+    labels: readonly string[],
+  ): () => Promise<readonly string[]> {
+    return async () =>
+      (await panel.locator("[data-lb-binding-model]").allTextContents()).filter((model) =>
+        labels.includes(model),
+      );
+  }
+
+  /** More rows than the fixture's 25, built by cloning a quiet row under a fresh number and
+   *  model. The shape is the one the service answers with - only the table is longer. */
+  function lbBindingLongTable(targetId: string, rows: number) {
+    const reply = lbBindingFixturePage({
+      pairId: "proxy-one",
+      groupId: savedGroup().id,
+      targetId,
+      limit: 20,
+      offset: 0,
+    });
+    if (!("response" in reply)) throw new Error("the stub refused the binding list");
+    const quiet = reply.response.items.at(-1);
+    if (quiet === undefined) throw new Error("the binding fixture has no rows to clone");
+    return Array.from({ length: rows }, (_, index) => ({
+      ...quiet,
+      bindingId: 500 + index,
+      model: `table-model-${index + 1}`,
+    }));
+  }
+
   it(
     "[TRI-06] opens one node's bindings and keeps binding counts apart from task counts",
     async () => {
@@ -1343,5 +1389,271 @@ describe("admin UI load balancing groups", { timeout: UI_TEST_TIMEOUT_MS }, () =
       () => localStorage.getItem("llmProxyLbNodeBindings") ?? "{}",
     );
     expect(JSON.parse(stored) as Record<string, unknown>).toEqual({});
+  });
+
+  it("[TRI-06] drops the old runtime's rows when a later page reports another epoch", async () => {
+    await page.clock.install();
+    const card = await openTwoNodeStates();
+    const asked = bindingReadParameters();
+    const labels = ["OLD_RUNTIME", "NEW_RUNTIME"] as const;
+    // The pair restarted between the first page and the page the user asked for. From that
+    // answer on, every read names the new epoch - the read from offset 0 included, exactly
+    // as a restarted pair would name it.
+    let moved = false;
+    await page.route("**/api/load-balancer/tasks*", (route) => {
+      const query = taskReadQuery(new URL(route.request().url()));
+      if (query.offset > 0) moved = true;
+      const reply = lbBindingFixturePage(query, 0);
+      if (!("response" in reply)) throw new Error("the stub refused the binding list");
+      const label = moved ? labels[1] : labels[0];
+      void route.fulfill({
+        json: {
+          ...reply.response,
+          runtimeEpoch: moved ? "epoch-two" : "epoch-one",
+          items: reply.response.items.map((item) => ({ ...item, model: label })),
+        },
+      });
+    });
+    const panel = await openBindingList(card, 0);
+    const models = shownModels(panel, labels);
+    await expectPage(panel.locator(".lb-binding")).toHaveCount(20);
+    await expect.poll(models).toEqual(Array.from({ length: 20 }, () => labels[0]));
+
+    await panel.locator("[data-lb-binding-more]").click();
+    // The rows on screen belong to a runtime that is gone, so they are dropped rather than
+    // appended to: one panel shows one generation, never half of each.
+    await expect.poll(models).toEqual(Array.from({ length: 20 }, () => labels[1]));
+    await expectPage(panel.locator(".lb-binding")).toHaveCount(20);
+    await expectPage(panel.locator("[data-lb-binding-loading]")).toHaveCount(0);
+    await expectPage(panel.locator("[data-lb-binding-error]")).toHaveCount(0);
+    await expectPage(panel.locator("[data-lb-binding-stale]")).toHaveCount(0);
+    // Not stuck: the restart is one read, and the next page is still offered.
+    await expectPage(panel.locator("[data-lb-binding-more]")).toHaveText("Load more (20/25)");
+
+    // The new generation was read from the top, not from where the old list ran out.
+    await expect.poll(() => asked.map((read) => read.offset)).toEqual([0, 20, 0]);
+    expect(asked.every((read) => read.limit === 20)).toBe(true);
+  });
+
+  it("[TRI-06] drops the old rows when the group revision moved under one runtime", async () => {
+    await page.clock.install();
+    const card = await openTwoNodeStates();
+    const asked = bindingReadParameters();
+    const labels = ["REVISION_ONE", "REVISION_TWO"] as const;
+    // Same runtime, but the group's routing signature moved while the user was paging, so
+    // the rows on screen carry expectations decided under the older revision.
+    let moved = false;
+    await page.route("**/api/load-balancer/tasks*", (route) => {
+      const query = taskReadQuery(new URL(route.request().url()));
+      if (query.offset > 0) moved = true;
+      const reply = lbBindingFixturePage(query, 0);
+      if (!("response" in reply)) throw new Error("the stub refused the binding list");
+      const label = moved ? labels[1] : labels[0];
+      void route.fulfill({
+        json: {
+          ...reply.response,
+          groupRevision: moved ? 13 : 12,
+          items: reply.response.items.map((item) => ({ ...item, model: label })),
+        },
+      });
+    });
+    const panel = await openBindingList(card, 0);
+    const models = shownModels(panel, labels);
+    await expectPage(panel.locator(".lb-binding")).toHaveCount(20);
+    await expect.poll(models).toEqual(Array.from({ length: 20 }, () => labels[0]));
+
+    await panel.locator("[data-lb-binding-more]").click();
+    await expect.poll(models).toEqual(Array.from({ length: 20 }, () => labels[1]));
+    await expectPage(panel.locator(".lb-binding")).toHaveCount(20);
+    await expectPage(panel.locator("[data-lb-binding-loading]")).toHaveCount(0);
+    await expectPage(panel.locator("[data-lb-binding-error]")).toHaveCount(0);
+    await expectPage(panel.locator("[data-lb-binding-stale]")).toHaveCount(0);
+    await expect.poll(() => asked.map((read) => read.offset)).toEqual([0, 20, 0]);
+  });
+
+  it("[TRI-06] lists one binding once when the table shifted while the user paged", async () => {
+    await page.clock.install();
+    const card = await openTwoNodeStates();
+    const [firstTarget] = savedMemberIds();
+    if (firstTarget === undefined) throw new Error("the saved group has no node");
+    const asked = bindingReadParameters();
+    const table = lbBindingLongTable(firstTarget, 45);
+    const firstBinding = table[0];
+    if (firstBinding === undefined) throw new Error("the long binding table is empty");
+    // A new binding became the most recently seen one, so every existing row moved down one
+    // place: the page the user asked for now carries a binding the panel already shows.
+    const arrived = { ...firstBinding, bindingId: 600, model: "arrived-latest-binding" };
+    const shifted = [arrived, ...table];
+    await page.route("**/api/load-balancer/tasks*", (route) => {
+      const query = taskReadQuery(new URL(route.request().url()));
+      const ordered = query.offset === 0 ? table : shifted;
+      const rows = ordered.slice(query.offset, query.offset + query.limit);
+      const hasMore = query.offset + rows.length < ordered.length;
+      const reply = lbBindingFixturePage(query);
+      if (!("response" in reply)) throw new Error("the stub refused the binding list");
+      void route.fulfill({
+        json: {
+          ...reply.response,
+          items: rows,
+          totalBindings: ordered.length,
+          hasMore,
+          nextOffset: hasMore ? query.offset + rows.length : query.offset,
+          nodes: reply.response.nodes.map((node) =>
+            node.targetId === firstTarget ? { ...node, bindings: ordered.length } : node,
+          ),
+        },
+      });
+    });
+    const panel = await openBindingList(card, 0);
+    await expectPage(panel.locator(".lb-binding")).toHaveCount(20);
+    const more = panel.locator("[data-lb-binding-more]");
+    await more.click();
+    // 20 rows were on screen and the page carried 20, of which one was already shown: the
+    // panel ends with 39 rows, with that binding listed once.
+    await expectPage(panel.locator(".lb-binding")).toHaveCount(39);
+    await expectPage(bindingRow(panel, 519)).toHaveCount(1);
+    const listed = await panel
+      .locator(".lb-binding")
+      .evaluateAll((elements) =>
+        elements.map((element) => element.getAttribute("data-lb-binding-id") ?? ""),
+      );
+    expect(new Set(listed).size).toBe(listed.length);
+    // The panel holds 39 rows while the server's progress is 40 - the two are not the same
+    // number, and it is the server's that the next read has to ask with.
+    await expectPage(more).toHaveText("Load more (39/46)");
+    await more.click();
+    await expect.poll(() => asked.at(-1)).toEqual({ offset: 40, limit: 20 });
+    // The last page answers the rest, so the list ends on its own instead of asking for the
+    // same page over and over.
+    await expectPage(panel.locator(".lb-binding")).toHaveCount(45);
+    await expectPage(more).toHaveCount(0);
+    await expectPage(panel.locator("[data-lb-binding-loading]")).toHaveCount(0);
+    await expectPage(panel.locator("[data-lb-binding-error]")).toHaveCount(0);
+    const listedAgain = await panel
+      .locator(".lb-binding")
+      .evaluateAll((elements) =>
+        elements.map((element) => element.getAttribute("data-lb-binding-id") ?? ""),
+      );
+    expect(new Set(listedAgain).size).toBe(listedAgain.length);
+    expect(listedAgain.filter((id) => id === "519")).toHaveLength(1);
+  });
+
+  it("[TRI-06] stops paging at the row cap and keeps the cap on a refresh", async () => {
+    await page.clock.install();
+    const card = await openTwoNodeStates();
+    const [firstTarget] = savedMemberIds();
+    if (firstTarget === undefined) throw new Error("the saved group has no node");
+    const asked = bindingReadParameters();
+    const table = lbBindingLongTable(firstTarget, 260);
+    await page.route("**/api/load-balancer/tasks*", (route) => {
+      const query = taskReadQuery(new URL(route.request().url()));
+      const rows = table.slice(query.offset, query.offset + query.limit);
+      const hasMore = query.offset + rows.length < table.length;
+      const reply = lbBindingFixturePage(query);
+      if (!("response" in reply)) throw new Error("the stub refused the binding list");
+      void route.fulfill({
+        json: {
+          ...reply.response,
+          items: rows,
+          totalBindings: table.length,
+          hasMore,
+          nextOffset: hasMore ? query.offset + rows.length : query.offset,
+          nodes: reply.response.nodes.map((node) =>
+            node.targetId === firstTarget ? { ...node, bindings: table.length } : node,
+          ),
+        },
+      });
+    });
+    const panel = await openBindingList(card, 0);
+    await expectPage(panel.locator(".lb-binding")).toHaveCount(20);
+    for (let shown = 20; shown < 200; shown += 20) {
+      await panel.locator("[data-lb-binding-more]").click();
+      await expectPage(panel.locator(".lb-binding")).toHaveCount(shown + 20);
+      // Until the cap is reached the pager keeps offering the next page and says nothing
+      // about a limit.
+      if (shown + 20 < 200) {
+        await expectPage(panel.locator("[data-lb-binding-limit]")).toHaveCount(0);
+      }
+    }
+    // The row cap is a stated limit, not a silent truncation, and it hides the pager.
+    await expectPage(panel.locator("[data-lb-binding-limit]")).toHaveText(
+      "Reached the cap of one read",
+    );
+    await expectPage(panel.locator("[data-lb-binding-more]")).toHaveCount(0);
+    expect(asked.every((read) => read.limit <= 200)).toBe(true);
+
+    // The poll that refreshes this panel reads from the top with the cap, never more, and the
+    // rows the user paged to stay on screen.
+    const seen = lbStatusReads.length;
+    await page.clock.runFor(2_000);
+    await waitForLbPoll(seen);
+    await expect
+      .poll(() => asked.some((read) => read.offset === 0 && read.limit === 200), {
+        timeout: UI_TEST_TIMEOUT_MS,
+        interval: 200,
+      })
+      .toBe(true);
+    await expectPage(panel.locator(".lb-binding")).toHaveCount(200);
+    await expectPage(panel.locator("[data-lb-binding-limit]")).toHaveText(
+      "Reached the cap of one read",
+    );
+  });
+
+  it("[TRI-06] does not report a cancelled read as a failure and reads again afterwards", async () => {
+    await page.clock.install();
+    const card = await openTwoNodeStates();
+    // The first two reads of the binding list never answer: closing the list has to cancel
+    // one of them and disposing the surface the other. Reads after those two go to the stub
+    // as they normally would, which is what proves the panel was not poisoned.
+    await page.evaluate(String.raw`
+      (() => {
+        const originalFetch = window.fetch;
+        let remaining = 2;
+        window.fetch = (input, init) => {
+          const url =
+            typeof input === "string"
+              ? input
+              : input instanceof URL
+                ? input.href
+                : input.url;
+          if (!url.includes("/api/load-balancer/tasks")) return originalFetch(input, init);
+          remaining -= 1;
+          if (remaining < 0) return originalFetch(input, init);
+          return new Promise((_resolve, reject) => {
+            const abort = () =>
+              reject(new DOMException("Cancelled by the surface", "AbortError"));
+            const signal = init && init.signal;
+            if (signal && signal.aborted) abort();
+            else if (signal) signal.addEventListener("abort", abort, { once: true });
+          });
+        };
+      })()
+    `);
+    const panel = await openBindingList(card, 0);
+    await expectPage(panel.locator("[data-lb-binding-loading]")).toBeVisible();
+
+    // Closing the list is a cancellation, not a failed query: nothing claims the read went
+    // wrong, and nothing prints the cancellation's own words.
+    await bindingsToggle(card, 0).click();
+    await expectPage(panel).toBeHidden();
+    await expectPage(panel.locator("[data-lb-binding-error]")).toHaveCount(0);
+    await expectPage(panel.locator("[data-lb-binding-stale]")).toHaveCount(0);
+
+    await bindingsToggle(card, 0).click();
+    await expectPage(panel.locator("[data-lb-binding-loading]")).toBeVisible();
+    const seen = lbStatusReads.length;
+    await page.evaluate("__adminUiTest.proxyConfig.dispose()");
+    // Disposal stops the list the same way it stops the status poll, and the panel does not
+    // turn that into a query error the user never had.
+    await expectPage(panel.locator("[data-lb-binding-error]")).toHaveCount(0);
+    await expectPage(panel.locator("[data-lb-binding-stale]")).toHaveCount(0);
+
+    // A new surface reads the same panel normally: the rows arrive from the read its own
+    // status poll asks for, and the old cancelled read has no say left in them.
+    await page.evaluate("__adminUiTest.proxyConfig.init()");
+    await waitForLbPoll(seen);
+    await expectPage(panel.locator(".lb-binding")).toHaveCount(20);
+    await expectPage(panel.locator("[data-lb-binding-loading]")).toHaveCount(0);
+    await expectPage(panel.locator("[data-lb-binding-error]")).toHaveCount(0);
   });
 });

@@ -118,7 +118,7 @@ export function loadBalancerStatusFixture() {
           enabled: true,
           inRotation: index === 0,
           inFlight: lbStatusRound + index,
-          bindings: index,
+          bindings: index === 0 ? (lbBindingVisualRows ?? 0) : index,
           cooldownRemainingMs: index === 0 ? 0 : 4_000,
           failures: index === 0 ? 0 : 2,
           lastDispatchedAt: null,
@@ -161,6 +161,21 @@ export let lbBindingFailure: "pair_not_found" | "group_not_found" | null = null;
 
 /** Which copy of the newest binding the stub is on: the row a late answer must not revive. */
 export let lbBindingRound = 0;
+
+/**
+ * Visual baselines only: how many of the representative rows the first node's binding list
+ * keeps. Five is the whole set the row markup has to show apart - several tasks on one
+ * binding, a candidate with a truncated scan, a model name long enough to test the clip, a
+ * history read that failed and a node with no log root - because the captured page has to
+ * stay a readable height instead of swallowing all 25 rows.
+ *
+ * The rows are the very items the UI tests read, and the page keeps the shape the real
+ * service gives it: `totalBindings`, `hasMore` and `nextOffset` all describe the shortened
+ * set, and the node counts are counted from the same items. So a baseline shows a smaller
+ * answer the service could really give, never a shape it could not.
+ */
+export const lbBindingBaselineRows = 5;
+export let lbBindingVisualRows: number | null = null;
 
 const LB_BINDING_NOW = 1_792_830_671_228;
 
@@ -604,7 +619,11 @@ export function lbBindingFixturePage(
     return { error: "group_not_found" };
   }
   const itemsFor = (targetId: string, index: number) =>
-    index === 0 ? lbBindingFirstNodeItems(targetId, round) : lbBindingSecondNodeItems(targetId);
+    index === 0
+      ? lbBindingVisualRows === null
+        ? lbBindingFirstNodeItems(targetId, round)
+        : lbBindingFirstNodeItems(targetId, round).slice(0, lbBindingVisualRows)
+      : lbBindingSecondNodeItems(targetId);
   const byTarget: Record<string, number> = {};
   group.members.forEach((member, index) => {
     byTarget[member.target_id] = itemsFor(member.target_id, index).length;
@@ -1531,6 +1550,7 @@ export function resetFixtureData(): void {
   lbBindingReads.length = 0;
   lbBindingFailure = null;
   lbBindingRound = 0;
+  lbBindingVisualRows = null;
   pairsSaveIssues = null;
   modelCatalogOutcome = {
     models: [],
@@ -1581,6 +1601,9 @@ export function setLbBindingFailure(value: typeof lbBindingFailure): void {
 }
 export function setLbBindingRound(value: typeof lbBindingRound): void {
   lbBindingRound = value;
+}
+export function setLbBindingVisualRows(value: typeof lbBindingVisualRows): void {
+  lbBindingVisualRows = value;
 }
 export function setTaskBriefFixture(value: typeof taskBriefFixture): void {
   taskBriefFixture = value;

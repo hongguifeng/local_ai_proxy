@@ -6,9 +6,13 @@ import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { basename, dirname } from "node:path";
 import { PNG } from "pngjs";
 import {
+  lbBindingBaselineRows,
+  lbStatusReads,
   pairs,
+  setLbBindingVisualRows,
   setTaskBriefFixture,
   statisticsBaselineFixtures,
+  UI_TEST_TIMEOUT_MS,
   visualLbPairs,
 } from "./admin-ui-fixture.js";
 import { baseUrl, page } from "./admin-ui-server.js";
@@ -132,7 +136,17 @@ export async function requiredBox(
   return box;
 }
 
+/**
+ * The load-balancing baseline, with one node's binding list actually open.
+ *
+ * The page is captured at the full page height, so the list is capped to the representative
+ * rows `lbBindingBaselineRows` says instead of every row the fixture can build: a capture of
+ * all 25 rows would only make the image taller without showing anything the five do not show.
+ * The group cards, their member rows and the node-state rows are all still in the picture, so
+ * the original configuration and layout coverage is kept alongside the new list.
+ */
 export async function loadLbBaseline(language: "zh" | "en"): Promise<void> {
+  setLbBindingVisualRows(lbBindingBaselineRows);
   pairs.splice(0, pairs.length, ...visualLbPairs());
   await page.setViewportSize({ width: 1278, height: 900 });
   await loadAdminPage();
@@ -140,6 +154,24 @@ export async function loadLbBaseline(language: "zh" | "en"): Promise<void> {
   await expectPage(page.locator(".lb-card")).toHaveCount(2);
   await expectPage(page.locator(".lb-member-row")).toHaveCount(4);
   await expectPage(page.locator(".lb-picker-pop").first()).toBeHidden();
+  const firstCard = page.locator(".lb-card").first();
+  const firstNodeState = firstCard.locator(".lb-node-state").nth(0);
+  await firstCard.locator(".lb-status > summary").click();
+  await expectPage(firstCard.locator(".lb-node-state")).toHaveCount(2);
+  await firstNodeState.locator("[data-lb-bindings-toggle]").click();
+  const bindingPanel = firstNodeState.locator(".lb-binding-panel");
+  await expectPage(bindingPanel.locator(".lb-binding")).toHaveCount(lbBindingBaselineRows);
+  await expectPage(bindingPanel.locator("[data-lb-binding-loading]")).toHaveCount(0);
+  // The node's own numbers arrive with a status read, so the capture waits for one: taken
+  // before that tick the picture would show the placeholders the card writes before any
+  // answer, including "Bindings: 0" above a list that is plainly not empty.
+  const seenStatusReads = lbStatusReads.length;
+  await expect
+    .poll(() => lbStatusReads.length, { timeout: UI_TEST_TIMEOUT_MS, interval: 200 })
+    .toBeGreaterThan(seenStatusReads);
+  await expectPage(firstNodeState.locator('[data-lb-fact="bindings"]')).toHaveText(
+    new RegExp(`: ${lbBindingBaselineRows}$`),
+  );
   const height = await page.evaluate(() => {
     const el = document.querySelector("#proxies");
     return el ? el.scrollHeight : 0;
