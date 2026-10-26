@@ -36,6 +36,9 @@ jobs:
     name: Node 24 (${{ matrix.os }})
     runs-on: ${{ matrix.os }}
     strategy:
+      # Both runners report even when one fails: a cross-OS difference is exactly what
+      # the visual baselines need to show, and a cancelled job answers nothing.
+      fail-fast: false
       matrix:
         os: [ubuntu-latest, windows-latest]
 
@@ -70,5 +73,5 @@ jobs:
           name: node-test-reports-${{ matrix.os }}
           path: |
             coverage/
-            test-results/vitest-junit.xml
+            test-results/
           if-no-files-found: error

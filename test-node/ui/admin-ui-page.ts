@@ -2,7 +2,8 @@ import { expect } from "vitest";
 import pixelmatch from "pixelmatch";
 import type { Locator } from "@playwright/test";
 import { expect as expectPage } from "@playwright/test";
-import { readFile, writeFile } from "node:fs/promises";
+import { mkdir, readFile, writeFile } from "node:fs/promises";
+import { basename, dirname } from "node:path";
 import { PNG } from "pngjs";
 import {
   pairs,
@@ -158,6 +159,24 @@ export async function screenshotDifference(baselinePath: string): Promise<number
   ]);
   const actual = PNG.sync.read(actualBuffer);
   const baseline = PNG.sync.read(baselineBuffer);
+  try {
+    return compareCapture(actual, baseline);
+  } catch (error: unknown) {
+    // A mismatch is unreadable from a CI log alone: it names the two numbers but not
+    // which block moved. Keep the capture the runner produced so it can be diffed
+    // against the committed baseline, and keep the original assertion as the failure.
+    const failed = `test-results/ui-visual/${basename(baselinePath)}`;
+    await mkdir(dirname(failed), { recursive: true });
+    await writeFile(failed, actualBuffer);
+    console.error(`[visual] wrote the ${baselinePath} capture to ${failed}`);
+    throw error;
+  }
+}
+
+function compareCapture(
+  actual: { readonly width: number; readonly height: number; readonly data: Buffer },
+  baseline: { readonly width: number; readonly height: number; readonly data: Buffer },
+): number {
   expect(actual.width).toBe(baseline.width);
   // The document height can drift a few pixels between environments because of
   // fractional-pixel rounding (e.g. aspect-ratio SVGs). Treat a page as
