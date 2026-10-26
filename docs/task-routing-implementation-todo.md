@@ -668,7 +668,9 @@
   边界指纹、用户消息哈希、正文、用户消息、上游密钥或 session/prompt_cache 原文（LB-T11 逐项查）。
   装配侧：`AdminServerOptions` 现在要求 `getBindings`，`assembleAdminServices` 用
   `new BindingHistoryService()` 与 `manager.logRootForTarget()` 把它建出来，
-  `REQUIRED_ADMIN_SERVICES` 登记 `getStatus` 与 `getBindings`，`assertAdminServicesComplete` 对
+  `REQUIRED_ADMIN_SERVICES` 当时登记 `getStatus` 与 `getBindings`（TRI-08 整合之后是四条：
+  `getStatus`、`getBindings`、`moveBinding`、`cancelMoveBinding`，见下面 TRI-08 的整合记录），
+  `assertAdminServicesComplete` 对
   经 cast 构造、方法缺失的半装配按名字报 `loadBalancerService.getBindings`，而只带 `getStatus`
   的服务在编译期就被 `@ts-expect-error` 反例拒掉；空 manager 上真实装配答
   `{error: "pair_not_found"}`，证明生产装的是能答这个路由的服务而不是一个占位方法。
@@ -686,8 +688,8 @@
   刻意不读它，所以 `migration: "unavailable"` 与每个 `movable.ok: false`（理由 `migration_unavailable`，
   在途时再加 `in_flight`）仍是本项能给的全部可迁移性答案：目标是否可选、cooldown、asleep、物理引擎
   与模型兼容一律没有判断，要等 TRI-08 把这条列表接到迁移服务上；TRI-08 的
-  `POST /api/load-balancer/task-moves`、幂等键、409 冲突与取消路由一条也没有注册，路由表 34 项里
-  只有这一条新增。本项也不动 `manualProtection`。第二，本项不改数据库：提交里没有任何 `src/persistence/**` 文件，schema 仍是 v13，
+  `POST /api/load-balancer/task-moves`、幂等键、409 冲突与取消路由当时一条也没有注册，路由表 34 项里
+  只有这一条新增；TRI-08 整合之后两条都已注册、路由表 36 项，见下面 TRI-08 的记录。本项也不动 `manualProtection`。第二，本项不改数据库：提交里没有任何 `src/persistence/**` 文件，schema 仍是 v13，
   没有新表、没有新 schema 版本、没有迁移，也没有 traffic 写路径；本查询只读 `tasks`、`records`、
   `context_links` 与 `response_links` 四张现有表。第三，advise/auto 与 `rebalance_mode` 未实现，`usableForLoadJudgement` 只是
   随响应带出的事实，不是判定。第四，一页最多 200 个 binding 会为每个 binding 各开一次只读连接
