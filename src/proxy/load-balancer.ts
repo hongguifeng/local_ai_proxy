@@ -927,34 +927,33 @@ export class LoadBalancer {
    * `previous_response_id` or a stored conversation and send almost nothing itself, and nothing
    * in this proxy proves the next engine can read that object. `other` is unknown by definition.
    *
-   * A `response:` exact key carries no provenance, and that decides the shape of the gate.
+   * A `response:` exact key carries no provenance, and that is what settles the gate.
    * `taskExactKeys` writes one from a request's `previous_response_id`, while `attachResponseIds`
    * writes one from an id a finished response body produced; the table stores both into the same
-   * `binding.exactKeys` set as the same `response:<id>` string. So for any key the gate is looking
-   * at it cannot tell whether it names state the client depends on or an artefact the engine
-   * merely emitted. Because that question cannot be answered, the gate never accepts on an answer
-   * to it. A self-contained kind is accepted only on a proof that does not need the distinction -
-   * the binding's own evidence shows user content came in the body that created it - and a
-   * self-contained binding whose evidence shows no such content is refused as `state_unknown`:
-   * a request that brought nothing of its own may be reading state that lives on one engine.
-   * A `responses` binding is refused either way: with a response chain it is refused as the
-   * dependency the design names, without one it is refused because this runtime cannot prove the
-   * context arrived complete. A `conversation`, `thread` or session key is never accepted as
-   * proof - it is a client-side clue, and the same clue can name a conversation the next engine
-   * has never seen.
+   * `binding.exactKeys` set as the same `response:<id>` string, so no reader can tell a state the
+   * client depends on from an artefact an engine merely emitted. A request may name a response and
+   * still carry its whole conversation, which is the shape this gate used to let through: the key
+   * says the task is addressed through a response object, and that is a dependency this runtime
+   * cannot prove portable whatever the endpoint kind is. Since the question has no answer, one
+   * response key refuses the move everywhere - a chat task that learned its id from a finished
+   * body is held for the same reason as one that names `previous_response_id` - until TRI-11
+   * proves response state is shared across engines.
    *
-   * This is the conservative v1 line the open question in the task-routing TODO names: it can
-   * only be relaxed by a real upstream proof that response state is shared (TRI-11), never by
-   * assuming it is.
+   * What is left is the proof that needs no answer to that question: a self-contained kind moves
+   * only when it holds no response key and the binding's own evidence shows user content came in
+   * the body that created it. Without that content the request may be reading state that lives on
+   * one engine, so it is refused as `state_unknown`. A `conversation`, `thread` or session key is
+   * never accepted as proof - it is a client-side clue, and the same clue can name a conversation
+   * the next engine has never seen.
    */
   #stateRejection(binding: AffinityBinding): MigrationRejection | undefined {
-    const kind = binding.evidence.kind;
-    if (kind === "responses" && carriesResponseChain(binding)) {
+    if (carriesResponseChain(binding)) {
       return migrationRejection(
         "response_state_dependency",
-        "This task continues through a stored response id; nothing proves another engine can read that response.",
+        "This task is addressed through a response id, and nothing proves another engine can read that response.",
       );
     }
+    const kind = binding.evidence.kind;
     if (!SELF_CONTAINED_ENDPOINT_KINDS.has(kind)) {
       return migrationRejection(
         "state_unknown",
@@ -1491,7 +1490,12 @@ const SELF_CONTAINED_ENDPOINT_KINDS: ReadonlySet<string> = new Set<string>([
   "completions",
 ]);
 
-/** Whether this binding is addressed through a stored response id. */
+/**
+ * Whether a `response:` key points at this binding. Both sources - a request's
+ * `previous_response_id` and an id a finished response body produced - land in the same set
+ * under the same spelling, so this answers only "is the task addressed through a response
+ * object", never "which kind of response object".
+ */
 function carriesResponseChain(binding: AffinityBinding): boolean {
   for (const exactKey of binding.exactKeys) {
     if (exactKey.startsWith("response:")) {

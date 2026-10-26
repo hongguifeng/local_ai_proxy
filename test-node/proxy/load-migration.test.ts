@@ -18,6 +18,7 @@ import {
   METRIC_FRESH_WINDOW_MS,
   MIGRATION_RETENTION_MS,
   taskIdentity,
+  type AffinityBinding,
   type LoadBalancerBindingEntry,
   type LoadSample,
   type MigrationActor,
@@ -303,6 +304,28 @@ function chatIdentity(sessionId: string, turn = "one") {
     },
     headers: { "x-claude-code-session-id": [sessionId] },
     path: "/v1/chat/completions",
+  });
+}
+
+/** A Messages request: the whole conversation travels in the body. */
+function messagesIdentity(sessionId: string, turn = "one") {
+  return taskIdentity({
+    payload: {
+      model: "Qwen3.8-Flash-Next",
+      system: "rules",
+      messages: [{ role: "user", content: turn }],
+    },
+    headers: { "x-claude-code-session-id": [sessionId] },
+    path: "/v1/messages",
+  });
+}
+
+/** A Completions request: the prompt travels in the body. */
+function completionsIdentity(sessionId: string, prompt = "one") {
+  return taskIdentity({
+    payload: { model: "Qwen3.8-Flash-Next", prompt },
+    headers: { "x-claude-code-session-id": [sessionId] },
+    path: "/v1/completions",
   });
 }
 
@@ -689,6 +712,27 @@ describe("TRI-07 submitting a move", () => {
 });
 
 describe("TRI-07 the server-side state gate", () => {
+  /**
+   * What every refusal has to leave behind: the binding still on the node it was created on,
+   * still on its original revision, and a record that says it was refused rather than applied.
+   * A gate that refused a move but wrote half of it would be worse than no gate at all.
+   */
+  function expectRouteUntouched(
+    subject: LoadBalancer,
+    binding: AffinityBinding,
+    outcome: MoveBindingOutcome,
+  ): void {
+    expect(binding.targetId).toBe("node-a");
+    expect(binding.routingRevision).toBe(INITIAL_ROUTING_REVISION);
+    const entry = bindingEntry(subject, "lb-1", binding.id);
+    expect(entry.targetId).toBe("node-a");
+    expect(entry.routingRevision).toBe(INITIAL_ROUTING_REVISION);
+    const record = recordById(subject, operationIdOf(outcome));
+    expect(record.state).toBe("rejected");
+    expect(record.appliedRoutingRevision).toBeUndefined();
+    expect(record.observedAt).toBeUndefined();
+  }
+
   it("TRI-07 a task that continues through a stored response id is refused", () => {
     const { subject } = harness();
     configured(subject, twoEngines());
@@ -696,16 +740,15 @@ describe("TRI-07 the server-side state gate", () => {
     const binding = table.bind(responsesIdentity("session-1"), "node-a");
     table.attachResponseIds(binding, ["resp-1"]);
 
-    expect(codeOf(subject.moveBinding(moveRequest(subject, "node-b")))).toBe(
-      "response_state_dependency",
-    );
+    const learned = subject.moveBinding(moveRequest(subject, "node-b"));
+    expect(codeOf(learned)).toBe("response_state_dependency");
+    expectRouteUntouched(subject, binding, learned);
 
     // The next turn names that response, which is the dependency the gate refused for.
     table.bind(responsesIdentity("session-1", "two", "resp-1"), "node-a");
-    expect(
-      codeOf(subject.moveBinding(moveRequest(subject, "node-b", { bindingId: binding.id }))),
-    ).toBe("response_state_dependency");
-    expect(binding.targetId).toBe("node-a");
+    const named = subject.moveBinding(moveRequest(subject, "node-b", { bindingId: binding.id }));
+    expect(codeOf(named)).toBe("response_state_dependency");
+    expectRouteUntouched(subject, binding, named);
   });
 
   it("TRI-07 a conversation key is never proof: a stateful endpoint is refused as unknown", () => {
@@ -715,6 +758,7 @@ describe("TRI-07 the server-side state gate", () => {
 
     expect(codeOf(subject.moveBinding(moveRequest(subject, "node-b")))).toBe("state_unknown");
     expect(onlyBinding(subject).targetId).toBe("node-a");
+    expect(onlyBinding(subject).routingRevision).toBe(INITIAL_ROUTING_REVISION);
 
     // The same holds for a Responses binding that never named a stored response: this runtime
     // cannot prove the context arrived complete, so it refuses rather than guesses.
@@ -724,19 +768,85 @@ describe("TRI-07 the server-side state gate", () => {
     ).toBe("state_unknown");
   });
 
-  it("TRI-07 an endpoint whose context travels with the request is movable even with a learned response id", () => {
+  it("TRI-07 a self-contained kind that also names a response is refused for all three kinds", () => {
+    const { subject } = harness();
+    configured(subject, twoEngines());
+    const table = tableOf(subject);
+    // Each of the three kinds this proxy reads as self-contained carries its whole conversation
+    // in the body and names a stored response on top of it. The body proves the context
+    // travels; it says nothing about the response object, so the key is what refuses the move.
+    const chat = table.bind(
+      taskIdentity({
+        payload: {
+          model: "Qwen3.8-Flash-Next",
+          messages: [{ role: "user", content: "carried turn" }],
+          previous_response_id: "resp-chat",
+        },
+        path: "/v1/chat/completions",
+      }),
+      "node-a",
+    );
+    const messages = table.bind(
+      taskIdentity({
+        payload: {
+          model: "Qwen3.8-Flash-Next",
+          system: "rules",
+          messages: [{ role: "user", content: "carried turn" }],
+          previous_response_id: "resp-messages",
+        },
+        path: "/v1/messages",
+      }),
+      "node-a",
+    );
+    const completions = table.bind(
+      taskIdentity({
+        payload: {
+          model: "Qwen3.8-Flash-Next",
+          prompt: "carried prompt",
+          previous_response_id: "resp-completions",
+        },
+        path: "/v1/completions",
+      }),
+      "node-a",
+    );
+
+    for (const [name, binding] of [
+      ["chat", chat],
+      ["messages", messages],
+      ["completions", completions],
+    ] as const) {
+      expect(
+        binding.evidence.userHashes.length,
+        `a ${name} body carries its conversation`,
+      ).toBeGreaterThan(0);
+      const refused = subject.moveBinding(
+        moveRequest(subject, "node-b", { bindingId: binding.id }),
+      );
+      expect(codeOf(refused), `${name} names a stored response`).toBe("response_state_dependency");
+      expectRouteUntouched(subject, binding, refused);
+    }
+  });
+
+  it("TRI-07 a response id learned from a finished body refuses the move like a named one", () => {
     const { subject } = harness();
     configured(subject, twoEngines());
     const table = tableOf(subject);
     const binding = table.bind(chatIdentity("session-1"), "node-a");
-    // A chat response carries an id of its own; the client re-sends its messages, so that id
-    // is not a dependency on state living at one engine.
+    // A finished chat response carries an id of its own, which the pipeline teaches the binding.
+    // It lands in the same set under the same spelling a `previous_response_id` would, so the
+    // gate has nothing to tell the two apart and holds both on the same ground - even though
+    // this body demonstrably carried its conversation.
     table.attachResponseIds(binding, ["chatcmpl-1"]);
+    expect([...binding.exactKeys]).toContain("response:chatcmpl-1");
+    expect(binding.evidence.userHashes.length).toBeGreaterThan(0);
 
-    expect(subject.moveBinding(moveRequest(subject, "node-b")).kind).toBe("applied");
-    // Affinity survives the move: the learned key still names the same binding object.
+    const refused = subject.moveBinding(moveRequest(subject, "node-b"));
+    expect(codeOf(refused)).toBe("response_state_dependency");
+    expectRouteUntouched(subject, binding, refused);
+    // Refusal leaves the affinity exactly where it was: the learned key still names this
+    // binding object, on the node it never left.
     expect(table.bindingForExactKey("response:chatcmpl-1")?.id).toBe(binding.id);
-    expect(table.bindingForExactKey("response:chatcmpl-1")?.targetId).toBe("node-b");
+    expect(table.bindingForExactKey("response:chatcmpl-1")?.targetId).toBe("node-a");
   });
 
   it("TRI-07 an endpoint the proxy does not recognise is refused as unknown", () => {
@@ -771,15 +881,16 @@ describe("TRI-07 the server-side state gate", () => {
     expect(dependent.exactKeys.size).toBe(1);
 
     // So the gate cannot tell a dependency from an artefact, and must not accept on the guess
-    // that this key was the harmless one. This binding's evidence shows no conversation came
-    // with the request, which is the proof the gate needs and does not have.
-    expect(
-      codeOf(subject.moveBinding(moveRequest(subject, "node-b", { bindingId: dependent.id }))),
-    ).toBe("state_unknown");
-    expect(dependent.targetId).toBe("node-a");
+    // that this key was the harmless one. The key is checked first, whatever the body's own
+    // evidence says, because that ordering is the only one that never rests on a guess.
+    const refused = subject.moveBinding(
+      moveRequest(subject, "node-b", { bindingId: dependent.id }),
+    );
+    expect(codeOf(refused)).toBe("response_state_dependency");
+    expectRouteUntouched(subject, dependent, refused);
 
-    // The refusal is about the missing context, not about the key: the same rule holds on an
-    // endpoint whose shape this proxy does read, with no response key in sight.
+    // A self-contained kind with no response key in sight is still refused on the body's own
+    // account: no user content means the request may be reading state that lives on one engine.
     const noUserTurn = table.bind(
       taskIdentity({
         payload: {
@@ -792,17 +903,70 @@ describe("TRI-07 the server-side state gate", () => {
       "node-a",
     );
     expect([...noUserTurn.exactKeys]).toEqual([]);
-    expect(
-      codeOf(subject.moveBinding(moveRequest(subject, "node-b", { bindingId: noUserTurn.id }))),
-    ).toBe("state_unknown");
+    const noUserRefused = subject.moveBinding(
+      moveRequest(subject, "node-b", { bindingId: noUserTurn.id }),
+    );
+    expect(codeOf(noUserRefused)).toBe("state_unknown");
+    expectRouteUntouched(subject, noUserTurn, noUserRefused);
 
-    // And when the conversation demonstrably did come with the request, the same kind is
-    // movable - which is the only proof the gate ever acts on.
+    // And when the conversation demonstrably did come with the request and no response key was
+    // ever written, the same kind is movable - which is the only proof the gate acts on.
     const carried = table.bind(chatIdentity("session-carried"), "node-a");
     expect(carried.evidence.userHashes).toHaveLength(1);
     expect(
       subject.moveBinding(moveRequest(subject, "node-b", { bindingId: carried.id })).kind,
     ).toBe("applied");
+  });
+
+  it("TRI-07 user content with no response key moves every self-contained kind", () => {
+    const { time, subject } = harness();
+    configured(subject, threeEngines());
+    const table = tableOf(subject);
+    const chat = table.bind(chatIdentity("session-chat"), "node-a");
+    const messages = table.bind(messagesIdentity("session-messages"), "node-a");
+    const completions = table.bind(completionsIdentity("session-completions"), "node-a");
+
+    for (const [name, binding] of [
+      ["chat", chat],
+      ["messages", messages],
+      ["completions", completions],
+    ] as const) {
+      expect(
+        binding.evidence.userHashes.length,
+        `a ${name} body carries its conversation`,
+      ).toBeGreaterThan(0);
+      expect(
+        [...binding.exactKeys].filter((key) => key.startsWith("response:")),
+        `a ${name} task names no response`,
+      ).toEqual([]);
+
+      const moved = subject.moveBinding(moveRequest(subject, "node-b", { bindingId: binding.id }));
+      expect(moved.kind, `${name} carries its context and names no response`).toBe("applied");
+      expect(binding.targetId).toBe("node-b");
+      expect(binding.routingRevision).toBe(INITIAL_ROUTING_REVISION + 1);
+    }
+
+    // The same proof with a request in flight does not write anything yet: it parks at the
+    // boundary, and only the boundary that finds the binding back at zero in flight writes it.
+    const running = inFlight(
+      subject,
+      time,
+      chatIdentity("session-parked", "a turn no other task asked for"),
+    );
+    const fromTarget = running.decision.targetId;
+    const revisionBefore = running.binding.routingRevision;
+    const parked = subject.moveBinding(
+      moveRequest(subject, "node-c", { bindingId: running.binding.id }),
+    );
+    expect(parked.kind).toBe("pending_boundary");
+    expect(running.binding.targetId).toBe(fromTarget);
+    expect(running.binding.routingRevision).toBe(revisionBefore);
+
+    running.release();
+
+    expect(recordById(subject, operationIdOf(parked)).state).toBe("applied");
+    expect(running.binding.targetId).toBe("node-c");
+    expect(running.binding.routingRevision).toBe(revisionBefore + 1);
   });
 });
 
@@ -849,6 +1013,33 @@ describe("TRI-07 the request boundary", () => {
     // Writing the move spends no reservation of its own.
     expect(subject.inFlight("node-b")).toBe(0);
     expect(audit.some((line) => line.message.endsWith("applied"))).toBe(true);
+  });
+
+  it("TRI-07 a response id learned while an intent waits stops it at the boundary", () => {
+    const { time, subject } = harness();
+    configured(subject, twoEngines());
+    const table = tableOf(subject);
+    const reservation = inFlight(subject, time, chatIdentity("session-learned"));
+
+    // The move is allowed when it is asked for: this binding carries its conversation in the
+    // body and names no response yet, because the request that is running has produced no id.
+    const parked = subject.moveBinding(moveRequest(subject, "node-b"));
+    expect(parked.kind).toBe("pending_boundary");
+    expect(records(subject)[0]?.state).toBe("pending_boundary");
+
+    // That request then produces an id of its own, which lands in the same set, under the same
+    // spelling, as a `previous_response_id` would. The gate runs again at the boundary, finds a
+    // response key it cannot prove portable, and calls the intent off instead of writing it.
+    table.attachResponseIds(reservation.binding, ["chatcmpl-1"]);
+    reservation.release();
+
+    const ended = records(subject)[0];
+    expect(ended?.state).toBe("expired");
+    expect(ended?.endReason).toContain("addressed through a response id");
+    expect(ended?.appliedRoutingRevision).toBeUndefined();
+    expect(reservation.binding.targetId).toBe("node-a");
+    expect(reservation.binding.routingRevision).toBe(INITIAL_ROUTING_REVISION);
+    expect(subject.inFlight("node-b")).toBe(0);
   });
 
   it("TRI-07 a second request still in flight keeps a parked move parked", () => {
