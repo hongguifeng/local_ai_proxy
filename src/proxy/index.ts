@@ -155,6 +155,21 @@ export {
   type MigrationState,
 } from "./load-migration-contract.js";
 export {
+  MAX_MIGRATION_REASON_CHARS,
+  MAX_MIGRATION_RECORDS,
+  MIGRATION_RETENTION_MS,
+  type CancelMoveOutcome,
+  type CancelMoveRequest,
+  type CancelRejection,
+  type CancelRejectionCode,
+  type MigrationActor,
+  type MigrationOperationView,
+  type MigrationRejection,
+  type MigrationRejectionCode,
+  type MoveBindingOutcome,
+  type MoveBindingRequest,
+} from "./load-migration.js";
+export {
   parseInjectRequestFields,
   parseStripRequestFields,
   transformRequestJsonFields,

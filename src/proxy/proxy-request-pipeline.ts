@@ -495,6 +495,11 @@ export class ProxyRequestPipeline {
     const fromTargetId = loadBalance.reservation.decision.targetId;
     balancer.markFailure(fromTargetId, Date.now());
     // The failed node stops carrying this request; the task then moves once, and only once.
+    // A failover is an availability action and outranks any move that was waiting for this
+    // binding, so those intents are called off before the release - otherwise this very release
+    // would look like the boundary they were waiting for and the retry would be planned from a
+    // route the migration service had just rewritten.
+    balancer.invalidateMigrationsFor(loadBalance.reservation.bindingRef, "failover");
     loadBalance.reservation.release();
     const next = balancer.plan({
       group: loadBalance.group,

@@ -10,16 +10,20 @@
  * | entry point                                     | effect on identity and versions                       |
  * | ----------------------------------------------- | ----------------------------------------------------- |
  * | `bind` with no hit                              | new binding: incarnation allocated, routing revision 0 |
- * | `bind` with a hit and `allowRebind`             | target moves: routing revision +1                     |
- * | `rebind`                                        | target +1, only while the binding is still in the table |
+ * | `bind` with a hit and `allowRebind`             | hands the move to `rebind`: target moves, revision +1   |
+ * | `rebind`                                        | the single write: target +1 revision, only while the binding is still in the table |
+ * | `moveBinding()`                                 | the single safe entry: re-checks every version and target, then writes through `rebind` |
+ * | `cancelMoveBinding()`                           | calls off an intent that has not been applied; never rewrites a write |
+ * | a reservation release (the request boundary)    | applies a parked intent whose binding is back at zero in flight |
  * | `plan` for a new task                           | calls `bind(..., { allowRebind: true })`               |
  * | the pipeline's one failover attempt             | releases, then plans with the old node excluded, which moves the target and bumps the revision |
+ * | `invalidateMigrationsFor` at that failover      | parks become `expired`, an applied intent becomes `expired_after_apply` |
  * | `attachResponseIds`                             | no target change; refused once the binding is gone      |
  * | `pruneTargets`, `clear`, `sweepExpired`, `remove` | bindings are removed; versions are never replayed      |
- * | `reconfigure`                                   | `groupRevision` +1 when a group's routing signature moved |
+ * | `reconfigure`                                   | `groupRevision` +1 when a group's routing signature moved; waiting intents are re-checked |
  * | `reloadPair`                                    | keeps `runtimeEpoch`; `groupRevision` follows the signature |
- * | `stopPair` and the next `startPair`             | bindings and reservations cleared; new `runtimeEpoch`   |
- * | `sweepNow`                                      | TTL eviction only; an evicted binding never comes back  |
+ * | `stopPair` and the next `startPair`             | bindings, reservations and migration records cleared; new `runtimeEpoch` |
+ * | `sweepNow`                                      | TTL eviction, ledger cleanup, and expiry of intents that drifted or aged out |
  */
 
 /** Routing revision of a binding that was just created and has never been moved. */

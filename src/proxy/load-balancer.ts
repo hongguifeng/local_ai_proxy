@@ -5,8 +5,8 @@ import type {
   TargetConfig,
 } from "../config/index.js";
 
-import { loadBalancerMemberTargetIds } from "../config/index.js";
-import { createRequestId, stableJsonStringify } from "../shared/index.js";
+import { loadBalancerMemberModelId, loadBalancerMemberTargetIds } from "../config/index.js";
+import { createRequestId, stableJsonStringify, StructuredLogger } from "../shared/index.js";
 
 import {
   BindingActivityLedger,
@@ -15,6 +15,18 @@ import {
 } from "./binding-activity.js";
 import { LoadAffinityTable, type AffinityBinding } from "./load-affinity.js";
 import { INITIAL_GROUP_REVISION, type BindingRef } from "./load-migration-contract.js";
+import {
+  MigrationOperationStore,
+  migrationRequestDigest,
+  type CancelMoveOutcome,
+  type CancelMoveRequest,
+  type MigrationOperation,
+  type MigrationOperationView,
+  type MigrationRejection,
+  type MigrationRejectionCode,
+  type MoveBindingOutcome,
+  type MoveBindingRequest,
+} from "./load-migration.js";
 import { tryCanonicalNodeKey } from "./node-identity.js";
 import { modelPatternMatches } from "./routing.js";
 import type { TaskIdentity } from "./protocol/task-identity.js";
@@ -117,6 +129,10 @@ export interface LoadBalancerOptions {
   readonly maxBucketSize?: number | undefined;
   readonly maxBucketScan?: number | undefined;
   readonly now?: (() => number) | undefined;
+  /** Where the migration audit line goes; the default is the process's structured log. */
+  readonly logger?: Pick<StructuredLogger, "info"> | undefined;
+  /** How many migration records this runtime may hold; the documented cap is the default. */
+  readonly maxMigrationRecords?: number | undefined;
 }
 
 export interface LoadBalancerSnapshot {
@@ -167,6 +183,10 @@ export class LoadBalancer {
   readonly #runtimeEpoch: string = createRequestId();
   /** The pair's clock, shared by the affinity tables and every ledger timestamp. */
   readonly #clock: () => number;
+  /** Where the migration audit line goes. */
+  readonly #logger: Pick<StructuredLogger, "info">;
+  /** The bounded, runtime-scoped record of every move this pair was asked to make. */
+  readonly #migrations: MigrationOperationStore;
   #groupRevisions = new Map<string, number>();
   #groupSignatures = new Map<string, string>();
   /** Revisions of groups that left the configuration, kept so a number is never replayed. */
@@ -185,6 +205,15 @@ export class LoadBalancer {
     this.#pairId = pairId;
     this.#options = options;
     this.#clock = options.now ?? Date.now;
+    this.#logger =
+      options.logger ??
+      new StructuredLogger({ service: "llm-proxy-load-balancer", minimumLevel: "info" });
+    this.#migrations = new MigrationOperationStore({
+      pairId,
+      now: this.#clock,
+      logger: this.#logger,
+      maxRecords: options.maxMigrationRecords,
+    });
   }
 
   get pairId(): string {
@@ -252,6 +281,10 @@ export class LoadBalancer {
       );
       table.pruneTargets(allowed);
     }
+    // A configuration save moves group revisions and can retire a group or a node, so every
+    // intent that is still waiting is re-checked here: what it was registered under has to be
+    // what the pair still is, or the intent is expired rather than silently kept.
+    this.#refreshMigrationStates("reload");
   }
 
   nodes(): readonly LoadBalancerNode[] {
@@ -366,6 +399,575 @@ export class LoadBalancer {
       return;
     }
     this.#activity.clearManualProtection(ref.incarnation);
+  }
+
+  /**
+   * The one entry that moves a binding's target. A manual move (TRI-08) and a future automatic
+   * policy (TRI-10) both call this, and nothing outside `LoadAffinityTable.rebind()` assigns
+   * `targetId`. Every gate is checked twice - once here at submit and once again inside the
+   * write - because a parked intent waits across `await` boundaries where the group, the target
+   * configuration or the binding itself can change.
+   *
+   * What an answer claims, and what it does not: `applied` means the in-memory route changed
+   * and the next request will see it; `pending_boundary` means nothing has changed yet;
+   * `observed` is only reached later, when a request actually reserved the destination. None of
+   * them says the upstream answered, and none of them touches a request already in flight.
+   */
+  moveBinding(request: MoveBindingRequest): MoveBindingOutcome {
+    const digest = migrationRequestDigest(request);
+    const idempotencyKey = request.idempotencyKey;
+    if (idempotencyKey !== undefined) {
+      const replay = this.#migrations.findReplay(request.runtimeEpoch, idempotencyKey, digest);
+      if (replay !== undefined) {
+        // The same key with the same parameters never writes twice.
+        return { kind: "replayed", operation: this.#migrations.viewOf(replay), effect: "none" };
+      }
+      const clash = this.#migrations.findByIdempotencyKey(request.runtimeEpoch, idempotencyKey);
+      if (clash !== undefined) {
+        return {
+          kind: "rejected",
+          operationId: clash.operationId,
+          rejection: {
+            code: "idempotency_conflict",
+            reason: "That idempotency key was already used for a different move in this runtime.",
+          },
+        };
+      }
+    }
+
+    const binding = this.bindingForRef(this.#moveRef(request));
+    let rejection = this.#identityRejection(request, binding);
+    if (rejection === undefined && binding !== undefined) {
+      if (binding.targetId === request.destinationTargetId) {
+        // Nothing to move, so nothing is recorded: no write happened and there is no outcome
+        // worth auditing. A retry of the same key answers the same way.
+        return { kind: "already_there", targetId: binding.targetId };
+      }
+      rejection =
+        this.#eligibilityRejection(request.groupId, binding, request.destinationTargetId) ??
+        this.#stateRejection(binding);
+    }
+
+    const operation = this.#migrations.open(request, digest);
+    if (operation === undefined) {
+      // The store had no room for a record. A refusal the gates already found is still the
+      // answer the caller needs, so it is reported as found; only a move that would have gone
+      // through is refused for the store's own limit.
+      return {
+        kind: "rejected",
+        operationId: undefined,
+        rejection:
+          rejection ??
+          migrationRejection(
+            "migration_backlog_full",
+            "This runtime is holding as many migration records as it is allowed to.",
+          ),
+      };
+    }
+    if (rejection !== undefined) {
+      this.#migrations.reject(operation, rejection);
+      return {
+        kind: "rejected",
+        operationId: operation.operationId,
+        rejection,
+      };
+    }
+
+    const attempt = this.#attemptMove(operation);
+    if (attempt.kind === "applied") {
+      this.#migrations.apply(operation, attempt.routingRevision);
+      return {
+        kind: "applied",
+        operation: this.#migrations.viewOf(operation),
+        effect: "next_request",
+      };
+    }
+    if (attempt.kind === "blocked") {
+      this.#migrations.reject(operation, attempt.rejection);
+      return {
+        kind: "rejected",
+        operationId: operation.operationId,
+        rejection: attempt.rejection,
+      };
+    }
+    this.#migrations.park(operation, attempt.inFlight);
+    return {
+      kind: "pending_boundary",
+      operation: this.#migrations.viewOf(operation),
+      inFlightAtSubmit: attempt.inFlight,
+      effect: "next_request",
+    };
+  }
+
+  /**
+   * Call off an intent that has not been applied yet. An applied move cannot be rewritten as
+   * cancelled - the route did change - so the answer points the user at a move in the other
+   * direction instead of pretending the write never happened.
+   */
+  cancelMoveBinding(request: CancelMoveRequest): CancelMoveOutcome {
+    if (request.runtimeEpoch !== this.#runtimeEpoch) {
+      return {
+        kind: "rejected",
+        reason: {
+          code: "operation_not_found",
+          reason: "That runtime epoch is not the one this pair is running now.",
+        },
+      };
+    }
+    const operation = this.#migrations.get(request.operationId);
+    if (operation === undefined) {
+      return {
+        kind: "rejected",
+        reason: {
+          code: "operation_not_found",
+          reason: "No migration record carries that id in this runtime.",
+        },
+      };
+    }
+    if (operation.state === "pending_boundary") {
+      this.#migrations.cancel(operation);
+      return { kind: "cancelled", operation: this.#migrations.viewOf(operation) };
+    }
+    if (operation.state === "applied" || operation.state === "observed") {
+      return {
+        kind: "rejected",
+        reason: {
+          code: "already_applied",
+          reason: "The route already moved; a cancel cannot undo it. Submit a move back instead.",
+        },
+      };
+    }
+    return {
+      kind: "rejected",
+      reason: {
+        code: "operation_not_cancellable",
+        reason: `A record that is already ${operation.state} cannot be cancelled.`,
+      },
+    };
+  }
+
+  /**
+   * Everything this runtime recorded about moves, as copies. This is the read a future list
+   * uses; it touches nothing: no TTL refresh, no counter, no target, no eviction.
+   */
+  migrationOperations(): readonly MigrationOperationView[] {
+    return this.#migrations.operations();
+  }
+
+  /**
+   * A failover is an availability action and outranks a parked or applied intent: it takes the
+   * binding now, so the intent that named this binding is dead. Pending intents expire and an
+   * applied one becomes `expired_after_apply`, because the route moved again before anyone
+   * could see the next request use the destination.
+   */
+  invalidateMigrationsFor(ref: BindingRef, reason: string): number {
+    let expired = 0;
+    for (const operation of this.#migrations.pendingFor(ref.incarnation)) {
+      this.#migrations.expire(operation, `${reason} moved this binding before its boundary`);
+      expired += 1;
+    }
+    for (const operation of this.#migrations.appliedFor(ref.incarnation)) {
+      this.#migrations.expireAfterApply(
+        operation,
+        `${reason} moved the route again before the next request`,
+      );
+      expired += 1;
+    }
+    return expired;
+  }
+
+  /**
+   * Re-check every live intent against the current state and drop records that stopped being
+   * worth their space. The load monitor runs this after the TTL sweep, so an intent whose
+   * binding was evicted and an intent whose target went away are reported here.
+   */
+  sweepPendingMigrations(): number {
+    const expired = this.#refreshMigrationStates("the retention window");
+    this.#migrations.dropExpiredRecords();
+    return expired;
+  }
+
+  /**
+   * One move attempt: re-read the binding, re-validate everything the submit validated, then
+   * write. The revision bump and the target write are one step inside `rebind()`, so a reader
+   * can never see a moved target still wearing the old revision. No reservation is established
+   * here: the next request's `plan()` is the only place a reservation is made, and a reservation
+   * already in flight is never re-bound by a move.
+   */
+  #attemptMove(operation: MigrationOperation): MoveAttempt {
+    const binding = this.bindingForRef(this.#operationRef(operation));
+    if (binding === undefined) {
+      return {
+        kind: "blocked",
+        rejection: migrationRejection(
+          "binding_not_found",
+          "The binding left the table before the move could be applied.",
+        ),
+      };
+    }
+    const drift = this.#versionDrift(operation, binding);
+    if (drift !== undefined) {
+      return { kind: "blocked", rejection: drift };
+    }
+    const eligibility = this.#eligibilityRejection(
+      operation.groupId,
+      binding,
+      operation.destinationTargetId,
+    );
+    if (eligibility !== undefined) {
+      return { kind: "blocked", rejection: eligibility };
+    }
+    const state = this.#stateRejection(binding);
+    if (state !== undefined) {
+      return { kind: "blocked", rejection: state };
+    }
+    const inFlight = this.#activity.read(binding.incarnation).inFlight;
+    if (inFlight > 0) {
+      return { kind: "waiting", inFlight };
+    }
+    const table = this.#tables.get(operation.groupId);
+    if (table === undefined) {
+      return {
+        kind: "blocked",
+        rejection: migrationRejection(
+          "binding_not_found",
+          "The group's affinity table is gone from this runtime.",
+        ),
+      };
+    }
+    if (!table.rebind(binding, operation.destinationTargetId)) {
+      return {
+        kind: "blocked",
+        rejection: migrationRejection(
+          "binding_not_found",
+          "The table gave this binding up between the check and the write.",
+        ),
+      };
+    }
+    if (operation.requestedBy === "manual") {
+      // A human moved it, so a future automatic policy has to leave it alone.
+      this.setManualProtection(this.#operationRef(operation));
+    }
+    return { kind: "applied", routingRevision: binding.routingRevision };
+  }
+
+  /**
+   * The request boundary: the moment a reservation came back and nothing is in flight on this
+   * binding any more. Parked intents get their second look here, which is what makes "the next
+   * request goes to the target" true without ever touching the request that just finished.
+   */
+  #applyMigrationsAtBoundary(ref: BindingRef): void {
+    for (const operation of this.#migrations.pendingFor(ref.incarnation)) {
+      const attempt = this.#attemptMove(operation);
+      if (attempt.kind === "applied") {
+        this.#migrations.apply(operation, attempt.routingRevision);
+      } else if (attempt.kind === "blocked") {
+        this.#migrations.expire(operation, attempt.rejection.reason);
+      }
+      // `waiting` means another request is already in flight on this binding: the intent stays
+      // parked and the current request keeps the target it was given.
+    }
+  }
+
+  /** Mark an applied intent observed when this reservation actually routes to its destination. */
+  #markMigrationObserved(binding: AffinityBinding, targetId: string): void {
+    for (const operation of this.#migrations.appliedFor(binding.incarnation)) {
+      if (operation.destinationTargetId !== targetId) {
+        continue;
+      }
+      if (operation.appliedRoutingRevision !== binding.routingRevision) {
+        continue;
+      }
+      this.#migrations.observe(operation);
+    }
+  }
+
+  /**
+   * Look every live intent over against the current runtime and versions. Anything that drifted
+   * stops being applicable: a binding that left the table, a group revision that moved, a
+   * target that went away, a route someone else moved. An applied intent whose binding vanished
+   * or whose route moved again is `expired_after_apply` - the write happened, the next request
+   * will not use the destination.
+   */
+  #refreshMigrationStates(cause: string): number {
+    let expired = 0;
+    const now = this.#clock();
+    for (const operation of this.#migrations.live()) {
+      if (operation.state === "applied") {
+        if (operation.expiresAt <= now) {
+          // Nobody came back to the destination within the window, so the intent stops being
+          // something anyone could report on. The write did happen; it just was never followed.
+          this.#migrations.expireAfterApply(
+            operation,
+            "no next request arrived within the retention window",
+          );
+          expired += 1;
+          continue;
+        }
+        const binding = this.bindingForRef(this.#operationRef(operation));
+        if (binding === undefined) {
+          this.#migrations.expireAfterApply(
+            operation,
+            "the binding left the table before the next request",
+          );
+          expired += 1;
+          continue;
+        }
+        if (operation.appliedRoutingRevision !== binding.routingRevision) {
+          this.#migrations.expireAfterApply(
+            operation,
+            "the route moved again before the next request",
+          );
+          expired += 1;
+        }
+        continue;
+      }
+      if (operation.expiresAt <= now) {
+        this.#migrations.expire(operation, `${cause} passed while the intent waited`);
+        expired += 1;
+        continue;
+      }
+      const drift = this.#driftReason(operation);
+      if (drift !== undefined) {
+        this.#migrations.expire(operation, drift);
+        expired += 1;
+      }
+    }
+    return expired;
+  }
+
+  /** Why a waiting intent can no longer be applied, or nothing when it still can. */
+  #driftReason(operation: MigrationOperation): string | undefined {
+    const binding = this.bindingForRef(this.#operationRef(operation));
+    if (binding === undefined) {
+      return "the binding left the table";
+    }
+    const drift =
+      this.#versionDrift(operation, binding) ??
+      this.#eligibilityRejection(operation.groupId, binding, operation.destinationTargetId) ??
+      this.#stateRejection(binding);
+    return drift?.reason;
+  }
+
+  /** How a caller addresses the binding a move request names. */
+  #moveRef(request: MoveBindingRequest): BindingRef {
+    return {
+      runtimeEpoch: request.runtimeEpoch,
+      groupId: request.groupId,
+      bindingId: request.bindingId,
+      routingRevision: request.expectedRoutingRevision,
+      incarnation: request.incarnation,
+    };
+  }
+
+  /** How the store's own record addresses the binding it was opened for. */
+  #operationRef(operation: MigrationOperation): BindingRef {
+    return {
+      runtimeEpoch: operation.runtimeEpoch,
+      groupId: operation.groupId,
+      bindingId: operation.bindingId,
+      routingRevision: operation.sourceRoutingRevision,
+      incarnation: operation.incarnation,
+    };
+  }
+
+  /**
+   * Whether the caller still has the binding it says it has. A stale revision or a source target
+   * that is no longer the binding's target means two people looked at the same binding and only
+   * one of them is current, so the write is refused rather than allowed to overwrite.
+   */
+  #identityRejection(
+    request: MoveBindingRequest,
+    binding: AffinityBinding | undefined,
+  ): MigrationRejection | undefined {
+    if (binding === undefined) {
+      return migrationRejection(
+        "binding_not_found",
+        "No binding in this runtime matches that runtime epoch, group, binding id and incarnation.",
+      );
+    }
+    if (this.#groupById.get(request.groupId) === undefined) {
+      return migrationRejection(
+        "binding_not_found",
+        "The group that binding names is no longer configured on this pair.",
+      );
+    }
+    const groupRevision = this.#groupRevisions.get(request.groupId);
+    if (groupRevision === undefined || groupRevision !== request.groupRevision) {
+      return migrationRejection(
+        "stale_group_revision",
+        `The group is at revision ${groupRevision ?? "unassigned"}, not ${request.groupRevision}.`,
+      );
+    }
+    if (binding.routingRevision !== request.expectedRoutingRevision) {
+      return migrationRejection(
+        "stale_routing_revision",
+        `The binding is at routing revision ${binding.routingRevision}, not ${request.expectedRoutingRevision}.`,
+      );
+    }
+    if (binding.targetId !== request.expectedSourceTargetId) {
+      return migrationRejection(
+        "source_target_mismatch",
+        `The binding is on ${binding.targetId}, not on ${request.expectedSourceTargetId}.`,
+      );
+    }
+    return undefined;
+  }
+
+  /** Version drift between what a record was opened under and what the binding is now. */
+  #versionDrift(
+    operation: MigrationOperation,
+    binding: AffinityBinding,
+  ): MigrationRejection | undefined {
+    const groupRevision = this.#groupRevisions.get(operation.groupId);
+    if (groupRevision === undefined || groupRevision !== operation.groupRevision) {
+      return migrationRejection(
+        "stale_group_revision",
+        `The group is at revision ${groupRevision ?? "unassigned"}, not ${operation.groupRevision}.`,
+      );
+    }
+    if (binding.routingRevision !== operation.sourceRoutingRevision) {
+      return migrationRejection(
+        "stale_routing_revision",
+        `The binding is at routing revision ${binding.routingRevision}, not ${operation.sourceRoutingRevision}.`,
+      );
+    }
+    if (binding.targetId !== operation.sourceTargetId) {
+      return migrationRejection(
+        "source_target_mismatch",
+        `The binding is on ${binding.targetId}, not on ${operation.sourceTargetId}.`,
+      );
+    }
+    return undefined;
+  }
+
+  /**
+   * Whether the destination may receive this task at all. Every refusal is one condition, in
+   * the order the request path would have checked them: it has to be a member of this group,
+   * configured, enabled, out of cooldown, awake, a different physical engine, and forwarding the
+   * same model name. v1 has no compatibility-domain declaration, so a different `model_id` is
+   * simply refused.
+   */
+  #eligibilityRejection(
+    groupId: string,
+    binding: AffinityBinding,
+    destinationTargetId: string,
+  ): MigrationRejection | undefined {
+    const group = this.#groupById.get(groupId);
+    if (group === undefined) {
+      return migrationRejection(
+        "binding_not_found",
+        "The group this intent was opened for is no longer configured on this pair.",
+      );
+    }
+    if (!loadBalancerMemberTargetIds(group).includes(destinationTargetId)) {
+      return migrationRejection(
+        "target_not_in_group",
+        `${destinationTargetId} is not a member of group ${groupId}.`,
+      );
+    }
+    const destination = this.#nodes.get(destinationTargetId);
+    if (destination === undefined) {
+      return migrationRejection(
+        "target_unknown",
+        `${destinationTargetId} is no longer a target of this pair.`,
+      );
+    }
+    if (!destination.enabled) {
+      return migrationRejection(
+        "target_disabled",
+        `${destinationTargetId} is disabled, so a move would be undone by the next reload.`,
+      );
+    }
+    const now = this.#clock();
+    const cooldownMs = this.cooldownRemaining(destinationTargetId, now);
+    if (cooldownMs > 0) {
+      return migrationRejection(
+        "target_cooldown",
+        `${destinationTargetId} is cooling down for ${cooldownMs} more ms after a connection failure.`,
+      );
+    }
+    if (isAsleep(destination.sample, now)) {
+      return migrationRejection(
+        "target_asleep",
+        `${destinationTargetId} reported it is asleep, so it cannot take the task.`,
+      );
+    }
+    const source = this.#nodes.get(binding.targetId);
+    if (source === undefined) {
+      return migrationRejection(
+        "target_unknown",
+        `The node this binding is on, ${binding.targetId}, is no longer a target of this pair.`,
+      );
+    }
+    if (source.canonicalKey === destination.canonicalKey) {
+      return migrationRejection(
+        "same_physical_key",
+        `${destinationTargetId} is another spelling of the engine this binding is already on (${source.canonicalKey}).`,
+      );
+    }
+    const sourceModel = loadBalancerMemberModelId(group, binding.targetId);
+    const destinationModel = loadBalancerMemberModelId(group, destinationTargetId);
+    if (sourceModel !== destinationModel) {
+      return migrationRejection(
+        "model_mismatch",
+        `${binding.targetId} forwards to ${sourceModel ?? "the requested model"} while ${destinationTargetId} forwards to ${destinationModel ?? "the requested model"}; v1 only moves between members with the same model id.`,
+      );
+    }
+    return undefined;
+  }
+
+  /**
+   * The server-side state gate, and the reason it looks the way it does.
+   *
+   * The only fact available to a move is what the binding's own evidence says. Three endpoint
+   * kinds carry their whole conversation in the request body - `requestUserMessages` reads
+   * `messages` for chat and messages and `prompt` for completions - so a move cannot strand
+   * state the request did not bring with it. `responses` is the opposite: a request may name a
+   * `previous_response_id` or a stored conversation and send almost nothing itself, and nothing
+   * in this proxy proves the next engine can read that object. `other` is unknown by definition.
+   *
+   * A `response:` exact key carries no provenance, and that decides the shape of the gate.
+   * `taskExactKeys` writes one from a request's `previous_response_id`, while `attachResponseIds`
+   * writes one from an id a finished response body produced; the table stores both into the same
+   * `binding.exactKeys` set as the same `response:<id>` string. So for any key the gate is looking
+   * at it cannot tell whether it names state the client depends on or an artefact the engine
+   * merely emitted. Because that question cannot be answered, the gate never accepts on an answer
+   * to it. A self-contained kind is accepted only on a proof that does not need the distinction -
+   * the binding's own evidence shows user content came in the body that created it - and a
+   * self-contained binding whose evidence shows no such content is refused as `state_unknown`:
+   * a request that brought nothing of its own may be reading state that lives on one engine.
+   * A `responses` binding is refused either way: with a response chain it is refused as the
+   * dependency the design names, without one it is refused because this runtime cannot prove the
+   * context arrived complete. A `conversation`, `thread` or session key is never accepted as
+   * proof - it is a client-side clue, and the same clue can name a conversation the next engine
+   * has never seen.
+   *
+   * This is the conservative v1 line the open question in the task-routing TODO names: it can
+   * only be relaxed by a real upstream proof that response state is shared (TRI-11), never by
+   * assuming it is.
+   */
+  #stateRejection(binding: AffinityBinding): MigrationRejection | undefined {
+    const kind = binding.evidence.kind;
+    if (kind === "responses" && carriesResponseChain(binding)) {
+      return migrationRejection(
+        "response_state_dependency",
+        "This task continues through a stored response id; nothing proves another engine can read that response.",
+      );
+    }
+    if (!SELF_CONTAINED_ENDPOINT_KINDS.has(kind)) {
+      return migrationRejection(
+        "state_unknown",
+        `The ${kind} endpoint may keep server-side state the request does not carry, and this runtime cannot prove the destination can reach it.`,
+      );
+    }
+    if (!carriesConversationEvidence(binding)) {
+      return migrationRejection(
+        "state_unknown",
+        `A ${kind} request that brought no user content of its own may be reading state that lives on one engine, and this runtime cannot prove the destination can reach it.`,
+      );
+    }
+    return undefined;
   }
 
   /**
@@ -680,6 +1282,7 @@ export class LoadBalancer {
     // the binding's own activity count goes up. It counts against the incarnation the
     // reservation was created with, never against a later binding reusing the number.
     this.#activity.begin(bindingRef.incarnation, now);
+    this.#markMigrationObserved(binding, targetId);
     let released = false;
     return {
       decision,
@@ -702,6 +1305,10 @@ export class LoadBalancer {
         if (remaining === 0 && this.bindingForRef(bindingRef) === undefined) {
           this.#activity.drop(bindingRef.incarnation);
         }
+        // Only now is this binding at a request boundary: the counts came back, so a move that
+        // was parked may be written. A binding the table already gave up on cannot be rewritten
+        // by a late release - the attempt re-resolves the reference and finds nothing.
+        this.#applyMigrationsAtBoundary(bindingRef);
       },
     };
   }
@@ -815,10 +1422,13 @@ export class LoadBalancer {
   }
 
   /**
-   * Drop everything the request path owns: bindings, reservations and activity ledgers.
-   * A release that arrives after a stop finds no ledger and changes nothing. The group
-   * version counters stay, because they belong to this runtime and must never hand out
-   * the same number twice should the pair be configured again before it is replaced.
+   * Drop everything the request path owns: bindings, reservations, activity ledgers and the
+   * migration records. A release that arrives after a stop finds no ledger and changes nothing.
+   * The group version counters stay, because they belong to this runtime and must never hand out
+   * the same number twice should the pair be configured again before it is replaced. Migration
+   * records do not survive: they belonged to the runtime that is going away, and a move is
+   * runtime state - the next start begins with an empty store, so an old request cannot act on
+   * new state.
    */
   clear(): void {
     for (const table of this.#tables.values()) {
@@ -827,6 +1437,7 @@ export class LoadBalancer {
     this.#tables.clear();
     this.#reservations.clear();
     this.#activity.dropAll();
+    this.#migrations.dropAll();
   }
 
   snapshot(): LoadBalancerSnapshot {
@@ -850,6 +1461,55 @@ export class LoadBalancer {
 
 function canonicalKeyFor(target: TargetConfig): string {
   return tryCanonicalNodeKey(target.target_url) ?? target.target_url;
+}
+
+/**
+ * How one move attempt ended. `waiting` is not a refusal: it means a request is still in flight
+ * on this binding, so the intent stays parked and the running request keeps the route it was
+ * given. `blocked` carries the one condition that stopped it.
+ */
+type MoveAttempt =
+  | { readonly kind: "applied"; readonly routingRevision: number }
+  | { readonly kind: "blocked"; readonly rejection: MigrationRejection }
+  | { readonly kind: "waiting"; readonly inFlight: number };
+
+/** One refusal, named once, with the sentence a reader or a log line shows. */
+function migrationRejection(code: MigrationRejectionCode, reason: string): MigrationRejection {
+  return { code, reason };
+}
+
+/**
+ * The endpoint kinds whose request body carries the whole conversation: `chat` and `messages`
+ * read a `messages` array, `completions` reads a `prompt`. A move between nodes cannot strand
+ * state these requests did not carry with them, which is what makes them movable while a
+ * `responses` request - which may name a stored response or conversation and send almost nothing
+ * itself - is not.
+ */
+const SELF_CONTAINED_ENDPOINT_KINDS: ReadonlySet<string> = new Set<string>([
+  "chat",
+  "messages",
+  "completions",
+]);
+
+/** Whether this binding is addressed through a stored response id. */
+function carriesResponseChain(binding: AffinityBinding): boolean {
+  for (const exactKey of binding.exactKeys) {
+    if (exactKey.startsWith("response:")) {
+      return true;
+    }
+  }
+  return false;
+}
+
+/**
+ * Whether the binding's own evidence shows a conversation came in the request body that created
+ * it: at least one user message was read out of that body. This is the only positive proof
+ * available that moving the task cannot strand context, and it needs no answer to the question
+ * the exact keys cannot answer - which `response:` key names state and which one an engine
+ * merely produced. No user content means no proof, so the gate refuses.
+ */
+function carriesConversationEvidence(binding: AffinityBinding): boolean {
+  return binding.evidence.userHashes.length > 0;
 }
 
 /**

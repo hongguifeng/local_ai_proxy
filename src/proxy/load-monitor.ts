@@ -169,6 +169,10 @@ export class LoadMonitor {
     // flight is dropped here, while one still carrying a live reservation survives
     // until its late release lands and cleans it up.
     this.#balancer.sweepBindingActivity();
+    // Migration records follow both: an intent whose binding was just evicted, or whose target
+    // went away, or whose retention window passed is reported here, and records that stopped
+    // being worth keeping are dropped.
+    this.#balancer.sweepPendingMigrations();
     this.#lastSweepAt = this.#now();
     return { removedBindings };
   }

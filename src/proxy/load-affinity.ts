@@ -56,7 +56,8 @@ export interface AffinityBinding {
   /**
    * Version of this binding's target. It starts at `INITIAL_ROUTING_REVISION` and moves by
    * one every time the target actually changes, so every path that moves a task - a rebind,
-   * a rebinding `bind()`, a failover - is observable from a stale reference.
+   * a rebinding `bind()`, a failover - is observable from a stale reference. `rebind()` below
+   * is the only write that touches either field, so no caller assigns them on its own.
    */
   routingRevision: number;
   readonly bucketKey: string;
@@ -190,7 +191,8 @@ export class LoadAffinityTable {
   /**
    * Create or refresh the binding for a request and return it. Moving an existing binding
    * to another node - the `allowRebind` path `plan()` uses, and the one a failover takes -
-   * also moves its routing revision, so a caller that saw the old target can tell.
+   * also moves its routing revision, so a caller that saw the old target can tell. The move
+   * itself is handed to `rebind()`: this table has exactly one place that writes a target.
    */
   bind(
     identity: TaskIdentity,
@@ -199,12 +201,8 @@ export class LoadAffinityTable {
   ): AffinityBinding {
     const hit = this.lookup(identity);
     if (hit !== undefined) {
-      if (hit.binding.targetId !== targetId) {
-        if (!options.allowRebind) {
-          return hit.binding;
-        }
-        hit.binding.routingRevision += 1;
-        hit.binding.targetId = targetId;
+      if (hit.binding.targetId !== targetId && options.allowRebind) {
+        this.rebind(hit.binding, targetId);
       }
       this.#registerExactKeys(hit.binding, identity.exactKeys);
       return hit.binding;
@@ -233,9 +231,11 @@ export class LoadAffinityTable {
   }
 
   /**
-   * Point this binding at another node after a failover, keeping its identity. Returns
-   * false when the binding is no longer in the table: a reference that arrives after a TTL,
-   * LRU or prune eviction must not rewrite a binding the table already gave up on.
+   * The single write that points a binding at another node. Selection, failover and the
+   * migration service all end here, so a target move always carries its version change and
+   * no path can assign `targetId` behind the table's back. Returns false when the binding is
+   * no longer in the table: a reference that arrives after a TTL, LRU or prune eviction must
+   * not rewrite a binding the table already gave up on.
    */
   rebind(binding: AffinityBinding, targetId: string): boolean {
     if (this.#bindings.get(binding.id) !== binding) {

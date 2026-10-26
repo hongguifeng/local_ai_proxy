@@ -13,10 +13,12 @@ import { isRecord } from "../../src/shared/index.js";
 
 import {
   EMPTY_LOAD_SAMPLES,
+  INITIAL_ROUTING_REVISION,
   LoadBalancer,
   ProxyListener,
   ProxyRequestPipeline,
   type LoadSample,
+  type MoveBindingRequest,
   type ProxyPipelineTarget,
   type ProxyRequestHandler,
   type TrafficLogWriter,
@@ -181,6 +183,20 @@ function bodyFor(model: string, ...turns: string[]): string {
   return JSON.stringify({
     model,
     input: turns.map((turn) => ({ role: "user", content: turn })),
+    stream: true,
+  });
+}
+
+/**
+ * A body the chat endpoint actually reads. `requestUserMessages` looks at `messages` for a chat
+ * path, so a binding created by a body that only carries `input` shows no conversation of its
+ * own - which is exactly what the migration state gate refuses. A migration case that wants a
+ * movable binding has to send the shape that endpoint accepts.
+ */
+function chatBodyFor(model: string, ...turns: string[]): string {
+  return JSON.stringify({
+    model,
+    messages: turns.map((turn) => ({ role: "user", content: turn })),
     stream: true,
   });
 }
@@ -2431,5 +2447,267 @@ describe("TRI-02 binding activity around the live pipeline", () => {
     });
 
     await listener.close();
+  });
+});
+
+describe("TRI-07 the migration service around the live pipeline", () => {
+  /** A move request assembled from what the projection says about the group's only binding. */
+  function moveFor(
+    balancer: LoadBalancer,
+    groupId: string,
+    destinationTargetId: string,
+  ): MoveBindingRequest {
+    const entry = singleBinding(balancer, groupId);
+    const groupRevision = balancer.groupRevision(groupId);
+    if (groupRevision === undefined) {
+      throw new Error(`The group ${groupId} must have a revision.`);
+    }
+    return {
+      runtimeEpoch: balancer.runtimeEpoch,
+      groupId,
+      groupRevision,
+      bindingId: entry.ref.bindingId,
+      incarnation: entry.ref.incarnation,
+      expectedRoutingRevision: entry.routingRevision,
+      expectedSourceTargetId: entry.targetId,
+      destinationTargetId,
+      requestedBy: "manual",
+      reason: "moved from the console",
+      // This request is a one-off: it carries no key a retry could reuse.
+      idempotencyKey: undefined,
+    };
+  }
+
+  it("TRI-07 a stream that never ends parks a manual move until the client goes away", async () => {
+    const nodeA = await startEchoNode("a");
+    const stalled = await startStallNode();
+    const records: Readonly<Record<string, unknown>>[] = [];
+    const trafficLog = collectWriter(records);
+    const balancer = new LoadBalancer("pair-lb");
+    balancer.reconfigure(
+      pair(
+        [target("target-a", nodeA.port), target("target-b", stalled.port)],
+        [group("lb-live-move", ["target-a", "target-b"])],
+      ),
+    );
+    const pipeline = new ProxyRequestPipeline({
+      pairId: "pair-lb",
+      defaultTargetId: "target-a",
+      loadBalancer: balancer,
+      loadSamples: () => EMPTY_LOAD_SAMPLES,
+      targets: [
+        pipelineTarget("target-a", nodeA.port, trafficLog),
+        pipelineTarget("target-b", stalled.port, trafficLog),
+      ],
+    });
+    const { port, listener } = await startListener((request, response, context) =>
+      pipeline.handle(request, response, context),
+    );
+
+    // A pre-existing reservation makes least load hand this task to the stalling engine.
+    balancer.reserve("target-a");
+    const body = chatBodyFor("Qwen3.8-Flash-Next", "stream that will not end");
+    const pending = post(port, "/v1/chat/completions", body, session("live-move-1")).catch(
+      () => undefined,
+    );
+
+    await expect
+      .poll(() => singleBinding(balancer, "lb-live-move").activity.inFlight, { timeout: 5_000 })
+      .toBe(1);
+    const running = singleBinding(balancer, "lb-live-move");
+    expect(running.targetId).toBe("target-b");
+
+    const parked = balancer.moveBinding(moveFor(balancer, "lb-live-move", "target-a"));
+    expect(parked.kind).toBe("pending_boundary");
+
+    // The request that is still running keeps the route it was given, and the move is held.
+    expect(singleBinding(balancer, "lb-live-move").targetId).toBe("target-b");
+    expect(singleBinding(balancer, "lb-live-move").routingRevision).toBe(INITIAL_ROUTING_REVISION);
+    expect(balancer.inFlight("target-a")).toBe(1);
+
+    balancer.release("target-a");
+    listener.closeAllConnections();
+    await pending;
+
+    await expect
+      .poll(() => singleBinding(balancer, "lb-live-move").activity.inFlight, { timeout: 5_000 })
+      .toBe(0);
+
+    // The request ending is the boundary the intent was waiting for, so that is where it is
+    // written - not while a stream was still open on the old route.
+    const applied = balancer.migrationOperations()[0];
+    expect(applied?.state).toBe("applied");
+    expect(applied?.appliedRoutingRevision).toBe(INITIAL_ROUTING_REVISION + 1);
+    expect(singleBinding(balancer, "lb-live-move").targetId).toBe("target-a");
+    expect(singleBinding(balancer, "lb-live-move").routingRevision).toBe(
+      INITIAL_ROUTING_REVISION + 1,
+    );
+
+    // The next request is what proves the move took effect: it reserves the destination.
+    const nextAnswer = await post(
+      port,
+      "/v1/chat/completions",
+      chatBodyFor("Qwen3.8-Flash-Next", "stream that will not end"),
+      session("live-move-1"),
+    );
+    expect(nextAnswer.status).toBe(200);
+    expect(echoed(nextAnswer.body).node).toBe("a");
+    expect(balancer.migrationOperations()[0]?.state).toBe("observed");
+
+    await listener.close();
+    await close(nodeA.server);
+    await close(stalled.server);
+  });
+
+  it("TRI-07 a failover calls off a parked move before its own boundary arrives", async () => {
+    const held = await startHeldNode();
+    const bare = await startBareNode("bare");
+    const records: Readonly<Record<string, unknown>>[] = [];
+    const trafficLog = collectWriter(records);
+    const balancer = new LoadBalancer("pair-lb");
+    balancer.reconfigure(
+      pair(
+        [target("target-held", held.port), target("target-bare", bare.port)],
+        [group("lb-live-failover", ["target-held", "target-bare"], { strategy: "round_robin" })],
+      ),
+    );
+    const pipeline = new ProxyRequestPipeline({
+      pairId: "pair-lb",
+      defaultTargetId: "target-held",
+      loadBalancer: balancer,
+      loadSamples: () => EMPTY_LOAD_SAMPLES,
+      targets: [
+        pipelineTarget("target-held", held.port, trafficLog),
+        pipelineTarget("target-bare", bare.port, trafficLog),
+      ],
+    });
+    const { port, listener } = await startListener((request, response, context) =>
+      pipeline.handle(request, response, context),
+    );
+
+    const body = chatBodyFor("Qwen3.8-Flash-Next", "answer elsewhere");
+    const pending = post(port, "/v1/chat/completions", body, session("live-failover"));
+    await expect
+      .poll(() => singleBinding(balancer, "lb-live-failover").targetId, { timeout: 5_000 })
+      .toBe("target-held");
+
+    const parked = balancer.moveBinding(moveFor(balancer, "lb-live-failover", "target-bare"));
+    expect(parked.kind).toBe("pending_boundary");
+
+    held.hangUp();
+    const answer = await pending;
+    expect(answer.status).toBe(200);
+    // The broken attempt delivered nothing, so what the client holds is the retry's answer, and
+    // it arrived whole: one finished record for the request, and a complete body from the node
+    // that took over.
+    expect(echoed(answer.body).node).toBe("bare");
+    expect(eventRecords(records, "request_finished")).toHaveLength(1);
+
+    const finished = eventRecords(records, "request_finished")[0];
+    expect(routeOf(finished)).toMatchObject({
+      route_mode: "load_balance",
+      target_id: "target-bare",
+      load_balance: { decision: "failover", failover_from: "target-held" },
+    });
+
+    // The route that broke was the boundary the intent was waiting for. Availability wins, and
+    // it wins before that boundary runs: the intent is called off first, so the release that
+    // follows finds nothing to write and the move never reaches `applied`.
+    const expired = balancer.migrationOperations()[0];
+    expect(expired?.state).toBe("expired");
+    expect(expired?.endReason).toContain("failover moved this binding before its boundary");
+    expect(expired?.appliedRoutingRevision).toBeUndefined();
+    expect(balancer.migrationOperations().map((operation) => operation.state)).toEqual(["expired"]);
+
+    // Failover moved the route through the table's single write, so the version step is there
+    // and the migration service is not what moved it.
+    const entry = singleBinding(balancer, "lb-live-failover");
+    expect(entry.targetId).toBe("target-bare");
+    expect(entry.routingRevision).toBe(INITIAL_ROUTING_REVISION + 1);
+    expect(balancer.inFlight("target-held")).toBe(0);
+    expect(balancer.inFlight("target-bare")).toBe(0);
+
+    await listener.close();
+    await close(held.server);
+    await close(bare.server);
+  });
+
+  it("TRI-07 a release that lands after the binding was given up revives nothing", async () => {
+    const nodeA = await startEchoNode("a");
+    const stalled = await startStallNode();
+    const records: Readonly<Record<string, unknown>>[] = [];
+    const trafficLog = collectWriter(records);
+    const balancer = new LoadBalancer("pair-lb");
+    balancer.reconfigure(
+      pair(
+        [target("target-a", nodeA.port), target("target-b", stalled.port)],
+        [group("lb-live-late", ["target-a", "target-b"])],
+      ),
+    );
+    const pipeline = new ProxyRequestPipeline({
+      pairId: "pair-lb",
+      defaultTargetId: "target-a",
+      loadBalancer: balancer,
+      loadSamples: () => EMPTY_LOAD_SAMPLES,
+      targets: [
+        pipelineTarget("target-a", nodeA.port, trafficLog),
+        pipelineTarget("target-b", stalled.port, trafficLog),
+      ],
+    });
+    const { port, listener } = await startListener((request, response, context) =>
+      pipeline.handle(request, response, context),
+    );
+
+    // A pre-existing reservation makes least load hand this task to the stalling engine.
+    balancer.reserve("target-a");
+    const body = chatBodyFor("Qwen3.8-Flash-Next", "stream whose binding goes away");
+    const pending = post(port, "/v1/chat/completions", body, session("late-release")).catch(
+      () => undefined,
+    );
+
+    await expect
+      .poll(() => singleBinding(balancer, "lb-live-late").activity.inFlight, { timeout: 5_000 })
+      .toBe(1);
+    const running = singleBinding(balancer, "lb-live-late");
+    expect(running.targetId).toBe("target-b");
+
+    const parked = balancer.moveBinding(moveFor(balancer, "lb-live-late", "target-a"));
+    expect(parked.kind).toBe("pending_boundary");
+
+    // The node this task sits on leaves the configuration, so the table gives the binding up
+    // while its request is still running. The reservation outlives the binding, not the other
+    // way round.
+    const table = balancer.tableFor("lb-live-late");
+    if (table === undefined) {
+      throw new Error("The group must have a binding table.");
+    }
+    const binding = table.bindingForId(running.ref.bindingId);
+    if (binding === undefined) {
+      throw new Error("The binding must still be in the table.");
+    }
+    table.remove(binding);
+    expect(table.size).toBe(0);
+
+    balancer.release("target-a");
+    listener.closeAllConnections();
+    await pending;
+    await expect.poll(() => balancer.inFlight("target-b"), { timeout: 5_000 }).toBe(0);
+
+    // The release is late, and it is only allowed to hand back the target it was created with.
+    // It puts nothing back in the table, writes nothing through the number the table freed, and
+    // the intent that was waiting for it says so instead of being revived.
+    expect(table.size).toBe(0);
+    expect(balancer.bindingSnapshot("lb-live-late")?.entries ?? []).toHaveLength(0);
+    expect(binding.targetId).toBe("target-b");
+    const ended = balancer.migrationOperations()[0];
+    expect(ended?.state).toBe("expired");
+    expect(ended?.endReason).toContain("left the table");
+    expect(ended?.appliedRoutingRevision).toBeUndefined();
+    expect(balancer.inFlight("target-a")).toBe(0);
+    expect(balancer.inFlight("target-b")).toBe(0);
+
+    await listener.close();
+    await close(nodeA.server);
+    await close(stalled.server);
   });
 });
