@@ -1,6 +1,6 @@
 # Task 路由功能实现 TODO
 
-基线：`1c983a10751aaf102a55e223a92e09c1b74e6391`。设计权威：[Task 路由观测、手动迁移与自动再均衡设计](./task-routing-design.md)。当前状态：6 / 12 项完成；统一安全迁移服务与只读管理 API 已落地并进入主 checkout，UI、手动迁移 API 与自动策略仍未实现。
+基线：`1c983a10751aaf102a55e223a92e09c1b74e6391`。设计权威：[Task 路由观测、手动迁移与自动再均衡设计](./task-routing-design.md)。当前状态：7 / 12 项完成；统一安全迁移服务、只读管理 API 与手动迁移 API 都已进入主 checkout，UI（TRI-06、TRI-09）与自动策略仍未实现。
 
 本文是供本地 AI 按依赖顺序执行的开发清单。每项任务都必须完成实现、测试、文档同步和本项验收后才能标记为完成。研究稿、模型比较文档和历史负载均衡文档只提供背景，不得覆盖设计权威中的状态、并发和安全合同。
 
@@ -70,7 +70,7 @@
 | [x]  | TRI-05 | P1     | 建立只读管理 API 和服务装配          | TRI-02、TRI-03、TRI-04 | 已完成 |
 | [ ]  | TRI-06 | P1     | 实现节点 binding 列表 UI             | TRI-05                 | 未开始 |
 | [x]  | TRI-07 | P1     | 实现统一安全迁移服务                 | TRI-01、TRI-02、TRI-03 | 已完成 |
-| [ ]  | TRI-08 | P1     | 实现手动迁移 API、幂等和生命周期处理 | TRI-04、TRI-05、TRI-07 | 未开始 |
+| [x]  | TRI-08 | P1     | 实现手动迁移 API、幂等和生命周期处理 | TRI-04、TRI-05、TRI-07 | 已完成 |
 | [ ]  | TRI-09 | P1     | 实现手动迁移 UI 和真实请求验证       | TRI-06、TRI-08         | 未开始 |
 | [ ]  | TRI-10 | P2     | 实现 advise 模式和建议状态           | TRI-03、TRI-07、TRI-09 | 未开始 |
 | [ ]  | TRI-11 | P2     | 真实引擎校准并决定是否开启 auto      | TRI-10                 | 未开始 |
@@ -196,13 +196,13 @@
 
 入口：[load-balancer route](../src/admin/routes/load-balancer.ts)、[admin schemas](../src/admin/admin-schemas.ts)、[load-balancer-admin.ts](../src/proxy/load-balancer-admin.ts)。
 
-- [ ] 增加 `POST /api/load-balancer/task-moves`，请求包含 pair、group、runtimeEpoch、bindingId、expected revision、expected source、destination 和 idempotency key。
-- [ ] `applied` 返回 200，存在在途请求返回 202 `pending_boundary`，同目标重复提交返回 `already_there`。
-- [ ] 增加 `DELETE /api/load-balancer/task-moves/:operationId`，只允许取消尚未应用的 operation。
-- [ ] 实现并固定 `binding_not_found`、`binding_stale`、`idempotency_conflict`、`target_not_eligible`、`operation_expired` 和 `state_not_migratable` 错误。
-- [ ] 同 runtime epoch、同参数、同幂等键重试返回原结果；同键不同参数返回 409；重启后旧幂等键不能作用于新运行态。
-- [ ] 接入 `test-node/admin/api-contract.test.ts` 和真实应用装配，不允许只在 mock service 上通过。
-- [ ] 在路由记录中写入 source、destination、movedBy、operation/suggestion ID 和 revision，使 `observed` 可以由后续请求确认。
+- [x] 增加 `POST /api/load-balancer/task-moves`，请求包含 pair、group、runtimeEpoch、bindingId、expected revision、expected source、destination 和 idempotency key。
+- [x] `applied` 返回 200，存在在途请求返回 202 `pending_boundary`，同目标重复提交返回 `already_there`。
+- [x] 增加 `DELETE /api/load-balancer/task-moves/:operationId`，只允许取消尚未应用的 operation。
+- [x] 实现并固定 `binding_not_found`、`binding_stale`、`idempotency_conflict`、`target_not_eligible`、`operation_expired` 和 `state_not_migratable` 错误。
+- [x] 同 runtime epoch、同参数、同幂等键重试返回原结果；同键不同参数返回 409；重启后旧幂等键不能作用于新运行态。
+- [x] 接入 `test-node/admin/api-contract.test.ts` 和真实应用装配，不允许只在 mock service 上通过。
+- [x] 在路由记录中写入 source、destination、movedBy、operation/suggestion ID 和 revision，使 `observed` 可以由后续请求确认。
 
 边界：本项不动 `GET /api/load-balancer/tasks` 的 `migration` 与 `movable` 字段——把列表接到迁移
 服务上是 TRI-09 的工作，否则 TRI-06 先交付的按钮会变成能点、点了无效的按钮。
@@ -824,10 +824,82 @@
 
 ### TRI-08
 
-- 状态：未开始
-- 修改文件：
-- 验证：
-- 结果与限制：
+- 状态：已完成
+- 修改文件：新增 [load-balancer-admin.ts](../src/proxy/load-balancer-admin.ts) 的
+  `moveBinding()` / `cancelMoveBinding()` 与其查询、答复类型，
+  [load-migration.ts](../src/proxy/load-migration.ts) 的 `MigrationRouteMeta` 与
+  `migrationRouteMeta()`，[load-balancer.ts](../src/proxy/load-balancer.ts) 让 reservation 带上
+  本次证明的那条迁移，[proxy-request-pipeline.ts](../src/proxy/proxy-request-pipeline.ts) 把迁移
+  路由写进 `request.model_route.load_balance`（failover 的记录块仍只由 failover 决定重建，不带
+  `move_*` 键），并修改 [admin-contracts.ts](../src/admin/admin-contracts.ts)、
+  [admin-schemas.ts](../src/admin/admin-schemas.ts)、[admin index](../src/admin/index.ts)、
+  [load-balancer.ts 路由](../src/admin/routes/load-balancer.ts)、
+  [admin-services.ts](../src/app/admin-services.ts) 与 [proxy index](../src/proxy/index.ts)，共 11
+  处产品源码。测试：新增 `test-node/admin/task-moves.test.ts`（19 项 `[TRI-08]`），修改
+  `test-node/admin/api-contract.test.ts`（+2 项 `[TRI-08]`）、
+  `test-node/app/service-assembly.test.ts`（+1 项 `[TRI-08]`）、
+  `test-node/admin/response-schema-openness.test.ts`（在既有用例内加闭集断言）、
+  `test-node/proxy/load-balancer-pipeline.test.ts`（在既有 TRI-07 实时用例内加路由记录断言并扩
+  `LOAD_BALANCE_RECORD_KEYS`）、`test-node/admin/admin-service-fixtures.ts`、
+  `test-node/admin/load-balancer-tasks.test.ts` 与 `test-node/ui/admin-ui-server.ts`（两处纯增量
+  stub，返回真实服务的具名拒绝）；合计 19 个文件。
+- 验证：`npm run typecheck`（`tsconfig.json` 与 `tsconfig.ui.json` 均 `exit 0`，两处
+  `@ts-expect-error` 反例仍是指望的错误）、`npm run lint`（`--max-warnings=0`）、
+  `npx prettier --check .` 全绿、`npm run check:modules` 报 138 模块、323 条运行时边、114 条类型边、
+  0 环 0 越界、`npm run check` 全链 `exit 0`、`git diff --check` 无空白错误。定向实跑：
+  `test-node/admin/task-moves.test.ts` 1 文件 19 项全过；admin 与 assembly 五文件
+  （`task-moves`、`api-contract`、`response-schema-openness`、`service-assembly`、
+  `load-balancer-tasks`）5 文件 63 项全过；proxy 与 logging 七文件
+  （`load-migration`、`load-balancer-integration`、`load-balancer-pipeline`、
+  `load-balancer-log-records`、`binding-activity`、`runtime`、`operation-sequence`）7 文件 123 项
+  全过；`npm test` 全量 147 文件（146 通过、1 跳过）、1434 通过、2 跳过。
+  按 AGENTS 的声明式口径复核 `git grep -cE "^[[:space:]]*(it|test)(\.[a-z]+)?\(" 8b825c8 -- test-node`
+  为 1243 与 146 个测试文件，本工作树跟踪文件 1245 项（+2 全在 `api-contract`），加
+  `service-assembly` 的 +1 与未跟踪新文件的 19 项声明，测试文件数 146 → 147，增量 22 项正等于
+  2 + 1 + 19，没有用例被删掉。
+  本项范围不含便携版打包、Electron ABI 重建、UI 基线与真实上游实验；所有夹具都在临时目录或用
+  `listen(0)` 自选端口，只写内存记录收集器，没有读写用户实例的配置或 traffic database，也没有停
+  或改用户正在跑的 portable 实例。
+- 状态与错误映射：路由用答复自己带的 `state` 定状态码——`pending_boundary` 显式回 202，`applied`
+  与 `already_there` 回 200，重放回第一次那条记录现在的状态且永不重写。服务拒绝码到 HTTP 的映射
+  固定为设计第 6.2 节：三类版本/源不一致归 409 `binding_stale`，`target_not_in_group`、
+  `target_unknown`、`target_disabled`、`target_cooldown`、`target_asleep`、`same_physical_key` 与
+  `model_mismatch` 七条各带自己的句子但共用 409 `target_not_eligible`，两道状态门共用 422
+  `state_not_migratable`，`migration_backlog_full` 归 503，`idempotency_conflict` 归 409；pair、
+  group、runtime 未启动与 runtime epoch 不一致四类前置检查统一映射成 404 `binding_not_found` 且
+  句子各不相同（真实路由测试逐个比对句子互不相同），取消侧 `operation_not_found` 归 404、
+  `operation_already_applied`/`operation_expired`/`operation_not_cancellable` 归 409，被 reload、
+  failover、删组、目标 cooldown 到界与 pair 停止叫停的意图都用它自己的句子回答，绝不把已经没了的
+  记录谎报成 `cancelled`。参数校验仍由 Fastify 以 `FST_ERR_VALIDATION` 回答 400，本项不冒充业务
+  错误码。
+- 响应闭集：`taskMoveResponseDto` 恰好十个键（含设计第 6.2 节字段加 `runtimeEpoch` 与
+  `groupRevision`），错误答复仍是 `{code, message}` 两键；用例用 secret 直接试正文、会话 ID、
+  prompt cache key 与上游 key，都不出现，序列化器会丢掉服务偷偷多给的键（openness 用例把 smuggle
+  的键试出来被丢掉）。请求体在本项经主管批准的偏离里把 `groupRevision` 与 `incarnation` 定成必填
+  （列表已经提供这两个字段，客户端必须原样带回才能证明它看的是那条路由），设计文档的相应行由主管
+  另行更新，本项不改设计权威。
+- 迁移路由元数据：`observed` 由第一条真正为该目标建 reservation 的请求写入路由记录，字段为
+  `move_operation_id`、`moved_by`、`moved_from`、`moved_to`、`move_routing_revision` 与可选
+  `move_reason`；没有匹配的意图时一个键都不写。`load-balancer-pipeline` 的 TRI-07 实时用例现在直接
+  检查那条流量记录带齐这六个键且不含用户正文，failover 的记录被证明不带任何 `move_*` 键。自动策略
+  的 `suggestion_id` 属于 TRI-10，本项只留手动字段。
+- 结果与限制：两个页面同持旧 revision 只有一个写成功、另一个 409；同键同参重试只写一次；同键改
+  任意一个参数（包括只改 `groupRevision`）一律 409；重启后旧 epoch 的请求 404、旧 operation id 的
+  取消 404、同键在新运行时按新状态重新评估而不是套用旧记录；存储满时 503 且已查出的拒绝理由不被
+  覆盖；`reason` 不进幂等摘要（换个说法仍是同一次移动），长度上限取审计标签的
+  `MAX_MIGRATION_REASON_CHARS`，超出由 schema 拒。本项没有动 `GET /api/load-balancer/tasks` 的形状
+  与 `migration`/`movable` 字段，没有动 UI、CSS、视觉基线、config schema、DB schema 版本与持久化
+  表；`test-node/ui/admin-ui-server.ts` 只加两个 stub 方法，UI 断言一字未改。
+- 提交：`6c769bd`（完整哈希 6c769bda4b4ec028d82d603c69f731b1f45ff835），19 个文件、
+  2237 增 13 删。用显式 `git add` 逐个挑选产品源码与测试路径，没有 `git add -A` 或 `git add .`；
+  在本工作树里两份任务文档仍是未跟踪的副本，没进提交（主 checkout 已在 `9ca1c38` 把它们纳入
+  版本控制）。
+- 整合：cherry-pick 到主 checkout 后是 `5069a99`（完整哈希
+  5069a990870c5af84596fae805d368cccb69bf68），无冲突、文件集与源提交逐项相同。主 checkout 随后的
+  全量 `npm run check` 为 `exit 0`：Vitest 147 文件（146 通过、1 跳过）与 1434 通过、2 跳过，
+  `check:modules` 0 环 0 越界，Prettier 全绿。设计权威也在 `2b947fe` 补上了 `groupRevision` 与
+  `incarnation` 两个必填字段、响应新增的 `runtimeEpoch` 与 `groupRevision`，以及 `reason` 的上限
+  与拒绝口径，本节与设计不再互相矛盾。
 
 ### TRI-09
 
