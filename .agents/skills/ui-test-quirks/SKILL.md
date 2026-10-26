@@ -33,10 +33,15 @@ description: >-
   `nth(i)` + `toHaveValue()`. The `APIResponse` from `page.request` has `request()` in its
   typings but not at runtime, so body assertions go through page `response` events.
 - Timer-driven UI is testable with `page.clock.install()` before `goto` plus
-  `page.clock.runFor(ms)`. Other app timers fast-forward too, and a refresh timer that guards
-  against overlapping requests silently drops a tick while the previous fetch is in flight, so
-  wait for that settle signal (the metrics dialog's `#metricsRefresh` is disabled while loading)
-  before advancing the clock.
+  `page.clock.runFor(ms)`. Installing does not freeze the clock: it keeps following real time, so
+  a real-time `expect.poll` or web-first assertion moves it too and a status poll can answer in
+  the middle of a sequence. To hold it still, read the page's own `Date.now()` and
+  `page.clock.pauseAt(that)`, advance only on purpose with `runFor`, and `page.clock.resume()` in
+  a `finally` — `closeTestPage` drains the page with an in-page `setTimeout` that a held clock
+  never runs, so a paused clock hangs the `afterEach` hook. Other app timers fast-forward too, and
+  a refresh timer that guards against overlapping requests silently drops a tick while the
+  previous fetch is in flight, so wait for that settle signal (the metrics dialog's
+  `#metricsRefresh` is disabled while loading) before advancing the clock.
 - Vitest has no `it.setTimeout`: pass the timeout as the third argument of `it()` / `describe()`.
   `UI_TEST_TIMEOUT_MS` in `test-node/ui/admin-ui-fixture.ts` is that value.
 - Lint forbids both `!` and null-stripping `as` casts: keep the type nullable and guard, then

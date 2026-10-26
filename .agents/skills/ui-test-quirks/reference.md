@@ -29,10 +29,24 @@ work cannot return before an earlier exception.
 
 ## Clock-driven tests
 
-`page.clock.install()` must run before `goto`. In-page timers advance only when the clock is run
-forward, while `expect.poll` and web-first assertions still use real time. An always-on rAF loop
-never settles under the fake clock: the metrics auto-refresh test timed out on a
-self-perpetuating chain. The guard-before-advance rule comes from the same family — a refresh
+`page.clock.install()` must run before `goto`. It does **not** freeze the page: the controller is
+resumed as part of installing it, so the fake clock keeps following real time — the implementation
+advances it by the elapsed performance ticks and runs whatever became due (`_syncRealTime` and
+`_updateRealTimeTimer` in `coreBundle.js`). `runFor` is the same thing on purpose: it pauses the
+real-time sync, runs the requested ticks, and resumes it in a `finally`. So a `expect.poll` or a
+web-first assertion, which are driven by real time, also moves the page clock and can let the
+status poll answer in the middle of a sequence.
+
+To keep the poll still, hold the clock instead of hoping it stays put: read `Date.now()` from the
+page, `page.clock.pauseAt(that)`, drive time with `page.clock.runFor(ms)` only where the test means
+to, and `page.clock.resume()` in a `finally`. The `finally` is not politeness: `closeTestPage`
+drains the page with a `setTimeout(resolve, 0)` inside it, and a held clock never runs that timer,
+so a test that leaves the clock paused hangs the `afterEach` hook until it times out. The cap case
+in `test-node/ui/admin-ui-load-balancing.test.ts` is the measured instance of both halves — the
+poll interleaved until the clock was held, and the hook timed out until the resume was added.
+
+An always-on rAF loop never settles under the fake clock: the metrics auto-refresh test timed out
+on a self-perpetuating chain. The guard-before-advance rule comes from the same family — a refresh
 timer that returns early while `metricsState.loading` is true drops a tick, so the call count
 came up short on slow CI runners until the test waited for the settle signal.
 
