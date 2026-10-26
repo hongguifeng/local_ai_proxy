@@ -21,6 +21,8 @@ describe("UI strict type contracts", () => {
     expect(actual).toEqual(expected);
   });
 
+  // This runs the real compiler over the whole browser graph; on a shared runner it takes
+  // longer than the 10 s default while other workers are compiling too.
   it("rejects nullable lookups, wrong controls, API field mistakes and invalid async state", () => {
     const config = uiConfig();
     const filename = path.resolve(".ui-contract-probe.ts");
@@ -51,5 +53,5 @@ state.taskPricing = {id: "task", loading: false, error: false, data: {wrong: tru
     expect(diagnostics.map((error) => error.code).sort()).toEqual(
       [2531, 2339, 2339, 2345, 2322, 2353].sort(),
     );
-  });
+  }, 60_000);
 });

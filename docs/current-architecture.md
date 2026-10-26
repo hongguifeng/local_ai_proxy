@@ -161,7 +161,6 @@ ABI 证明只认真实查询：`require("better-sqlite3")` 不碰原生绑定，
 
 仍然存在、但不属于本轮范围的事项：
 
-- 并发跑全量 Vitest 时偶发 10 秒超时（`test-node/admin/ui-types.test.ts` 的编译探针，或 `test-node/ui/page-error-collection.test.ts` 的 `afterAll(closeStubAdminServer)`）。串行全量通过，属于测试资源问题，不改断言也不加重试。
 - 旧扁平 pair 的 pair 级 `log_root` 作为未建模键原样保留，不参与 `targets[0].log_root` 的取值（后者取应用默认日志根）。要让旧值决定读取目录是新的产品决定。
 - `LogRecordPricing`、外部请求与响应正文及两个 meta 仍是开放字典，`TrafficRecordWrite` 仍带 `Record<string, unknown>` 的一半；这是 AI-06、AI-07 有意保留的边界。
 - 历史文档（[模块设计文档](./module-design.md)、[软件功能说明书](./software-functional-specification.md)）保持原有表格风格，没有做整文件 Prettier 重排。

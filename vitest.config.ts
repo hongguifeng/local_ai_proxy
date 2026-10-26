@@ -21,5 +21,9 @@ export default defineConfig({
     reporters: ["default", "junit"],
     restoreMocks: true,
     testTimeout: 10_000,
+    // The UI suites launch a browser and close a stub server from their hooks, and a
+    // shared two-core runner with four workers spends more than the 10 s default on that
+    // while nothing is wrong. A unit test that hangs still fails, just later.
+    hookTimeout: 30_000,
   },
 });
