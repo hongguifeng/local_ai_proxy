@@ -4085,7 +4085,7 @@ label span {
    generic card class would pull in the statistics page's font-size and ellipsis
    rules, which do not belong here. */
 .lb-section {
-  /* SECTION: load balancing (53 rules) */
+  /* SECTION: load balancing (86 rules) */
   display: grid;
   gap: 8px;
   margin-top: 4px;
@@ -4422,6 +4422,231 @@ label span {
   font-size: 11px;
   color: #6b7a8a;
 }
+/* [TRI-06] One node's binding list, opened from the node row itself. It sits inside the
+   node-state details and keeps the compact type of the metric lines above it. */
+.lb-node-tools {
+  display: flex;
+  justify-content: flex-end;
+  padding-top: 2px;
+}
+.lb-node-bindings-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  min-height: 22px;
+  padding: 0 7px;
+  border-color: #b8c5d3;
+  background: #ffffff;
+  font-size: 11px;
+}
+.lb-node-bindings-toggle > span {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+/* The trigger is only tinted while its list is open, so an open list is readable at a
+   glance without a second control to look for. */
+.lb-node-bindings-toggle[aria-expanded="true"] {
+  background: #eef3f8;
+  border-color: var(--accent);
+}
+.lb-binding-panel {
+  display: grid;
+  gap: 6px;
+  padding: 6px;
+  border: 1px solid #dde5ef;
+  border-radius: 6px;
+  background: #ffffff;
+}
+/* A display rule beats the hidden attribute's own display: none, so a closed list has to
+   be written out (same as .lb-picker-pop[hidden]). */
+.lb-binding-panel[hidden] {
+  display: none;
+}
+.lb-binding-summary {
+  margin: 0;
+  font-size: 11px;
+  color: #33414f;
+}
+/* The lines that say there is nothing to show, or that what is shown is stale. */
+.lb-binding-loading,
+.lb-binding-empty,
+.lb-binding-limit,
+.lb-binding-stale,
+.lb-binding-error {
+  margin: 0;
+  font-size: 11px;
+  overflow-wrap: anywhere;
+}
+.lb-binding-loading,
+.lb-binding-empty,
+.lb-binding-limit {
+  color: #6b7a8a;
+}
+.lb-binding-stale,
+.lb-binding-error {
+  color: #8a6d3b;
+}
+.lb-binding-error-detail {
+  color: #6b7a8a;
+}
+.lb-binding {
+  display: grid;
+  gap: 4px;
+  padding-bottom: 6px;
+  border-bottom: 1px solid #dde5ef;
+}
+/* The binding's own address: its number, the model it was made for, and where that model
+   is called. The two long fields clip inside their own boxes, so a longer model name
+   never moves the facts beside it. */
+.lb-binding-head {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) minmax(0, 1fr);
+  align-items: baseline;
+  gap: 6px;
+  font-weight: 600;
+  color: #22303f;
+}
+.lb-binding-model,
+.lb-binding-endpoint {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  overflow-wrap: normal;
+}
+/* Three equal columns, like the node's own metric lines: a fact keeps its column, so a
+   longer value never pushes its neighbours sideways. */
+.lb-binding-facts {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 6px;
+}
+.lb-binding-association {
+  display: grid;
+  gap: 4px;
+}
+.lb-binding-task-line,
+.lb-binding-coverage,
+.lb-binding-reasons {
+  margin: 0;
+  font-size: 11px;
+  overflow-wrap: anywhere;
+}
+/* Every chip the list writes: one box that clips, so no value reflows its row. The state
+   colours below are written after this rule, which is what lets them win the tie. */
+.lb-binding-fact,
+.lb-binding-coverage-state,
+.lb-binding-coverage-detail,
+.lb-binding-coverage-flag,
+.lb-binding-reason,
+.lb-binding-confidence,
+.lb-binding-ambiguous,
+.lb-binding-task-level,
+.lb-binding-task-node,
+.lb-binding-task-pending {
+  min-width: 0;
+  padding: 1px 5px;
+  border-radius: 4px;
+  background: #e4ecf5;
+  color: #33414f;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  overflow-wrap: normal;
+}
+.lb-binding-task-list {
+  display: grid;
+  gap: 3px;
+  margin: 0;
+  padding-left: 14px;
+}
+.lb-binding-task {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 4px;
+}
+.lb-binding-task-id {
+  flex: 0 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  overflow-wrap: normal;
+}
+/* The facts beside a task id keep their full width and move to the next line when the id
+   runs out of room, so none of them is squeezed down to a single unreadable letter. */
+.lb-binding-task > .lb-binding-task-level,
+.lb-binding-task > .lb-binding-task-count,
+.lb-binding-task > .lb-binding-task-time,
+.lb-binding-task > .lb-binding-task-node,
+.lb-binding-task > .lb-binding-task-pending {
+  flex: 0 0 auto;
+}
+/* The three states a value can carry are told apart by colour, not by a wording the
+   reader has to guess: known-good, worth a second look, and simply not known. */
+.lb-binding-activity.is-idle,
+.lb-binding-confidence.is-high,
+.lb-binding-task-level.is-high,
+.lb-binding-task-node.is-same,
+.lb-binding-coverage-state.is-available {
+  background: #dcebe0;
+  color: #2f6b46;
+}
+.lb-binding-activity.is-in-flight,
+.lb-binding-confidence.is-candidate,
+.lb-binding-task-level.is-candidate,
+.lb-binding-task-node.is-different,
+.lb-binding-coverage-state.is-failed,
+.lb-binding-coverage-flag,
+.lb-binding-ambiguous {
+  background: #f3e8d5;
+  color: #8a6d3b;
+}
+.lb-binding-activity.is-unknown,
+.lb-binding-confidence.is-none,
+.lb-binding-task-node.is-unknown,
+.lb-binding-coverage-state.is-no-log,
+.lb-binding-coverage-state.is-no-database,
+.lb-binding-task-pending {
+  background: #e4ecf5;
+  color: #6b7a8a;
+}
+.lb-binding-tools {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 6px;
+}
+.lb-binding-move {
+  flex: 0 0 auto;
+  min-height: 24px;
+  padding: 0 8px;
+  font-size: 11px;
+}
+/* The button is enabled exactly when the server says this binding can move. A disabled one
+   keeps a readable fill so its reason line stays the thing the user reads. */
+.lb-binding-move:disabled {
+  background: #eef2f6;
+  color: #6b7a8a;
+  border-color: #b8c5d3;
+  cursor: not-allowed;
+  opacity: 1;
+}
+.lb-binding-move-reasons {
+  min-width: 0;
+  font-size: 11px;
+  color: #8a6d3b;
+  overflow-wrap: anywhere;
+  text-align: right;
+}
+.lb-binding-more {
+  width: 100%;
+  min-height: 26px;
+  font-size: 11px;
+}
 @media (max-width: 520px) {
   .lb-groups {
     grid-template-columns: 1fr;
@@ -4429,5 +4654,17 @@ label span {
   .lb-member-row {
     grid-template-columns: minmax(0, 1fr);
     gap: 4px;
+  }
+  /* A narrow card has no room for three fact columns or a two-column address line. */
+  .lb-binding-head {
+    grid-template-columns: minmax(0, 1fr);
+    gap: 2px;
+  }
+  .lb-binding-facts {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+  .lb-binding-tools {
+    flex-wrap: wrap;
+    justify-content: flex-start;
   }
 }

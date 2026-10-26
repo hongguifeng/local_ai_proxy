@@ -1,5 +1,8 @@
 import { controlsOn, optionalTyped } from "./dom.js";
+import { displayLocaleTag } from "./display-locale.js";
+import { compactNumber, formatTokenCount, fullNumber } from "./numbers.js";
 import { escapeHtml } from "./text.js";
+import { displayTimestampParts } from "./time.js";
 import { requestWithCancellation } from "./request.js";
 
 /** Owns LB presentation, member form collection, open cards and polling. Pair
@@ -126,11 +129,23 @@ export function createLoadBalancing({
     if (!groups.length) return "";
     return `<p class="lb-takeover-note">${escapeHtml(t("lbTakeover"))}</p>`;
   }
-  function lbStatusRowHtml(targetId, target) {
+  /**
+   * One node's row: its own metrics, then the affordance that reveals the bindings this
+   * node is holding. The numbers on the metric line come from the status poll and are
+   * never rewritten by the list below them - a panel that shows three bindings does not
+   * make an engine that never sampled look measured, and it does not make a node with no
+   * bindings in the status answer look like it has none.
+   * @param {string} targetId
+   * @param {{ name?: string } | undefined} target
+   * @param {{ pairIndex: number, groupIndex: number, nodeIndex: number, pairId: string, groupId: string }} context
+   */
+  function lbStatusRowHtml(targetId, target, context) {
     const id = escapeHtml(targetId);
     const name = (target && target.name) || targetId;
     const fact = (key, label, value) =>
       `<span class="lb-node-fact" data-lb-fact="${key}" title="${escapeHtml(`${label}: ${value}`)}">${escapeHtml(label)}: ${escapeHtml(value)}</span>`;
+    const panel = bindingPanelFor(context.pairId, context.groupId, targetId);
+    const panelId = `lb-binding-panel-${context.pairIndex}-${context.groupIndex}-${context.nodeIndex}`;
     return `<div class="lb-node-state" data-lb-status-target="${id}">
     <div class="lb-node-head">
       <span class="lb-node-name" title="${id}">${escapeHtml(name)}</span>
@@ -146,6 +161,10 @@ export function createLoadBalancing({
       ${fact("cooldown", t("lbStateCooldown"), "0")}
       ${fact("source", t("lbStateSource"), "-")}
     </div>
+    <div class="lb-node-tools">
+      <button type="button" class="lb-node-bindings-toggle" data-lb-bindings-toggle aria-expanded="${panel.open ? "true" : "false"}" aria-controls="${panelId}"><span class="lb-node-bindings-label">${escapeHtml(t("lbNodeBindings"))}</span><span class="lb-picker-caret" aria-hidden="true"></span></button>
+    </div>
+    <div class="lb-binding-panel" id="${panelId}" data-lb-binding-pair="${escapeHtml(context.pairId)}" data-lb-binding-group="${escapeHtml(context.groupId)}" data-lb-binding-node="${id}"${panel.open ? "" : " hidden"}>${lbBindingPanelHtml(panel, name)}</div>
   </div>`;
   }
 
@@ -159,16 +178,565 @@ export function createLoadBalancing({
       .join("|");
   }
 
-  function lbNodeStatesHtml(targetIds, targets) {
+  function lbNodeStatesHtml(targetIds, targets, context) {
     return targetIds
-      .map((targetId) =>
+      .map((targetId, nodeIndex) =>
         lbStatusRowHtml(
           targetId,
           (targets || []).find((item) => item.id === targetId),
+          { ...context, nodeIndex },
         ),
       )
       .join("");
   }
+
+  // ------------------------------------------------------------ [TRI-06] the binding list
+
+  /**
+   * What one node's panel holds. A closed panel is never asked for; an open one follows the
+   * status poll this file already runs, so the list adds no timer and no listener of its own.
+   * The panel is keyed by the (pair, group, node) triple its element carries: a binding number
+   * alone is not an address, and the same number in another group is another binding.
+   */
+  const bindingPanels = new Map();
+  const lbNodeBindingsOpenStorageKey = "llmProxyLbNodeBindings";
+  /** Rows one read asks for. The server caps a page at 200 whatever this says. */
+  const lbBindingPageRows = 20;
+  const lbBindingReadRowCap = 200;
+
+  /**
+   * The words for every closed-set value the list answers with, spelled in the wire's own
+   * vocabulary so one table can say what each state means. The button's enabled state is never
+   * in this table: it comes from the server's `movable.ok` and nothing else.
+   */
+  const lbBindingVocabulary = {
+    activity: {
+      in_flight: "lbActivityInFlight",
+      idle: "lbActivityIdle",
+      unknown: "lbActivityUnknown",
+    },
+    activityClass: { in_flight: "is-in-flight", idle: "is-idle", unknown: "is-unknown" },
+    costSource: {
+      normalized_usage: "lbCostNormalizedUsage",
+      request_bytes: "lbCostRequestBytes",
+      none: "lbCostNone",
+    },
+    confidence: {
+      high: "lbConfidenceHigh",
+      candidate: "lbConfidenceCandidate",
+      none: "lbConfidenceNone",
+    },
+    associationLevel: { high: "lbConfidenceHigh", candidate: "lbConfidenceCandidate" },
+    historyTargetNode: {
+      same: "lbHistoryTargetSame",
+      different: "lbHistoryTargetDifferent",
+      unknown: "lbHistoryTargetUnknown",
+    },
+    coverage: {
+      available: "lbCoverageAvailable",
+      no_log_configured: "lbCoverageNoLogConfigured",
+      no_traffic_database: "lbCoverageNoTrafficDatabase",
+      failed: "lbCoverageFailed",
+    },
+    coverageClass: {
+      available: "is-available",
+      no_log_configured: "is-no-log",
+      no_traffic_database: "is-no-database",
+      failed: "is-failed",
+    },
+    moveReason: {
+      migration_unavailable: "lbMoveReasonMigrationUnavailable",
+      in_flight: "lbMoveReasonInFlight",
+    },
+    associationReason: {
+      exact_key_links: "lbReasonExactKeyLinks",
+      several_linked_tasks: "lbReasonSeveralLinkedTasks",
+      key_without_link: "lbReasonKeyWithoutLink",
+      key_without_task: "lbReasonKeyWithoutTask",
+      link_boundary_mismatch: "lbReasonLinkBoundaryMismatch",
+      key_limit_exceeded: "lbReasonKeyLimitExceeded",
+      boundary_candidates: "lbReasonBoundaryCandidates",
+      candidate_scan_truncated: "lbReasonCandidateScanTruncated",
+      task_list_truncated: "lbReasonTaskListTruncated",
+      no_log_configured: "lbCoverageNoLogConfigured",
+      no_traffic_database: "lbCoverageNoTrafficDatabase",
+      history_query_failed: "lbCoverageFailed",
+      log_write_may_be_pending: "lbCoverageWritePending",
+    },
+    notFound: {
+      pair_not_found: "lbBindingNotFoundPair",
+      group_not_found: "lbBindingNotFoundGroup",
+    },
+  };
+
+  /** A closed-set value plus its word; a value the table does not know stays the wire name
+   *  rather than being printed as a translation key. */
+  function lbBindingWord(value, table) {
+    const key = table[value];
+    return key === undefined ? String(value) : t(key);
+  }
+
+  function bindingPanelKey(pairId, groupId, targetId) {
+    // JSON rather than a joined string: an id is configured text that may contain any
+    // separator, and two different triples must not collapse into one key.
+    return JSON.stringify([pairId, groupId, targetId]);
+  }
+
+  function readLbNodeBindingsOpen() {
+    let parsed;
+    try {
+      parsed = JSON.parse(localStorage.getItem(lbNodeBindingsOpenStorageKey) || "{}");
+    } catch {
+      parsed = {};
+    }
+    return parsed && typeof parsed === "object" ? parsed : {};
+  }
+
+  function writeLbNodeBindingsOpen(map) {
+    localStorage.setItem(lbNodeBindingsOpenStorageKey, JSON.stringify(map));
+  }
+
+  /** The panel for one node, created on first use. Whether it is open lives in the browser,
+   *  like the group card's own open flag, because a configuration round trip keeps nothing. */
+  function bindingPanelFor(pairId, groupId, targetId) {
+    const key = bindingPanelKey(pairId, groupId, targetId);
+    const known = bindingPanels.get(key);
+    if (known !== undefined) return known;
+    const created = {
+      targetId,
+      open: readLbNodeBindingsOpen()[key] === true,
+      loaded: false,
+      loading: false,
+      loadingMore: false,
+      errorKey: null,
+      errorMessage: "",
+      errorDetail: "",
+      items: [],
+      total: 0,
+      hasMore: false,
+      now: 0,
+      serial: 0,
+      pendingSerial: null,
+    };
+    bindingPanels.set(key, created);
+    return created;
+  }
+
+  /** The three ids a panel element carries; the markup writes them escaped and the browser
+   *  reads them back unescaped, so they are the pair of values worth comparing. */
+  function bindingContextFromElement(element) {
+    const pairId = element.dataset.lbBindingPair;
+    const groupId = element.dataset.lbBindingGroup;
+    const targetId = element.dataset.lbBindingNode;
+    if (pairId === undefined || groupId === undefined || targetId === undefined) return null;
+    return { pairId, groupId, targetId };
+  }
+
+  function lbBindingPanelElement(context) {
+    return (
+      qsa(".lb-binding-panel").find(
+        (element) =>
+          element.dataset.lbBindingPair === context.pairId &&
+          element.dataset.lbBindingGroup === context.groupId &&
+          element.dataset.lbBindingNode === context.targetId,
+      ) ?? null
+    );
+  }
+
+  /** The node's name is already on its row, so repainting a panel asks no one for the
+   *  pair configuration; an empty name falls back to the id the row also carries. */
+  function lbNodeLabelOfPanel(element, context) {
+    const row = closestOn(element, ".lb-node-state");
+    const name = row === null ? null : qsOn(row, ".lb-node-name");
+    const text = name === null ? "" : name.textContent || "";
+    return text === "" ? context.targetId : text;
+  }
+
+  /**
+   * Age of one epoch-millisecond mark, counted against the `now` the same answer carried.
+   * The server's clock and the row's own clock therefore come from one response, and a null
+   * stays the dash that means "this never happened", not a zero.
+   */
+  function lbBindingAge(now, value) {
+    if (value === null) return "-";
+    const seconds = Math.max(0, Math.round((now - value) / 1000));
+    if (seconds < 60) return `${seconds}s`;
+    const minutes = Math.round(seconds / 60);
+    if (minutes < 60) return `${minutes}m`;
+    const hours = Math.round(minutes / 60);
+    if (hours < 24) return `${hours}h`;
+    return `${Math.round(hours / 24)}d`;
+  }
+
+  /** The same instant as a wall-clock line, for the tooltip a clipped age hides. */
+  function lbBindingClock(value) {
+    if (value === null) return "";
+    const date = new Date(value);
+    return Number.isFinite(date.getTime()) ? date.toLocaleString(displayLocaleTag()) : "";
+  }
+
+  /** The cost signal names where its numbers came from; a source with no number behind it
+   *  is shown as missing, because "normalized usage" without a token count says nothing. */
+  function lbBindingCostValue(context) {
+    if (context.source === "normalized_usage" && context.inputTokens !== null) {
+      return `${lbBindingWord(context.source, lbBindingVocabulary.costSource)} ${formatTokenCount(context.inputTokens)}`;
+    }
+    if (context.source === "request_bytes" && context.requestBytes !== null) {
+      return `${lbBindingWord(context.source, lbBindingVocabulary.costSource)} ${compactNumber(context.requestBytes)}`;
+    }
+    return "-";
+  }
+
+  function lbBindingCostTitle(context) {
+    const parts = [
+      `${t("lbStateCost")}: ${lbBindingWord(context.source, lbBindingVocabulary.costSource)}`,
+    ];
+    if (context.inputTokens !== null)
+      parts.push(`${t("lbCostInputTokens")}: ${fullNumber(context.inputTokens)}`);
+    if (context.cacheReadTokens !== null)
+      parts.push(`${t("lbCostCacheReadTokens")}: ${fullNumber(context.cacheReadTokens)}`);
+    if (context.requestBytes !== null)
+      parts.push(`${t("lbCostRequestBytes")}: ${fullNumber(context.requestBytes)}`);
+    if (context.observedAt !== null)
+      parts.push(`${t("lbCostObservedAt")}: ${lbBindingClock(context.observedAt)}`);
+    return parts.join(" · ");
+  }
+
+  /** One history task: its id, how firm the link is, how many requests it holds, when the
+   *  log last saw it, and whether that was on this node. */
+  function lbBindingTaskHtml(task) {
+    const seen = displayTimestampParts(task.lastSeenAt);
+    const seenText = `${seen.shortDate} ${seen.time}`.trim() || task.lastSeenAt;
+    const detail = [
+      `${t("lbStateRequests")}: ${task.requestCount}`,
+      `${t("lbStateLastRequest")}: ${task.lastSeenAt}`,
+      `${t("lbStateLastResponse")}: ${task.lastResponseAt === null ? "-" : task.lastResponseAt}`,
+    ].join(" · ");
+    return `<li class="lb-binding-task" data-lb-task-id="${escapeHtml(task.taskId)}">
+      <span class="lb-binding-task-id" title="${escapeHtml(task.taskId)}">${escapeHtml(task.taskId)}</span>
+      <span class="lb-binding-task-level is-${escapeHtml(task.level)}">${escapeHtml(lbBindingWord(task.level, lbBindingVocabulary.associationLevel))}</span>
+      <span class="lb-binding-task-count" title="${escapeHtml(detail)}">${escapeHtml(String(task.requestCount))}</span>
+      <span class="lb-binding-task-time" title="${escapeHtml(detail)}">${escapeHtml(seenText)}</span>
+      <span class="lb-binding-task-node is-${escapeHtml(task.historyTargetNode)}">${escapeHtml(lbBindingWord(task.historyTargetNode, lbBindingVocabulary.historyTargetNode))}</span>
+      ${task.pendingRequestOnly ? `<span class="lb-binding-task-pending">${escapeHtml(t("lbTaskPendingOnly"))}</span>` : ""}
+    </li>`;
+  }
+
+  /** A failed history read says what broke, and that is not the same sentence as "there is
+   *  nothing stored": only `failed` carries a cause. */
+  function lbBindingCoverageHtml(coverage) {
+    const stateClass = lbBindingVocabulary.coverageClass[coverage.state] ?? "";
+    const stateWord = lbBindingWord(coverage.state, lbBindingVocabulary.coverage);
+    const failure = coverage.failure;
+    const detail =
+      failure === null
+        ? ""
+        : [failure.phase, failure.errorName, failure.code, failure.message]
+            .filter((part) => part !== null && part !== "")
+            .join(" · ");
+    const flags = [
+      coverage.historyTruncated
+        ? `<span class="lb-binding-coverage-flag is-truncated">${escapeHtml(t("lbCoverageTruncated"))}</span>`
+        : "",
+      coverage.logWriteMayBePending
+        ? `<span class="lb-binding-coverage-flag is-pending">${escapeHtml(t("lbCoverageWritePending"))}</span>`
+        : "",
+    ]
+      .filter(Boolean)
+      .join("");
+    return `<span class="lb-binding-coverage-state ${stateClass}">${escapeHtml(stateWord)}</span>${
+      detail === ""
+        ? ""
+        : `<span class="lb-binding-coverage-detail" title="${escapeHtml(detail)}">${escapeHtml(detail)}</span>`
+    }${flags}`;
+  }
+
+  /**
+   * One binding row. Its own address, its live activity, what the history makes of it, and
+   * what the server says about moving it. Several linked tasks still make one row with one
+   * move affordance, because the thing that could move is the binding, not each task.
+   */
+  function lbBindingRowHtml(item, now, nodeLabel) {
+    const fact = (name, label, value, detail) => {
+      const text = `${label}: ${value}`;
+      const title = detail === "" ? text : `${text} · ${detail}`;
+      return `<span class="lb-binding-fact" data-lb-binding-fact="${name}" title="${escapeHtml(title)}">${escapeHtml(text)}</span>`;
+    };
+    const association = item.associations;
+    const tasks = association.tasks;
+    const model = item.model === null ? "-" : item.model;
+    const activityClass = lbBindingVocabulary.activityClass[item.activity] ?? "";
+    const confidenceClass =
+      association.confidence === "none" ? "is-none" : `is-${escapeHtml(association.confidence)}`;
+    const moveReasons = item.movable.reasons.map((reason) =>
+      lbBindingWord(reason, lbBindingVocabulary.moveReason),
+    );
+    const moveTitle = [t("lbMoveNextRequestHint")].concat(moveReasons).join(" · ");
+    const taskList = tasks.length
+      ? `<ul class="lb-binding-task-list">${tasks.map((task) => lbBindingTaskHtml(task)).join("")}</ul>`
+      : "";
+    const reasonChips = association.reasons.length
+      ? `<p class="lb-binding-reasons" data-lb-binding-reasons>${association.reasons
+          .map(
+            (reason) =>
+              `<span class="lb-binding-reason">${escapeHtml(lbBindingWord(reason, lbBindingVocabulary.associationReason))}</span>`,
+          )
+          .join("")}</p>`
+      : "";
+    return `<div class="lb-binding" data-lb-binding-id="${item.bindingId}" data-lb-binding-node="${escapeHtml(item.targetId)}">
+    <div class="lb-binding-head">
+      <span class="lb-binding-key" data-lb-binding-key title="${escapeHtml(String(item.bindingId))}">#${item.bindingId}</span>
+      <span class="lb-binding-model" data-lb-binding-model title="${escapeHtml(model)}">${escapeHtml(model)}</span>
+      <span class="lb-binding-endpoint" data-lb-binding-endpoint title="${escapeHtml(`${item.endpointKind} ${item.endpoint}`)}">${escapeHtml(`${item.endpointKind} ${item.endpoint}`)}</span>
+    </div>
+    <div class="lb-binding-facts">
+      ${fact("target", t("lbStateBindingTarget"), nodeLabel, `targetId: ${item.targetId}`)}
+      ${fact("revision", t("lbStateRevision"), String(item.routingRevision), "")}
+      ${fact("incarnation", t("lbStateIncarnation"), String(item.incarnation), "")}
+    </div>
+    <div class="lb-binding-facts">
+      ${fact("requests", t("lbStateRequests"), fullNumber(item.requestCount), "")}
+      ${fact("lastRequest", t("lbStateLastRequest"), lbBindingAge(now, item.lastRequestStartedAt), lbBindingClock(item.lastRequestStartedAt))}
+      ${fact("lastResponse", t("lbStateLastResponse"), lbBindingAge(now, item.lastResponseEndedAt), lbBindingClock(item.lastResponseEndedAt))}
+    </div>
+    <div class="lb-binding-facts">
+      ${fact("inFlight", t("lbStateInFlight"), String(item.inFlight), "")}
+      <span class="lb-binding-fact lb-binding-activity ${activityClass}" data-lb-binding-fact="activity" title="${escapeHtml(t("lbActivityNote"))}">${escapeHtml(lbBindingWord(item.activity, lbBindingVocabulary.activity))}</span>
+      ${fact("cost", t("lbStateCost"), lbBindingCostValue(item.context), lbBindingCostTitle(item.context))}
+    </div>
+    <div class="lb-binding-association">
+      <p class="lb-binding-task-line" data-lb-binding-tasks>${escapeHtml(`${t("lbBindingTasks")}: ${tasks.length}`)} <span class="lb-binding-confidence ${confidenceClass}" data-lb-binding-confidence>${escapeHtml(lbBindingWord(association.confidence, lbBindingVocabulary.confidence))}</span>${
+        association.ambiguous
+          ? ` <span class="lb-binding-ambiguous" data-lb-binding-ambiguous>${escapeHtml(t("lbAmbiguous"))}</span>`
+          : ""
+      }</p>
+      ${taskList}
+      <p class="lb-binding-coverage" data-lb-binding-coverage>${lbBindingCoverageHtml(association.coverage)}</p>
+      ${reasonChips}
+    </div>
+    <div class="lb-binding-tools">
+      <button type="button" class="lb-binding-move" data-lb-binding-move${item.movable.ok ? "" : " disabled"} title="${escapeHtml(moveTitle)}">${escapeHtml(t("lbMoveBinding"))}</button>
+      <span class="lb-binding-move-reasons" data-lb-binding-move-reasons>${escapeHtml(moveReasons.join(" · "))}</span>
+    </div>
+  </div>`;
+  }
+
+  /**
+   * What the panel says right now: the reason there is nothing to show, the rows the last
+   * read produced, or the note that those rows are stale. Rebuilding a card - a rename, a
+   * language switch - redraws these rows from the same panel state, so the list never has to
+   * be read twice for one opening.
+   */
+  function lbBindingPanelHtml(panel, nodeLabel) {
+    if (bindingErrorText(panel) !== "" && panel.items.length === 0) {
+      return `<p class="lb-binding-error" data-lb-binding-error>${escapeHtml(bindingErrorText(panel))}${
+        panel.errorDetail === ""
+          ? ""
+          : ` <span class="lb-binding-error-detail" data-lb-binding-error-detail>${escapeHtml(panel.errorDetail)}</span>`
+      }</p>`;
+    }
+    if (!panel.loaded) {
+      return `<p class="lb-binding-loading" data-lb-binding-loading>${escapeHtml(t("lbBindingsLoading"))}</p>`;
+    }
+    const staleNote =
+      bindingErrorText(panel) === ""
+        ? ""
+        : `<p class="lb-binding-stale" data-lb-binding-stale>${escapeHtml(t("lbBindingsRefreshFailed"))}${
+            panel.errorDetail === ""
+              ? ""
+              : ` <span class="lb-binding-error-detail" data-lb-binding-error-detail>${escapeHtml(panel.errorDetail)}</span>`
+          }</p>`;
+    if (panel.items.length === 0) {
+      return `${staleNote}<p class="lb-binding-empty" data-lb-binding-empty>${escapeHtml(t("lbBindingsNone"))}</p>`;
+    }
+    const linkedTasks = panel.items.reduce(
+      (total, item) => total + item.associations.tasks.length,
+      0,
+    );
+    const summary = `<p class="lb-binding-summary" data-lb-binding-summary>${escapeHtml(`${t("lbBindingsOnNode")}: ${panel.items.length} / ${panel.total}`)} · ${escapeHtml(`${t("lbLinkedTasksShown")}: ${linkedTasks}`)}</p>`;
+    const pager = !panel.hasMore
+      ? ""
+      : panel.items.length >= lbBindingReadRowCap
+        ? `<p class="lb-binding-limit" data-lb-binding-limit>${escapeHtml(t("lbBindingsAtLimit"))}</p>`
+        : `<button type="button" class="lb-binding-more" data-lb-binding-more${panel.loadingMore ? " disabled" : ""}>${escapeHtml(`${t("lbBindingsLoadMore")} (${panel.items.length}/${panel.total})`)}</button>`;
+    return [
+      staleNote,
+      summary,
+      panel.items.map((item) => lbBindingRowHtml(item, panel.now, nodeLabel)).join(""),
+      pager,
+    ].join("");
+  }
+
+  /** Repaint one panel from the state it holds. A row that is gone from the document needs
+   *  nothing: the next build of the card reads the same state. */
+  function renderBindingPanel(context) {
+    const panel = bindingPanels.get(
+      bindingPanelKey(context.pairId, context.groupId, context.targetId),
+    );
+    if (panel === undefined) return;
+    const element = lbBindingPanelElement(context);
+    if (element === null) return;
+    element.innerHTML = lbBindingPanelHtml(panel, lbNodeLabelOfPanel(element, context));
+  }
+
+  /**
+   * One read of one node's list. Offset 0 replaces the rows and asks for as many as the user
+   * already paged through, so a refresh never drops rows that are on screen; a larger offset
+   * appends the next page. A late answer is dropped: a newer read owns the panel, and its
+   * numbers are the ones the user should see.
+   */
+  async function readBindingPage(context, panel, offset) {
+    if (lifecycle === null) return;
+    const append = offset > 0;
+    const limit = append
+      ? lbBindingPageRows
+      : Math.min(lbBindingReadRowCap, Math.max(lbBindingPageRows, panel.items.length));
+    const serial = panel.serial + 1;
+    panel.serial = serial;
+    panel.pendingSerial = serial;
+    panel.loading = true;
+    panel.loadingMore = append;
+    const pending = new AbortController();
+    const query = new URLSearchParams({
+      pairId: context.pairId,
+      groupId: context.groupId,
+      targetId: context.targetId,
+      limit: String(limit),
+      offset: String(offset),
+    });
+    try {
+      const data = await api(`/api/load-balancer/tasks?${query.toString()}`, {
+        signal: pending.signal,
+      });
+      if (pending.signal.aborted) return;
+      if (panel.pendingSerial !== serial) return;
+      // An answer that names another pair, group or node is not this panel's page, and
+      // showing it here would put one node's bindings under another node's name.
+      if (
+        data.pairId !== context.pairId ||
+        data.groupId !== context.groupId ||
+        data.targetFilter !== context.targetId
+      )
+        return;
+      panel.items = append ? panel.items.concat(data.items) : data.items.slice();
+      panel.total = data.totalBindings;
+      panel.hasMore = data.hasMore;
+      panel.now = data.now;
+      panel.loaded = true;
+      panel.errorKey = null;
+      panel.errorMessage = "";
+      panel.errorDetail = "";
+    } catch (error) {
+      // A cancelled read is a tab switch or a disposal, not a failed one: the panel keeps
+      // whatever it already showed and waits for the next tick.
+      if (pending.signal.aborted) return;
+      if (panel.pendingSerial !== serial) return;
+      applyBindingError(panel, error);
+    } finally {
+      if (panel.pendingSerial === serial) {
+        panel.pendingSerial = null;
+        panel.loading = false;
+        panel.loadingMore = false;
+      }
+      renderBindingPanel(context);
+    }
+  }
+
+  /** What the panel says when a read did not answer: a translation key for the two named 404
+   *  causes, so the sentence is drawn in the language the page speaks now and not the one it
+   *  spoke when the read failed, and the server's own line for everything else, which arrives
+   *  in English whatever the page speaks. */
+  function bindingErrorText(panel) {
+    if (panel.errorKey !== null) return t(panel.errorKey);
+    return panel.errorMessage;
+  }
+
+  /** The two named 404 causes are kept as the code the server sent; everything else keeps the
+   *  answer's message and code, which are not the console's words to translate. */
+  function applyBindingError(panel, error) {
+    const code = typeof error.code === "string" ? error.code : "";
+    const key = lbBindingVocabulary.notFound[code];
+    if (key === undefined) {
+      panel.errorKey = null;
+      panel.errorMessage = String(error.message || error);
+      panel.errorDetail = code;
+      return;
+    }
+    panel.errorKey = key;
+    panel.errorMessage = "";
+    panel.errorDetail = "";
+  }
+
+  /** Open panels follow the status poll; a closed panel, and a panel inside a folded node
+   *  state section, are never asked for. One read per panel at a time. */
+  function refreshOpenBindingPanels() {
+    if (lifecycle === null) return;
+    qsa(".lb-binding-panel").forEach((element) => {
+      if (element.hidden) return;
+      const details = element.closest("details");
+      if (!(details instanceof HTMLDetailsElement) || !details.open) return;
+      const context = bindingContextFromElement(element);
+      if (context === null) return;
+      const panel = bindingPanels.get(
+        bindingPanelKey(context.pairId, context.groupId, context.targetId),
+      );
+      if (panel === undefined || !panel.open || panel.pendingSerial !== null) return;
+      void readBindingPage(context, panel, 0);
+    });
+  }
+
+  function toggleLbNodeBindings(button) {
+    const row = closestOn(button, ".lb-node-state");
+    const panelElement = row === null ? null : qsOn(row, ".lb-binding-panel");
+    if (panelElement === null) return;
+    const context = bindingContextFromElement(panelElement);
+    if (context === null) return;
+    const key = bindingPanelKey(context.pairId, context.groupId, context.targetId);
+    const panel = bindingPanelFor(context.pairId, context.groupId, context.targetId);
+    const willOpen = panelElement.hidden;
+    panelElement.hidden = !willOpen;
+    button.setAttribute("aria-expanded", willOpen ? "true" : "false");
+    panel.open = willOpen;
+    const stored = readLbNodeBindingsOpen();
+    stored[key] = willOpen;
+    writeLbNodeBindingsOpen(stored);
+    if (willOpen) void readBindingPage(context, panel, 0);
+  }
+
+  function loadMoreBindings(moreButton) {
+    const panelElement = closestOn(moreButton, ".lb-binding-panel");
+    if (panelElement === null) return;
+    const context = bindingContextFromElement(panelElement);
+    if (context === null) return;
+    const panel = bindingPanelFor(context.pairId, context.groupId, context.targetId);
+    if (!panel.hasMore || panel.pendingSerial !== null) return;
+    void readBindingPage(context, panel, panel.items.length);
+  }
+
+  /**
+   * Forget a panel whose node left the card: the row is gone, so its rows and its stored
+   * open flag could only come back as a list for a node this group no longer has.
+   */
+  function pruneBindingPanels() {
+    const living = new Set();
+    qsa(".lb-card").forEach((card) => {
+      qsaOn(card, ".lb-binding-panel").forEach((element) => {
+        const context = bindingContextFromElement(element);
+        if (context === null) return;
+        living.add(bindingPanelKey(context.pairId, context.groupId, context.targetId));
+      });
+    });
+    const stored = readLbNodeBindingsOpen();
+    let changed = false;
+    bindingPanels.forEach((_panel, key) => {
+      if (living.has(key)) return;
+      bindingPanels.delete(key);
+      delete stored[key];
+      changed = true;
+    });
+    if (changed) writeLbNodeBindingsOpen(stored);
+  }
+
   /** One checkbox row in the member picker dropdown: checkbox, name, disabled mark. */
   function lbMemberOptionHtml(target, checked) {
     const id = escapeHtml(target.id);
@@ -264,6 +832,7 @@ export function createLoadBalancing({
     const nodeIds = lbMemberIds(group);
     const rowsKey = lbMemberRowsSignature(memberList, targets, lbDisabledTargetIds(targets));
     const popId = `lb-picker-pop-${pairIndex}-${groupIndex}`;
+    const nodeContext = { pairIndex, groupIndex, pairId: pair.id, groupId: group.id };
     return `<section class="lb-card" data-lb-pair="${pairIndex}" data-lb-index="${groupIndex}">
     <div class="lb-head">
       <input data-lb-field="name" value="${escapeHtml(group.name || "")}" placeholder="${escapeHtml(t("lbGroupName"))}" aria-label="${escapeHtml(t("lbGroupName"))}">
@@ -293,7 +862,7 @@ export function createLoadBalancing({
     </div>
     <details class="lb-status" ${open ? "open" : ""}>
       <summary>${escapeHtml(t("lbNodeState"))} · ${nodeIds.length}</summary>
-      <div class="lb-node-states" data-lb-rendered="${escapeHtml(lbNodeRenderSignature(nodeIds, pair.targets))}">${lbNodeStatesHtml(nodeIds, pair.targets)}</div>
+      <div class="lb-node-states" data-lb-rendered="${escapeHtml(lbNodeRenderSignature(nodeIds, pair.targets))}">${lbNodeStatesHtml(nodeIds, pair.targets, nodeContext)}</div>
     </details>
   </section>`;
   }
@@ -437,7 +1006,12 @@ export function createLoadBalancing({
         const checked = lbNodeRenderSignature(lbMemberIds(draft), shadowTargets);
         if (states !== null && states.dataset.lbRendered !== checked) {
           states.dataset.lbRendered = checked;
-          states.innerHTML = lbNodeStatesHtml(lbMemberIds(draft), shadowTargets);
+          states.innerHTML = lbNodeStatesHtml(lbMemberIds(draft), shadowTargets, {
+            pairIndex: Number(lbCard.dataset.lbPair),
+            groupIndex: Number(lbCard.dataset.lbIndex),
+            pairId: pair.id,
+            groupId: draft.id,
+          });
           const summary = qsOn(lbCard, ".lb-status > summary");
           if (summary !== null) {
             summary.textContent = `${t("lbNodeState")} · ${lbMemberIds(draft).length}`;
@@ -445,6 +1019,7 @@ export function createLoadBalancing({
         }
       });
     });
+    pruneBindingPanels();
   }
 
   function withoutMember(groups, targetId) {
@@ -477,6 +1052,19 @@ export function createLoadBalancing({
       toggleLbPicker(pickerToggle.closest("[data-lb-picker]"));
       return true;
     }
+    const bindingsToggle = closestFrom(event.target, "[data-lb-bindings-toggle]");
+    if (bindingsToggle) {
+      toggleLbNodeBindings(bindingsToggle);
+      return true;
+    }
+    const moreButton = closestFrom(event.target, "[data-lb-binding-more]");
+    if (moreButton) {
+      loadMoreBindings(moreButton);
+      return true;
+    }
+    // The move button carries no submit path in this step: the server answers every binding
+    // `movable.ok: false`, so the button is rendered disabled and nothing is posted. The
+    // destination picker and the submit call arrive with the migration API (TRI-09).
     if (lbCard && asElement(event.target)?.matches("[data-remove-lb]")) {
       const group = (pair.load_balancers || [])[Number(lbCard.dataset.lbIndex)];
       if (group) forgetLbGroupOpen(pair, group);
@@ -553,6 +1141,9 @@ export function createLoadBalancing({
         setLbFact(row, "source", t("lbStateSource"), metrics === null ? "-" : metrics.source);
       });
     });
+    // The same tick that refills the node numbers also refills the binding panels the user
+    // opened, so the list follows one timer instead of keeping a poll of its own.
+    refreshOpenBindingPanels();
   }
 
   async function refreshLoadBalancerStatus() {

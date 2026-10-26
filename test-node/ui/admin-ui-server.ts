@@ -17,6 +17,8 @@ import {
   detailReads,
   fixtureRequestPricing,
   groupLogQueries,
+  lbBindingFixturePage,
+  lbBindingReads,
   lbStatusReads,
   loadBalancerStatusFixture,
   logQueries,
@@ -41,7 +43,6 @@ import {
   useLargeLogFixture,
   useLargeLogRequestCount,
 } from "./admin-ui-fixture.js";
-import { emptyBindingListResponse } from "../admin/admin-service-fixtures.js";
 
 export let browser: Browser;
 export let page: Page;
@@ -140,9 +141,14 @@ export async function startStubAdminServer(): Promise<void> {
         lbStatusReads.push(lbStatusReads.length);
         return loadBalancerStatusFixture();
       },
-      // The binding list is not part of the UI yet (TRI-06): the page has no rows to ask for,
-      // so the stub answers the empty page the service would give with nothing configured.
-      getBindings: () => ({ response: emptyBindingListResponse() }),
+      // [TRI-06] The node list reads this route, so the stub answers it the way the service
+      // does: the two 404 causes are named apart, a filter outside the group answers a legal
+      // empty page, and the page carries the group's whole node counts.
+      getBindings: (query) => {
+        const asked = { ...query };
+        lbBindingReads.push(asked);
+        return lbBindingFixturePage(asked);
+      },
       // [TRI-08] The migration write and its cancel are not part of the UI either (TRI-09): the
       // page has no button that asks for a move, so the stub answers the named refusal an empty
       // assembly gives. The shape is the reply the real service returns, not a new one.

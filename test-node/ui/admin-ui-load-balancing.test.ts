@@ -3,8 +3,11 @@ import type { Locator } from "@playwright/test";
 import { expect as expectPage } from "@playwright/test";
 import {
   UI_TEST_TIMEOUT_MS,
+  lbBindingFixturePage,
+  lbBindingReads,
   lbStatusReads,
   pairs,
+  setLbBindingFailure,
   setLbStatusPartialMetrics,
   setLbStatusRound,
   setPairsSaveIssues,
@@ -673,5 +676,672 @@ describe("admin UI load balancing groups", { timeout: UI_TEST_TIMEOUT_MS }, () =
       pendingBeforeDispose: true,
       disposalAbort: true,
     });
+  });
+
+  // ------------------------------------------------------------ [TRI-06] the binding list
+
+  /** Save the group over both engine nodes and open the section that holds their rows. */
+  async function openTwoNodeStates(): Promise<Locator> {
+    const card = await openPairWithGroup();
+    await card.locator(".lb-card [data-lb-field='model_pattern']").fill("Qwen3.8-Flash-Next");
+    await tickMembers(card.locator(".lb-card"), [0, 1]);
+    await page.locator("#saveProxies").click();
+    await expectPage(page.locator("#toast")).toContainText("Config saved");
+    await card.locator(".lb-status > summary").click();
+    await expectPage(card.locator(".lb-node-state")).toHaveCount(2);
+    return card;
+  }
+
+  function nodeState(card: Locator, nodeIndex: number): Locator {
+    return card.locator(".lb-node-state").nth(nodeIndex);
+  }
+
+  function bindingsToggle(card: Locator, nodeIndex: number): Locator {
+    return nodeState(card, nodeIndex).locator("[data-lb-bindings-toggle]");
+  }
+
+  function bindingPanel(card: Locator, nodeIndex: number): Locator {
+    return nodeState(card, nodeIndex).locator(".lb-binding-panel");
+  }
+
+  /** The list is asked for, never pushed: closed until its button is pressed, then read once
+   *  by the click that opened it. */
+  async function openBindingList(card: Locator, nodeIndex: number): Promise<Locator> {
+    const panel = bindingPanel(card, nodeIndex);
+    await expectPage(panel).toBeHidden();
+    await expectPage(bindingsToggle(card, nodeIndex)).toHaveAttribute("aria-expanded", "false");
+    await bindingsToggle(card, nodeIndex).click();
+    await expectPage(panel).toBeVisible();
+    await expectPage(bindingsToggle(card, nodeIndex)).toHaveAttribute("aria-expanded", "true");
+    return panel;
+  }
+
+  function bindingRow(panel: Locator, bindingId: number): Locator {
+    return panel.locator(`.lb-binding[data-lb-binding-id="${bindingId}"]`);
+  }
+
+  /** The node ids the saved group was configured with, in order. */
+  function savedMemberIds(): string[] {
+    return savedGroup().members.map((member) => member.target_id);
+  }
+
+  function taskReadQuery(url: URL) {
+    return {
+      pairId: url.searchParams.get("pairId") ?? "",
+      groupId: url.searchParams.get("groupId") ?? "",
+      targetId: url.searchParams.get("targetId") ?? undefined,
+      limit: Number(url.searchParams.get("limit") ?? "0"),
+      offset: Number(url.searchParams.get("offset") ?? "0"),
+    };
+  }
+
+  /** The page the stub would answer, with one visible number moved so a late copy is
+   *  distinguishable from the newer one. */
+  function bindingListJson(query: ReturnType<typeof taskReadQuery>, round: number): unknown {
+    const reply = lbBindingFixturePage(query, round);
+    if (!("response" in reply)) throw new Error("the stub refused the binding list");
+    return reply.response;
+  }
+
+  it(
+    "[TRI-06] opens one node's bindings and keeps binding counts apart from task counts",
+    async () => {
+      const card = await openTwoNodeStates();
+      const panel = await openBindingList(card, 0);
+      // The panel is never an empty box: it says it is reading before any row arrives.
+      const opened = await panel.evaluate((element) => element.innerHTML);
+      expect(opened).not.toBe("");
+      await expectPage(panel.locator(".lb-binding")).toHaveCount(20);
+      await expectPage(panel.locator("[data-lb-binding-summary]")).toHaveText(
+        "Bindings on this node: 20 / 25 · Linked tasks in the rows shown: 6",
+      );
+      // One move affordance per binding row, never one per linked task. The row whose three
+      // tasks share one binding carries the same single button as a row with no task at all.
+      await expectPage(panel.locator("[data-lb-binding-move]")).toHaveCount(
+        await panel.locator(".lb-binding").count(),
+      );
+      await expectPage(bindingRow(panel, 7).locator("[data-lb-binding-move]")).toHaveCount(1);
+      await expectPage(bindingRow(panel, 100).locator("[data-lb-binding-move]")).toHaveCount(1);
+      await expectPage(bindingRow(panel, 7).locator("[data-lb-binding-tasks]")).toContainText(
+        "Linked tasks: 3",
+      );
+
+      // The node's own line keeps the numbers the status call answered. Twenty bindings on
+      // screen do not rewrite the count that poll gave, and a binding's own in-flight figure
+      // is a separate measure of a separate thing.
+      const beforePoll = lbStatusReads.length;
+      await waitForLbPoll(beforePoll);
+      await expectPage(nodeState(card, 0).locator('[data-lb-fact="bindings"]')).toHaveText(
+        "Bindings: 0",
+      );
+      await expectPage(nodeState(card, 0).locator('[data-lb-fact="inFlight"]')).toHaveText(
+        "In flight: 0",
+      );
+      await expectPage(
+        bindingRow(panel, 7).locator('[data-lb-binding-fact="inFlight"]'),
+      ).toHaveText("In flight: 1");
+      await expectPage(panel.locator(".lb-binding")).toHaveCount(20);
+    },
+    UI_TEST_TIMEOUT_MS,
+  );
+
+  it("[TRI-06] says unknown activity and unknown metrics in their own words", async () => {
+    const card = await openTwoNodeStates();
+    const quietPanel = await openBindingList(card, 1);
+    await expectPage(quietPanel.locator(".lb-binding")).toHaveCount(1);
+    const unknownActivity = quietPanel.locator('[data-lb-binding-fact="activity"]');
+    await expectPage(unknownActivity).toHaveText("activity unknown");
+    await expectPage(unknownActivity).toHaveClass(/is-unknown/);
+    await expectPage(unknownActivity).not.toHaveText("idle now");
+
+    // The three activity states exist side by side and are never interchanged.
+    const busyPanel = await openBindingList(card, 0);
+    await expectPage(busyPanel.locator(".lb-binding")).toHaveCount(20);
+    await expectPage(
+      bindingRow(busyPanel, 7).locator('[data-lb-binding-fact="activity"]'),
+    ).toHaveText("request in flight");
+    await expectPage(
+      bindingRow(busyPanel, 9).locator('[data-lb-binding-fact="activity"]'),
+    ).toHaveText("idle now");
+    await expectPage(
+      bindingRow(busyPanel, 18).locator('[data-lb-binding-fact="activity"]'),
+    ).toHaveText("activity unknown");
+
+    // The engine stops answering the second node. Its badge keeps its own sentence, and the
+    // binding list's own "unknown" never bleeds into it or into a number.
+    setLbStatusPartialMetrics(true);
+    const seen = lbStatusReads.length;
+    await waitForLbPoll(seen);
+    await expectPage(nodeState(card, 1).locator('[data-lb-fact="enabled"]')).toContainText(
+      "Metrics incomplete",
+    );
+    await expectPage(nodeState(card, 1).locator('[data-lb-fact="enabled"]')).not.toContainText(
+      "activity unknown",
+    );
+    await expectPage(nodeState(card, 1).locator('[data-lb-fact="waiting"]')).toHaveText(
+      "Waiting: -",
+    );
+    await expectPage(nodeState(card, 1).locator('[data-lb-fact="bindings"]')).toHaveText(
+      "Bindings: 1",
+    );
+    const panelText = await page.evaluate(() =>
+      [...document.querySelectorAll(".lb-binding-panel")]
+        .map((element) => element.textContent || "")
+        .join(" "),
+    );
+    expect(panelText).not.toMatch(/undefined|null/);
+
+    await page.locator("#languageSelect").selectOption("zh");
+    await expectPage(unknownActivity).toHaveText("活动未知");
+    await expectPage(
+      bindingRow(busyPanel, 9).locator('[data-lb-binding-fact="activity"]'),
+    ).toHaveText("当前空闲");
+    await expectPage(nodeState(card, 1).locator('[data-lb-fact="enabled"]')).toContainText(
+      "指标不全",
+    );
+    await expectPage(nodeState(card, 1).locator('[data-lb-fact="waiting"]')).toHaveText("排队: -");
+
+    await page.locator("#languageSelect").selectOption("en");
+    await expectPage(unknownActivity).toHaveText("activity unknown");
+    setLbStatusPartialMetrics(false);
+  });
+
+  it("[TRI-06] shows one binding row and one move entry for three linked tasks", async () => {
+    const card = await openTwoNodeStates();
+    const panel = await openBindingList(card, 0);
+    await expectPage(panel.locator(".lb-binding")).toHaveCount(20);
+    const row = bindingRow(panel, 7);
+    await expectPage(row).toHaveCount(1);
+    await expectPage(row.locator("[data-lb-task-id]")).toHaveCount(3);
+    await expectPage(row.locator(".lb-binding-task-id")).toHaveText([
+      "task-alpha",
+      "task-beta",
+      "task-gamma",
+    ]);
+    await expectPage(row.locator("[data-lb-binding-tasks]")).toContainText("Linked tasks: 3");
+    await expectPage(row.locator("[data-lb-binding-confidence]")).toHaveText("high confidence");
+    await expectPage(row.locator("[data-lb-binding-ambiguous]")).toBeVisible();
+    await expectPage(row.locator("[data-lb-binding-ambiguous]")).toHaveText("several candidates");
+    await expectPage(row.locator(".lb-binding-reason")).toHaveText([
+      "exact key links",
+      "several linked tasks",
+    ]);
+    // One row, one move button, and no invented representative: the address line names the
+    // binding, never one of the tasks that share it.
+    await expectPage(row.locator("[data-lb-binding-move]")).toHaveCount(1);
+    await expectPage(row.locator(".lb-binding-head")).not.toContainText("task-");
+    await expectPage(row.locator("[data-lb-binding-key]")).toHaveText("#7");
+    // Where a linked task was served has three answers and all three are shown apart.
+    await expectPage(row.locator(".lb-binding-task-node")).toHaveText([
+      "same node",
+      "a different node",
+      "history target unknown",
+    ]);
+    await expectPage(
+      row.locator("[data-lb-task-id]").nth(2).locator(".lb-binding-task-pending"),
+    ).toBeVisible();
+
+    await page.locator("#languageSelect").selectOption("zh");
+    await expectPage(row.locator(".lb-binding-task-node")).toHaveText([
+      "同一节点",
+      "别的节点",
+      "历史落点未知",
+    ]);
+    await expectPage(row.locator("[data-lb-binding-tasks]")).toContainText("关联 task: 3");
+    await expectPage(row.locator("[data-lb-binding-confidence]")).toHaveText("高置信");
+    await expectPage(row.locator(".lb-binding-reason")).toHaveText([
+      "精确 key 命中",
+      "一个绑定连到多个 task",
+    ]);
+
+    await page.locator("#languageSelect").selectOption("en");
+    await expectPage(row.locator(".lb-binding-task-node")).toHaveText([
+      "same node",
+      "a different node",
+      "history target unknown",
+    ]);
+  });
+
+  it("[TRI-06] keeps every move button disabled with the reason the server gave", async () => {
+    const requested: { method: string; url: string }[] = [];
+    page.on("request", (request) => {
+      requested.push({ method: request.method(), url: request.url() });
+    });
+    const card = await openTwoNodeStates();
+    const panel = await openBindingList(card, 0);
+    await expectPage(panel.locator(".lb-binding")).toHaveCount(20);
+    const buttons = panel.locator(".lb-binding-move");
+    expect(await buttons.count()).toBe(20);
+    for (let index = 0; index < (await buttons.count()); index += 1) {
+      await expectPage(buttons.nth(index)).toBeDisabled();
+    }
+    const busyRow = bindingRow(panel, 7);
+    await expectPage(busyRow.locator("[data-lb-binding-move-reasons]")).toHaveText(
+      "the migration service is not wired yet · a request is still in flight on this binding",
+    );
+    await expectPage(bindingRow(panel, 9).locator("[data-lb-binding-move-reasons]")).toHaveText(
+      "the migration service is not wired yet",
+    );
+    await expectPage(busyRow.locator(".lb-binding-move")).toHaveAttribute(
+      "title",
+      /^A move affects the next request only/,
+    );
+
+    // A disabled button carries no submit path: dispatching its click reaches no route.
+    await page.evaluate(() => {
+      document.querySelectorAll(".lb-binding-move").forEach((button) => {
+        button.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+      });
+    });
+    await page.waitForTimeout(300);
+    expect(requested.filter((item) => item.url.includes("task-moves"))).toEqual([]);
+    const listReads = requested.filter((item) => item.url.includes("/api/load-balancer/tasks"));
+    expect(listReads.length).toBeGreaterThan(0);
+    expect(new Set(listReads.map((item) => item.method))).toEqual(new Set(["GET"]));
+    expect(
+      requested
+        .filter((item) => item.method !== "GET")
+        .map((item) => item.url.replace(/^https?:\/\/[^/]+/, "")),
+    ).toEqual(["/api/pairs"]);
+
+    await page.locator("#languageSelect").selectOption("zh");
+    await expectPage(busyRow.locator("[data-lb-binding-move-reasons]")).toHaveText(
+      "迁移服务尚未接入 · 这个绑定还有请求在途",
+    );
+    await expectPage(busyRow.locator(".lb-binding-move")).toHaveText("迁移此绑定");
+    await expectPage(busyRow.locator(".lb-binding-move")).toBeDisabled();
+  });
+
+  it("[TRI-06] does not read a failed history query as no history", async () => {
+    const card = await openTwoNodeStates();
+    const panel = await openBindingList(card, 0);
+    await expectPage(panel.locator(".lb-binding")).toHaveCount(20);
+    const failed = bindingRow(panel, 15);
+    await expectPage(failed.locator(".lb-binding-coverage-state")).toHaveText(
+      "history query failed",
+    );
+    await expectPage(failed.locator(".lb-binding-coverage-state")).toHaveClass(/is-failed/);
+    await expectPage(failed.locator(".lb-binding-coverage-detail")).toHaveText(
+      "read · SqliteError · SQLITE_BUSY · database is locked",
+    );
+    // The broken read is stated, not hidden behind the count it could not produce.
+    await expectPage(failed.locator("[data-lb-binding-tasks]")).toContainText("Linked tasks: 0");
+    await expectPage(failed.locator("[data-lb-binding-confidence]")).toHaveText("no task linked");
+    await expectPage(failed.locator(".lb-binding-reason")).toHaveText(["history query failed"]);
+    await expectPage(panel.locator(".lb-binding-empty")).toHaveCount(0);
+
+    // The other two causes each keep their own sentence, and a scan that ran out of room is
+    // said separately from the count.
+    await expectPage(bindingRow(panel, 12).locator(".lb-binding-coverage-state")).toHaveText(
+      "no traffic database yet",
+    );
+    await expectPage(bindingRow(panel, 18).locator(".lb-binding-coverage-state")).toHaveText(
+      "no log root configured",
+    );
+    await expectPage(bindingRow(panel, 9).locator(".lb-binding-coverage-state")).toHaveText(
+      "history available",
+    );
+    await expectPage(bindingRow(panel, 9).locator(".lb-binding-coverage-flag")).toHaveText([
+      "history truncated",
+      "the log write may still be pending",
+    ]);
+    await expectPage(bindingRow(panel, 9).locator("[data-lb-binding-confidence]")).toHaveText(
+      "candidate",
+    );
+    await expectPage(bindingRow(panel, 9).locator("[data-lb-task-id]")).toHaveCount(3);
+
+    const panelText = await page.evaluate(() =>
+      [...document.querySelectorAll(".lb-binding-panel")]
+        .map((element) => element.textContent || "")
+        .join(" "),
+    );
+    expect(panelText).not.toMatch(/undefined|null/);
+
+    await page.locator("#languageSelect").selectOption("zh");
+    await expectPage(failed.locator(".lb-binding-coverage-state")).toHaveText("历史查询失败");
+    await expectPage(failed.locator(".lb-binding-coverage-detail")).toHaveText(
+      "read · SqliteError · SQLITE_BUSY · database is locked",
+    );
+    await expectPage(bindingRow(panel, 12).locator(".lb-binding-coverage-state")).toHaveText(
+      "该日志根还没有 traffic.db",
+    );
+    await expectPage(bindingRow(panel, 18).locator(".lb-binding-coverage-state")).toHaveText(
+      "该节点没有配置日志根",
+    );
+    await expectPage(bindingRow(panel, 9).locator(".lb-binding-coverage-flag")).toHaveText([
+      "历史被截断",
+      "日志可能还没写进去",
+    ]);
+
+    await page.locator("#languageSelect").selectOption("en");
+    await expectPage(failed.locator(".lb-binding-coverage-state")).toHaveText(
+      "history query failed",
+    );
+  });
+
+  it("[TRI-06] pages the list and keeps the rows the user paged to through a refresh", async () => {
+    const card = await openTwoNodeStates();
+    const [firstTarget, secondTarget] = savedMemberIds();
+    if (firstTarget === undefined || secondTarget === undefined) {
+      throw new Error("the saved group does not have two nodes");
+    }
+    const panel = await openBindingList(card, 0);
+    await expectPage(panel.locator(".lb-binding")).toHaveCount(20);
+    await expectPage(panel.locator("[data-lb-binding-summary]")).toContainText("20 / 25");
+    await expectPage(panel.locator("[data-lb-binding-limit]")).toHaveCount(0);
+    const more = panel.locator("[data-lb-binding-more]");
+    await expectPage(more).toHaveText("Load more (20/25)");
+    await more.click();
+    await expectPage(panel.locator(".lb-binding")).toHaveCount(25);
+    await expectPage(more).toHaveCount(0);
+    await expectPage(panel.locator("[data-lb-binding-summary]")).toContainText("25 / 25");
+
+    // Every read names the node it was asked about; the second node's list is its own page.
+    const firstReads = () => lbBindingReads.filter((read) => read.targetId === firstTarget);
+    const firstOpening = firstReads()[0];
+    if (firstOpening === undefined) throw new Error("the binding list was never read");
+    expect(firstOpening).toMatchObject({
+      pairId: "proxy-one",
+      groupId: savedGroup().id,
+      limit: 20,
+      offset: 0,
+    });
+    expect(firstReads().some((read) => read.limit === 20 && read.offset === 20)).toBe(true);
+
+    // A refresh reads from the top with room for everything already on screen, so the rows
+    // the user paged to are not dropped by a poll.
+    const seen = lbStatusReads.length;
+    const readsBeforeRefresh = lbBindingReads.length;
+    await waitForLbPoll(seen);
+    await expectPage(panel.locator(".lb-binding")).toHaveCount(25);
+    // The read this poll caused is the one that asked for everything already on screen.
+    await expect
+      .poll(
+        () =>
+          lbBindingReads
+            .slice(readsBeforeRefresh)
+            .some(
+              (read) => read.targetId === firstTarget && read.offset === 0 && read.limit === 25,
+            ),
+        { timeout: UI_TEST_TIMEOUT_MS, interval: 200 },
+      )
+      .toBe(true);
+
+    // Opening the other node asks for that node alone; the first list keeps its 25 rows.
+    const otherPanel = await openBindingList(card, 1);
+    await expectPage(otherPanel.locator(".lb-binding")).toHaveCount(1);
+    await expectPage(otherPanel.locator("[data-lb-binding-summary]")).toContainText("1 / 1");
+    const secondOpening = lbBindingReads.find((read) => read.targetId === secondTarget);
+    if (secondOpening === undefined) throw new Error("the second node was never read");
+    expect(secondOpening).toMatchObject({ targetId: secondTarget, limit: 20, offset: 0 });
+    await expectPage(panel.locator(".lb-binding")).toHaveCount(25);
+    await expectPage(bindingRow(otherPanel, 21)).toHaveCount(1);
+
+    // The rows are the binding's own address, so the same node's list is not a task list.
+    await expectPage(panel.locator("[data-lb-binding-id]")).toHaveCount(25);
+  });
+
+  it("[TRI-06] never lets a late answer overwrite the newer one", async () => {
+    const card = await openTwoNodeStates();
+    let answered = 0;
+    await page.route("**/api/load-balancer/tasks*", (route) => {
+      answered += 1;
+      const query = taskReadQuery(new URL(route.request().url()));
+      const first = answered === 1;
+      void (async () => {
+        // The first answer is held back; the second is served at once.
+        if (first) await new Promise((resolve) => setTimeout(resolve, 800));
+        await route.fulfill({ json: bindingListJson(query, first ? 0 : 1) });
+      })();
+    });
+    const panel = await openBindingList(card, 0);
+    await expectPage(panel.locator("[data-lb-binding-loading]")).toBeVisible();
+    // Close and reopen while the first answer is still on its way: the second read owns the
+    // panel, and its numbers are the ones that must stay.
+    await bindingsToggle(card, 0).click();
+    await expectPage(panel).toBeHidden();
+    await bindingsToggle(card, 0).click();
+    await expectPage(panel).toBeVisible();
+    await expectPage(panel.locator(".lb-binding")).toHaveCount(20);
+    await expectPage(bindingRow(panel, 7).locator('[data-lb-binding-fact="requests"]')).toHaveText(
+      "Requests: 999",
+    );
+    // The held-back copy arrives after the newer one. It is dropped, not merged: the row keeps
+    // the newer count and the panel keeps the rows the newer read answered.
+    await page.waitForTimeout(1_200);
+    await expectPage(bindingRow(panel, 7).locator('[data-lb-binding-fact="requests"]')).toHaveText(
+      "Requests: 999",
+    );
+    await expectPage(panel.locator(".lb-binding")).toHaveCount(20);
+    await expectPage(panel.locator("[data-lb-binding-stale]")).toHaveCount(0);
+    expect(answered).toBeGreaterThanOrEqual(2);
+  });
+
+  it("[TRI-06] clips long names inside the card without moving its neighbours", async () => {
+    await page.setViewportSize({ width: 1278, height: 1215 });
+    const card = await openTwoNodeStates();
+    const cardWidth = async (): Promise<number> => {
+      const width = await card
+        .locator(".lb-card")
+        .first()
+        .evaluate((element) => Math.round(element.getBoundingClientRect().width));
+      return width;
+    };
+    const before = await cardWidth();
+    const panel = await openBindingList(card, 0);
+    await expectPage(panel.locator(".lb-binding")).toHaveCount(20);
+    expect(await cardWidth()).toBe(before);
+
+    const model = bindingRow(panel, 12).locator("[data-lb-binding-model]");
+    const longName = "VeryLongModelNameForCheckingThatTheCardNeverGrowsWiderThanItsNeighbours";
+    await expectPage(model).toHaveText(longName);
+    await expectPage(model).toHaveAttribute("title", longName);
+    const clipped = await model.evaluate((element) => ({
+      scrollWidth: element.scrollWidth,
+      clientWidth: element.clientWidth,
+      textOverflow: getComputedStyle(element).textOverflow,
+      overflowWrap: getComputedStyle(element).overflowWrap,
+    }));
+    expect(clipped.scrollWidth).toBeGreaterThan(clipped.clientWidth);
+    expect(clipped.textOverflow).toBe("ellipsis");
+    expect(clipped.overflowWrap).toBe("normal");
+    // The fact beside a clipped name still shows its own value in full.
+    await expectPage(bindingRow(panel, 12).locator('[data-lb-binding-fact="cost"]')).toHaveText(
+      "Cost: request bytes 48.3K",
+    );
+
+    await page.setViewportSize({ width: 380, height: 900 });
+    const pageWidth = await page.evaluate(() => ({
+      scroll: document.documentElement.scrollWidth,
+      viewport: window.innerWidth,
+    }));
+    expect(pageWidth.scroll).toBeLessThanOrEqual(pageWidth.viewport);
+    const panelBox = await panel.boundingBox();
+    const cardBox = await card.locator(".lb-card").first().boundingBox();
+    if (panelBox === null || cardBox === null) {
+      throw new Error("the binding list was not laid out");
+    }
+    expect(Math.round(panelBox.width)).toBeLessThanOrEqual(Math.round(cardBox.width));
+    const clippedContainers = await page.evaluate(() =>
+      [
+        ...document.querySelectorAll(
+          ".lb-node-state, .lb-node-tools, .lb-binding-panel, .lb-binding, .lb-binding-head, .lb-binding-facts, .lb-binding-association, .lb-binding-task-list, .lb-binding-task, .lb-binding-tools",
+        ),
+      ]
+        .filter((element) => element.scrollWidth > element.clientWidth + 1)
+        .map((element) => element.className),
+    );
+    expect(clippedContainers).toEqual([]);
+    // Both ids of one task line stay readable somewhere: the row wraps instead of cutting a
+    // fact away.
+    await expectPage(bindingRow(panel, 7).locator(".lb-binding-task-id")).toHaveText([
+      "task-alpha",
+      "task-beta",
+      "task-gamma",
+    ]);
+  });
+
+  it("[TRI-06] prints every binding field in both languages", async () => {
+    const card = await openTwoNodeStates();
+    const panel = await openBindingList(card, 0);
+    await expectPage(panel.locator(".lb-binding")).toHaveCount(20);
+    const row = bindingRow(panel, 7);
+    const factTexts = async (): Promise<string[]> =>
+      row
+        .locator(".lb-binding-fact")
+        .evaluateAll((elements) => elements.map((element) => element.textContent || ""));
+    await expectPage(row.locator("[data-lb-binding-model]")).toHaveText("Qwen3.8-Flash-Next");
+    await expectPage(row.locator("[data-lb-binding-endpoint]")).toHaveText(
+      "responses /v1/responses",
+    );
+    await expectPage(row.locator(".lb-binding-coverage-state")).toHaveText("history available");
+    expect(await factTexts()).toEqual([
+      "Target: Fixture Target",
+      "Routing revision: 3",
+      "Incarnation: 3",
+      "Requests: 14",
+      "Last request: 8s",
+      "Last response: 5s",
+      "In flight: 1",
+      "request in flight",
+      "Cost: normalized usage 18,400",
+    ]);
+
+    await page.locator("#languageSelect").selectOption("zh");
+    // The language switch rebuilds the whole card. The list is redrawn from the state the
+    // panel already holds - same rows, same count - and not read a second time for it.
+    await expectPage(panel).toBeVisible();
+    await expectPage(panel.locator(".lb-binding")).toHaveCount(20);
+    await expectPage(panel.locator("[data-lb-binding-summary]")).toContainText(
+      "本节点绑定: 20 / 25",
+    );
+    expect(await factTexts()).toEqual([
+      "落点: Fixture Target",
+      "路由版本: 3",
+      "编号代次: 3",
+      "请求次数: 14",
+      "最近请求: 8s",
+      "最后响应: 5s",
+      "进行中: 1",
+      "请求在途",
+      "成本: 归一化用量 1.8 万",
+    ]);
+    await expectPage(row.locator("[data-lb-binding-endpoint]")).toHaveText(
+      "responses /v1/responses",
+    );
+    await expectPage(row.locator(".lb-binding-coverage-state")).toHaveText("历史可读");
+
+    await page.locator("#languageSelect").selectOption("en");
+    expect(await factTexts()).toEqual([
+      "Target: Fixture Target",
+      "Routing revision: 3",
+      "Incarnation: 3",
+      "Requests: 14",
+      "Last request: 8s",
+      "Last response: 5s",
+      "In flight: 1",
+      "request in flight",
+      "Cost: normalized usage 18,400",
+    ]);
+    const englishPanel = await panel.evaluate((element) => element.textContent || "");
+    expect(englishPanel).not.toMatch(/[\u3400-\u9fff]/);
+    const stored = await page.evaluate(() => localStorage.getItem("llmProxyLbNodeBindings") ?? "");
+    expect(stored).toContain("true");
+  });
+
+  it("[TRI-06] names the cause of a read that failed instead of an empty list", async () => {
+    const card = await openTwoNodeStates();
+    setLbBindingFailure("group_not_found");
+    const panel = await openBindingList(card, 0);
+    await expectPage(panel.locator("[data-lb-binding-error]")).toHaveText(
+      "This load balancing group is not in that pair",
+    );
+    await expectPage(panel.locator(".lb-binding")).toHaveCount(0);
+    await expectPage(panel.locator("[data-lb-binding-empty]")).toHaveCount(0);
+    await expectPage(panel.locator("[data-lb-binding-loading]")).toHaveCount(0);
+
+    await page.locator("#languageSelect").selectOption("zh");
+    // The cause is kept as the code the server sent, so the sentence follows the language the
+    // page speaks now, not the one it spoke when the read failed.
+    await expectPage(panel.locator("[data-lb-binding-error]")).toHaveText(
+      "这个负载均衡组不在该 pair 里",
+    );
+    await page.locator("#languageSelect").selectOption("en");
+    await expectPage(panel.locator("[data-lb-binding-error]")).toHaveText(
+      "This load balancing group is not in that pair",
+    );
+
+    setLbBindingFailure(null);
+    await bindingsToggle(card, 0).click();
+    await expectPage(panel).toBeHidden();
+    await bindingsToggle(card, 0).click();
+    await expectPage(panel.locator("[data-lb-binding-error]")).toHaveCount(0);
+    await expectPage(panel.locator(".lb-binding")).toHaveCount(20);
+  });
+
+  it("[TRI-06] says a node has no bindings without inventing a row", async () => {
+    const card = await openTwoNodeStates();
+    const [firstTarget] = savedMemberIds();
+    if (firstTarget === undefined) throw new Error("the saved group has no node");
+    const asked: string[] = [];
+    page.on("request", (request) => {
+      if (request.url().includes("/api/load-balancer/tasks")) asked.push(request.url());
+    });
+    await page.route("**/api/load-balancer/tasks*", (route) => {
+      const query = taskReadQuery(new URL(route.request().url()));
+      const reply = lbBindingFixturePage(query);
+      if (!("response" in reply)) throw new Error("the stub refused the binding list");
+      void route.fulfill({
+        json: { ...reply.response, items: [], totalBindings: 0, hasMore: false, nextOffset: 0 },
+      });
+    });
+    const panel = await openBindingList(card, 0);
+    await expectPage(panel.locator("[data-lb-binding-empty]")).toHaveText(
+      "This node has no bindings right now",
+    );
+    await expectPage(panel.locator(".lb-binding")).toHaveCount(0);
+    await expectPage(panel.locator("[data-lb-binding-more]")).toHaveCount(0);
+    // The node's own line still carries the number the status call answered.
+    await expectPage(nodeState(card, 0).locator('[data-lb-fact="bindings"]')).toHaveText(
+      "Bindings: 0",
+    );
+    await page.locator("#languageSelect").selectOption("zh");
+    await expectPage(panel.locator("[data-lb-binding-empty]")).toHaveText(
+      "这个节点目前没有 binding",
+    );
+    await page.locator("#languageSelect").selectOption("en");
+    expect(asked.some((url) => url.includes(`targetId=${encodeURIComponent(firstTarget)}`))).toBe(
+      true,
+    );
+  });
+
+  it("[TRI-06] keeps an open list across a reload and forgets it when the node leaves", async () => {
+    const card = await openTwoNodeStates();
+    const panel = await openBindingList(card, 0);
+    await expectPage(panel.locator(".lb-binding")).toHaveCount(20);
+
+    await loadAdminPage();
+    // The node-state section came back open with the group, so its rows are already there.
+    await expectPage(card.locator(".lb-node-state")).toHaveCount(2);
+    // The node's list comes back open, and the next status tick fills it.
+    await expectPage(bindingsToggle(card, 0)).toHaveAttribute("aria-expanded", "true");
+    await expectPage(bindingPanel(card, 0)).toBeVisible();
+    await expectPage(bindingPanel(card, 0).locator(".lb-binding")).toHaveCount(20);
+    await expectPage(bindingPanel(card, 1)).toBeHidden();
+
+    // The node leaves the group: its list, its rows and its stored open flag all go.
+    const group = card.locator(".lb-card");
+    const pop = group.locator("[data-lb-picker-pop]");
+    await group.locator("[data-lb-picker-toggle]").click();
+    await pop.locator("[data-lb-node]").nth(0).uncheck();
+    await page.keyboard.press("Escape");
+    await page.locator("#saveProxies").click();
+    await expectPage(page.locator("#toast")).toContainText("Config saved");
+    await expectPage(card.locator(".lb-binding-panel")).toHaveCount(1);
+    await expectPage(card.locator(".lb-node-state")).toHaveCount(1);
+    const stored = await page.evaluate(
+      () => localStorage.getItem("llmProxyLbNodeBindings") ?? "{}",
+    );
+    expect(JSON.parse(stored) as Record<string, unknown>).toEqual({});
   });
 });

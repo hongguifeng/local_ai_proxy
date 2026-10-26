@@ -1,5 +1,12 @@
 import type { ProxyPair, PublicProxyPair } from "../../src/config/index.js";
 import type { LogListItem, TaskBrief } from "../../src/maintenance/index.js";
+import type {
+  LoadBalancerBindingListItem,
+  LoadBalancerBindingListReply,
+  LoadBalancerBindingNode,
+  LoadBalancerHistoryCoverage,
+  LoadBalancerNodeMetrics,
+} from "../../src/proxy/index.js";
 
 export const logQueries: string[] = [];
 
@@ -128,6 +135,511 @@ export function loadBalancerStatusFixture() {
         })),
       })),
     })),
+  };
+}
+
+/**
+ * [TRI-06] What the stub answers a binding-list read with.
+ *
+ * The page asks for one node at a time, so the rows are built from the node's place in the
+ * group: the first node carries several bindings whose history says different things, the
+ * second carries the one binding nobody has ever seen a request on. Every state the list can
+ * answer - in flight, idle, unknown, high, candidate, none, a failed history read, a missing
+ * log root, a truncated scan, three answers about where a task was served - appears at least
+ * once here, because the console has to show each of them apart.
+ */
+export const lbBindingReads: {
+  pairId: string;
+  groupId: string;
+  targetId: string | undefined;
+  limit: number;
+  offset: number;
+}[] = [];
+
+/** Make the next binding-list read answer one of the two named 404 causes instead of a page. */
+export let lbBindingFailure: "pair_not_found" | "group_not_found" | null = null;
+
+/** Which copy of the newest binding the stub is on: the row a late answer must not revive. */
+export let lbBindingRound = 0;
+
+const LB_BINDING_NOW = 1_792_830_671_228;
+
+function lbBindingCoverage(
+  overrides: Partial<LoadBalancerHistoryCoverage> = {},
+): LoadBalancerHistoryCoverage {
+  return {
+    candidateRowsRead: 0,
+    candidateScanLimit: 100,
+    exactKeysExamined: 1,
+    exactKeysLinked: 0,
+    exactKeysOmitted: 0,
+    exactKeysRequested: 1,
+    exactKeysWithoutLink: 1,
+    exactLinkRowsRead: 0,
+    failure: null,
+    historyRowsRead: 0,
+    historyTruncated: false,
+    latestStoredRecordAt: null,
+    linkedTasksRead: 0,
+    logWriteMayBePending: false,
+    returnedTaskLimit: 50,
+    state: "available",
+    ...overrides,
+  };
+}
+
+/** One stored task as the list projects it: no body, no key, no upstream address. */
+function lbBindingTask(
+  taskId: string,
+  overrides: Partial<LoadBalancerBindingListItem["associations"]["tasks"][number]> = {},
+): LoadBalancerBindingListItem["associations"]["tasks"][number] {
+  return {
+    endpoint: "/v1/responses",
+    exactKeyMatches: 1,
+    historyTargetNode: "same",
+    kind: "responses",
+    lastResponseAt: "2026-07-18 09:00:05",
+    lastSeenAt: "2026-07-18 09:00:00",
+    level: "high",
+    model: "Qwen3.8-Flash-Next",
+    pendingRequestOnly: false,
+    requestCount: 1,
+    taskId,
+    ...overrides,
+  };
+}
+
+/** A binding the ledger knows but the request path never walked: activity stays unknown. */
+function lbBindingQuietItem(targetId: string, index: number): LoadBalancerBindingListItem {
+  const lastSeenAt = LB_BINDING_NOW - 8_000_000 - index * 60_000;
+  return {
+    activity: "idle",
+    associations: {
+      ambiguous: false,
+      confidence: "none",
+      coverage: lbBindingCoverage({ exactKeysWithoutLink: 1 }),
+      reasons: ["key_without_task"],
+      taskIds: [],
+      tasks: [],
+    },
+    bindingId: 100 + index,
+    context: {
+      cacheReadTokens: null,
+      inputTokens: null,
+      observedAt: null,
+      requestBytes: null,
+      source: "none",
+    },
+    endpoint: "/v1/responses",
+    endpointKind: "responses",
+    incarnation: 1,
+    inFlight: 0,
+    lastBoundAt: lastSeenAt - 100_000,
+    lastRequestStartedAt: lastSeenAt,
+    lastResponseEndedAt: lastSeenAt + 5_000,
+    lastSeenAt,
+    model: `quiet-model-${index + 1}`,
+    movable: { ok: false, reasons: ["migration_unavailable"] },
+    recentRequestStarts: [],
+    requestCount: 1,
+    routingRevision: 1,
+    targetId,
+  };
+}
+
+function lbBindingFirstNodeItems(targetId: string, round: number): LoadBalancerBindingListItem[] {
+  const sharedBinding: LoadBalancerBindingListItem = {
+    // One binding, three exact keys, three tasks: the row stays one row with one move
+    // affordance, and the affected-task count is the only place the number 3 appears.
+    activity: "in_flight",
+    associations: {
+      ambiguous: true,
+      confidence: "high",
+      coverage: lbBindingCoverage({
+        exactKeysExamined: 3,
+        exactKeysLinked: 3,
+        exactKeysRequested: 3,
+        exactKeysWithoutLink: 0,
+        exactLinkRowsRead: 3,
+        historyRowsRead: 6,
+        linkedTasksRead: 3,
+        latestStoredRecordAt: "2026-07-18 09:30:00",
+      }),
+      reasons: ["exact_key_links", "several_linked_tasks"],
+      taskIds: ["task-alpha", "task-beta", "task-gamma"],
+      tasks: [
+        lbBindingTask("task-alpha"),
+        lbBindingTask("task-beta", {
+          historyTargetNode: "different",
+          lastResponseAt: "2026-07-18 09:05:09",
+          lastSeenAt: "2026-07-18 09:05:00",
+          requestCount: 2,
+        }),
+        lbBindingTask("task-gamma", {
+          historyTargetNode: "unknown",
+          lastResponseAt: null,
+          lastSeenAt: "2026-07-18 09:10:00",
+          pendingRequestOnly: true,
+        }),
+      ],
+    },
+    bindingId: 7,
+    context: {
+      cacheReadTokens: 12_000,
+      inputTokens: 18_400,
+      observedAt: LB_BINDING_NOW - 5_000,
+      requestBytes: null,
+      source: "normalized_usage",
+    },
+    endpoint: "/v1/responses",
+    endpointKind: "responses",
+    incarnation: 3,
+    inFlight: 1,
+    lastBoundAt: LB_BINDING_NOW - 600_000,
+    lastRequestStartedAt: LB_BINDING_NOW - 8_000,
+    lastResponseEndedAt: LB_BINDING_NOW - 5_000,
+    lastSeenAt: LB_BINDING_NOW - 7_000,
+    model: "Qwen3.8-Flash-Next",
+    movable: { ok: false, reasons: ["migration_unavailable", "in_flight"] },
+    recentRequestStarts: [LB_BINDING_NOW - 8_000],
+    // The round is what makes a late answer visible: the panel must end on the newer number.
+    requestCount: round === 0 ? 14 : 999,
+    routingRevision: 3,
+    targetId,
+  };
+  const candidateBinding: LoadBalancerBindingListItem = {
+    activity: "idle",
+    associations: {
+      ambiguous: false,
+      confidence: "candidate",
+      coverage: lbBindingCoverage({
+        candidateRowsRead: 100,
+        exactKeysExamined: 2,
+        exactKeysLinked: 1,
+        exactKeysRequested: 2,
+        exactLinkRowsRead: 1,
+        historyRowsRead: 100,
+        historyTruncated: true,
+        linkedTasksRead: 3,
+        logWriteMayBePending: true,
+      }),
+      reasons: [
+        "boundary_candidates",
+        "link_boundary_mismatch",
+        "candidate_scan_truncated",
+        "log_write_may_be_pending",
+      ],
+      taskIds: ["task-delta", "task-epsilon", "task-zeta"],
+      tasks: [
+        lbBindingTask("task-delta", {
+          endpoint: "/v1/messages",
+          kind: "messages",
+          level: "candidate",
+          model: "claude-4.5-sonnet",
+        }),
+        lbBindingTask("task-epsilon", {
+          endpoint: "/v1/messages",
+          kind: "messages",
+          level: "candidate",
+          model: "claude-4.5-sonnet",
+        }),
+        lbBindingTask("task-zeta", {
+          endpoint: "/v1/messages",
+          kind: "messages",
+          level: "candidate",
+          model: "claude-4.5-sonnet",
+          requestCount: 4,
+        }),
+      ],
+    },
+    bindingId: 9,
+    context: {
+      cacheReadTokens: null,
+      inputTokens: 2_400,
+      observedAt: LB_BINDING_NOW - 110_000,
+      requestBytes: null,
+      source: "normalized_usage",
+    },
+    endpoint: "/v1/messages",
+    endpointKind: "messages",
+    incarnation: 1,
+    inFlight: 0,
+    lastBoundAt: LB_BINDING_NOW - 900_000,
+    lastRequestStartedAt: LB_BINDING_NOW - 120_000,
+    lastResponseEndedAt: LB_BINDING_NOW - 118_000,
+    lastSeenAt: LB_BINDING_NOW - 120_000,
+    model: "claude-4.5-sonnet",
+    movable: { ok: false, reasons: ["migration_unavailable"] },
+    recentRequestStarts: [LB_BINDING_NOW - 120_000],
+    requestCount: 3,
+    routingRevision: 1,
+    targetId,
+  };
+  const neverSeenBinding: LoadBalancerBindingListItem = {
+    activity: "unknown",
+    associations: {
+      ambiguous: false,
+      confidence: "none",
+      coverage: lbBindingCoverage({
+        exactKeysRequested: 2,
+        latestStoredRecordAt: null,
+        state: "no_traffic_database",
+      }),
+      reasons: ["no_traffic_database"],
+      taskIds: [],
+      tasks: [],
+    },
+    bindingId: 12,
+    context: {
+      cacheReadTokens: null,
+      inputTokens: null,
+      observedAt: null,
+      requestBytes: 48_256,
+      source: "request_bytes",
+    },
+    endpoint: "/v1/chat/completions",
+    endpointKind: "chat",
+    incarnation: 2,
+    inFlight: 0,
+    lastBoundAt: LB_BINDING_NOW - 1_000_000,
+    lastRequestStartedAt: null,
+    lastResponseEndedAt: null,
+    lastSeenAt: LB_BINDING_NOW - 900_000,
+    model: "VeryLongModelNameForCheckingThatTheCardNeverGrowsWiderThanItsNeighbours",
+    movable: { ok: false, reasons: ["migration_unavailable"] },
+    recentRequestStarts: [],
+    requestCount: 0,
+    routingRevision: 2,
+    targetId,
+  };
+  const failedHistoryBinding: LoadBalancerBindingListItem = {
+    // A history read that broke is not the same sentence as "nothing is stored here": the
+    // row carries the cause, and the confidence count stays separate from it.
+    activity: "idle",
+    associations: {
+      ambiguous: false,
+      confidence: "none",
+      coverage: lbBindingCoverage({
+        exactKeysRequested: 1,
+        failure: {
+          code: "SQLITE_BUSY",
+          errorName: "SqliteError",
+          message: "database is locked",
+          phase: "read",
+        },
+        state: "failed",
+      }),
+      reasons: ["history_query_failed"],
+      taskIds: [],
+      tasks: [],
+    },
+    bindingId: 15,
+    context: {
+      cacheReadTokens: null,
+      inputTokens: null,
+      observedAt: null,
+      requestBytes: null,
+      source: "none",
+    },
+    endpoint: "/v1/responses",
+    endpointKind: "responses",
+    incarnation: 1,
+    inFlight: 0,
+    lastBoundAt: LB_BINDING_NOW - 3_700_000,
+    lastRequestStartedAt: LB_BINDING_NOW - 3_600_000,
+    lastResponseEndedAt: LB_BINDING_NOW - 3_540_000,
+    lastSeenAt: LB_BINDING_NOW - 3_600_000,
+    model: "qwen3.6-27b",
+    movable: { ok: false, reasons: ["migration_unavailable"] },
+    recentRequestStarts: [],
+    requestCount: 1,
+    routingRevision: 4,
+    targetId,
+  };
+  const noLogBinding: LoadBalancerBindingListItem = {
+    activity: "unknown",
+    associations: {
+      ambiguous: false,
+      confidence: "none",
+      coverage: lbBindingCoverage({
+        exactKeysRequested: 2,
+        state: "no_log_configured",
+      }),
+      reasons: ["no_log_configured"],
+      taskIds: [],
+      tasks: [],
+    },
+    bindingId: 18,
+    context: {
+      cacheReadTokens: null,
+      inputTokens: null,
+      observedAt: null,
+      requestBytes: null,
+      source: "none",
+    },
+    endpoint: "/v1/messages",
+    endpointKind: "messages",
+    incarnation: 1,
+    inFlight: 0,
+    lastBoundAt: LB_BINDING_NOW - 7_300_000,
+    lastRequestStartedAt: null,
+    lastResponseEndedAt: null,
+    lastSeenAt: LB_BINDING_NOW - 7_200_000,
+    model: "gpt-4o-mini",
+    movable: { ok: false, reasons: ["migration_unavailable"] },
+    recentRequestStarts: [],
+    requestCount: 2,
+    routingRevision: 1,
+    targetId,
+  };
+  return [
+    sharedBinding,
+    candidateBinding,
+    neverSeenBinding,
+    failedHistoryBinding,
+    noLogBinding,
+    ...Array.from({ length: 20 }, (_, index) => lbBindingQuietItem(targetId, index)),
+  ];
+}
+
+function lbBindingSecondNodeItems(targetId: string): LoadBalancerBindingListItem[] {
+  return [
+    {
+      activity: "unknown",
+      associations: {
+        ambiguous: false,
+        confidence: "none",
+        coverage: lbBindingCoverage({
+          exactKeysRequested: 1,
+          exactKeysWithoutLink: 1,
+          state: "no_traffic_database",
+        }),
+        reasons: ["no_traffic_database"],
+        taskIds: [],
+        tasks: [],
+      },
+      bindingId: 21,
+      context: {
+        cacheReadTokens: null,
+        inputTokens: null,
+        observedAt: null,
+        requestBytes: null,
+        source: "none",
+      },
+      endpoint: "/v1/responses",
+      endpointKind: "responses",
+      incarnation: 1,
+      inFlight: 0,
+      lastBoundAt: LB_BINDING_NOW - 900_000,
+      lastRequestStartedAt: null,
+      lastResponseEndedAt: null,
+      lastSeenAt: LB_BINDING_NOW - 900_000,
+      model: "A-Nano-Reasoner",
+      movable: { ok: false, reasons: ["migration_unavailable"] },
+      recentRequestStarts: [],
+      requestCount: 0,
+      routingRevision: 1,
+      targetId,
+    },
+  ];
+}
+
+function lbBindingFixtureNode(
+  targetId: string,
+  index: number,
+  bindings: number,
+): LoadBalancerBindingNode {
+  const skipped = lbStatusPartialMetrics && index === 1;
+  const metrics: LoadBalancerNodeMetrics = {
+    awake: true,
+    completeness: skipped ? "partial" : "complete",
+    freshness: "fresh",
+    kvUsage: 0.42,
+    running: skipped ? null : 1 + index,
+    sampleSequence: 41,
+    sampledAt: 1_792_830_670_000,
+    source: "vllm",
+    usableForLoadJudgement: !skipped,
+    waiting: skipped ? null : 3 + index,
+  };
+  return {
+    bindings,
+    canonicalKey: `http://127.0.0.1:939${3 + index}`,
+    cooldownRemainingMs: index === 0 ? 0 : 4_000,
+    enabled: true,
+    failures: index === 0 ? 0 : 2,
+    inFlight: lbStatusRound + index,
+    inRotation: index === 0,
+    lastDispatchedAt: null,
+    metrics,
+    targetId,
+  };
+}
+
+/**
+ * The answer to one binding-list read, built the way the real service builds it: the node
+ * counts keep the whole group's measure whatever the `targetId` filter says, a target outside
+ * the group answers a legal empty page rather than a 404, and the two causes of "there is
+ * nothing to page" stay named apart.
+ */
+export function lbBindingFixturePage(
+  query: {
+    pairId: string;
+    groupId: string;
+    targetId: string | undefined;
+    limit: number;
+    offset: number;
+  },
+  round: number = lbBindingRound,
+): LoadBalancerBindingListReply {
+  if (lbBindingFailure !== null) {
+    return { error: lbBindingFailure };
+  }
+  const pair = pairs.find((item) => item.id === query.pairId);
+  if (pair === undefined) {
+    return { error: "pair_not_found" };
+  }
+  const group = pair.load_balancers.find((item) => item.id === query.groupId);
+  if (group === undefined) {
+    return { error: "group_not_found" };
+  }
+  const itemsFor = (targetId: string, index: number) =>
+    index === 0 ? lbBindingFirstNodeItems(targetId, round) : lbBindingSecondNodeItems(targetId);
+  const byTarget: Record<string, number> = {};
+  group.members.forEach((member, index) => {
+    byTarget[member.target_id] = itemsFor(member.target_id, index).length;
+  });
+  const nodes = group.members.map((member, index) =>
+    lbBindingFixtureNode(member.target_id, index, byTarget[member.target_id] ?? 0),
+  );
+  const filtered =
+    query.targetId === undefined
+      ? group.members.flatMap((member, index) => itemsFor(member.target_id, index))
+      : group.members.find((member) => member.target_id === query.targetId) === undefined
+        ? []
+        : itemsFor(
+            query.targetId,
+            group.members.findIndex((m) => m.target_id === query.targetId),
+          );
+  const page = filtered.slice(query.offset, query.offset + query.limit);
+  const hasMore = query.offset + page.length < filtered.length;
+  return {
+    response: {
+      groupRevision: 12,
+      groupId: group.id,
+      hasMore,
+      items: page,
+      limit: query.limit,
+      migration: "unavailable",
+      nextOffset: hasMore ? query.offset + page.length : query.offset,
+      nodes,
+      now: LB_BINDING_NOW,
+      offset: query.offset,
+      pairId: pair.id,
+      runtimeEpoch: "stub-runtime-epoch",
+      targetFilter: query.targetId ?? null,
+      totalBindings: filtered.length,
+    },
   };
 }
 
@@ -1016,6 +1528,9 @@ export function resetFixtureData(): void {
   lbStatusRound = 0;
   lbStatusPartialMetrics = false;
   lbStatusReads.length = 0;
+  lbBindingReads.length = 0;
+  lbBindingFailure = null;
+  lbBindingRound = 0;
   pairsSaveIssues = null;
   modelCatalogOutcome = {
     models: [],
@@ -1060,6 +1575,12 @@ export function setLbStatusRound(value: typeof lbStatusRound): void {
 }
 export function setLbStatusPartialMetrics(value: typeof lbStatusPartialMetrics): void {
   lbStatusPartialMetrics = value;
+}
+export function setLbBindingFailure(value: typeof lbBindingFailure): void {
+  lbBindingFailure = value;
+}
+export function setLbBindingRound(value: typeof lbBindingRound): void {
+  lbBindingRound = value;
 }
 export function setTaskBriefFixture(value: typeof taskBriefFixture): void {
   taskBriefFixture = value;

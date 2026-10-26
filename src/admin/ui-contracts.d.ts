@@ -36,6 +36,7 @@ export interface ApiRoutes {
   "/api/target-check": TargetCheckResponse;
   "/api/model-prices/import": ModelPriceImportResult;
   "/api/load-balancer/status": LoadBalancerStatusResponse;
+  [path: `/api/load-balancer/tasks?${string}`]: Dto.AdminLoadBalancerTasksResponse;
 }
 export type ApiPath = keyof ApiRoutes;
 export type ApiResult<Path extends ApiPath> = Mutable<ApiRoutes[Path]>;
