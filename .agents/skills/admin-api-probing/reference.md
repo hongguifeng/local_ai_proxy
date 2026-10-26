@@ -26,6 +26,10 @@ remaining 404 cause is a missing record or group.
   strictest example is `GET /api/load-balancer/status`: its schema is
   `additionalProperties: false` with a long `required` list, so a fixture missing
   `canonicalKey`, `failures` or `inRotation` produces a 500, not an empty panel.
+  `GET /api/load-balancer/tasks` is closed the same way at eight nested depths, so a
+  fixture that invents a TTL, an expiry or a user-message count on a binding row loses
+  that field silently instead of failing — which is why
+  `test-node/admin/response-schema-openness.test.ts` walks every declared object.
 - The native SQLite binding cannot load. After `npm run rebuild:electron` a plain Node
   process sees the Electron ABI and DB-backed routes answer 500 `ERR_DLOPEN_FAILED`.
   That is an ABI state, not a route bug; `npm run abi:check` proves which ABI is
@@ -34,12 +38,12 @@ remaining 404 cause is a missing record or group.
 ## Where the route-table assertion lives
 
 `test-node/admin/api-contract.test.ts` was written to make a missing registration a test
-failure instead of a browser-side `undefined`. It pins 33 registrations and the top-level
+failure instead of a browser-side `undefined`. It pins 34 registrations and the top-level
 response keys of the JSON routes, including the empty-configuration case. Its `probeUrl`
 function also spells out the query strings the statistics routes require, which is why
 `real-upstream-acceptance` points at it instead of inventing URLs.
 
-The 28-of-33 schema count is current, not historical: the five stream endpoints
+The 29-of-34 schema count is current, not historical: the five stream endpoints
 (`/api/logs/export`, `/api/usage-statistics/export`, `/`, `/static/app.css`,
 `/static/app.js`) carry no response schema because their body is not a JSON DTO. Recount
 with the TypeScript AST rather than a grep — several registrations write their generic

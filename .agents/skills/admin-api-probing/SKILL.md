@@ -31,11 +31,14 @@ description: >-
   means the record or group is missing;
   `{ "code": "not_found", "message": "Route not found." }` is only reachable on a
   server assembled from `PartialAdminServerOptions`, which is what the stub tests pass.
+  A service that answers two routes can be half-wired: `loadBalancerService` carries
+  `getStatus` and `getBindings`, and a service built through a cast is exactly the hole
+  the compiler cannot see, so the startup refusal names `loadBalancerService.getBindings`.
 - Service interfaces live in `src/admin/admin-contracts.ts` and the JSON schemas in
   `src/admin/admin-schemas.ts`. A schema is a wire contract, not documentation: renaming
   a declared field without changing the schema still ships, and an undeclared field only
   survives because the response schemas are open.
-- 28 of the 33 registered routes declare a response schema. The five that do not are the
+- 29 of the 34 registered routes declare a response schema. The five that do not are the
   stream endpoints — `GET /api/logs/export` (ZIP) and `GET /api/usage-statistics/export`
   (CSV) — plus `/`, `/static/app.css` and `/static/app.js`; the two stream registrations
   say so in a comment, the three static ones say nothing, so an absent comment is not
