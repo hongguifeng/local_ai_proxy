@@ -1177,10 +1177,11 @@
 
 ### TRI-09
 
-- 状态：已实现，待父代理独立复审（本清单仍记 8 / 12，不自接为 9 / 12）。本 lane 交两个提交：
-  `d24af5b`（完整哈希 d24af5be3f881c33b546ed67e12daadf1d3d7417）交产品与测试，基线截图与它的哈希行
-  另成一个提交；两者都只在 `D:/code/local_ai_proxy-wt-tri09`，没有 push、没有 version/tag、没有进主
-  checkout，也没有跑便携版打包——本 lane 禁 Electron ABI 切换，尾交付留给整合阶段。
+- 状态：已实现，待父代理独立复审（本清单仍记 8 / 12，不自接为 9 / 12）。本 lane 交四个提交：
+  `d24af5b`（d24af5be3f881c33b546ed67e12daadf1d3d7417）交产品与测试，`04b4d2d`交基线截图与它的哈希行，
+  `337853d`交设计、本清单与两份 README，`d61309f`只交上面那个端口修正；四个都只在
+  `D:/code/local_ai_proxy-wt-tri09`，没有 push、没有 version/tag、没有进主 checkout，也没有跑便携版
+  打包——本 lane 禁 Electron ABI 切换，尾交付留给整合阶段。
 - 修改文件：`src/proxy/load-balancer.ts`（新增 `moveGatesFor()`，复用 `#stateRejection()` 与
   `#eligibilityRejection()`，不另建第二权威，读它不写任何东西）、`src/proxy/load-balancer-admin.ts`
   （`migration` 按有没有可寻址的运行时回答，`movable.destinations` 带服务端拒绝码与
@@ -1219,17 +1220,20 @@
   SSE 记录里没有迁移元数据。这一条链是真实 HTTP 请求经过产品到本地控制服务，不是真实 LM 引擎，TRI-11
   的真实引擎收益不在本项。三个用例各自开自己的对话并重置自己碰到的夹具，不串成一条依赖链。
 - 结果与限制：
-  - 全量 `npm run check` 在本 lane 尚未跑绿：`format:check`、`lint`、`typecheck`、`check:modules`、
-    `check:skills` 都过，卡在 `test` 那一步的一项上——`test-node/app/runtime.test.ts` 的
-    `[AI-09] answers every write route on its own assembled application` 在启用 `managed-pair` 时拿到
-    `409 listen_conflict`（`listen_port: 0` 的绑定撞上 `EADDRINUSE`）。这一项单跑 7 项全过，与本 lane
-    新增文件一起跑时必挂，`--maxWorkers=1` 串行跑两个文件则过，`test-node/app` 整个目录并发跑也过；本
-    lane 新增文件同时占住四个 `127.0.0.1` 的 ephemeral 端口约 35 秒，并发下 Windows 把同一个端口交给了
-    两个进程。这是测试进程之间抢 ephemeral 端口的环境问题，不是迁移合同的缺陷，也不是本轮改过的产品
-    代码路径；本轮没有去改 `test-node/app/runtime.test.ts` 那句断言，也没有为它加重试，因为那会掩掉
-    真实的启动失败。父代理需要就“要不要在本仓库里给并发测试固定端口段、或把真实 app 用例排到单独
-    worker”做决断。
-  - `npm run build`（`check` 的最后一步）与便携版打包、`smoke:delivery`、`abi:node` 都还没跑；本 lane
+  - 一次并发碰撞确实发生过，根因不是操作系统分端口：`src/config/config-normalizer.ts` 里 pair 的
+    `listen_port` 走 `positiveNumber(raw["listen_port"], 1234)`，任何不是正数的值在落盘配置里都被换成产品
+    默认的 1234。本 lane 新增的真实 app 用例当时往 `proxies.json` 写 `listen_port: 0`，经归一化就变成固定
+    1234；`test-node/app/runtime.test.ts` 的 `disabledPairFixture` 同样写 0、也被归一到 1234，于是两个常驻
+    fixture 钉在同一个端口上，`[AI-09] answers every write route on its own assembled application` 在启用
+    `managed-pair` 时拿到 `409 listen_conflict`。当时把它读成“两个测试进程抢 ephemeral 端口”是错的推断，
+    已在下面的修正里推翻。
+    修只在本 lane 自己的 fixture 里（`d61309f`）：`test-node/ui/real-app-load-move.test.ts` 现在按仓库既有的
+    `availablePort()` 配方（bind :0、读出真实端口、再关掉）先取一个正端口写进 `proxies.json`，启动后同时
+    核对 `/api/pairs` 里配置的 `listen_port` 与 `actual_listen_port` 都等于要的那个正端口，任一半漂了就带着
+    三方数字报错停下；上游与 admin 仍直接 `listen(0)`，产品的归一化语义与 `runtime.test.ts` 那句断言都没
+    动，也没有加全局串行、端口段或重试。修后两文件并发 10 项全过，`npm run test` 单独重跑为 148 文件（147
+    通过、1 跳过）与 1499 通过、2 跳过，与声明增量对得上；`npm run check` 整条 `exit 0`（含 `build`）。
+  - `npm run build` 随 `npm run check` 跑过；便携版打包、`smoke:delivery` 与 `abi:node` 仍未跑，本 lane
     禁 ABI 切换，留给整合阶段。
   - 截图给人亲看的一份留在 `.pi/tri09-review/screenshots/`（仓库忽略该目录）：
     `lb-{zh,en}-1278-bindings-expanded.png`、`lb-{zh,en}-1278-group-edit.png`、
