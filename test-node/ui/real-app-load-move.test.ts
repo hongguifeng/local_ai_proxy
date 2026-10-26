@@ -57,6 +57,28 @@ function delay(milliseconds: number): Promise<void> {
   });
 }
 
+/** Ask the operating system for a port that is free at this instant, then let it go again - the
+ *  same recipe `test-node/app/runtime.test.ts` uses. The pair's `listen_port` is not handed to a
+ *  socket directly: it goes through the config normalizer, which replaces anything that is not a
+ *  positive number with the product's default 1234. Writing `0` here would therefore not be a
+ *  request for an ephemeral port, it would be a second listener pinned to 1234, and any other test
+ *  that writes the same shape would collide with it. */
+async function availablePort(): Promise<number> {
+  const probe = http.createServer();
+  await new Promise<void>((resolve, reject) => {
+    probe.once("error", reject);
+    probe.listen(0, "127.0.0.1", () => resolve());
+  });
+  const address = probe.address();
+  if (address === null || typeof address === "string") {
+    throw new Error("The port probe did not report a TCP address.");
+  }
+  await new Promise<void>((resolve, reject) =>
+    probe.close((error) => (error ? reject(error) : resolve())),
+  );
+  return address.port;
+}
+
 /** One upstream: it counts the chat requests it answered, can hold a stream after its first
  *  frame, and can be told whether a plain answer should carry a response id. */
 interface Upstream {
@@ -295,6 +317,7 @@ interface LiveApp {
 
 async function startLiveApp(root: string, firstUrl: string, secondUrl: string): Promise<LiveApp> {
   const logRoot = path.join(root, "logs");
+  const requestedPort = await availablePort();
   const target = (id: string, name: string, url: string, enabled: boolean) => ({
     id,
     name,
@@ -317,7 +340,7 @@ async function startLiveApp(root: string, firstUrl: string, secondUrl: string): 
           name: "Live",
           enabled: true,
           listen_host: "127.0.0.1",
-          listen_port: 0,
+          listen_port: requestedPort,
           access_log: false,
           upstream_url: "http://127.0.0.1:9/",
           model_mapping_mode: "disabled",
@@ -400,11 +423,20 @@ async function startLiveApp(root: string, firstUrl: string, secondUrl: string): 
     throw new Error("The assembled application did not report an admin port.");
   }
   const pairs = await fetch(`http://127.0.0.1:${String(adminPort)}/api/pairs`);
-  const listed = (await pairs.json()) as { pairs: { actual_listen_port?: number }[] };
+  const listed = (await pairs.json()) as {
+    pairs: { listen_port?: number; actual_listen_port?: number }[];
+  };
+  const configuredPort = listed.pairs[0]?.listen_port;
   const proxyPort = listed.pairs[0]?.actual_listen_port;
-  if (typeof proxyPort !== "number") {
+  // The config file said a positive port and the running pair answers on that same port. If
+  // either half drifted, the page and the browser would be pointed at a listener that is not the
+  // one this fixture asked for, so every later assertion would be about somebody else's proxy.
+  if (configuredPort !== requestedPort || proxyPort !== requestedPort) {
     await runtime.application.stop();
-    throw new Error("The running pair did not report a proxy port.");
+    throw new Error(
+      `The pair is not on the port the fixture asked for: configured ${String(configuredPort)}, ` +
+        `listening ${String(proxyPort)}, asked ${String(requestedPort)}.`,
+    );
   }
   return { root, adminPort, proxyPort, runtime };
 }
