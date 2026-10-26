@@ -37,9 +37,15 @@ description: >-
   survives because the response schemas are open.
 - 28 of the 33 registered routes declare a response schema. The five that do not are the
   stream endpoints — `GET /api/logs/export` (ZIP) and `GET /api/usage-statistics/export`
-  (CSV) — plus `/`, `/static/app.css` and `/static/app.js`; each says so at its
-  registration. A rename on one of those five is invisible to both typechecks and would
-  surface only as `undefined` in the UI.
+  (CSV) — plus `/`, `/static/app.css` and `/static/app.js`; the two stream registrations
+  say so in a comment, the three static ones say nothing, so an absent comment is not
+  evidence that a schema exists. A rename on one of those five is invisible to both
+  typechecks and would surface only as `undefined` in the UI.
+- Recounting that table needs the TypeScript AST. A line-based scan misses a registration
+  whose generic spans several lines (`server.post<{ Body: ... }>(` is three lines before
+  the path string), and a scan for schemas has to follow them into `admin-schemas.ts`.
+  `test-node/admin/api-contract.test.ts` pins the same list from the running server, so
+  compare against it rather than against a fresh regex count.
 - Fastify schema-validation 400s carry the code `FST_ERR_VALIDATION`; the error handler
   falls back to `bad_request` only when the error has no `code`, so a test that asserts
   the code on a rejected body must expect `FST_ERR_VALIDATION`.

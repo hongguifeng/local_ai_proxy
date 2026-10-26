@@ -46,8 +46,10 @@ description: >-
   restoring it.
 - Restoring the baseline document with `git checkout` also discards any uncommitted table fix
   in it — re-apply those afterwards.
-- Inspect each regenerated image in full before cropping or trusting it, and clean up the
-  temporary files and processes the capture leaves behind.
+- Inspect each regenerated image in full before cropping or trusting it, read the English
+  captures for stray Chinese — that image is the only proof the interface is fully translated,
+  and a label left untranslated fails nothing on its own — and clean up the temporary files and
+  processes the capture leaves behind.
 
 ## Standard commands
 

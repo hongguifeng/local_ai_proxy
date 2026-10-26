@@ -30,11 +30,10 @@ the end and is read on demand.
 - Every task ends with the portable executable: `npm run package:electron:portable`
   (= `build` → `rebuild:electron` → `electron-builder -w portable`), then
   `npm run smoke:delivery`, and `npm run abi:node` to restore the Node ABI afterwards.
-- UI changes require screenshot verification, and the regenerated baselines plus their hashes in
-  `docs/refactoring/ui-visual-baseline.md` are part of the change: run
-  `npm run regen:ui-baselines`, inspect every regenerated image in full before cropping, update
-  the README images, and check the English baselines for stray Chinese. Clean temporary files
-  and processes when done.
+- UI changes require screenshot verification, and a regenerated baseline plus its hash row in
+  `docs/refactoring/ui-visual-baseline.md` is part of the change, never a later cleanup.
+  `ui-baseline-regen` owns the regeneration, the full-size image inspection, the README images
+  and the stray-Chinese check on the English captures.
 - Run Vitest and UI baseline commands from an uppercase drive path (`cd /D/...`); a lowercase
   `d:` can duplicate the runtime.
 - Reconcile test counts with a precise declaration pattern, never `grep -c "it("`: `emit(`,
@@ -120,7 +119,7 @@ the end and is read on demand.
   `schema-v3.ts` copies the inline body columns into `body_chunks` and NULLs them, so a record
   written after v3 has no chunks for `schema-v5.ts` to read and the token backfill quietly stores
   nothing. To prove a conversion no longer reads live protocol code, `vi.mock` a predicate the
-  live helper depends on — replacing `isPythonTruthy` in `src/proxy/protocol/analysis.js` does
+  live helper depends on — replacing `isPythonTruthy` in `src/proxy/protocol/analysis.ts` does
   move `responseTokenCounts` — then run the real migration: the helper answer moves, the stored
   values do not.
 - Bumping the traffic schema version breaks `test-node/persistence/database.test.ts`, which pins
@@ -134,16 +133,19 @@ the end and is read on demand.
   (`D:\tmp\...`), not the shell's `/tmp`, so a log a bash redirection wrote to `/tmp` is
   invisible to them. Keep scratch scripts and logs under a repo path whenever a tool and bash
   have to see the same file.
-- `prettier --write` on a file under `docs/` realigns every table in it, because the project
-  configuration ignores that directory and those files were never formatted: a small prose
-  addition then rewrites rows nobody touched and the review can no longer see what changed. Edit
-  the prose to match the file's existing style instead of formatting it.
+- `docs/` is listed in `.prettierignore`, so a plain `prettier --write docs/<file>` silently
+  formats nothing, while the `--ignore-path .gitignore` form that `design-doc-readability` uses
+  does format it — and then every table in that file is realigned, because these files were
+  never formatted: a small prose addition rewrites rows nobody touched and the review can no
+  longer see what changed. Edit the prose to match the file's existing style instead of
+  formatting it.
 - Incremental TypeScript builds leave generated files for deleted source files; when removing a
   generated asset or compiler input, add an explicit cleanup step in the build path and inspect
   the packaged `app.asar` for stale outputs.
-- The Electron Chromium (v40) does not support the `:sticky` pseudo-class, neither in
-  stylesheets nor in `querySelector`, so "style only while a sticky element is pinned" is done in
-  JS or made safe in both states.
+- The packaged Chromium (Electron 40 ships Chromium 144) has no `:sticky` pseudo-class:
+  `CSS.supports("selector(:sticky)")` is false and `querySelector(":sticky")` throws a
+  `SyntaxError`, so "style only while a sticky element is pinned" is done in JS or made safe in
+  both states.
 - Comparing a refactor against its base revision does not need a second checkout:
   `git checkout <base> -- <one file>`, measure, `git checkout HEAD -- <same file>`. Same build,
   same ABI, same machine, and the only variable is that file.
@@ -151,17 +153,11 @@ the end and is read on demand.
 
 ## Project facts worth knowing before a review
 
-- `test-node/admin/api-contract.test.ts` pins the admin route table and the top-level response
-  keys by booting the real application. 28 of the 33 registrations carry a response schema; the
-  five that do not are the stream endpoints (`/api/logs/export`, `/api/usage-statistics/export`,
-  `/`, `/static/app.css`, `/static/app.js`), each commented at its registration. A rename on one
-  of those five is invisible to both typechecks and would only show up as `undefined` in the UI.
-- Route registration is split by feature under `src/admin/routes/`; `createAdminServer` only
-  builds the server, the request hooks and `/api/health`, then calls the registrars behind the
-  same `options.X !== undefined` checks. Service interfaces live in `admin-contracts.ts` and the
-  JSON schemas in `admin-schemas.ts`; a guard that greps route source has to follow the file the
-  schema moved to, and a line-based scan misses generics written across several lines
-  (`server.post<{ Body: ... }>(` spans three), so count and split with the TypeScript AST.
+- Admin routes are registered per feature under `src/admin/routes/` and pinned by
+  `test-node/admin/api-contract.test.ts`, which boots the real application; the split, the
+  response schemas and the rule for recounting the table live in `admin-api-probing`. Five of
+  the registrations carry no response schema, so a rename on one of them is invisible to both
+  typechecks and shows up only as `undefined` in the UI.
 - `passWithNoTests` is off, so a Vitest filter that matches nothing exits 1 instead of looking
   like a pass.
 

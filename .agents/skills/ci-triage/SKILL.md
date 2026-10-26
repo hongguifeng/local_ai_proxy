@@ -19,8 +19,8 @@ description: >-
 
 ## Invariants
 
-- `npm run check` is a chain (`format:check` → `lint` → `typecheck` → `check:modules` →
-  `test` → `build`). Reproduce the failing step on its own; a whole-chain rerun hides
+- `npm run check` is the full gate, and its step order is pinned in AGENTS.md's verification
+  entry points; the steps below are the ones to run one at a time. A whole-chain rerun hides
   which step failed and costs minutes each time.
 - The UI tests launch the Playwright-bundled Chromium, which CI installs with
   `npx playwright install chromium`. Never fall back to an OS Chrome on a runner: its

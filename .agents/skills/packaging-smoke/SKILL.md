@@ -54,7 +54,8 @@ description: >-
   or `npm run smoke:database` against the packaged production dependencies.
 - Offline packing uses the runtime already unpacked in the worktree:
   `-c.electronDist=node_modules/electron/dist`, after confirming `npm ls electron` matches the
-  configured `electronVersion`.
+  `electron` devDependency — `electron-builder.yml` pins no `electronVersion`, so that installed
+  version is what gets packaged.
 - After `npm run rebuild:electron`, a plain-Node run of the DB-backed admin APIs returns 500
   `ERR_DLOPEN_FAILED`. That is the Electron ABI state, not an app bug; `npm run rebuild:node`
   restores the Node one.
