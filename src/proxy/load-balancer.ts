@@ -748,6 +748,12 @@ export class LoadBalancer {
    * A number the engine did not answer adds nothing to the sum, so what the engine gave is
    * a lower bound rather than a claim; when neither number came back there is no upstream
    * evidence to compare against, and the proxy's own reservation is the whole load it knows.
+   *
+   * That lower bound is the LB-05 request selector ranking on the numbers it already had - it
+   * is not input an automatic judgement may act on. A strategy (TRI-10) reads
+   * `assessLoadSample().usableForLoadJudgement`, which only lets a fresh, complete and awake
+   * answer through, so here a partial sum may order two candidates while there it is no
+   * evidence at all and a missing number is never read as an idle node.
    */
   #loadOf(node: LoadBalancerNode, sample: LoadSample | undefined, now: number): number {
     const fresh = freshSample(sample, now);
@@ -889,9 +895,11 @@ function targetRoutingSettings(target: TargetConfig | undefined): Record<string,
 }
 
 /**
- * The load the engine actually reported. A missing field contributes nothing, so this is a
- * lower bound on what the engine is doing, never an invented idle. Neither field present
- * means no upstream number at all, which is reported as nothing rather than as zero.
+ * The load the engine actually reported, read only by the request selector's ranking. A
+ * missing field contributes nothing, so this is a lower bound on what the engine is doing,
+ * never an invented idle. Neither field present means no upstream number at all, which is
+ * reported as nothing rather than as zero. An automatic judgement does not read this sum: it
+ * reads `assessLoadSample`, which marks a half answer partial and refuses it.
  */
 function reportedLoad(sample: LoadSample): number | undefined {
   if (sample.running === undefined && sample.waiting === undefined) {

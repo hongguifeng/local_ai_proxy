@@ -9,6 +9,7 @@ import {
 
 import {
   METRIC_FRESH_WINDOW_MS,
+  assessLoadSample,
   LoadBalancer,
   taskIdentity,
   type LoadBalancerReservation,
@@ -426,5 +427,45 @@ describe("load balancing selection", () => {
     balancer.release("node-a");
     balancer.release("node-a");
     expect(balancer.inFlight("node-a")).toBe(0);
+  });
+
+  it("[TRI-03] the selector ranks known numbers as a lower bound the judgement gate refuses", () => {
+    const balancer = startedBalancer();
+    // node-a got an answer about its queue and silence about `running`; node-b was never
+    // sampled. The request selector ranks with the number it has: the half answer is a lower
+    // bound of 5, so the unmeasured node wins at 0. This is the LB-05 ordering, nothing more.
+    const halfAnswer = sample({ waiting: 5 });
+    balancer.setSample("node-a", halfAnswer);
+    const chosen = planned(balancer, identity("session-1", "one"));
+    expect(chosen.decision).toMatchObject({ targetId: "node-b", load: 0 });
+    chosen.release();
+
+    // That very sample is not evidence for an automatic judgement. A half answer is partial,
+    // so it never passes the fresh + complete + awake gate and cannot be read as a quiet node
+    // however the ranking used it.
+    const assessed = assessLoadSample(halfAnswer, NOW);
+    expect(assessed.completeness).toBe("partial");
+    expect(assessed.freshness).toBe("fresh");
+    expect(assessed.running).toBeUndefined();
+    expect(assessed.waiting).toBe(5);
+    expect(assessed.usableForLoadJudgement).toBe(false);
+
+    // Two more answers the gate must never confuse with an idle node: only the KV share, and
+    // no sample at all. Both say nothing about load and both are refused.
+    const kvOnly = assessLoadSample(sample({ kvUsage: 0.35 }), NOW);
+    expect(kvOnly.completeness).toBe("no_load_numbers");
+    expect(kvOnly.running).toBeUndefined();
+    expect(kvOnly.usableForLoadJudgement).toBe(false);
+    const neverSampled = assessLoadSample(undefined, NOW);
+    expect(neverSampled.freshness).toBe("never_sampled");
+    expect(neverSampled.running).toBeUndefined();
+    expect(neverSampled.usableForLoadJudgement).toBe(false);
+
+    // A zero the engine really reported is the one fact that may say idle, and it is usable.
+    const measuredIdle = assessLoadSample(sample({ running: 0, waiting: 0 }), NOW);
+    expect(measuredIdle.completeness).toBe("complete");
+    expect(measuredIdle.running).toBe(0);
+    expect(measuredIdle.waiting).toBe(0);
+    expect(measuredIdle.usableForLoadJudgement).toBe(true);
   });
 });
