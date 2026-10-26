@@ -76,11 +76,20 @@ export {
   MAX_BUCKET_SIZE,
   LoadAffinityTable,
   type AffinityBinding,
+  type AffinityBindingEntry,
   type AffinityEvidence,
   type AffinityHit,
   type AffinitySnapshot,
   type LoadAffinityOptions,
 } from "./load-affinity.js";
+export {
+  MAX_RECENT_REQUEST_STARTS,
+  type BindingActivity,
+  type BindingCostSource,
+  type BindingManualProtection,
+  type BindingUsageObservation,
+  type BindingUsageSignal,
+} from "./binding-activity.js";
 export {
   canonicalNodeKey,
   tryCanonicalNodeKey,
@@ -117,6 +126,8 @@ export {
   MAX_COOLDOWN_MS,
   METRIC_FRESH_WINDOW_MS,
   LoadBalancer,
+  type LoadBalancerBindingEntry,
+  type LoadBalancerBindingSnapshot,
   type LoadBalancerDecision,
   type LoadBalancerGroupMatch,
   type LoadBalancerNode,

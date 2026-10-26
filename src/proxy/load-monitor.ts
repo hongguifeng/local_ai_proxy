@@ -146,6 +146,10 @@ export class LoadMonitor {
     for (const groupId of this.#balancer.groupIds()) {
       removedBindings += this.#balancer.tableFor(groupId)?.sweepExpired() ?? 0;
     }
+    // Ledgers follow bindings: an entry whose binding is gone and holds nothing in
+    // flight is dropped here, while one still carrying a live reservation survives
+    // until its late release lands and cleans it up.
+    this.#balancer.sweepBindingActivity();
     this.#lastSweepAt = this.#now();
     return { removedBindings };
   }

@@ -49,6 +49,7 @@ export {
   completeRequestPricing,
   freezeRequestPricing,
   pendingRequestPricing,
+  resolveUsage,
   type RequestPricingContext,
   type RequestPricingResult,
 } from "./request-pricing.js";

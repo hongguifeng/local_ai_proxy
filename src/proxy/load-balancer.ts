@@ -8,6 +8,11 @@ import type {
 import { loadBalancerMemberTargetIds } from "../config/index.js";
 import { createRequestId, stableJsonStringify } from "../shared/index.js";
 
+import {
+  BindingActivityLedger,
+  type BindingActivity,
+  type BindingUsageObservation,
+} from "./binding-activity.js";
 import { LoadAffinityTable, type AffinityBinding } from "./load-affinity.js";
 import { INITIAL_GROUP_REVISION, type BindingRef } from "./load-migration-contract.js";
 import { tryCanonicalNodeKey } from "./node-identity.js";
@@ -117,6 +122,29 @@ export interface LoadBalancerSnapshot {
   readonly bindings: Readonly<Record<string, number>>;
 }
 
+/**
+ * One binding as the activity projection sees it: its identity, its target and the
+ * ledger of what the request path has recorded against it. Built without calling
+ * `lookup()`, so reading a list changes no TTL, no counter and no target.
+ */
+export interface LoadBalancerBindingEntry {
+  readonly ref: BindingRef;
+  readonly targetId: string;
+  readonly routingRevision: number;
+  readonly lastSeenAt: number;
+  readonly lastBoundAt: number;
+  readonly requestCount: number;
+  readonly activity: BindingActivity;
+}
+
+/** The whole group's binding list with the versions a reader needs to trust it. */
+export interface LoadBalancerBindingSnapshot {
+  readonly runtimeEpoch: string;
+  readonly groupId: string;
+  readonly groupRevision: number | undefined;
+  readonly entries: readonly LoadBalancerBindingEntry[];
+}
+
 export class LoadBalancer {
   readonly #pairId: string;
   readonly #options: LoadBalancerOptions;
@@ -128,6 +156,8 @@ export class LoadBalancer {
    * and survives exactly when it must not.
    */
   readonly #runtimeEpoch: string = createRequestId();
+  /** The pair's clock, shared by the affinity tables and every ledger timestamp. */
+  readonly #clock: () => number;
   #groupRevisions = new Map<string, number>();
   #groupSignatures = new Map<string, string>();
   /** Revisions of groups that left the configuration, kept so a number is never replayed. */
@@ -137,12 +167,15 @@ export class LoadBalancer {
   #nodes = new Map<string, LoadBalancerNode>();
   readonly #tables = new Map<string, LoadAffinityTable>();
   readonly #reservations = new Map<string, number>();
+  /** Per-binding activity, keyed by incarnation so a reused number can never collide. */
+  readonly #activity = new BindingActivityLedger();
   #groups: LoadBalancerGroup[] = [];
   #groupById = new Map<string, LoadBalancerGroup>();
 
   constructor(pairId: string, options: LoadBalancerOptions = {}) {
     this.#pairId = pairId;
     this.#options = options;
+    this.#clock = options.now ?? Date.now;
   }
 
   get pairId(): string {
@@ -282,6 +315,101 @@ export class LoadBalancer {
     return binding.incarnation === ref.incarnation ? binding : undefined;
   }
 
+  /**
+   * Record the request body size for the binding this reservation routes, at selection
+   * time. It is the coarse cost signal the ledger falls back to when no usage protocol
+   * answered; the body itself is never stored. A write against a binding the table has
+   * given up on teaches nothing, same as a late response-id write.
+   */
+  noteBindingRequestBytes(ref: BindingRef, bytes: number): void {
+    if (this.bindingForRef(ref) === undefined) {
+      return;
+    }
+    this.#activity.noteRequestBytes(ref.incarnation, bytes);
+  }
+
+  /**
+   * Backfill the latest usage after a response finished. Complete normalizations become
+   * token signals with their endpoint and time; an unavailable one keeps the coarse
+   * signal (body size when it was recorded, otherwise nothing) and never invents tokens.
+   */
+  recordBindingUsage(ref: BindingRef, observation: BindingUsageObservation): void {
+    if (this.bindingForRef(ref) === undefined) {
+      return;
+    }
+    this.#activity.recordUsage(ref.incarnation, observation, this.#clock());
+  }
+
+  /**
+   * Internal carrier of the protection a manual move grants. The manual migration
+   * service (TRI-07, TRI-08) is what will call these; nothing else sets the flag yet.
+   */
+  setManualProtection(ref: BindingRef): void {
+    if (this.bindingForRef(ref) === undefined) {
+      return;
+    }
+    this.#activity.setManualProtection(ref.incarnation, this.#clock());
+  }
+
+  /** Drop the manual protection flag when the user cancels or its lifecycle ends. */
+  clearManualProtection(ref: BindingRef): void {
+    if (this.bindingForRef(ref) === undefined) {
+      return;
+    }
+    this.#activity.clearManualProtection(ref.incarnation);
+  }
+
+  /**
+   * The binding list of one group joined with its activity ledger. This is the read the
+   * future node list consumes instead of `lookup()`: it refreshes no TTL, bumps no
+   * counter, moves no target and evicts nothing while it reads.
+   */
+  bindingSnapshot(groupId: string): LoadBalancerBindingSnapshot | undefined {
+    const table = this.#tables.get(groupId);
+    if (table === undefined) {
+      return undefined;
+    }
+    const entries = table.bindingEntries().map((binding) => ({
+      ref: {
+        runtimeEpoch: this.#runtimeEpoch,
+        groupId,
+        bindingId: binding.bindingId,
+        routingRevision: binding.routingRevision,
+        incarnation: binding.incarnation,
+      },
+      targetId: binding.targetId,
+      routingRevision: binding.routingRevision,
+      lastSeenAt: binding.lastSeenAt,
+      lastBoundAt: binding.lastBoundAt,
+      requestCount: binding.requestCount,
+      activity: this.#activity.read(binding.incarnation),
+    }));
+    return {
+      runtimeEpoch: this.#runtimeEpoch,
+      groupId,
+      groupRevision: this.#groupRevisions.get(groupId),
+      entries,
+    };
+  }
+
+  /**
+   * Garbage-collect ledgers whose binding left the table and holds nothing in flight.
+   * Entries of evicted bindings that still carry a live reservation survive: the late
+   * release must find its own ledger, and after it lands the sweep (or the release
+   * itself) removes the entry. The monitor runs this right after the TTL sweep.
+   */
+  sweepBindingActivity(): number {
+    const live = new Set<number>();
+    for (const table of this.#tables.values()) {
+      for (const entry of table.bindingEntries()) {
+        live.add(entry.incarnation);
+      }
+    }
+    return this.#activity.dropWhere(
+      (incarnation, activity) => activity.inFlight === 0 && !live.has(incarnation),
+    );
+  }
+
   groupIds(): readonly string[] {
     return [...this.#tables.keys()];
   }
@@ -367,17 +495,21 @@ export class LoadBalancer {
       // reservation this request is about to make.
       const loadBefore = this.inFlight(targetId);
       this.reserve(targetId);
-      return this.#reservation(hit.binding, {
-        groupId: input.group.id,
-        groupName: input.group.name,
-        strategy: input.group.strategy,
-        targetId,
-        decision: "affinity",
-        matchedBy: hit.matchedBy,
-        load: loadBefore,
-        kvUsage: freshKvUsage(samples.get(targetId), now),
-        metricsSource: freshSample(samples.get(targetId), now)?.source,
-      });
+      return this.#reservation(
+        hit.binding,
+        {
+          groupId: input.group.id,
+          groupName: input.group.name,
+          strategy: input.group.strategy,
+          targetId,
+          decision: "affinity",
+          matchedBy: hit.matchedBy,
+          load: loadBefore,
+          kvUsage: freshKvUsage(samples.get(targetId), now),
+          metricsSource: freshSample(samples.get(targetId), now)?.source,
+        },
+        now,
+      );
     }
 
     const chosen =
@@ -392,17 +524,21 @@ export class LoadBalancer {
     const loadBefore = this.#loadOf(chosen, samples.get(chosen.targetId), now);
     const sample = samples.get(chosen.targetId);
     this.reserve(chosen.targetId);
-    return this.#reservation(binding, {
-      groupId: input.group.id,
-      groupName: input.group.name,
-      strategy: input.group.strategy,
-      targetId: chosen.targetId,
-      decision: "new_task",
-      matchedBy: "new_task",
-      load: loadBefore,
-      kvUsage: freshKvUsage(sample, now),
-      metricsSource: freshSample(sample, now)?.source,
-    });
+    return this.#reservation(
+      binding,
+      {
+        groupId: input.group.id,
+        groupName: input.group.name,
+        strategy: input.group.strategy,
+        targetId: chosen.targetId,
+        decision: "new_task",
+        matchedBy: "new_task",
+        load: loadBefore,
+        kvUsage: freshKvUsage(sample, now),
+        metricsSource: freshSample(sample, now)?.source,
+      },
+      now,
+    );
   }
 
   /** The chosen node received an upstream connection attempt; record when that was. */
@@ -524,9 +660,17 @@ export class LoadBalancer {
     this.#retiredGroupRevisions = retired;
   }
 
-  #reservation(binding: AffinityBinding, decision: LoadBalancerDecision): LoadBalancerReservation {
+  #reservation(
+    binding: AffinityBinding,
+    decision: LoadBalancerDecision,
+    now: number,
+  ): LoadBalancerReservation {
     const targetId = decision.targetId;
     const bindingRef = this.bindingRefFor(decision.groupId, binding);
+    // The reservation is established here and nowhere else, so this is the only place
+    // the binding's own activity count goes up. It counts against the incarnation the
+    // reservation was created with, never against a later binding reusing the number.
+    this.#activity.begin(bindingRef.incarnation, now);
     let released = false;
     return {
       decision,
@@ -536,12 +680,19 @@ export class LoadBalancer {
         this.markDispatched(targetId, now);
       },
       release: (): void => {
-        // Exactly one decrement, even when a client abort and a finally block both fire.
+        // Exactly one decrement of both counts, even when a client abort and a finally
+        // block both fire. The binding count follows the target count: it moves after
+        // the reservation was actually handed back, and a ledger that was already
+        // cleaned up stays cleaned up - no negative, no resurrection, no new binding.
         if (released) {
           return;
         }
         released = true;
         this.release(targetId);
+        const remaining = this.#activity.end(bindingRef.incarnation, this.#clock());
+        if (remaining === 0 && this.bindingForRef(bindingRef) === undefined) {
+          this.#activity.drop(bindingRef.incarnation);
+        }
       },
     };
   }
@@ -645,9 +796,10 @@ export class LoadBalancer {
   }
 
   /**
-   * Drop everything the request path owns: bindings and reservations. The group version
-   * counters stay, because they belong to this runtime and must never hand out the same
-   * number twice should the pair be configured again before it is replaced.
+   * Drop everything the request path owns: bindings, reservations and activity ledgers.
+   * A release that arrives after a stop finds no ledger and changes nothing. The group
+   * version counters stay, because they belong to this runtime and must never hand out
+   * the same number twice should the pair be configured again before it is replaced.
    */
   clear(): void {
     for (const table of this.#tables.values()) {
@@ -655,6 +807,7 @@ export class LoadBalancer {
     }
     this.#tables.clear();
     this.#reservations.clear();
+    this.#activity.dropAll();
   }
 
   snapshot(): LoadBalancerSnapshot {

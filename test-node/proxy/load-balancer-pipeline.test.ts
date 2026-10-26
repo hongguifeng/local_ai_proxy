@@ -1693,3 +1693,562 @@ describe("connection failover and refused groups", () => {
     await close(stalled.server);
   });
 });
+
+/** An engine that answers with a fixed body and reports no usage at all. */
+async function startBareNode(label: string): Promise<{ server: http.Server; port: number }> {
+  const server = http.createServer((request, response) => {
+    let receivedBytes = 0;
+    request.on("data", (chunk: Buffer) => {
+      receivedBytes += chunk.byteLength;
+    });
+    request.on("end", () => {
+      response.writeHead(200, { "content-type": "application/json" });
+      // The body is taken and ignored: what comes back carries no usage, which is what
+      // makes the missing-usage fallback observable.
+      response.end(JSON.stringify({ id: `resp-${label}`, node: label, received: receivedBytes }));
+    });
+  });
+  const port = await listen(server);
+  return { server, port };
+}
+
+/** An SSE engine that finishes with a Responses `response.completed` usage event. */
+async function startUsageStreamNode(label: string): Promise<{ server: http.Server; port: number }> {
+  const server = http.createServer((_request, response) => {
+    response.writeHead(200, { "content-type": "text/event-stream" });
+    response.write(
+      `data: {"type":"response.output_text.delta","delta":"hi","label":"${label}"}\n\n`,
+    );
+    response.write(
+      'data: {"type":"response.completed","response":{"usage":{"input_tokens":800,"output_tokens":40,"input_tokens_details":{"cached_tokens":120}}}}\n\n',
+    );
+    response.end("data: [DONE]\n\n");
+  });
+  const port = await listen(server);
+  return { server, port };
+}
+
+/**
+ * A writer that silently drops one kind of record, the way the real traffic service
+ * swallows a failed database write: the client response must stay untouched and the
+ * reservation must still come back (ADR-005).
+ */
+function droppingWriter(
+  records: Readonly<Record<string, unknown>>[],
+  dropEvent: string,
+): TrafficLogWriter {
+  return {
+    write(record) {
+      if (record.event !== dropEvent) {
+        records.push(record);
+      }
+      return Promise.resolve();
+    },
+    update(record) {
+      records.push(record);
+      return Promise.resolve();
+    },
+  };
+}
+
+function bindingEntries(balancer: LoadBalancer, groupId: string) {
+  const snapshot = balancer.bindingSnapshot(groupId);
+  if (snapshot === undefined) {
+    throw new Error(`The group ${groupId} must have a binding table.`);
+  }
+  return snapshot.entries;
+}
+
+function singleBinding(balancer: LoadBalancer, groupId: string) {
+  const entries = bindingEntries(balancer, groupId);
+  const entry = entries[0];
+  if (entry === undefined || entries.length !== 1) {
+    throw new Error("The test group must hold exactly one binding.");
+  }
+  return entry;
+}
+
+describe("TRI-02 binding activity around the live pipeline", () => {
+  it("TRI-02 a long SSE keeps its binding counted until the stream finally ends", async () => {
+    const nodeA = await startEchoNode("a");
+    const stalled = await startStallNode();
+    const records: Readonly<Record<string, unknown>>[] = [];
+    const trafficLog = collectWriter(records);
+    const balancer = new LoadBalancer("pair-lb");
+    balancer.reconfigure(
+      pair(
+        [target("target-a", nodeA.port), target("target-b", stalled.port)],
+        [group("lb-activity", ["target-a", "target-b"])],
+      ),
+    );
+    const pipeline = new ProxyRequestPipeline({
+      pairId: "pair-lb",
+      defaultTargetId: "target-a",
+      loadBalancer: balancer,
+      loadSamples: () => EMPTY_LOAD_SAMPLES,
+      targets: [
+        pipelineTarget("target-a", nodeA.port, trafficLog),
+        pipelineTarget("target-b", stalled.port, trafficLog),
+      ],
+    });
+    const { port, listener } = await startListener((request, response, context) =>
+      pipeline.handle(request, response, context),
+    );
+
+    // A pre-existing reservation makes least load hand this task to the stalling engine.
+    balancer.reserve("target-a");
+    const body = bodyFor("Qwen3.8-Flash-Next", "slow stream");
+    const pending = post(port, "/v1/responses", body, session("activity-slow")).catch(
+      () => undefined,
+    );
+
+    await expect
+      .poll(() => singleBinding(balancer, "lb-activity").activity.inFlight, { timeout: 5_000 })
+      .toBe(1);
+    const running = singleBinding(balancer, "lb-activity");
+    expect(running.targetId).toBe("target-b");
+    expect(running.activity.lastRequestStartedAt).toBeTypeOf("number");
+    expect(running.activity.recentRequestStarts).toHaveLength(1);
+    expect(running.activity.lastResponseEndedAt).toBeUndefined();
+    // The body size is known from selection on; usage cannot be, while no response ended.
+    expect(running.activity.lastRequestBytes).toBe(Buffer.byteLength(body));
+    expect(running.activity.lastUsage).toBeUndefined();
+
+    // Cutting the downstream socket ends the request the way an abandoned client does.
+    listener.closeAllConnections();
+    await pending;
+    await expect
+      .poll(() => singleBinding(balancer, "lb-activity").activity.inFlight, { timeout: 5_000 })
+      .toBe(0);
+    expect(singleBinding(balancer, "lb-activity").activity.lastResponseEndedAt).toBeTypeOf(
+      "number",
+    );
+    expect(balancer.inFlight("target-b")).toBe(0);
+
+    balancer.release("target-a");
+    await listener.close();
+    await close(nodeA.server);
+    await close(stalled.server);
+  });
+
+  it("TRI-02 a finished buffered response backfills normalized usage with its source", async () => {
+    const nodeA = await startEchoNode("a");
+    const records: Readonly<Record<string, unknown>>[] = [];
+    const trafficLog = collectWriter(records);
+    const balancer = new LoadBalancer("pair-lb");
+    balancer.reconfigure(
+      pair(
+        [target("target-a", nodeA.port)],
+        [group("lb-usage", ["target-a"], { strategy: "round_robin" })],
+      ),
+    );
+    const pipeline = new ProxyRequestPipeline({
+      pairId: "pair-lb",
+      defaultTargetId: "target-a",
+      loadBalancer: balancer,
+      loadSamples: () => EMPTY_LOAD_SAMPLES,
+      targets: [pipelineTarget("target-a", nodeA.port, trafficLog)],
+    });
+    const { port, listener } = await startListener((request, response, context) =>
+      pipeline.handle(request, response, context),
+    );
+
+    const body = bodyFor("Qwen3.8-Flash-Next", "one");
+    const answer = await post(port, "/v1/responses", body, session("usage-buffered"));
+    expect(answer.status).toBe(200);
+
+    const usage = singleBinding(balancer, "lb-usage").activity.lastUsage;
+    expect(usage?.costSource).toBe("normalized_usage");
+    expect(usage?.endpoint).toBe("responses");
+    // The echo engine reports 1000 input and no cached tokens: the normalized total is
+    // exactly that, and the cache read is the explicit zero the protocol produced.
+    expect(usage?.inputTokens).toBe(1_000);
+    expect(usage?.cacheReadTokens).toBe(0);
+    expect(usage?.observedAt).toBeTypeOf("number");
+    expect(singleBinding(balancer, "lb-usage").activity.lastRequestBytes).toBe(
+      Buffer.byteLength(body),
+    );
+    expect(singleBinding(balancer, "lb-usage").activity.inFlight).toBe(0);
+
+    await listener.close();
+    await close(nodeA.server);
+  });
+
+  it("TRI-02 an SSE usage event backfills through the stream capture path", async () => {
+    const streamer = await startUsageStreamNode("stream");
+    const records: Readonly<Record<string, unknown>>[] = [];
+    const trafficLog = collectWriter(records);
+    const balancer = new LoadBalancer("pair-lb");
+    balancer.reconfigure(
+      pair(
+        [target("target-s", streamer.port)],
+        [group("lb-stream", ["target-s"], { strategy: "round_robin" })],
+      ),
+    );
+    const pipeline = new ProxyRequestPipeline({
+      pairId: "pair-lb",
+      defaultTargetId: "target-s",
+      loadBalancer: balancer,
+      loadSamples: () => EMPTY_LOAD_SAMPLES,
+      targets: [pipelineTarget("target-s", streamer.port, trafficLog)],
+    });
+    const { port, listener } = await startListener((request, response, context) =>
+      pipeline.handle(request, response, context),
+    );
+
+    await post(
+      port,
+      "/v1/responses",
+      bodyFor("Qwen3.8-Flash-Next", "streamed"),
+      session("usage-sse"),
+    );
+
+    const usage = singleBinding(balancer, "lb-stream").activity.lastUsage;
+    expect(usage?.costSource).toBe("normalized_usage");
+    expect(usage?.endpoint).toBe("responses");
+    // 800 input of which 120 were cached: the normalized input total stays 800.
+    expect(usage?.inputTokens).toBe(800);
+    expect(usage?.cacheReadTokens).toBe(120);
+
+    await listener.close();
+    await close(streamer.server);
+  });
+
+  it("TRI-02 a response without usage falls back to the body size and invents nothing", async () => {
+    const bare = await startBareNode("bare");
+    const records: Readonly<Record<string, unknown>>[] = [];
+    const trafficLog = collectWriter(records);
+    const balancer = new LoadBalancer("pair-lb");
+    balancer.reconfigure(
+      pair([target("target-bare", bare.port)], [group("lb-bare", ["target-bare"])]),
+    );
+    const pipeline = new ProxyRequestPipeline({
+      pairId: "pair-lb",
+      defaultTargetId: "target-bare",
+      loadBalancer: balancer,
+      loadSamples: () => EMPTY_LOAD_SAMPLES,
+      targets: [pipelineTarget("target-bare", bare.port, trafficLog)],
+    });
+    const { port, listener } = await startListener((request, response, context) =>
+      pipeline.handle(request, response, context),
+    );
+
+    const body = bodyFor("Qwen3.8-Flash-Next", "no usage");
+    const answer = await post(port, "/v1/responses", body, session("usage-missing"));
+    expect(answer.status).toBe(200);
+
+    const activity = singleBinding(balancer, "lb-bare").activity;
+    expect(activity.lastRequestBytes).toBe(Buffer.byteLength(body));
+    expect(activity.lastUsage?.costSource).toBe("request_bytes");
+    expect(activity.lastUsage?.endpoint).toBeUndefined();
+    expect(activity.lastUsage?.inputTokens).toBeUndefined();
+    expect(activity.lastUsage?.cacheReadTokens).toBeUndefined();
+    expect(activity.lastUsage?.observedAt).toBeTypeOf("number");
+
+    await listener.close();
+    await close(bare.server);
+  });
+
+  it("TRI-02 upstream errors hand the binding back and keep the coarse signal", async () => {
+    const angry = await startStatusNode("angry", 500);
+    const refused = http.createServer();
+    const refusedPort = await listen(refused);
+    await close(refused);
+    const records: Readonly<Record<string, unknown>>[] = [];
+    const trafficLog = collectWriter(records);
+    const balancer = new LoadBalancer("pair-lb");
+    balancer.reconfigure(
+      pair(
+        [target("target-angry", angry.port), target("target-dead", refusedPort)],
+        [
+          group("lb-errors", ["target-angry", "target-dead"], {
+            strategy: "round_robin",
+            failover_enabled: false,
+          }),
+        ],
+      ),
+    );
+    const pipeline = new ProxyRequestPipeline({
+      pairId: "pair-lb",
+      defaultTargetId: "target-angry",
+      loadBalancer: balancer,
+      loadSamples: () => EMPTY_LOAD_SAMPLES,
+      targets: [
+        pipelineTarget("target-angry", angry.port, trafficLog),
+        pipelineTarget("target-dead", refusedPort, trafficLog),
+      ],
+    });
+    const { port, listener } = await startListener((request, response, context) =>
+      pipeline.handle(request, response, context),
+    );
+
+    // An engine that answers 5xx is forwarded as-is: the binding is released and the
+    // signal stays the body size because no usage protocol answered.
+    const angryAnswer = await post(
+      port,
+      "/v1/responses",
+      bodyFor("Qwen3.8-Flash-Next", "bad engine"),
+      session("err-status"),
+    );
+    expect(angryAnswer.status).toBe(500);
+    const statusActivity = bindingEntries(balancer, "lb-errors");
+    expect(statusActivity).toHaveLength(1);
+    expect(statusActivity[0]?.activity.inFlight).toBe(0);
+    expect(statusActivity[0]?.activity.lastResponseEndedAt).toBeTypeOf("number");
+    expect(statusActivity[0]?.activity.lastUsage?.costSource).toBe("request_bytes");
+
+    // A connection that never came up ends the same way: one release, no failover here.
+    const deadAnswer = await post(
+      port,
+      "/v1/responses",
+      bodyFor("Qwen3.8-Flash-Next", "nowhere"),
+      session("err-connection"),
+    );
+    expect(deadAnswer.status).toBe(502);
+    expect(bindingEntries(balancer, "lb-errors")).toHaveLength(2);
+    for (const entry of bindingEntries(balancer, "lb-errors")) {
+      expect(entry.activity.inFlight).toBe(0);
+      expect(entry.activity.lastResponseEndedAt).toBeTypeOf("number");
+    }
+    expect(balancer.inFlight("target-angry")).toBe(0);
+    expect(balancer.inFlight("target-dead")).toBe(0);
+
+    await listener.close();
+    await close(angry.server);
+  });
+
+  it("TRI-02 a client cancel releases its binding exactly once", async () => {
+    const stalled = await startStallNode();
+    const records: Readonly<Record<string, unknown>>[] = [];
+    const trafficLog = collectWriter(records);
+    const balancer = new LoadBalancer("pair-lb");
+    balancer.reconfigure(
+      pair([target("target-stall", stalled.port)], [group("lb-cancel", ["target-stall"])]),
+    );
+    const pipeline = new ProxyRequestPipeline({
+      pairId: "pair-lb",
+      defaultTargetId: "target-stall",
+      loadBalancer: balancer,
+      loadSamples: () => EMPTY_LOAD_SAMPLES,
+      targets: [pipelineTarget("target-stall", stalled.port, trafficLog)],
+    });
+    const { port, listener } = await startListener((request, response, context) =>
+      pipeline.handle(request, response, context),
+    );
+
+    await postAndAbandon(port, "/v1/responses", bodyFor("Qwen3.8-Flash-Next", "walk away"));
+    await expect
+      .poll(() => singleBinding(balancer, "lb-cancel").activity.inFlight, { timeout: 5_000 })
+      .toBe(0);
+    const activity = singleBinding(balancer, "lb-cancel").activity;
+    expect(activity.lastResponseEndedAt).toBeTypeOf("number");
+    // The request started and was counted while it ran; the cancel did not go negative.
+    expect(activity.lastRequestStartedAt).toBeTypeOf("number");
+    expect(balancer.inFlight("target-stall")).toBe(0);
+
+    await listener.close();
+    await close(stalled.server);
+  });
+
+  it("TRI-02 a traffic log write failure leaves the client response and the ledger alone", async () => {
+    const nodeA = await startEchoNode("a");
+    const records: Readonly<Record<string, unknown>>[] = [];
+    const trafficLog = droppingWriter(records, "request_finished");
+    const balancer = new LoadBalancer("pair-lb");
+    balancer.reconfigure(
+      pair([target("target-a", nodeA.port)], [group("lb-logfail", ["target-a"])]),
+    );
+    const pipeline = new ProxyRequestPipeline({
+      pairId: "pair-lb",
+      defaultTargetId: "target-a",
+      loadBalancer: balancer,
+      loadSamples: () => EMPTY_LOAD_SAMPLES,
+      targets: [pipelineTarget("target-a", nodeA.port, trafficLog)],
+    });
+    const { port, listener } = await startListener((request, response, context) =>
+      pipeline.handle(request, response, context),
+    );
+
+    const answer = await post(port, "/v1/responses", bodyFor("Qwen3.8-Flash-Next", "logged out"));
+    // The client still received the upstream bytes, intact.
+    expect(answer.status).toBe(200);
+    expect(echoed(answer.body).node).toBe("a");
+    // The finished record never made it into storage, but the request still completed.
+    expect(eventRecords(records, "request_finished")).toHaveLength(0);
+
+    const activity = singleBinding(balancer, "lb-logfail").activity;
+    expect(activity.inFlight).toBe(0);
+    expect(activity.lastResponseEndedAt).toBeTypeOf("number");
+    // Usage was resolved before the log write, so the backfill happened despite it.
+    expect(activity.lastUsage?.costSource).toBe("normalized_usage");
+
+    await listener.close();
+    await close(nodeA.server);
+  });
+
+  it("TRI-02 failover moves the ledger with the task and hands the failed reservation back", async () => {
+    const dead = http.createServer();
+    const deadPort = await listen(dead);
+    await close(dead);
+    const healthy = await startEchoNode("healthy");
+    const records: Readonly<Record<string, unknown>>[] = [];
+    const trafficLog = collectWriter(records);
+    const balancer = new LoadBalancer("pair-lb");
+    balancer.reconfigure(
+      pair(
+        [target("target-dead", deadPort), target("target-healthy", healthy.port)],
+        [group("lb-failover", ["target-dead", "target-healthy"], { strategy: "round_robin" })],
+      ),
+    );
+    const pipeline = new ProxyRequestPipeline({
+      pairId: "pair-lb",
+      defaultTargetId: "target-dead",
+      loadBalancer: balancer,
+      loadSamples: () => EMPTY_LOAD_SAMPLES,
+      targets: [
+        pipelineTarget("target-dead", deadPort, trafficLog),
+        pipelineTarget("target-healthy", healthy.port, trafficLog),
+      ],
+    });
+    const { port, listener } = await startListener((request, response, context) =>
+      pipeline.handle(request, response, context),
+    );
+
+    const answer = await post(
+      port,
+      "/v1/responses",
+      bodyFor("Qwen3.8-Flash-Next", "switch once"),
+      session("failover-activity"),
+    );
+    expect(answer.status).toBe(200);
+
+    // One binding survived the switch: its ledger shows the failed attempt ended and the
+    // answering attempt finished on the new target, usage and all.
+    const entries = bindingEntries(balancer, "lb-failover");
+    expect(entries).toHaveLength(1);
+    const entry = entries[0];
+    if (entry === undefined) {
+      throw new Error("The failed task must still carry its binding.");
+    }
+    expect(entry.targetId).toBe("target-healthy");
+    expect(entry.routingRevision).toBe(1);
+    expect(entry.activity.inFlight).toBe(0);
+    expect(entry.activity.lastRequestStartedAt).toBeTypeOf("number");
+    expect(entry.activity.lastResponseEndedAt).toBeTypeOf("number");
+    expect(entry.activity.lastUsage?.costSource).toBe("normalized_usage");
+    expect(balancer.inFlight("target-dead")).toBe(0);
+    expect(balancer.inFlight("target-healthy")).toBe(0);
+
+    await listener.close();
+    await close(healthy.server);
+  });
+
+  it("TRI-02 a reload keeps old-pipeline requests counted on their own binding", async () => {
+    const stalled = await startStallNode();
+    const records: Readonly<Record<string, unknown>>[] = [];
+    const trafficLog = collectWriter(records);
+    const balancer = new LoadBalancer("pair-lb");
+    const configured = pair(
+      [target("target-stall", stalled.port)],
+      [group("lb-reload", ["target-stall"], { strategy: "round_robin" })],
+    );
+    balancer.reconfigure(configured);
+    const oldPipeline = new ProxyRequestPipeline({
+      pairId: "pair-lb",
+      defaultTargetId: "target-stall",
+      loadBalancer: balancer,
+      loadSamples: () => EMPTY_LOAD_SAMPLES,
+      targets: [pipelineTarget("target-stall", stalled.port, trafficLog)],
+    });
+    const old = await startListener((request, response, context) =>
+      oldPipeline.handle(request, response, context),
+    );
+
+    const body = bodyFor("Qwen3.8-Flash-Next", "across the reload");
+    const first = post(old.port, "/v1/responses", body, session("reload-shared")).catch(
+      () => undefined,
+    );
+    await expect
+      .poll(() => singleBinding(balancer, "lb-reload").activity.inFlight, { timeout: 5_000 })
+      .toBe(1);
+
+    // What reloadPair does: the balancer survives, the pipeline is rebuilt over it.
+    balancer.reconfigure(configured);
+    const newPipeline = new ProxyRequestPipeline({
+      pairId: "pair-lb",
+      defaultTargetId: "target-stall",
+      loadBalancer: balancer,
+      loadSamples: () => EMPTY_LOAD_SAMPLES,
+      targets: [pipelineTarget("target-stall", stalled.port, trafficLog)],
+    });
+    const next = await startListener((request, response, context) =>
+      newPipeline.handle(request, response, context),
+    );
+    const second = post(next.port, "/v1/responses", body, session("reload-shared")).catch(
+      () => undefined,
+    );
+
+    // The follow-up hit the same binding through affinity: the ledger counts both, one
+    // request per pipeline generation, and each release lands on its own.
+    await expect
+      .poll(() => singleBinding(balancer, "lb-reload").activity.inFlight, { timeout: 5_000 })
+      .toBe(2);
+    expect(bindingEntries(balancer, "lb-reload")).toHaveLength(1);
+
+    old.listener.closeAllConnections();
+    await first;
+    await expect
+      .poll(() => singleBinding(balancer, "lb-reload").activity.inFlight, { timeout: 5_000 })
+      .toBe(1);
+    next.listener.closeAllConnections();
+    await second;
+    await expect
+      .poll(() => singleBinding(balancer, "lb-reload").activity.inFlight, { timeout: 5_000 })
+      .toBe(0);
+    expect(singleBinding(balancer, "lb-reload").activity.lastResponseEndedAt).toBeTypeOf("number");
+
+    await old.listener.close();
+    await next.listener.close();
+    await close(stalled.server);
+  });
+
+  it("TRI-02 a reservation for a target the pipeline cannot name is handed back", async () => {
+    const nodeA = await startEchoNode("a");
+    const records: Readonly<Record<string, unknown>>[] = [];
+    const trafficLog = collectWriter(records);
+    const balancer = new LoadBalancer("pair-lb");
+    // The balancer knows a node the pipeline was never given; round robin picks it first.
+    balancer.reconfigure(
+      pair(
+        [target("target-ghost", 1), target("target-a", nodeA.port)],
+        [group("lb-ghost", ["target-ghost", "target-a"], { strategy: "round_robin" })],
+      ),
+    );
+    const pipeline = new ProxyRequestPipeline({
+      pairId: "pair-lb",
+      defaultTargetId: "target-a",
+      loadBalancer: balancer,
+      loadSamples: () => EMPTY_LOAD_SAMPLES,
+      targets: [pipelineTarget("target-a", nodeA.port, trafficLog)],
+    });
+    const { port, listener } = await startListener((request, response, context) =>
+      pipeline.handle(request, response, context),
+    );
+
+    const answer = await post(port, "/v1/responses", bodyFor("Qwen3.8-Flash-Next", "ghost"));
+    // The plain mapping route carried the request, and the established-but-unused
+    // reservation came straight back: neither count is left hanging.
+    expect(answer.status).toBe(200);
+    expect(echoed(answer.body).node).toBe("a");
+    expect(balancer.inFlight("target-ghost")).toBe(0);
+
+    const entry = singleBinding(balancer, "lb-ghost");
+    expect(entry.targetId).toBe("target-ghost");
+    expect(entry.activity.inFlight).toBe(0);
+    expect(entry.activity.lastRequestStartedAt).toBeTypeOf("number");
+    expect(entry.activity.lastResponseEndedAt).toBeTypeOf("number");
+
+    await listener.close();
+    await close(nodeA.server);
+  });
+});

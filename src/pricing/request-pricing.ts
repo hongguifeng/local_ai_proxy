@@ -105,8 +105,13 @@ export function completeRequestPricing(
   }
 }
 
-/** Prefer the SSE capture; fall back to the buffered payload only when there is no capture. */
-function resolveUsage(
+/**
+ * Prefer the SSE capture; fall back to the buffered payload only when there is no
+ * capture. Exported because the binding activity ledger asks the same question the
+ * pricing asks - which usage, if any, this response actually produced - and must not
+ * answer it with a second, drifting copy of this logic.
+ */
+export function resolveUsage(
   endpoint: PricingEndpointKind,
   responsePayload: unknown,
   streamCapture: UsageCaptureResult | undefined,

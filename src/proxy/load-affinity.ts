@@ -88,6 +88,17 @@ export interface AffinitySnapshot {
   readonly byTarget: Readonly<Record<string, number>>;
 }
 
+/** Plain copy of one binding, safe to hand to a reader that must not change it. */
+export interface AffinityBindingEntry {
+  readonly bindingId: number;
+  readonly incarnation: number;
+  readonly targetId: string;
+  readonly routingRevision: number;
+  readonly lastSeenAt: number;
+  readonly lastBoundAt: number;
+  readonly requestCount: number;
+}
+
 export class LoadAffinityTable {
   readonly #ttlMs: number;
   readonly #maxBindings: number;
@@ -316,6 +327,24 @@ export class LoadAffinityTable {
       buckets: this.#buckets.size,
       byTarget,
     };
+  }
+
+  /**
+   * Everything the table holds right now, as copies. Unlike `lookup()` this touches
+   * nothing: no TTL refresh, no counter bump, no target rewrite, no eviction. A list can
+   * be built from here without changing what it describes, which is what the binding
+   * projection and, later, the node list endpoint need.
+   */
+  bindingEntries(): readonly AffinityBindingEntry[] {
+    return [...this.#bindings.values()].map((binding) => ({
+      bindingId: binding.id,
+      incarnation: binding.incarnation,
+      targetId: binding.targetId,
+      routingRevision: binding.routingRevision,
+      lastSeenAt: binding.lastSeenAt,
+      lastBoundAt: binding.lastBoundAt,
+      requestCount: binding.requestCount,
+    }));
   }
 
   bindingForExactKey(exactKey: string): AffinityBinding | undefined {

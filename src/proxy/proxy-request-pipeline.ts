@@ -8,6 +8,7 @@ import {
   completeRequestPricing,
   freezeRequestPricing,
   pendingRequestPricing,
+  resolveUsage,
 } from "../pricing/index.js";
 import { ActiveRequestRegistry } from "./active-requests.js";
 import {
@@ -37,6 +38,7 @@ import {
 } from "./response-log-capture.js";
 import { endpointKind, responseIdsFromBody } from "./protocol/analysis.js";
 import { requestModelFromBody, rewriteRequestModel, selectTargetByModel } from "./routing.js";
+import type { BindingUsageObservation } from "./binding-activity.js";
 import type { LoadBalancer, LoadBalancerReservation, LoadSample } from "./load-balancer.js";
 import { taskIdentity, type TaskIdentity } from "./protocol/task-identity.js";
 import {
@@ -198,6 +200,7 @@ export class ProxyRequestPipeline {
     }
     let activeTarget = selection.target;
     let activeReservation = selection.loadBalance?.reservation;
+    this.#noteRequestBytes(activeReservation, requestBody.byteLength);
     try {
       // A member with a model id rewrites the body once; a failover to another member
       // rewrites it again, because each node may answer under a different model name.
@@ -363,6 +366,7 @@ export class ProxyRequestPipeline {
         responsePayload,
         responseCapture.usageCapture,
       );
+      this.#recordBindingUsage(activeReservation, request, responsePayload, responseCapture);
       await activeTarget.trafficLog.write(
         finishedEvent(
           baseRecord,
@@ -381,6 +385,54 @@ export class ProxyRequestPipeline {
       // and it fires for client aborts and upstream failures alike.
       activeReservation?.release();
     }
+  }
+
+  /**
+   * The reservation's binding learns how large this request was while the route is
+   * still fresh, at selection time. Only the byte count is recorded; the body itself
+   * never reaches the ledger, and a plain (non load balanced) selection has no
+   * reservation to record on.
+   */
+  #noteRequestBytes(reservation: LoadBalancerReservation | undefined, requestBytes: number): void {
+    if (reservation === undefined) {
+      return;
+    }
+    this.#options.loadBalancer?.noteBindingRequestBytes(reservation.bindingRef, requestBytes);
+  }
+
+  /**
+   * Backfill what this response produced for usage once pricing has resolved it. The
+   * signal lands on the reservation that actually served the request - after a failover
+   * that is the new one, never the attempt that failed. The pricing module's own
+   * resolution is reused, so the ledger can never claim tokens the cost calculation
+   * could not use; a missing usage leaves token counts absent and the ledger keeps the
+   * coarse body-size signal recorded at selection time.
+   */
+  #recordBindingUsage(
+    reservation: LoadBalancerReservation | undefined,
+    request: IncomingMessage,
+    responsePayload: unknown,
+    responseCapture: ResponseLogCapture,
+  ): void {
+    const balancer = this.#options.loadBalancer;
+    if (reservation === undefined || balancer === undefined) {
+      return;
+    }
+    const normalization = resolveUsage(
+      endpointKind(request.url ?? "/"),
+      responsePayload,
+      responseCapture.usageCapture,
+    );
+    const observation: BindingUsageObservation =
+      normalization.status === "complete"
+        ? {
+            status: "complete",
+            endpoint: normalization.usage.source,
+            inputTokens: normalization.usage.totalInputTokens,
+            cacheReadTokens: normalization.usage.cacheReadTokens,
+          }
+        : { status: "unavailable" };
+    balancer.recordBindingUsage(reservation.bindingRef, observation);
   }
 
   /** Teach the binding which response ids this response produced. */
@@ -571,7 +623,10 @@ export class ProxyRequestPipeline {
     }
     const chosen = candidates.find(({ id }) => id === reservation.decision.targetId);
     if (chosen === undefined) {
-      // The balancer named a target this pipeline does not know; keep the old route.
+      // The balancer named a target this pipeline does not know; keep the old route and
+      // hand the reservation back. It was established inside `plan()`, so nothing else
+      // would ever release it and both counts would hang where nobody can reclaim them.
+      reservation.release();
       return plain;
     }
     // The chosen member's own model id wins; an empty id forwards the requested model.
