@@ -16,6 +16,27 @@ export {
   type TaskBrief,
 } from "./log-query-service.js";
 export {
+  BindingHistoryService,
+  DEFAULT_BINDING_HISTORY_LIMITS,
+  DEFAULT_CANDIDATE_SCAN_ROWS,
+  DEFAULT_EXACT_KEYS_PER_QUERY,
+  DEFAULT_HISTORY_LOCK_WAIT_MS,
+  DEFAULT_LINKED_TASKS_PER_QUERY,
+  DEFAULT_RETURNED_TASKS_PER_QUERY,
+  type AssociatedTask,
+  type BindingHistoryAssociation,
+  type BindingHistoryBindingEvidence,
+  type BindingHistoryCoverage,
+  type BindingHistoryQuery,
+  type BindingHistoryQueryLimits,
+  type BindingHistoryServiceOptions,
+  type HistoryAssociationConfidence,
+  type HistoryAssociationLevel,
+  type HistoryAssociationReason,
+  type HistoryCoverageState,
+  type HistoryQueryFailure,
+} from "./binding-history-association.js";
+export {
   recordExportDirectory,
   recordJsonEntries,
   createLogExportStream,

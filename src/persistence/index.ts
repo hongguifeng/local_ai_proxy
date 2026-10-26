@@ -42,7 +42,16 @@ export {
   type RecordWritePricing,
   type UsageStatisticsRow,
 } from "./record-store.js";
-export { decodeTaskRow, type TaskRow, type TaskSummaryRow, type TaskWrite } from "./task-store.js";
+export {
+  decodeTaskRow,
+  type TaskAssociationRow,
+  type TaskCandidateCriteria,
+  type TaskCandidatePage,
+  type TaskLinkRow,
+  type TaskRow,
+  type TaskSummaryRow,
+  type TaskWrite,
+} from "./task-store.js";
 export { recordSearchDocument, searchText, type RecordSearchDocument } from "./search-store.js";
 export {
   type PricingBucket,

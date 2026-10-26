@@ -384,6 +384,19 @@ export class RecordStore {
     return result.changes;
   }
 
+  /**
+   * The newest record timestamp this log holds, or null when it holds no record. The
+   * binding-association reader compares it with a binding's own request time to tell
+   * "the log has caught up" from "this request was never stored".
+   */
+  newestTimestamp(): string | null {
+    const stored = this.#database
+      .prepare("SELECT timestamp FROM records ORDER BY timestamp DESC LIMIT 1")
+      .pluck()
+      .get();
+    return textCell(stored);
+  }
+
   /** The newest record of a task whose body is complete, i.e. the last finished request. */
   latestFinishedId(taskId: string): string | undefined {
     const finished = this.#database

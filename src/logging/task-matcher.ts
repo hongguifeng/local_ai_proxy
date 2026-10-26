@@ -14,6 +14,7 @@ import {
   mergeLegacyContextKeys,
   nestedValue,
   requestContextKeys,
+  storedBoundaryFingerprints,
   userMessagesPrefixMatches,
 } from "../proxy/protocol/task-identity.js";
 import { bodyJsonValue } from "../proxy/protocol/payload.js";
@@ -203,7 +204,7 @@ export class TaskMatcher {
     if ((task.model ?? null) !== requestedModel) {
       return false;
     }
-    const storedBoundary = storedBoundaryFingerprints(task);
+    const storedBoundary = storedBoundaryFingerprints(task.boundary_fingerprints);
     const requestBoundary = requestBoundaryFingerprints(kind, payload);
     const boundariesEqual = (
       left: Readonly<Record<string, string>>,
@@ -370,16 +371,6 @@ export class TaskMatcher {
 
 function bodyPayload(body: ResponseLogPayload): unknown {
   return bodyJsonValue(body);
-}
-
-/** Boundary fingerprints as stored on a task row, with non-string values dropped. */
-function storedBoundaryFingerprints(task: Readonly<TaskRow>): Record<string, string> {
-  const stored = task.boundary_fingerprints;
-  return Object.fromEntries(
-    Object.entries(isRecord(stored) ? stored : {}).filter(
-      (entry): entry is [string, string] => typeof entry[1] === "string",
-    ),
-  );
 }
 
 /**

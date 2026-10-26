@@ -6,8 +6,10 @@ import {
   integerValue,
   jsonText,
   optionalString,
+  stringValue,
   storedJsonArray,
   storedJsonObject,
+  textCell,
   textOr,
 } from "./column-codec.js";
 import type { SearchStore } from "./search-store.js";
@@ -100,6 +102,67 @@ export interface TaskSummaryRowFields {
 
 /** One entry of the group list, projected so no task JSON column is read. */
 export type TaskSummaryRow = TaskSummaryRowFields & Record<string, unknown>;
+
+/**
+ * One identity link as the binding-association reader sees it: the stored key beside
+ * the task it names. The key comes back so a caller can tell which of its exact keys
+ * resolved and which named nothing, without reading the key text anywhere else.
+ */
+export interface TaskLinkRow {
+  readonly key: string;
+  readonly taskId: string;
+}
+
+/**
+ * The task columns a binding-association read needs. `last_user_messages_json` is
+ * deliberately not selected: the association is decided on hashes, and a reader that
+ * pulls stored user text out of the log gains nothing it is allowed to show.
+ */
+export interface TaskAssociationRow {
+  readonly id: string;
+  readonly kind: string;
+  readonly endpoint: string | null;
+  readonly model: string | null;
+  /** The task's own target, falling back to its newest record's upstream address. */
+  readonly target: string | null;
+  readonly started_at: string;
+  readonly last_seen_at: string;
+  readonly last_response_at: string | null;
+  readonly request_count: number;
+  /** True while only a pending row backs this task: the finished log has not landed. */
+  readonly pending_request_only: boolean;
+  readonly boundary_fingerprints: Readonly<Record<string, unknown>>;
+}
+
+/** Boundary candidates of one endpoint kind, plus whether more exist beyond the cap. */
+export interface TaskCandidatePage {
+  readonly rows: readonly TaskAssociationRow[];
+  readonly truncated: boolean;
+}
+
+/** How the association reader narrows the boundary-candidate scan. */
+export interface TaskCandidateCriteria {
+  readonly kind: string;
+  /** The model the binding carries; undefined means the task must carry no model. */
+  readonly model: string | undefined;
+  /** How many candidate rows to read before reporting truncation. */
+  readonly limit: number;
+}
+
+/**
+ * Hard ceiling of one `IN (...)` statement. It sits above every cap the association
+ * service uses (64 keys, 64 tasks), so a caller that stayed within its own caps is never
+ * silently shortened here; this only keeps SQLite's variable limit from being exceeded.
+ */
+const MAX_ASSOCIATION_LOOKUP_KEYS = 512;
+const MAX_ASSOCIATION_LOOKUP_TASKS = 512;
+
+/**
+ * The columns the association reader selects, and the only decoder it needs. The user
+ * message column is absent, so a history read cannot hand out request content.
+ */
+const TASK_ASSOCIATION_COLUMNS = `id, kind, endpoint, model, started_at, last_seen_at,
+        last_response_at, request_count, pending_request_only, boundary_fingerprints_json`;
 
 /** The `target` a group shows: the task's own, or the newest record's upstream. */
 const TASK_TARGET_SQL = `COALESCE(
@@ -260,6 +323,95 @@ export class TaskStore {
     return typeof taskId === "string" ? taskId : undefined;
   }
 
+  /**
+   * The context links the given exact keys name, in one statement rather than one per
+   * key. `context_key` is the primary key, so every lookup is a key seek.
+   */
+  contextLinksForKeys(contextKeys: readonly string[]): readonly TaskLinkRow[] {
+    return this.#linksForKeys("context_links", "context_key", contextKeys);
+  }
+
+  /** The response links the given response ids name, in one key-seek statement. */
+  responseLinksForIds(responseIds: readonly string[]): readonly TaskLinkRow[] {
+    return this.#linksForKeys("response_links", "response_id", responseIds);
+  }
+
+  #linksForKeys(
+    table: "context_links" | "response_links",
+    column: "context_key" | "response_id",
+    keys: readonly string[],
+  ): readonly TaskLinkRow[] {
+    const selected = keys.filter((key) => key.trim() !== "").slice(0, MAX_ASSOCIATION_LOOKUP_KEYS);
+    if (selected.length === 0) {
+      return [];
+    }
+    const placeholders = selected.map(() => "?").join(",");
+    const rows = this.#database
+      .prepare(
+        `SELECT ${column} AS key, task_id FROM ${table} WHERE ${column} IN (${placeholders})`,
+      )
+      .all(...selected) as readonly RepositoryRecord[];
+    return rows.map((row) => ({
+      key: stringValue(row["key"]),
+      taskId: stringValue(row["task_id"]),
+    }));
+  }
+
+  /**
+   * The named tasks, projected for the association read and ordered the way the group
+   * list is ordered. Ids the log no longer holds simply do not appear.
+   */
+  tasksForIds(taskIds: readonly string[]): readonly TaskAssociationRow[] {
+    const selected = taskIds
+      .filter((id) => id.trim() !== "")
+      .slice(0, MAX_ASSOCIATION_LOOKUP_TASKS);
+    if (selected.length === 0) {
+      return [];
+    }
+    const placeholders = selected.map(() => "?").join(",");
+    const rows = this.#database
+      .prepare(
+        `
+        SELECT ${TASK_ASSOCIATION_COLUMNS}, ${TASK_TARGET_SQL} AS target
+        FROM tasks
+        WHERE id IN (${placeholders})
+        ORDER BY COALESCE(last_seen_at, last_response_at, started_at) DESC
+      `,
+      )
+      .all(...selected) as readonly RepositoryRecord[];
+    return rows.map(decodeTaskAssociationRow);
+  }
+
+  /**
+   * Tasks that share the static boundary of an endpoint kind and a model, newest first.
+   * The scan is bounded: one row past the cap is read so the caller can report that more
+   * candidates exist instead of pretending the list is complete.
+   */
+  boundaryCandidates(criteria: Readonly<TaskCandidateCriteria>): TaskCandidatePage {
+    const limit = Math.max(1, Math.min(integerValue(criteria.limit, 100), 500));
+    const modelSql = criteria.model === undefined ? "tasks.model IS NULL" : "tasks.model = ?";
+    const parameters =
+      criteria.model === undefined
+        ? [criteria.kind, limit + 1]
+        : [criteria.kind, criteria.model, limit + 1];
+    const rows = this.#database
+      .prepare(
+        `
+        SELECT ${TASK_ASSOCIATION_COLUMNS}, ${TASK_TARGET_SQL} AS target
+        FROM tasks
+        WHERE tasks.kind = ? AND ${modelSql}
+        ORDER BY COALESCE(last_seen_at, last_response_at, started_at) DESC
+        LIMIT ?
+      `,
+      )
+      .all(...parameters) as readonly RepositoryRecord[];
+    const truncated = rows.length > limit;
+    return {
+      rows: rows.slice(0, limit).map(decodeTaskAssociationRow),
+      truncated,
+    };
+  }
+
   /** The tasks the matcher may continue, newest first, in-flight groups excluded. */
   recent(limit = 200): readonly TaskRow[] {
     const boundedLimit = Math.max(1, Math.min(integerValue(limit, 200), 1_000));
@@ -354,6 +506,23 @@ export class TaskStore {
       .prepare(`DELETE FROM tasks WHERE id IN (${placeholders})`)
       .run(...selected).changes;
   }
+}
+
+/** Projects the association columns; the stored JSON cells are decoded here. */
+function decodeTaskAssociationRow(row: Readonly<RepositoryRecord>): TaskAssociationRow {
+  return {
+    id: stringValue(row["id"]),
+    kind: stringValue(row["kind"]),
+    endpoint: textCell(row["endpoint"]),
+    model: textCell(row["model"]),
+    target: textCell(row["target"]),
+    started_at: stringValue(row["started_at"]),
+    last_seen_at: stringValue(row["last_seen_at"]),
+    last_response_at: textCell(row["last_response_at"]),
+    request_count: integerValue(row["request_count"], 0),
+    pending_request_only: Boolean(row["pending_request_only"]),
+    boundary_fingerprints: storedJsonObject(row["boundary_fingerprints_json"]),
+  };
 }
 
 /** Turns a stored task row into the task the rest of the application reads. */

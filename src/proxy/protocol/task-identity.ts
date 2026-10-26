@@ -166,6 +166,22 @@ export function boundaryWithoutUser(
   return copy;
 }
 
+/**
+ * Boundary fingerprints as a task row stores them: a cell that is not text is dropped,
+ * which is what the matcher does and what the binding-association reader must do to
+ * compare the same two documents. A stored value that is not an object reads as empty.
+ */
+export function storedBoundaryFingerprints(
+  stored: Readonly<Record<string, unknown>> | undefined,
+): Record<string, string> {
+  const cells = isRecord(stored) ? stored : {};
+  return Object.fromEntries(
+    Object.entries(cells).filter(
+      (entry): entry is [string, string] => typeof entry[1] === "string",
+    ),
+  );
+}
+
 export function userMessageHashes(
   kind: EndpointKind,
   payload: unknown,

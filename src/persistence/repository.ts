@@ -8,6 +8,7 @@ import { RecordStore } from "./record-store.js";
 import { SearchStore, searchText } from "./search-store.js";
 import { TaskStore } from "./task-store.js";
 import type { RepositoryPage } from "./access-contracts.js";
+import { integerValue } from "./column-codec.js";
 import type { HistorySummaryWrite, TaskBriefRow, TaskBriefWrite } from "./generated-text-store.js";
 import type {
   TaskCostSeriesPoint,
@@ -22,7 +23,15 @@ import type {
   RecordWrite,
   UsageStatisticsRow,
 } from "./record-store.js";
-import type { TaskRow, TaskSummaryRow, TaskWrite } from "./task-store.js";
+import type {
+  TaskAssociationRow,
+  TaskCandidateCriteria,
+  TaskCandidatePage,
+  TaskLinkRow,
+  TaskRow,
+  TaskSummaryRow,
+  TaskWrite,
+} from "./task-store.js";
 
 /**
  * The traffic log's single entry point to SQLite.
@@ -43,6 +52,14 @@ import type { TaskRow, TaskSummaryRow, TaskWrite } from "./task-store.js";
 
 export interface TrafficRepositoryOptions {
   readonly now?: () => string;
+  /**
+   * How long this connection may wait for a write lock before it reports the database as
+   * busy. The default 5 seconds comes from `configureDatabase`; a reader that a console
+   * polls every couple of seconds lowers it so a contended log fails fast and visibly
+   * instead of holding the request open. A SQLite read is synchronous, so this wait is
+   * the only timeout the connection can express.
+   */
+  readonly lockWaitMs?: number | undefined;
 }
 
 /** A response id a request answered, and the task that answered it. */
@@ -77,6 +94,12 @@ export { recordText } from "./access-contracts.js";
 export type { RepositoryPage, RepositoryRecord } from "./access-contracts.js";
 export { decodeRecordRow } from "./record-store.js";
 export { decodeTaskRow } from "./task-store.js";
+export type {
+  TaskAssociationRow,
+  TaskCandidateCriteria,
+  TaskCandidatePage,
+  TaskLinkRow,
+} from "./task-store.js";
 export { recordSearchDocument, searchText } from "./search-store.js";
 export type { RecordSearchDocument } from "./search-store.js";
 export type {
@@ -110,6 +133,10 @@ export class TrafficRepository {
 
   constructor(logRoot: string, options: TrafficRepositoryOptions = {}) {
     this.#database = connectLogDatabase(logRoot);
+    if (options.lockWaitMs !== undefined) {
+      const waitMs = integerValue(options.lockWaitMs, 5_000);
+      this.#database.pragma(`busy_timeout = ${Math.max(0, waitMs)}`);
+    }
     this.#now = options.now ?? localNowIso;
     // The task listing searches the whole row, which only SQL can express. The
     // text is built here, in JavaScript, so the local-time form of a timestamp is
@@ -187,6 +214,38 @@ export class TrafficRepository {
 
   taskIdForResponse(responseId: string): string | undefined {
     return this.#tasks.taskForResponse(responseId);
+  }
+
+  /**
+   * The context links the given exact keys name, in one statement. Read-only: nothing
+   * here writes a link, a task or a counter.
+   */
+  contextLinksForKeys(contextKeys: readonly string[]): readonly TaskLinkRow[] {
+    return this.#tasks.contextLinksForKeys(contextKeys);
+  }
+
+  /** The response links the given response ids name, in one statement. */
+  responseLinksForIds(responseIds: readonly string[]): readonly TaskLinkRow[] {
+    return this.#tasks.responseLinksForIds(responseIds);
+  }
+
+  /** The named tasks as the association reader projects them; missing ids are skipped. */
+  tasksForIds(taskIds: readonly string[]): readonly TaskAssociationRow[] {
+    return this.#tasks.tasksForIds(taskIds);
+  }
+
+  /**
+   * Bounded boundary candidates of one endpoint kind and model, newest first. `truncated`
+   * says a row was still waiting past the cap, so a caller never mistakes a partial scan
+   * for the whole history.
+   */
+  taskBoundaryCandidates(criteria: Readonly<TaskCandidateCriteria>): TaskCandidatePage {
+    return this.#tasks.boundaryCandidates(criteria);
+  }
+
+  /** The newest record timestamp this log holds, or null when it holds no record. */
+  newestRecordTimestamp(): string | null {
+    return this.#records.newestTimestamp();
   }
 
   upsertContextLink(contextKey: string, taskId: string): void {
