@@ -390,12 +390,15 @@ Content-Type: application/json
 {
   "pairId": "p1",
   "groupId": "g1",
+  "groupRevision": 12,
   "runtimeEpoch": "opaque-epoch",
   "bindingId": 7,
+  "incarnation": 3,
   "expectedRoutingRevision": 3,
   "expectedSourceTargetId": "node-a",
   "destinationTargetId": "node-b",
-  "idempotencyKey": "opaque-operation-key"
+  "idempotencyKey": "opaque-operation-key",
+  "reason": "离开正在排队的节点"
 }
 ```
 
@@ -410,9 +413,20 @@ Content-Type: application/json
   "fromTargetId": "node-a",
   "toTargetId": "node-b",
   "routingRevision": 4,
-  "inFlightAtRequest": 0
+  "inFlightAtRequest": 0,
+  "runtimeEpoch": "opaque-epoch",
+  "groupRevision": 12
 }
 ```
+
+请求体是闭集的，而且每一项版本都得由客户端自己带来，服务端不推导：`groupRevision` 与
+`incarnation` 跟 `runtimeEpoch`、`expectedRoutingRevision`、`expectedSourceTargetId` 一起进
+幂等摘要，缺任一项就要让客户端先发一次列表读才能提交；而“同一个幂等键只改
+`groupRevision`” 必须是 409 `idempotency_conflict` 而不是 replay，客户端看不到这个字段就
+验证不了它。这一条是实现相对本节初稿示例的偏离，已经在实现清单的 TRI-08 完成记录里写明，
+本节现在与代码一致。`reason` 可选、上限 200 字，超长当参数错误拒绝，不被静默截断。响应带
+`runtimeEpoch` 与 `groupRevision`，客户端据此判断自己是不是已经落在另一个运行时上；
+`already_there` 不写记录，所以 `operationId` 是 `null`。
 
 如果 binding 有在途请求，返回 `202` 和 `state: "pending_boundary"`；如果已经在目标节点，使用同一幂等合同返回 `200` 的 `already_there`。错误合同如下：
 
