@@ -1,6 +1,6 @@
 # Task 路由功能实现 TODO
 
-基线：`1c983a10751aaf102a55e223a92e09c1b74e6391`。设计权威：[Task 路由观测、手动迁移与自动再均衡设计](./task-routing-design.md)。当前状态：8 / 12 项验收通过；TRI-08 的两轮返工与 TRI-06 的三个提交（原实现、复审返工、行上限修正）都已通过父代理独立复审并按顺序整合进主 checkout；TRI-09 已实现、待父代理独立复审，本清单不自接为 9 / 12：迁移控件、`POST`/`DELETE` 接线与真实浏览器请求闭环都已落地并在本 lane 的一个提交里，但尚未被任何人接为验收通过，自动策略同样未验收。
+基线：`1c983a10751aaf102a55e223a92e09c1b74e6391`。设计权威：[Task 路由观测、手动迁移与自动再均衡设计](./task-routing-design.md)。当前状态：8 / 12 项验收通过；TRI-08 的两轮返工与 TRI-06 的三个提交（原实现、复审返工、行上限修正）都已通过父代理独立复审并按顺序整合进主 checkout；TRI-09 已实现、待父代理独立复审，本清单不自接为 9 / 12：迁移控件、`POST`/`DELETE` 接线与真实浏览器请求闭环都已落地并在本 lane 的一个提交里，但尚未被任何人接为验收通过，自动策略同样未验收。控件以后又过了两轮：`6652d21` 把一个答复留在发出它的那一页，`c13260a` 把 dispose 与换代时还在途的写当场摘下并留下冻结的重放，两轮的验收都还挂在父代理那里。
 
 本文是供本地 AI 按依赖顺序执行的开发清单。每项任务都必须完成实现、测试、文档同步和本项验收后才能标记为完成。研究稿、模型比较文档和历史负载均衡文档只提供背景，不得覆盖设计权威中的状态、并发和安全合同。
 
@@ -1241,6 +1241,59 @@
   - 真实 app 用例现在只覆盖一次成功移动的全闭环、一个被拒绝的成员和一个 response id 造成的保守
     拒绝；pending 的真取消、跨 runtime 的迟到回答与 `expired_after_apply` 在真实装配里还没走一遍，
     它们目前有 API 与 UI 桩用例覆盖。
+- 返工轮（`6652d21` 之后再加 `c13260a` 一个产品提交、`04b4d2d` 之外的基线一张与本清单一张）：
+  - 上一轮那句“obsolete 的回答不会为新页说话”当时并不成立，也没满足先前约定的 lifecycle 隔离：
+    dispose 后同一个 runtime 里重新 init，一条旧 *失败* 的 `POST` 回调照样把“结果未知”写进新页面的行。
+    父代理的探针（`.pi/parent-review/late-failure.test.ts` + `late-failure.config.ts`，`-t PARENT`）在
+    `6652d21` 上 1 pass，就是这个漏洞的复现记录。当时那条路只是把旧回执藏起来，草稿还挂在旧 attempt
+    上，下一次读就把被污染的状态显示出来。本轮不解释“这个风险可以接受”，直接改掉。
+  - 产品改动：`dispose()`、换代的新页（`storeBindingPage` 的非追加分支）与整代行丢掉重读
+    （`discardBindingGeneration`）三个时刻都当场 `detachPendingMoveWrites`——摘下在途 attempt、清掉
+    `submitting`、清掉 `panel.cancelling`，并把这份没有答复的 intent 就地转成 unknown，payload 与 key
+    一分不动，行自己的重试还能原字节重放。“标 unknown”是 detach 当时写下的本地状态，不是迟到的
+    callback；迟到回调因为 `draft.attempt !== attempt` 完全不写。`resolveStrandedAttempt` 因此被删掉而不是
+    加一道 guard：submit 与 retry 现在先问“这一页还是我出发那一页吗”，不是就直接 return。
+  - 文案：`lbMoveUncertainNotice` 不再写“也可以用同一请求重试，也可以放弃”（这一页没有给未知提交取消
+    入口，读者会以为能取消）；`lbMoveCancelUnreachable` 改名 `lbMoveCancelUnknownOutcome`，英文不再说
+    “did not reach the server”，中英都只说取消的结果未知、当前状态无法确认。
+  - 测试：`test-node/ui/admin-ui-load-balancing.test.ts` 新增 4 条、改写 1 条，总数 53 → 57，没有删任何
+    有效用例。四条是：同 runtime 重建后迟到的 `POST` 失败、同 runtime 重建后迟到的成功答复、迟到的
+    `DELETE` 失败解不开新一代正在持有的取消 claim、组版本在同一 runtime 下换了代以后迟到的失败。每条
+    先把状态轮询停掉（只把 `document.hidden` 置真，不 dispose），再拍快照：此时唯一还能动这一行的就是
+    手里那个答复；放行后断言快照逐字段相等、`bindingReadParameters()` 从放行那一刻起一条也没记到、
+    `lbBindingReads`/`lbStatusReads` 与 `sent` 计数都不动，然后用户自己点重试把完全相同的 key/payload 重
+    放一遍（并与落到桩上的那一份 `lbMoveCall().body` 逐字段对相等）。改写的那条现在断言的是 dispose 当
+    场写下的状态与“迟到的 `applied` 回执从不上新页”，不再是“那一行什么都没写”。
+  - 声明计数：`eee78a0` 1308 条 / 146 个文件，`6652d21` 1339 条 / 147 个文件，本提交 1343 条 / 147 个
+    文件（+4 就是上面四条新增，文件数没动）。按口径加和：1479 + 22 + 9 + 4 = 1514（预期 1512 pass、
+    2 skip）。本轮实跑的只有这一个 UI 文件（57 pass）与 `npm run typecheck`、`npm run lint`、
+    `npx prettier --check`（改动文件）；整条 `npm run check` 与全量 Vitest 计数留给整合阶段跑，不在这里
+    冒充已经跑过。父代理的探针现在在那条“release 之前还没有提示”的断言上 fail——提示是 dispose 写的，
+    release 之后什么都不变，这正是本轮要的可证明行为。
+  - 基线：`npm run regen:ui-baselines` 跑通并重录 10 张，自动同步哈希行；除 `doc/ui_logs_cn.png` 以外
+    九张本轮拍出来的字节与 HEAD 完全相同（两张负载均衡也没动：基线画面里没有提交过的行，新加的
+    detach/retry 态默认不触发，所以哈希不变是合理的，但实跑重录的证据在上面）。`ui_logs_cn.png` 只
+    差 1 个像素，已在设计文档旁边的基线登记里归因：把 `6652d21` 的源码单独取回重新打包再拍，出来的
+    还是同一张，所以不是本轮引起的，本轮按可复现结果登记而不是退回旧图。英文截图扫描（`.pi/tri09-final/english-scan.txt`）：
+    画面里只剩 emoji 与语言选择器自己的“中文/English”选项字面，另有两句中文在没被截到的隐藏视图里
+    （统计指标 option “费用”与一个 `aria-label="统计时间范围"`）——那是本轮范围外的旧缺口，不在本轮动。
+  - 截图：`.pi/tri09-review/screenshots/` 现在共 20 张。旧的 8 张（bindings-expanded / group-edit）不动；
+    本轮新交 12 张，都是同一个 stub admin 页、真实控件与真实投影，没有伪造上游也没有伪造 GET：
+    `lb-{zh,en}-1278-move-confirm.png`（第二节点引擎不答数，目标带“目标指标未知 / destination metrics
+    unknown”，已选中、确认框未勾、提交保持禁用，`setLbStatusPartialMetrics` 后重读列表）、
+    `lb-{zh,en}-380-move-confirm.png`（同一状态下窄屏）、
+    `lb-zh-1278-move-unknown.png`、`lb-en-1278-move-unknown.png`、`lb-zh-380-move-unknown.png`（route
+    `abort("failed")` 后的未知句 + 行自己的重试 + 目标选择器 disabled）、`lb-{zh,en}-1278-move-conflict.png` 与
+    `lb-en-380-move-conflict.png`（桩以产品
+    自己的映射回答 409 `binding_stale`，提示 + 服务端原句 detail）、`lb-{zh,en}-1278-move-operations.png`
+    （`setLbBindingMigrationOperations` 四条记录 `applied` / `observed` / `cancelled` / `expired_after_apply`
+    同时在场）。覆盖是两语言 × 宽 1278 / 窄 380，不是每个状态四份重复。
+  - 仍在的真实限制：本页只认行上的重试，行不在本页时只在行下说一句，本轮不做 off-page 重放；一次
+    成功的回执会被用户的新意图覆盖，不建无限历史，操作的当前事实以列表 GET 为准；取消 claim 由发起它
+    的 attempt 释放，代际换了不锁死按钮，但也不同步告诉用户“取消成功了还是失败了”（操作块自己说）；
+    真实装配里 pending 真取消、跨 runtime 迟到回答与 `expired_after_apply` 仍未走一遍；便携版打包、
+    `smoke:delivery` 与 `abi:node` 仍留给整合阶段。本清单仍记 **8 / 12**，TRI-09 返工与本轮的基线/文档
+    都**待父代理独立复审**，不由本 lane 自接为验收通过。
 
 ### TRI-10
 
