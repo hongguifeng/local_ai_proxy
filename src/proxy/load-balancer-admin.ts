@@ -1,5 +1,12 @@
 import type { BindingActivity, BindingCostSource } from "./binding-activity.js";
-import type { LoadBalancer, LoadBalancerNode, LoadBalancerBindingEntry } from "./load-balancer.js";
+import type {
+  LoadBalancer,
+  LoadBalancerNode,
+  LoadBalancerBindingEntry,
+  LoadBalancerMoveDestinationGate,
+  LoadBalancerMoveGates,
+} from "./load-balancer.js";
+import type { MigrationState } from "./load-migration-contract.js";
 import type { MigrationAnswerEffect, MigrationAnswerState } from "./load-migration.js";
 import type {
   MigrationOperationView,
@@ -194,27 +201,85 @@ export type LoadBalancerBindingListReply =
   | { readonly error: LoadBalancerBindingListErrorCode };
 
 /**
- * What this API can do about a move today. `unavailable` is the whole story until TRI-07
- * ships `moveBinding()`: a read can say a binding is ready to move, but nothing can move it.
+ * Whether a move can be performed at all on this pair right now. `available` means the pair
+ * has a runtime whose `moveBinding()` the console can address; `unavailable` means it has
+ * none, which is why an unstarted pair answers an empty binding list too.
  */
-export type LoadBalancerMigrationAvailability = "unavailable";
-
-/** Why a move could not be applied right now, in the reader's own vocabulary. */
-export type LoadBalancerMovableReason = "migration_unavailable" | "in_flight";
+export type LoadBalancerMigrationAvailability = "available" | "unavailable";
 
 /**
- * Whether this binding could be moved at this instant.
+ * Why this binding cannot be offered to any destination, in the state gate's own code names,
+ * plus the one fact the gate cannot give as a refusal: every other member of the group failed
+ * the eligibility gate, so there is nowhere to move to.
+ */
+export type LoadBalancerMovableReason =
+  "response_state_dependency" | "state_unknown" | "no_eligible_destination";
+
+/** The eligibility gate's refusals that can name a candidate destination. */
+export type LoadBalancerDestinationReason =
+  "target_unknown" | "target_disabled" | "target_cooldown" | "target_asleep" | "model_mismatch";
+
+/**
+ * One group member as a destination for this binding.
  *
- * `ok` is false while the migration service is missing, so a client that only reads this
- * field never offers a move that cannot be performed. `reasons` says what else stands in the
- * way: `in_flight` means a move is only safe at the next request boundary, never during a
- * response that is already running. Which destination would be eligible is not this read's
- * answer - that belongs to the migration service (TRI-07) and its API (TRI-08).
+ * `eligible` is the write gate's answer, reported here so the console never has to compare
+ * target URLs, model names or cooldowns by itself; the refusal code travels with it so the
+ * reason is the server's, not an invented one. `metricsUnknown` is not a refusal: a node whose
+ * engine numbers are missing, stale or incomplete can still be chosen by hand, but the console
+ * has to say it is unmeasured and ask for a deliberate confirmation.
+ */
+export interface LoadBalancerBindingMoveDestination {
+  readonly eligible: boolean;
+  readonly metricsUnknown: boolean;
+  readonly reason: LoadBalancerDestinationReason | null;
+  readonly targetId: string;
+}
+
+/**
+ * Whether this binding could be moved, and where to.
+ *
+ * `ok` is true when the binding itself passes the state gate and at least one member passes
+ * the eligibility gate - which is what makes the affordance real rather than decorative. A
+ * binding with a request in flight is not refused: its intent waits for the request boundary,
+ * which is what the row's own `inFlight` and `activity` already say.
  */
 export interface LoadBalancerBindingMovability {
+  readonly destinations: readonly LoadBalancerBindingMoveDestination[];
   readonly ok: boolean;
   readonly reasons: readonly LoadBalancerMovableReason[];
 }
+
+/** Every state an intent can be seen in from the list, including the terminal ones. */
+export type LoadBalancerMigrationOperationState = MigrationState;
+
+/**
+ * One migration record as the list reports it.
+ *
+ * This is a sanitized projection, not `MigrationOperationView`: the request digest and the
+ * idempotency key stay inside the store, because neither is a fact the console needs to say
+ * where a route went, and publishing them would let a page replay a submission it never made.
+ * `cancellable` is the server's answer, so a page does not re-derive the state machine.
+ */
+export interface LoadBalancerMigrationOperation {
+  readonly appliedRoutingRevision: number | null;
+  readonly bindingId: number;
+  readonly cancellable: boolean;
+  readonly createdAt: number;
+  readonly destinationTargetId: string;
+  readonly endReason: string | null;
+  readonly endedAt: number | null;
+  readonly expiresAt: number;
+  readonly groupId: string;
+  readonly groupRevision: number;
+  readonly incarnation: number;
+  readonly operationId: string;
+  readonly sourceRoutingRevision: number;
+  readonly sourceTargetId: string;
+  readonly state: LoadBalancerMigrationOperationState;
+}
+
+/** How many records one list answer may carry. Newest first, so the live ones come first. */
+export const MAX_MIGRATION_OPERATION_ROWS = 100;
 
 /** Whether the proxy has seen this binding's request path at all. */
 export type LoadBalancerBindingActivityState = "in_flight" | "idle" | "unknown";
@@ -351,6 +416,13 @@ export interface LoadBalancerBindingListResponse {
   readonly items: readonly LoadBalancerBindingListItem[];
   readonly limit: number;
   readonly migration: LoadBalancerMigrationAvailability;
+  /**
+   * What this group's migration records look like now, for the whole group and independent of
+   * `targetFilter`. A binding that moved has left the filtered page it was listed on, so the
+   * operation that moved it could only be followed from here - which is why the current state
+   * of an operation is read from the list and never by repeating the `POST`.
+   */
+  readonly migrationOperations: readonly LoadBalancerMigrationOperation[];
   readonly nextOffset: number;
   readonly nodes: readonly LoadBalancerBindingNode[];
   readonly now: number;
@@ -531,6 +603,7 @@ export function createLoadBalancerAdminService(
         ),
       );
       const nodesByTarget = new Map(nodes.map((node) => [node.targetId, node]));
+      const migrationOperations = migrationOperationRows(balancer, group.id);
 
       // Newest activity first, then the table's own order, so a page is reproducible.
       const ordered = entries
@@ -549,10 +622,20 @@ export function createLoadBalancerAdminService(
           groupId: group.id,
           hasMore,
           items: page.map((entry) =>
-            bindingItem(entry, nodesByTarget.get(entry.targetId), pair.id, source),
+            bindingItem(
+              entry,
+              nodesByTarget.get(entry.targetId),
+              nodesByTarget,
+              pair.id,
+              source,
+              balancer,
+            ),
           ),
           limit: query.limit,
-          migration: "unavailable",
+          // A pair with no runtime has nothing to move a binding in; the write entry exists,
+          // but there is no runtime to address, so the honest answer is `unavailable`.
+          migration: balancer === undefined ? "unavailable" : "available",
+          migrationOperations,
           nextOffset: hasMore ? query.offset + page.length : query.offset,
           nodes,
           now,
@@ -690,13 +773,17 @@ function nodeMetricsOf(assessment: LoadSampleAssessment): LoadBalancerNodeMetric
 
 /**
  * One row of the list. The history question is asked per binding because each binding has its
- * own keys, its own boundary and its own node, and the log root belongs to that node.
+ * own keys, its own boundary and its own node, and the log root belongs to that node. The
+ * move question is asked here too, because the answer has to name the destinations the write
+ * gate would accept - and the only place that answer is trustworthy is the gate itself.
  */
 function bindingItem(
   entry: LoadBalancerBindingEntry,
   node: LoadBalancerBindingNode | undefined,
+  nodesByTarget: ReadonlyMap<string, LoadBalancerBindingNode>,
   pairId: string,
   source: LoadBalancerAdminSource,
+  balancer: LoadBalancer | undefined,
 ): LoadBalancerBindingListItem {
   const activity = entry.activity;
   const association = source.bindingHistory.queryBindingHistory({
@@ -726,7 +813,7 @@ function bindingItem(
     lastResponseEndedAt: activity.lastResponseEndedAt ?? null,
     lastSeenAt: entry.lastSeenAt,
     model: entry.evidence.model ?? null,
-    movable: movabilityOf(activity),
+    movable: movabilityOf(balancer?.moveGatesFor(entry.ref.groupId, entry.ref), nodesByTarget),
     recentRequestStarts: activity.recentRequestStarts,
     requestCount: entry.requestCount,
     routingRevision: entry.routingRevision,
@@ -762,14 +849,132 @@ function contextOf(activity: BindingActivity): LoadBalancerBindingContext {
 }
 
 /**
- * No move can be performed yet, so `ok` is false whatever else is true. The one fact this read
- * can add is whether a request is still in flight on this binding, which is what decides
- * between an immediate move and one held for the next request boundary.
+ * Whether this binding can be moved, and where to, taken from the balancer's own gates.
+ *
+ * `ok` is true only when the binding passes the state gate and at least one member passes the
+ * eligibility gate. A binding with a request in flight is not refused: the intent it registers
+ * waits for the request boundary, which the row's own `inFlight` and `activity` already show.
+ * A refusal is named with the code the gate gave, never with an invented one; the one fact the
+ * gates cannot return as a refusal - that no member is eligible - is reported as
+ * `no_eligible_destination` so the console has a reason to show.
+ *
+ * The metric warning is not a gate result. `usableForLoadJudgement` is the classification the
+ * evidence module already makes for the node, and it is false whenever the numbers are missing,
+ * stale or incomplete - so an unmeasured destination is offered with a warning rather than
+ * silently passed as idle.
  */
-function movabilityOf(activity: BindingActivity): LoadBalancerBindingMovability {
-  const reasons: LoadBalancerMovableReason[] = ["migration_unavailable"];
-  if (activity.inFlight > 0) reasons.push("in_flight");
-  return { ok: false, reasons };
+function movabilityOf(
+  gates: LoadBalancerMoveGates | undefined,
+  nodesByTarget: ReadonlyMap<string, LoadBalancerBindingNode>,
+): LoadBalancerBindingMovability {
+  if (gates === undefined) {
+    // The binding left the table between the snapshot and this call. Nothing can be shown as
+    // a destination that was never looked at, so the row says it cannot be moved.
+    return { destinations: [], ok: false, reasons: ["no_eligible_destination"] };
+  }
+  const destinations = gates.destinations.map((destination) => ({
+    eligible: destination.eligible,
+    metricsUnknown: !nodesByTarget.get(destination.targetId)?.metrics.usableForLoadJudgement,
+    reason: destinationReasonOf(destination),
+    targetId: destination.targetId,
+  }));
+  const eligibleCount = destinations.filter((destination) => destination.eligible).length;
+  const reasons: LoadBalancerMovableReason[] = gates.blocking.map(blockingReasonOf);
+  if (eligibleCount === 0) reasons.push("no_eligible_destination");
+  return {
+    destinations,
+    ok: gates.blocking.length === 0 && eligibleCount > 0,
+    reasons,
+  };
+}
+
+/**
+ * The gate's refusal for one candidate, as the declared wire code. Only the six refusals the
+ * eligibility gate can reach for a listed member are declared, because the other codes name
+ * conditions a listed member cannot meet: the group was already found, and the list is built
+ * from that group's own members. Anything else is reported as no reason rather than as a code
+ * the schema does not know - which a contract test reads as a drift to fix, not to hide.
+ */
+function destinationReasonOf(
+  destination: LoadBalancerMoveDestinationGate,
+): LoadBalancerDestinationReason | null {
+  const code = destination.code;
+  if (code === undefined) return null;
+  return DESTINATION_REASONS.has(code) ? (code as LoadBalancerDestinationReason) : null;
+}
+
+/**
+ * The state gate's refusal, as a declared wire reason. `#stateRejection()` produces only
+ * `response_state_dependency` and `state_unknown`, so those two are declared; anything else is
+ * folded into `state_unknown`, which is literally true of a refusal this projection cannot name
+ * - the runtime cannot prove the move is safe - and keeps the button disabled rather than
+ * letting an unknown code turn into an unexplained `ok: true`.
+ */
+function blockingReasonOf(code: MigrationRejectionCode): LoadBalancerMovableReason {
+  return code === "response_state_dependency" ? code : "state_unknown";
+}
+
+const DESTINATION_REASONS: ReadonlySet<string> = new Set<string>([
+  "target_unknown",
+  "target_disabled",
+  "target_cooldown",
+  "target_asleep",
+  "same_physical_key",
+  "model_mismatch",
+]);
+
+/**
+ * This group's migration records, newest first, as the console may show them.
+ *
+ * The read is `migrationOperations()`, which copies the records and touches nothing: no TTL,
+ * no counter, no target, no eviction and no sweep. The list is group-scoped and independent
+ * of `targetFilter` on purpose - a binding that has been applied leaves the node page it was
+ * listed on, and the record of the move must still be visible there.
+ */
+function migrationOperationRows(
+  balancer: LoadBalancer | undefined,
+  groupId: string,
+): readonly LoadBalancerMigrationOperation[] {
+  if (balancer === undefined) {
+    return [];
+  }
+  // The store's own order is the order its records were opened, so two records stamped in the
+  // same millisecond are still separated: the one opened later is the one a reader saw last.
+  return balancer
+    .migrationOperations()
+    .filter((operation) => operation.groupId === groupId)
+    .map((operation, openedAt) => ({ operation, openedAt }))
+    .sort(
+      (left, right) =>
+        right.operation.createdAt - left.operation.createdAt || right.openedAt - left.openedAt,
+    )
+    .slice(0, MAX_MIGRATION_OPERATION_ROWS)
+    .map(({ operation }) => operationOf(operation));
+}
+
+/**
+ * One record, minus the two fields the console has no business seeing. `requestDigest` is what
+ * binds an idempotency key to one exact instruction and `idempotencyKey` is what replays it, so
+ * handing either to a page would let it repeat a submission it never made.
+ */
+function operationOf(operation: MigrationOperationView): LoadBalancerMigrationOperation {
+  return {
+    appliedRoutingRevision: operation.appliedRoutingRevision ?? null,
+    bindingId: operation.bindingId,
+    cancellable: operation.state === "pending_boundary",
+    createdAt: operation.createdAt,
+    destinationTargetId: operation.destinationTargetId,
+    endReason: operation.endReason ?? null,
+    endedAt: operation.endedAt ?? null,
+    expiresAt: operation.expiresAt,
+    groupId: operation.groupId,
+    groupRevision: operation.groupRevision,
+    incarnation: operation.incarnation,
+    operationId: operation.operationId,
+    sourceRoutingRevision: operation.sourceRoutingRevision,
+    sourceTargetId: operation.sourceTargetId,
+    state: operation.state,
+  };
 }
 
 function associationsOf(association: BindingHistoryAssociation): LoadBalancerBindingAssociations {

@@ -6,7 +6,10 @@ import os from "node:os";
 import { afterEach, describe, expect, it } from "vitest";
 
 import { applicationHealth, createAdminServer } from "../../src/admin/index.js";
-import type { AdminLoadBalancerTasksResponse } from "../../src/admin/admin-schemas.js";
+import type {
+  AdminLoadBalancerTasksResponse,
+  AdminTaskMoveRequest,
+} from "../../src/admin/admin-schemas.js";
 import {
   createDefaultProxyPair,
   createDefaultTarget,
@@ -74,6 +77,7 @@ const TOP_LEVEL_KEYS = [
   "items",
   "limit",
   "migration",
+  "migrationOperations",
   "nextOffset",
   "nodes",
   "now",
@@ -418,7 +422,8 @@ describe("GET /api/load-balancer/tasks", () => {
     // The address a row carries is only valid inside this runtime: none of it survives a restart.
     expect(result.body.runtimeEpoch).toBe(balancer.runtimeEpoch);
     expect(result.body.groupRevision).toBe(balancer.groupRevision("lb-live"));
-    expect(result.body.migration).toBe("unavailable");
+    // [TRI-09] A running pair has a runtime to address, so the write entry is open for it.
+    expect(result.body.migration).toBe("available");
 
     expect(result.body.nodes.map((node) => node.targetId)).toEqual(["target-a", "target-b"]);
     const sampled = result.body.nodes[0];
@@ -450,7 +455,20 @@ describe("GET /api/load-balancer/tasks", () => {
     expect(linked?.inFlight).toBe(0);
     expect(linked?.activity).toBe("unknown");
     expect(linked?.context.source).toBe("none");
-    expect(linked?.movable).toEqual({ ok: false, reasons: ["migration_unavailable"] });
+    // [TRI-09] A `/v1/responses` task is refused by the server's own state gate, and the row
+    // still names the one candidate it could be moved to, with the metrics it never sampled.
+    expect(linked?.movable).toEqual({
+      destinations: [
+        {
+          eligible: true,
+          metricsUnknown: true,
+          reason: null,
+          targetId: "target-b",
+        },
+      ],
+      ok: false,
+      reasons: ["state_unknown"],
+    });
     expect(linked?.associations.confidence).toBe("high");
     expect(linked?.associations.ambiguous).toBe(false);
     expect(linked?.associations.taskIds).toEqual(["task-alpha"]);
@@ -617,9 +635,12 @@ describe("GET /api/load-balancer/tasks", () => {
     const inFlightRow = byId.get(running?.binding.id ?? -1);
     expect(inFlightRow?.activity).toBe("in_flight");
     expect(inFlightRow?.inFlight).toBe(1);
+    // [TRI-09] A request on this binding does not disable the move: the gate that refuses it here
+    // is the server's state gate, and the group has no other member to name as a destination.
     expect(inFlightRow?.movable).toEqual({
+      destinations: [],
       ok: false,
-      reasons: ["migration_unavailable", "in_flight"],
+      reasons: ["state_unknown", "no_eligible_destination"],
     });
 
     running?.release();
@@ -1069,7 +1090,11 @@ describe("GET /api/load-balancer/tasks", () => {
     expect(result.body.items).toHaveLength(1);
     const row = result.body.items[0];
     expect(row?.activity).toBe("idle");
-    expect(row?.movable).toEqual({ ok: false, reasons: ["migration_unavailable"] });
+    expect(row?.movable).toEqual({
+      destinations: [],
+      ok: false,
+      reasons: ["state_unknown", "no_eligible_destination"],
+    });
 
     const associations = row?.associations;
     expect(associations?.confidence).toBe("high");
@@ -1181,3 +1206,643 @@ function plainTask(taskId: string) {
     updated_at: "2026-07-18T09:00:00.000+08:00",
   };
 }
+
+/**
+ * [TRI-09] the move the binding list lets the console make. These cases run through
+ * `createAdminServer` with a real `LoadBalancer`, so the answer a submit gives, the record the
+ * list reports and the gate that refuses a destination are the production ones. The read side is
+ * held to the rule it was built under: a list read answers the move question without writing,
+ * reserving, sweeping or forwarding anything.
+ */
+describe("[TRI-09] the move the binding list offers", () => {
+  const MOVABLE_QUERY = "?pairId=pair-a&groupId=lb-live";
+
+  /** An identity the state gate lets through: a chat request that carried its own conversation. */
+  function chatIdentity(sessionId: string) {
+    return taskIdentity({
+      payload: {
+        model: "Qwen3.8-Flash-Next",
+        messages: [{ role: "user", content: `hello-${sessionId}` }],
+      },
+      headers: { "x-session-id": [sessionId] },
+      path: "/v1/chat/completions",
+    });
+  }
+
+  function bindChat(balancer: LoadBalancer, sessionId: string, targetId: string) {
+    const table = balancer.tableFor("lb-live");
+    if (table === undefined) {
+      throw new Error("The group lb-live must have an affinity table.");
+    }
+    return table.bind(chatIdentity(sessionId), targetId);
+  }
+
+  /** The member a move on a row sitting on `targetId` would be asked to name. */
+  function otherMemberOf(targetId: string): string {
+    return targetId === "target-a" ? "target-b" : "target-a";
+  }
+
+  /**
+   * The instruction a browser would build: every version is taken from the list's own answer,
+   * because the list is what hands them out. Nothing here is invented by the caller.
+   */
+  function moveRequestFrom(
+    list: AdminLoadBalancerTasksResponse,
+    item: AdminLoadBalancerTasksResponse["items"][number],
+    destinationTargetId: string,
+    idempotencyKey: string,
+  ): AdminTaskMoveRequest {
+    if (list.runtimeEpoch === null || list.groupRevision === null) {
+      throw new Error("The list must answer the runtime and the group revision to move against.");
+    }
+    return {
+      pairId: list.pairId,
+      groupId: list.groupId,
+      runtimeEpoch: list.runtimeEpoch,
+      bindingId: item.bindingId,
+      incarnation: item.incarnation,
+      groupRevision: list.groupRevision,
+      expectedRoutingRevision: item.routingRevision,
+      expectedSourceTargetId: item.targetId,
+      destinationTargetId,
+      idempotencyKey,
+    };
+  }
+
+  /** Both migration answers are read as the wire shape: a success carries `state`, a refusal carries `error`. */
+  interface MoveAnswer {
+    readonly statusCode: number;
+    readonly body: Record<string, unknown>;
+    readonly payload: string;
+  }
+
+  function answerError(body: Record<string, unknown>): { code: string; message: string } {
+    const error = body["error"];
+    if (!isRecordLike(error)) {
+      throw new Error(`The answer carried no error object: ${JSON.stringify(body)}`);
+    }
+    const code = error["code"];
+    const message = error["message"];
+    if (typeof code !== "string" || typeof message !== "string") {
+      throw new Error(`The error answer carried no sentence to read: ${JSON.stringify(error)}`);
+    }
+    return { code, message };
+  }
+
+  /** Only an answer that names a state is a submit that was answered with one. */
+  function answerState(body: Record<string, unknown>): string {
+    const state = body["state"];
+    if (typeof state !== "string") {
+      throw new Error(`The answer carried no state: ${JSON.stringify(body)}`);
+    }
+    return state;
+  }
+
+  function answerOperationId(body: Record<string, unknown>): string {
+    const operationId = body["operationId"];
+    if (typeof operationId !== "string") {
+      throw new Error(`The answer carried no operation id: ${JSON.stringify(body)}`);
+    }
+    return operationId;
+  }
+
+  function isRecordLike(value: unknown): value is Record<string, unknown> {
+    return typeof value === "object" && value !== null && !Array.isArray(value);
+  }
+
+  async function postMove(
+    server: ReturnType<typeof createAdminServer>,
+    body: AdminTaskMoveRequest,
+  ): Promise<MoveAnswer> {
+    const response = await server.inject({
+      method: "POST",
+      url: "/api/load-balancer/task-moves",
+      headers: { "content-type": "application/json" },
+      payload: JSON.stringify(body),
+    });
+    return {
+      statusCode: response.statusCode,
+      body: response.json<Record<string, unknown>>(),
+      payload: response.payload,
+    };
+  }
+
+  async function deleteMove(
+    server: ReturnType<typeof createAdminServer>,
+    operationId: string,
+  ): Promise<MoveAnswer> {
+    const response = await server.inject({
+      method: "DELETE",
+      url: `/api/load-balancer/task-moves/${operationId}`,
+    });
+    return {
+      statusCode: response.statusCode,
+      body: response.json<Record<string, unknown>>(),
+      payload: response.payload,
+    };
+  }
+
+  /** The one row a list read answers, named because every case here has exactly one binding. */
+  function onlyRow(list: AdminLoadBalancerTasksResponse) {
+    const row = list.items[0];
+    if (row === undefined) {
+      throw new Error("The binding must be listed before it can move.");
+    }
+    return row;
+  }
+
+  /** One group whose binding sits on `target-a`, over the six targets this file can describe. */
+  function movablePair(nodeTargetIds: readonly string[]): ProxyPair {
+    return pair(
+      "pair-a",
+      [
+        target("target-a", "http://127.0.0.1:1"),
+        target("target-b", "http://127.0.0.1:2"),
+        target("target-c", "http://127.0.0.1:3", { enabled: false }),
+        target("target-d", "http://127.0.0.1:1"),
+        target("target-e", "http://127.0.0.1:5"),
+        target("target-f", "http://127.0.0.1:6"),
+      ],
+      [
+        group("lb-live", nodeTargetIds, {
+          members: nodeTargetIds.map((targetId) => ({
+            target_id: targetId,
+            model_id: targetId === "target-e" ? "another-model" : "",
+          })),
+        }),
+      ],
+    );
+  }
+
+  it("LB-T14 the destinations the list offers are the gates the write will apply", async () => {
+    const balancer = new LoadBalancer("pair-a");
+    const configured = movablePair([
+      "target-a",
+      "target-b",
+      "target-c",
+      "target-d",
+      "target-e",
+      "target-f",
+    ]);
+    balancer.reconfigure(configured);
+    const binding = bindChat(balancer, "parity", "target-a");
+    balancer.markCooldown("target-f", Date.now() + 60_000);
+    stampSample(balancer, "target-b", {
+      sampleSequence: 3,
+      sampledAt: Date.now(),
+      running: 1,
+      waiting: 0,
+      kvUsage: 0.1,
+      awake: true,
+    });
+
+    const assembly = source([configured], balancer, undefined);
+    const server = adminServer(assembly);
+    const list = await readTasks(server, MOVABLE_QUERY);
+    expect(list.statusCode).toBe(200);
+    const row = onlyRow(list.body);
+    expect(row.targetId).toBe("target-a");
+    expect(row.endpointKind).toBe("chat");
+
+    // The row can be moved, and every candidate carries the gate's own answer.
+    expect(row.movable.ok).toBe(true);
+    expect(row.movable.reasons).toEqual([]);
+    expect(row.movable.destinations.map((destination) => destination.targetId)).toEqual([
+      "target-b",
+      "target-c",
+      "target-d",
+      "target-e",
+      "target-f",
+    ]);
+    expect(row.movable.destinations.map((destination) => destination.reason)).toEqual([
+      null,
+      "target_disabled",
+      "same_physical_key",
+      "model_mismatch",
+      "target_cooldown",
+    ]);
+    // Whether a candidate needs a warning is the node's own measure, never a guess made here.
+    expect(row.movable.destinations.map((destination) => destination.metricsUnknown)).toEqual([
+      false,
+      true,
+      true,
+      true,
+      true,
+    ]);
+    const measured = list.body.nodes.find((node) => node.targetId === "target-b");
+    expect(measured?.metrics.usableForLoadJudgement).toBe(true);
+    const unmeasured = list.body.nodes.find((node) => node.targetId === "target-c");
+    expect(unmeasured?.metrics.usableForLoadJudgement).toBe(false);
+
+    // The same request sent to the write meets the same refusal, under the same code. There is
+    // one gate; the list only reports what it says.
+    const service = createLoadBalancerAdminService(assembly);
+    for (const destination of row.movable.destinations) {
+      if (destination.eligible || destination.reason === null) continue;
+      const answer = service.moveBinding({
+        ...moveRequestFrom(list.body, row, destination.targetId, `key-${destination.targetId}`),
+        reason: undefined,
+      });
+      expect("response" in answer).toBe(false);
+      if (!("rejection" in answer)) throw new Error("an ineligible destination must be refused");
+      expect(answer.rejection.code).toBe(destination.reason);
+    }
+    const accepted = service.moveBinding({
+      ...moveRequestFrom(list.body, row, "target-b", "key-target-b"),
+      reason: undefined,
+    });
+    expect("rejection" in accepted).toBe(false);
+    if (!("response" in accepted)) throw new Error("an eligible destination must be accepted");
+    expect(accepted.response.state).toBe("applied");
+    expect(accepted.response.toTargetId).toBe("target-b");
+    expect(accepted.response.fromTargetId).toBe("target-a");
+    expect(entryOf(balancer, "lb-live", binding.id).targetId).toBe("target-b");
+  });
+
+  it("LB-T15 a list read answers the move question without writing anything", async () => {
+    const engine = await startEngine(VLLM_EXPOSITION);
+    const balancer = new LoadBalancer("pair-a");
+    const configured = pair(
+      "pair-a",
+      [
+        target("target-a", `http://127.0.0.1:${engine.port}`),
+        target("target-b", "http://127.0.0.1:2"),
+      ],
+      [group("lb-live", ["target-a", "target-b"])],
+    );
+    balancer.reconfigure(configured);
+    const groupShape = group("lb-live", ["target-a", "target-b"]);
+    // One request is still on this binding, so the intent the next submit registers has to wait.
+    const reservation = balancer.plan({ group: groupShape, identity: chatIdentity("parked") });
+    const sourceTarget = reservation?.decision.targetId;
+    if (sourceTarget === undefined || reservation === undefined) {
+      throw new Error("The plan must reserve a node for the task.");
+    }
+    const destinationTarget = otherMemberOf(sourceTarget);
+    const bindingId = reservation.binding.id;
+
+    const assembly = source([configured], balancer, undefined);
+    const server = adminServer(assembly);
+    const first = await readTasks(server, MOVABLE_QUERY);
+    expect(first.statusCode).toBe(200);
+    const row = onlyRow(first.body);
+    expect(row.targetId).toBe(sourceTarget);
+    expect(row.inFlight).toBe(1);
+    expect(row.activity).toBe("in_flight");
+    // A request in flight does not disable the move; it only means the write would wait.
+    expect(row.movable.ok).toBe(true);
+    expect(row.movable.reasons).toEqual([]);
+
+    const submitted = await postMove(
+      server,
+      moveRequestFrom(first.body, row, destinationTarget, "key-park"),
+    );
+    expect(submitted.statusCode).toBe(202);
+    expect(answerState(submitted.body)).toBe("pending_boundary");
+    // The intent says what it will do at the boundary; nothing has been written yet, which the
+    // routing revision it answers with shows.
+    expect(submitted.body["effect"]).toBe("next_request");
+    expect(submitted.body["routingRevision"]).toBe(row.routingRevision);
+    expect(submitted.body["inFlightAtRequest"]).toBe(1);
+    expect(submitted.body["toTargetId"]).toBe(destinationTarget);
+
+    const before = balancer.bindingSnapshot("lb-live")?.entries[0];
+    if (before === undefined) throw new Error("The parked binding must still be in the table.");
+    const recordsBefore = balancer.migrationOperations().length;
+    const hitsBefore = engine.hits();
+
+    for (let read = 0; read < 3; read += 1) {
+      const again = await readTasks(server, MOVABLE_QUERY);
+      expect(again.statusCode).toBe(200);
+      expect(again.body.migrationOperations.map((operation) => operation.state)).toEqual([
+        "pending_boundary",
+      ]);
+    }
+
+    // What a list read must not do: no TTL sweep, no eviction, no learned key, no receipt, no
+    // forwarded request, and above all no application of the parked intent.
+    const after = balancer.bindingSnapshot("lb-live")?.entries[0];
+    expect(after?.targetId).toBe(before.targetId);
+    expect(after?.routingRevision).toBe(before.routingRevision);
+    expect(after?.ref.incarnation).toBe(before.ref.incarnation);
+    expect(after?.lastSeenAt).toBe(before.lastSeenAt);
+    expect(after?.exactKeys).toEqual(before.exactKeys);
+    expect(balancer.migrationOperations()).toHaveLength(recordsBefore);
+    expect(balancer.migrationOperations()[0]?.state).toBe("pending_boundary");
+    // The list is what says no route was written: an unapplied record carries no applied revision.
+    expect(
+      (await readTasks(server, MOVABLE_QUERY)).body.migrationOperations[0]?.appliedRoutingRevision,
+    ).toBeNull();
+    expect(engine.hits()).toBe(hitsBefore);
+    expect(entryOf(balancer, "lb-live", bindingId).targetId).toBe(sourceTarget);
+
+    // The request boundary is the only thing that writes a parked intent, and it is the request's.
+    reservation.release();
+    expect(balancer.migrationOperations()[0]?.state).toBe("applied");
+    expect(entryOf(balancer, "lb-live", bindingId).targetId).toBe(destinationTarget);
+  });
+
+  it("LB-T16 the operation of an applied move outlives the page that filtered it away", async () => {
+    const balancer = new LoadBalancer("pair-a");
+    const configured = movablePair(["target-a", "target-b"]);
+    balancer.reconfigure(configured);
+    const binding = bindChat(balancer, "moved", "target-a");
+
+    const server = adminServer(source([configured], balancer, undefined));
+    const list = await readTasks(server, MOVABLE_QUERY);
+    const row = onlyRow(list.body);
+    const submitted = await postMove(
+      server,
+      moveRequestFrom(list.body, row, "target-b", "key-move"),
+    );
+    expect(submitted.statusCode).toBe(200);
+    expect(answerState(submitted.body)).toBe("applied");
+    const operationId = answerOperationId(submitted.body);
+
+    // The binding is no longer on the node this page filters to, so its row is gone from it. The
+    // record of the move is not: it belongs to the group, not to the filtered page.
+    const filtered = await readTasks(server, `${MOVABLE_QUERY}&targetId=target-a`);
+    expect(filtered.body.items.map((item) => item.bindingId)).toEqual([]);
+    expect(filtered.body.migrationOperations).toHaveLength(1);
+    const operation = filtered.body.migrationOperations[0];
+    expect(operation?.operationId).toBe(operationId);
+    expect(operation?.bindingId).toBe(row.bindingId);
+    expect(operation?.state).toBe("applied");
+    expect(operation?.cancellable).toBe(false);
+    expect(operation?.sourceTargetId).toBe("target-a");
+    expect(operation?.destinationTargetId).toBe("target-b");
+    expect(operation?.groupId).toBe("lb-live");
+    expect(operation?.sourceRoutingRevision).toBe(row.routingRevision);
+    expect(operation?.appliedRoutingRevision).toBe(row.routingRevision + 1);
+
+    // The destination page shows the row with its new route, and the same record.
+    const arrived = await readTasks(server, `${MOVABLE_QUERY}&targetId=target-b`);
+    expect(arrived.body.items.map((item) => item.bindingId)).toEqual([row.bindingId]);
+    expect(arrived.body.items[0]?.targetId).toBe("target-b");
+    expect(arrived.body.items[0]?.routingRevision).toBe(row.routingRevision + 1);
+    expect(arrived.body.migrationOperations[0]?.state).toBe("applied");
+
+    // Only a request the destination actually took turns `applied` into `observed`.
+    const groupShape = group("lb-live", ["target-a", "target-b"]);
+    const nextPlan = balancer.plan({ group: groupShape, identity: chatIdentity("moved") });
+    expect(nextPlan?.decision.targetId).toBe("target-b");
+    const beforeLanding = await readTasks(server, MOVABLE_QUERY);
+    expect(beforeLanding.body.migrationOperations[0]?.state).toBe("applied");
+    expect(nextPlan?.confirmRouted()).toMatchObject({
+      operationId,
+      movedFrom: "target-a",
+      movedTo: "target-b",
+    });
+    const observed = await readTasks(server, MOVABLE_QUERY);
+    expect(observed.body.migrationOperations[0]?.state).toBe("observed");
+    expect(observed.body.migrationOperations[0]?.cancellable).toBe(false);
+    expect(observed.body.items[0]?.routingRevision).toBe(row.routingRevision + 1);
+    nextPlan?.release();
+    expect(entryOf(balancer, "lb-live", binding.id).targetId).toBe("target-b");
+  });
+
+  it("LB-T17 the operation view carries no digest, no key and no request content", async () => {
+    const logRoot = await newLogRoot();
+    const balancer = new LoadBalancer("pair-a");
+    const configured = movablePair(["target-a", "target-b"]);
+    balancer.reconfigure(configured);
+    bindChat(balancer, "quiet", "target-a");
+
+    const server = adminServer(source([configured], balancer, undefined, { logRoot }));
+    const list = await readTasks(server, MOVABLE_QUERY);
+    const row = onlyRow(list.body);
+    const submitted = await postMove(server, {
+      ...moveRequestFrom(list.body, row, "target-b", "key-quiet"),
+      reason: `because ${PRIVATE_USER_TEXT}`,
+    });
+    expect(submitted.statusCode).toBe(200);
+    expect(submitted.payload).not.toContain(PRIVATE_USER_TEXT);
+
+    const read = await readTasks(server, MOVABLE_QUERY);
+    expect(read.payload).not.toContain(PRIVATE_USER_TEXT);
+    expect(read.payload).not.toContain(PRIVATE_BODY_TEXT);
+    expect(read.payload).not.toContain(SECRET_API_KEY);
+    expect(read.payload).not.toContain("idempotencyKey");
+    expect(read.payload).not.toContain("requestDigest");
+    expect(read.payload).not.toContain("key-quiet");
+    const operation = read.body.migrationOperations[0];
+    expect(Object.keys(operation ?? {}).sort()).toEqual([
+      "appliedRoutingRevision",
+      "bindingId",
+      "cancellable",
+      "createdAt",
+      "destinationTargetId",
+      "endReason",
+      "endedAt",
+      "expiresAt",
+      "groupId",
+      "groupRevision",
+      "incarnation",
+      "operationId",
+      "sourceRoutingRevision",
+      "sourceTargetId",
+      "state",
+    ]);
+    // The audit label the list shows is the server's own word for what ended a record, never the
+    // text a person typed into a submit box.
+    expect(operation?.endReason).toBeNull();
+    expect(operation?.expiresAt).toBeTypeOf("number");
+  });
+
+  it("LB-T18 a page that read the old route is refused when the route moved on", async () => {
+    const balancer = new LoadBalancer("pair-a");
+    const configured = movablePair(["target-a", "target-b"]);
+    balancer.reconfigure(configured);
+    bindChat(balancer, "racing", "target-a");
+
+    const server = adminServer(source([configured], balancer, undefined));
+    // Two readers of the same list; one of them acts on what it read.
+    const pageA = await readTasks(server, `${MOVABLE_QUERY}&targetId=target-a`);
+    const pageB = await readTasks(server, `${MOVABLE_QUERY}&targetId=target-a`);
+    const rowA = onlyRow(pageA.body);
+    const rowB = onlyRow(pageB.body);
+
+    const first = await postMove(
+      server,
+      moveRequestFrom(pageB.body, rowB, "target-b", "key-first"),
+    );
+    expect(first.statusCode).toBe(200);
+    expect(answerState(first.body)).toBe("applied");
+
+    // The second page still carries the route it read, so its submit must not overwrite the move
+    // that already happened. It is refused with the server's own sentence.
+    const late = await postMove(server, moveRequestFrom(pageA.body, rowA, "target-b", "key-late"));
+    expect(late.statusCode).toBe(409);
+    expect(answerError(late.body).code).toBe("binding_stale");
+    expect(answerError(late.body).message).toContain("routing revision");
+
+    // A refused submit changes nothing: the route the first move wrote is still the route. The
+    // refusal is still a record, and the newest record is the one a reader is shown first.
+    const after = await readTasks(server, MOVABLE_QUERY);
+    expect(after.body.items[0]?.targetId).toBe("target-b");
+    expect(after.body.items[0]?.routingRevision).toBe(first.body["routingRevision"]);
+    expect(after.body.migrationOperations.map((operation) => operation.state)).toEqual([
+      "rejected",
+      "applied",
+    ]);
+    expect(after.body.migrationOperations[0]?.destinationTargetId).toBe("target-b");
+    expect(after.body.migrationOperations[0]?.cancellable).toBe(false);
+    expect(after.body.migrationOperations[1]?.appliedRoutingRevision).toBe(
+      first.body["routingRevision"],
+    );
+  });
+
+  it("LB-T19 the same key answers the receipt it was answered with, and a clash is refused", async () => {
+    const balancer = new LoadBalancer("pair-a");
+    const configured = movablePair(["target-a", "target-b"]);
+    balancer.reconfigure(configured);
+    const binding = bindChat(balancer, "replayed", "target-a");
+
+    const server = adminServer(source([configured], balancer, undefined));
+    const list = await readTasks(server, MOVABLE_QUERY);
+    const row = onlyRow(list.body);
+    const request = moveRequestFrom(list.body, row, "target-b", "key-replay");
+
+    const first = await postMove(server, request);
+    expect(first.statusCode).toBe(200);
+    const replay = await postMove(server, request);
+    expect(replay.statusCode).toBe(200);
+    expect(replay.body).toEqual(first.body);
+    // A replay is not a second write: the route moved once and the record is one record.
+    const after = await readTasks(server, MOVABLE_QUERY);
+    expect(after.body.items[0]?.routingRevision).toBe(first.body["routingRevision"]);
+    expect(after.body.migrationOperations).toHaveLength(1);
+
+    const clash = await postMove(server, { ...request, destinationTargetId: "target-c" });
+    expect(clash.statusCode).toBe(409);
+    expect(answerError(clash.body).code).toBe("idempotency_conflict");
+    expect(entryOf(balancer, "lb-live", binding.id).targetId).toBe("target-b");
+    // A refused clash added no record either.
+    expect((await readTasks(server, MOVABLE_QUERY)).body.migrationOperations).toHaveLength(1);
+  });
+
+  it("LB-T20 a parked intent is cancelled, and an applied one is not rewritten as cancelled", async () => {
+    const balancer = new LoadBalancer("pair-a");
+    const configured = movablePair(["target-a", "target-b"]);
+    balancer.reconfigure(configured);
+    const groupShape = group("lb-live", ["target-a", "target-b"]);
+    const reservation = balancer.plan({ group: groupShape, identity: chatIdentity("cancelme") });
+    const sourceTarget = reservation?.decision.targetId;
+    if (sourceTarget === undefined || reservation === undefined) {
+      throw new Error("The plan must reserve a node for the task.");
+    }
+    const destinationTarget = otherMemberOf(sourceTarget);
+
+    const server = adminServer(source([configured], balancer, undefined));
+    const list = await readTasks(server, MOVABLE_QUERY);
+    const row = onlyRow(list.body);
+    // The list names the binding this plan made, so an instruction built from the row addresses
+    // the route the proxy actually wrote.
+    expect(row.bindingId).toBe(reservation.binding.id);
+    const parked = await postMove(
+      server,
+      moveRequestFrom(list.body, row, destinationTarget, "key-cancel"),
+    );
+    expect(parked.statusCode).toBe(202);
+    const operationId = answerOperationId(parked.body);
+
+    const shown = await readTasks(server, MOVABLE_QUERY);
+    expect(shown.body.migrationOperations[0]?.cancellable).toBe(true);
+    expect(shown.body.migrationOperations[0]?.state).toBe("pending_boundary");
+
+    const cancelled = await deleteMove(server, operationId);
+    expect(cancelled.statusCode).toBe(200);
+    expect(answerState(cancelled.body)).toBe("cancelled");
+    expect(cancelled.body["effect"]).toBe("none");
+    expect(cancelled.body["toTargetId"]).toBe(destinationTarget);
+
+    const afterCancel = await readTasks(server, MOVABLE_QUERY);
+    expect(afterCancel.body.migrationOperations[0]?.state).toBe("cancelled");
+    expect(afterCancel.body.migrationOperations[0]?.cancellable).toBe(false);
+    // The route the parked intent was waiting for never moved.
+    expect(afterCancel.body.items[0]?.targetId).toBe(sourceTarget);
+    expect(afterCancel.body.items[0]?.routingRevision).toBe(row.routingRevision);
+
+    // A second call on a record that is already called off names that, and does not pretend.
+    const replayCancel = await deleteMove(server, operationId);
+    expect(replayCancel.statusCode).toBe(409);
+    expect(answerError(replayCancel.body).code).toBe("operation_not_cancellable");
+    expect(answerError(replayCancel.body).message).toContain("cancelled");
+
+    // The request finishes, the boundary finds nothing parked, and a fresh intent can be applied.
+    reservation.release();
+    const second = await readTasks(server, MOVABLE_QUERY);
+    const moved = await postMove(
+      server,
+      moveRequestFrom(second.body, onlyRow(second.body), destinationTarget, "key-apply"),
+    );
+    expect(moved.statusCode).toBe(200);
+    expect(answerState(moved.body)).toBe("applied");
+
+    const appliedCancel = await deleteMove(server, answerOperationId(moved.body));
+    expect(appliedCancel.statusCode).toBe(409);
+    expect(answerError(appliedCancel.body).code).toBe("operation_already_applied");
+    expect(answerError(appliedCancel.body).message).toContain("move back");
+    // The list still says an applied record is not cancellable, whatever the answer said.
+    const appliedRead = await readTasks(server, MOVABLE_QUERY);
+    expect(appliedRead.body.migrationOperations[0]?.state).toBe("applied");
+    expect(appliedRead.body.migrationOperations[0]?.cancellable).toBe(false);
+    expect(appliedRead.body.items[0]?.targetId).toBe(destinationTarget);
+  });
+
+  it("LB-T21 an intent a lifecycle event called off is reported expired, not revived", async () => {
+    const balancer = new LoadBalancer("pair-a");
+    const configured = movablePair(["target-a", "target-b"]);
+    balancer.reconfigure(configured);
+    const groupShape = group("lb-live", ["target-a", "target-b"]);
+    const reservation = balancer.plan({ group: groupShape, identity: chatIdentity("expired") });
+    const sourceTarget = reservation?.decision.targetId;
+    if (sourceTarget === undefined || reservation === undefined) {
+      throw new Error("The plan must reserve a node for the task.");
+    }
+    const destinationTarget = otherMemberOf(sourceTarget);
+    const bindingId = reservation.binding.id;
+
+    const server = adminServer(source([configured], balancer, undefined));
+    const list = await readTasks(server, MOVABLE_QUERY);
+    const row = onlyRow(list.body);
+    const request = moveRequestFrom(list.body, row, destinationTarget, "key-expire");
+    const parked = await postMove(server, request);
+    expect(parked.statusCode).toBe(202);
+
+    balancer.invalidateMigrationsFor(
+      {
+        runtimeEpoch: list.body.runtimeEpoch ?? "",
+        groupId: "lb-live",
+        bindingId: row.bindingId,
+        routingRevision: row.routingRevision,
+        incarnation: row.incarnation,
+      },
+      "failover",
+    );
+
+    const expiredRead = await readTasks(server, MOVABLE_QUERY);
+    expect(expiredRead.body.migrationOperations[0]?.state).toBe("expired");
+    expect(expiredRead.body.migrationOperations[0]?.cancellable).toBe(false);
+    expect(expiredRead.body.migrationOperations[0]?.endReason).toContain("failover");
+
+    // The receipt a repeat submit gets is the receipt, not the record's current state: the page
+    // reads `expired` from the list and `pending_boundary` from the answer, and both are honest.
+    const replay = await postMove(server, request);
+    expect(replay.statusCode).toBe(202);
+    expect(answerState(replay.body)).toBe("pending_boundary");
+    const afterReplay = await readTasks(server, MOVABLE_QUERY);
+    expect(afterReplay.body.migrationOperations[0]?.state).toBe("expired");
+    expect(entryOf(balancer, "lb-live", bindingId).targetId).toBe(sourceTarget);
+
+    // An expired intent is revived by nothing: not by a cancel, and not by its own boundary.
+    const cancelled = await deleteMove(server, answerOperationId(parked.body));
+    expect(cancelled.statusCode).toBe(409);
+    expect(answerError(cancelled.body).code).toBe("operation_expired");
+    reservation.release();
+    expect(entryOf(balancer, "lb-live", bindingId).targetId).toBe(sourceTarget);
+    expect((await readTasks(server, MOVABLE_QUERY)).body.migrationOperations[0]?.state).toBe(
+      "expired",
+    );
+  });
+});

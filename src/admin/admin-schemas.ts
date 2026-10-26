@@ -416,11 +416,44 @@ const endpointKindDto = z.enum(["responses", "messages", "chat", "completions", 
 /** The three states the activity ledger can support; none of them says a task finished. */
 const bindingActivityStateDto = z.enum(["in_flight", "idle", "unknown"]);
 
-const movableReasonDto = z.enum(["migration_unavailable", "in_flight"]);
+/**
+ * Why a binding is not offered for a move, in the gate's own code names. `in_flight` is absent
+ * on purpose: a binding with a request running is not refused, it just waits for the request
+ * boundary, and the row already carries that count.
+ */
+const movableReasonDto = z.enum([
+  "response_state_dependency",
+  "state_unknown",
+  "no_eligible_destination",
+]);
+
+/**
+ * The eligibility refusals a listed group member can carry. The rest of the migration codes name
+ * conditions a listed member cannot meet - the group was already found, and the destination list
+ * is built from that group's own members - so they are not offered here.
+ */
+const destinationReasonDto = z.enum([
+  "target_unknown",
+  "target_disabled",
+  "target_cooldown",
+  "target_asleep",
+  "same_physical_key",
+  "model_mismatch",
+]);
+
+const loadBalancerBindingMoveDestinationDto = z.object({
+  eligible: z.boolean(),
+  // Not a refusal: an engine that did not answer, or answered long ago, is still a node a
+  // person may choose, but the console has to warn and ask before it lets them.
+  metricsUnknown: z.boolean(),
+  reason: destinationReasonDto.nullable(),
+  targetId: z.string().max(512),
+});
 
 const loadBalancerBindingMovabilityDto = z.object({
+  destinations: z.array(loadBalancerBindingMoveDestinationDto).max(256),
   ok: z.boolean(),
-  reasons: z.array(movableReasonDto).max(2),
+  reasons: z.array(movableReasonDto).max(3),
 });
 
 const historyAssociationLevelDto = z.enum(["high", "candidate"]);
@@ -498,6 +531,40 @@ const loadBalancerBindingAssociationsDto = z.object({
   tasks: z.array(loadBalancerAssociatedTaskDto).max(200),
 });
 
+/**
+ * One migration record as the list shows it. `requestDigest` and `idempotencyKey` are absent by
+ * design: they are what binds a submission to a key and what replays it, so publishing them
+ * would hand the browser a way to repeat a move it never asked for.
+ */
+const migrationOperationStateDto = z.enum([
+  "requested",
+  "rejected",
+  "pending_boundary",
+  "applied",
+  "observed",
+  "cancelled",
+  "expired",
+  "expired_after_apply",
+]);
+
+const loadBalancerMigrationOperationDto = z.object({
+  appliedRoutingRevision: z.number().int().min(0).nullable(),
+  bindingId: z.number().int().min(0),
+  cancellable: z.boolean(),
+  createdAt: z.number().int().min(0),
+  destinationTargetId: z.string().max(512),
+  endReason: z.string().max(512).nullable(),
+  endedAt: z.number().int().min(0).nullable(),
+  expiresAt: z.number().int().min(0),
+  groupId: z.string().max(512),
+  groupRevision: z.number().int().min(0),
+  incarnation: z.number().int().min(0),
+  operationId: z.string().max(512),
+  sourceRoutingRevision: z.number().int().min(0),
+  sourceTargetId: z.string().max(512),
+  state: migrationOperationStateDto,
+});
+
 const loadBalancerBindingItemDto = z.object({
   activity: bindingActivityStateDto,
   associations: loadBalancerBindingAssociationsDto,
@@ -525,9 +592,15 @@ const loadBalancerTasksResponseDto = z.object({
   hasMore: z.boolean(),
   items: z.array(loadBalancerBindingItemDto).max(200),
   limit: z.number().int().min(1).max(200),
-  // The migration service (TRI-07) does not exist yet, so no move can be performed; this is
-  // the capability answer and `movable.reasons` is the per-binding one.
-  migration: z.enum(["unavailable"]),
+  // Whether the pair has a runtime whose migration entry a client can address. `unavailable`
+  // is the unstarted pair; `available` means a move can be submitted.
+  migration: z.enum(["available", "unavailable"]),
+  /**
+   * The group's migration records, newest first. Group-scoped and not narrowed by `targetId`:
+   * an applied binding leaves the filtered page it was listed on, and the operation that moved
+   * it still has to be readable there.
+   */
+  migrationOperations: z.array(loadBalancerMigrationOperationDto).max(100),
   nextOffset: z.number().int().min(0),
   nodes: z.array(loadBalancerBindingNodeDto).max(256),
   now: z.number().int().min(0),

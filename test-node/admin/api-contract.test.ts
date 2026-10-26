@@ -383,6 +383,7 @@ describe("assembled admin surface", () => {
         "items",
         "limit",
         "migration",
+        "migrationOperations",
         "nextOffset",
         "nodes",
         "now",

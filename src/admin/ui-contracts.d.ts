@@ -37,6 +37,12 @@ export interface ApiRoutes {
   "/api/model-prices/import": ModelPriceImportResult;
   "/api/load-balancer/status": LoadBalancerStatusResponse;
   [path: `/api/load-balancer/tasks?${string}`]: Dto.AdminLoadBalancerTasksResponse;
+  /**
+   * [TRI-09] The migration write and its cancel. The path is answered by `POST` and by `DELETE`
+   * on the parameterised path below; the method belongs to the caller, the shape to the route.
+   */
+  "/api/load-balancer/task-moves": Dto.AdminTaskMoveResponse;
+  [path: `/api/load-balancer/task-moves/${string}`]: Dto.AdminTaskMoveResponse;
 }
 export type ApiPath = keyof ApiRoutes;
 export type ApiResult<Path extends ApiPath> = Mutable<ApiRoutes[Path]>;

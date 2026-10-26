@@ -4,10 +4,20 @@ import { expect as expectPage } from "@playwright/test";
 import {
   UI_TEST_TIMEOUT_MS,
   lbBindingFixturePage,
+  lbBindingMoveOperation,
   lbBindingReads,
+  lbMoveCall,
+  lbMoveCalls,
   lbStatusReads,
   pairs,
   setLbBindingFailure,
+  setLbBindingIneligibleDestination,
+  setLbBindingMigrationOperations,
+  setLbBindingMoveBlocking,
+  setLbBindingRouteBump,
+  setLbBindingRuntimeEpoch,
+  setLbCancelReply,
+  setLbMoveReply,
   setLbStatusPartialMetrics,
   setLbStatusRound,
   setPairsSaveIssues,
@@ -692,6 +702,24 @@ describe("admin UI load balancing groups", { timeout: UI_TEST_TIMEOUT_MS }, () =
     return card;
   }
 
+  /** The same pair with three engine nodes, so a move can be offered one candidate it accepts
+   *  and one it refuses at the same time. */
+  async function openThreeNodeStates(): Promise<Locator> {
+    const card = await openPairWithGroup();
+    await card.locator("[data-add-target]").click();
+    await expectPage(card.locator(".target-card")).toHaveCount(3);
+    await card
+      .locator('.target-card[data-target-index="2"] [data-target-field="name"]')
+      .fill("Third Node");
+    await card.locator(".lb-card [data-lb-field='model_pattern']").fill("Qwen3.8-Flash-Next");
+    await tickMembers(card.locator(".lb-card"), [0, 1, 2]);
+    await page.locator("#saveProxies").click();
+    await expectPage(page.locator("#toast")).toContainText("Config saved");
+    await card.locator(".lb-status > summary").click();
+    await expectPage(card.locator(".lb-node-state")).toHaveCount(3);
+    return card;
+  }
+
   function nodeState(card: Locator, nodeIndex: number): Locator {
     return card.locator(".lb-node-state").nth(nodeIndex);
   }
@@ -948,11 +976,27 @@ describe("admin UI load balancing groups", { timeout: UI_TEST_TIMEOUT_MS }, () =
     ]);
   });
 
-  it("[TRI-06] keeps every move button disabled with the reason the server gave", async () => {
+  /** The destination a row on the first node can be moved to: the group's second member. */
+  function moveDestinationId(): string {
+    return savedMemberIds()[1] ?? "";
+  }
+
+  /** The node a panel was opened on, which is the source a move names. */
+  function moveSourceId(): string {
+    return savedMemberIds()[0] ?? "";
+  }
+
+  /** Every migration call the page made, in the order the browser made them. */
+  function moveWrites(): string[] {
+    return lbMoveCalls.map((call) => `${call.method} ${call.url}`);
+  }
+
+  it("[TRI-09] shows the server's refusal where it will not offer a destination", async () => {
     const requested: { method: string; url: string }[] = [];
     page.on("request", (request) => {
       requested.push({ method: request.method(), url: request.url() });
     });
+    setLbBindingMoveBlocking("state_unknown");
     const card = await openTwoNodeStates();
     const panel = await openBindingList(card, 0);
     await expectPage(panel.locator(".lb-binding")).toHaveCount(20);
@@ -961,19 +1005,20 @@ describe("admin UI load balancing groups", { timeout: UI_TEST_TIMEOUT_MS }, () =
     for (let index = 0; index < (await buttons.count()); index += 1) {
       await expectPage(buttons.nth(index)).toBeDisabled();
     }
+    // A row the server refused shows the refusal, not a picker the user would have to judge.
+    await expectPage(panel.locator("[data-lb-binding-move-target]")).toHaveCount(0);
+
     const busyRow = bindingRow(panel, 7);
     await expectPage(busyRow.locator("[data-lb-binding-move-reasons]")).toHaveText(
-      "the migration service is not wired yet · a request is still in flight on this binding",
+      "this runtime cannot prove the destination can reach the state this task may use",
     );
-    await expectPage(bindingRow(panel, 9).locator("[data-lb-binding-move-reasons]")).toHaveText(
-      "the migration service is not wired yet",
-    );
+    // A refused button still says what a move would touch, so the hint is not lost with the gate.
     await expectPage(busyRow.locator(".lb-binding-move")).toHaveAttribute(
       "title",
       /^A move affects the next request only/,
     );
 
-    // A disabled button carries no submit path: dispatching its click reaches no route.
+    // A refused row carries no submit path: dispatching its click reaches no route.
     await page.evaluate(() => {
       document.querySelectorAll(".lb-binding-move").forEach((button) => {
         button.dispatchEvent(new MouseEvent("click", { bubbles: true }));
@@ -992,10 +1037,492 @@ describe("admin UI load balancing groups", { timeout: UI_TEST_TIMEOUT_MS }, () =
 
     await page.locator("#languageSelect").selectOption("zh");
     await expectPage(busyRow.locator("[data-lb-binding-move-reasons]")).toHaveText(
-      "迁移服务尚未接入 · 这个绑定还有请求在途",
+      "这个运行时无法证明目标能访问这条任务可能用到的服务端状态",
     );
     await expectPage(busyRow.locator(".lb-binding-move")).toHaveText("迁移此绑定");
     await expectPage(busyRow.locator(".lb-binding-move")).toBeDisabled();
+  });
+
+  it("[TRI-09] names a refused candidate with the reason the server gave", async () => {
+    const card = await openThreeNodeStates();
+    setLbBindingIneligibleDestination(savedMemberIds()[2] ?? "", "target_cooldown");
+    const panel = await openBindingList(card, 0);
+    const row = bindingRow(panel, 7);
+    const picker = row.locator("[data-lb-binding-move-target]");
+    await expectPage(picker.locator("option")).toHaveText([
+      "Choose a destination node",
+      "Target",
+      "Third Node (that destination is still cooling down)",
+    ]);
+    await expectPage(
+      picker.locator(`option[value="${savedMemberIds()[2] ?? ""}"]`),
+    ).toHaveJSProperty("disabled", true);
+    // A candidate the server refused cannot be chosen, so nothing is offered under a judgement
+    // the page made up, and the submit stays locked until an accepted one is named.
+    await expectPage(row.locator("[data-lb-binding-move]")).toBeDisabled();
+    await expectPage(row.locator("[data-lb-binding-move-notice]")).toHaveCount(0);
+    await picker.selectOption(savedMemberIds()[1] ?? "");
+    await expectPage(row.locator("[data-lb-binding-move]")).toBeEnabled();
+
+    await page.locator("#languageSelect").selectOption("zh");
+    await expectPage(picker.locator("option").nth(2)).toHaveText("Third Node (这个目标还在冷却)");
+    await expectPage(row.locator("[data-lb-binding-move]")).toHaveText("迁移此绑定");
+    await expectPage(picker.locator("option").nth(0)).toHaveText("选择目标节点");
+  });
+
+  it("[TRI-09] will not open the submit until an unknown destination is confirmed", async () => {
+    setLbStatusPartialMetrics(true);
+    const card = await openTwoNodeStates();
+    const destinationId = moveDestinationId();
+    const panel = await openBindingList(card, 0);
+    const row = bindingRow(panel, 7);
+    const picker = row.locator("[data-lb-binding-move-target]");
+    await expectPage(picker.locator("option").nth(1)).toContainText("destination metrics unknown");
+    await expectPage(row.locator("[data-lb-binding-move]")).toBeDisabled();
+
+    await picker.selectOption(destinationId);
+    await expectPage(row.locator("[data-lb-binding-move-notice]")).toHaveCount(0);
+    await expectPage(row.locator("[data-lb-binding-move]")).toBeDisabled();
+    await expectPage(row.locator("[data-lb-binding-move-confirm]")).toBeVisible();
+    await row.locator("[data-lb-binding-move-confirm]").check();
+    await expectPage(row.locator("[data-lb-binding-move]")).toBeEnabled();
+
+    // A different choice is a different instruction, so the warning has to be accepted again.
+    await picker.selectOption("");
+    await expectPage(row.locator("[data-lb-binding-move-confirm]")).toHaveCount(0);
+    await expectPage(row.locator("[data-lb-binding-move]")).toBeDisabled();
+    await picker.selectOption(destinationId);
+    await expectPage(row.locator("[data-lb-binding-move]")).toBeDisabled();
+    await expectPage(row.locator("[data-lb-binding-move-confirm]")).toBeVisible();
+
+    await page.locator("#languageSelect").selectOption("zh");
+    await expectPage(row.locator("[data-lb-binding-move-confirm]")).toBeVisible();
+    await expectPage(row.locator(".lb-binding-move-pick-label")).toHaveText("选择目标节点");
+    await expectPage(row.locator("[data-lb-binding-move]")).toHaveText("迁移此绑定");
+    await expectPage(picker.locator("option").nth(1)).toContainText("目标指标未知");
+  });
+
+  it("[TRI-09] submits one move built from what the list read and keeps it through a poll", async () => {
+    const card = await openTwoNodeStates();
+    const sourceId = moveSourceId();
+    const destinationId = moveDestinationId();
+    setLbMoveReply({
+      response: {
+        bindingId: 7,
+        effect: "next_request",
+        fromTargetId: sourceId,
+        groupRevision: 12,
+        // The submit proved one request was on this binding, so the answer says so, and the
+        // state it reports belongs to the boundary, not to this moment.
+        inFlightAtRequest: 1,
+        operationId: "op-7",
+        routingRevision: 4,
+        runtimeEpoch: "stub-runtime-epoch",
+        state: "pending_boundary",
+        toTargetId: destinationId,
+      },
+    });
+    const panel = await openBindingList(card, 0);
+    const row = bindingRow(panel, 7);
+    await row.locator("[data-lb-binding-move-target]").selectOption(destinationId);
+    await expectPage(row.locator("[data-lb-binding-move]")).toBeEnabled();
+    await row.locator("[data-lb-binding-move]").click();
+
+    await expectPage(row.locator("[data-lb-binding-move-notice]")).toHaveText(
+      "Registered; the route changes when the current request ends.",
+    );
+    expect(moveWrites()).toEqual(["POST /api/load-balancer/task-moves"]);
+    // The instruction carries the versions the list handed out, not ones the page invented.
+    const sent = lbMoveCall(0).body;
+    if (sent === null) throw new Error("the page sent a submit with no body");
+    const { idempotencyKey, ...instruction } = sent;
+    expect(idempotencyKey).toBeTypeOf("string");
+    expect(instruction).toEqual({
+      bindingId: 7,
+      destinationTargetId: destinationId,
+      expectedRoutingRevision: 3,
+      expectedSourceTargetId: sourceId,
+      groupId: savedGroup().id,
+      groupRevision: 12,
+      incarnation: 3,
+      pairId: "proxy-one",
+      runtimeEpoch: "stub-runtime-epoch",
+    });
+    // Nothing is sent without a click, and a submit never asks for a cancel.
+    expect(lbMoveCalls.filter((call) => call.method === "DELETE")).toEqual([]);
+
+    // The panel is rebuilt by the status poll, so the choice, the notice and the caret all have
+    // to come back from the panel's own state rather than from the markup that was replaced.
+    const seenStatusReads = lbStatusReads.length;
+    await row.locator("[data-lb-binding-move-target]").focus();
+    await waitForLbPoll(seenStatusReads);
+    await expectPage(row.locator("[data-lb-binding-move-target]")).toBeFocused();
+    await expectPage(row.locator("[data-lb-binding-move-target]")).toHaveValue(destinationId);
+    await expectPage(row.locator("[data-lb-binding-move-notice]")).toHaveText(
+      "Registered; the route changes when the current request ends.",
+    );
+
+    await page.locator("#languageSelect").selectOption("zh");
+    await expectPage(row.locator("[data-lb-binding-move-notice]")).toHaveText(
+      "已登记，等当前请求结束后才会改路由",
+    );
+    await expectPage(row.locator("[data-lb-binding-move-target]")).toHaveValue(destinationId);
+  });
+
+  it("[TRI-09] keeps the choice after a stale-state refusal and never resends it by itself", async () => {
+    const card = await openTwoNodeStates();
+    const destinationId = moveDestinationId();
+    setLbMoveReply({
+      rejection: {
+        code: "stale_routing_revision",
+        detail: "The binding moved on since this request was written.",
+      },
+    });
+    const panel = await openBindingList(card, 0);
+    const row = bindingRow(panel, 7);
+    await row.locator("[data-lb-binding-move-target]").selectOption(destinationId);
+    await row.locator("[data-lb-binding-move]").click();
+
+    await expectPage(row.locator("[data-lb-binding-move-notice]")).toContainText(
+      "The state changed.",
+    );
+    await expectPage(row.locator("[data-lb-binding-move-notice-detail]")).toHaveText(
+      "The binding moved on since this request was written.",
+    );
+    // The server said the row was stale, so the list is read again. The choice the user made
+    // stays on screen and nothing is re-sent under a newer revision on its own.
+    const seenBindingReads = lbBindingReads.length;
+    await expect
+      .poll(() => lbBindingReads.length, { timeout: UI_TEST_TIMEOUT_MS, interval: 200 })
+      .toBeGreaterThan(seenBindingReads);
+    await expectPage(row.locator("[data-lb-binding-move-target]")).toHaveValue(destinationId);
+    await expectPage(row.locator("[data-lb-binding-move-notice]")).toContainText(
+      "The state changed.",
+    );
+    expect(moveWrites()).toEqual(["POST /api/load-balancer/task-moves"]);
+
+    await page.locator("#languageSelect").selectOption("zh");
+    await expectPage(row.locator("[data-lb-binding-move-notice]")).toContainText(
+      "状态已变化，请核对新状态后显式重新提交",
+    );
+    expect(moveWrites()).toEqual(["POST /api/load-balancer/task-moves"]);
+  });
+
+  it("[TRI-09] repeats a write whose answer never arrived, under the same key", async () => {
+    await page.route("**/api/load-balancer/task-moves", (route) => route.abort("failed"));
+    const card = await openTwoNodeStates();
+    const sourceId = moveSourceId();
+    const destinationId = moveDestinationId();
+    const panel = await openBindingList(card, 0);
+    const row = bindingRow(panel, 7);
+    await row.locator("[data-lb-binding-move-target]").selectOption(destinationId);
+    await row.locator("[data-lb-binding-move]").click();
+
+    // A write the browser could not send is neither a refusal nor a cancellation: its outcome is
+    // named unknown, and it is the same instruction that may be sent again.
+    await expectPage(row.locator("[data-lb-binding-move-notice]")).toContainText(
+      "The outcome of this submission is unknown",
+    );
+    await expectPage(row.locator("[data-lb-binding-move-retry]")).toBeVisible();
+    expect(moveWrites()).toEqual([]);
+
+    // The route moved while the answer was missing. A page that rebuilt the instruction would
+    // carry the new numbers; the retry carries the ones it was built under.
+    await page.unroute("**/api/load-balancer/task-moves");
+    setLbBindingRouteBump(4);
+    const seenStatusReads = lbStatusReads.length;
+    await waitForLbPoll(seenStatusReads);
+    await expectPage(row.locator('[data-lb-binding-fact="revision"]')).toHaveText(/: 7$/);
+    await expectPage(row.locator("[data-lb-binding-move-retry]")).toBeVisible();
+    await expectPage(row.locator("[data-lb-binding-move-notice]")).toContainText(
+      "The outcome of this submission is unknown",
+    );
+
+    setLbMoveReply({
+      response: {
+        bindingId: 7,
+        effect: "next_request",
+        fromTargetId: sourceId,
+        groupRevision: 16,
+        inFlightAtRequest: 1,
+        operationId: "op-7",
+        routingRevision: 8,
+        runtimeEpoch: "stub-runtime-epoch",
+        state: "pending_boundary",
+        toTargetId: destinationId,
+      },
+    });
+    await row.locator("[data-lb-binding-move-retry]").click();
+    await expectPage(row.locator("[data-lb-binding-move-notice]")).toHaveText(
+      "Registered; the route changes when the current request ends.",
+    );
+    await expectPage(row.locator("[data-lb-binding-move-retry]")).toHaveCount(0);
+    expect(moveWrites()).toEqual(["POST /api/load-balancer/task-moves"]);
+    // Same key, same payload: the frozen instruction, not a newer revision stamped onto it.
+    const repeated = lbMoveCall(0).body;
+    if (repeated === null) throw new Error("the retry sent a submit with no body");
+    const { idempotencyKey: repeatedKey, ...repeatedInstruction } = repeated;
+    expect(repeatedKey).toBeTypeOf("string");
+    expect(repeatedInstruction).toEqual({
+      bindingId: 7,
+      destinationTargetId: destinationId,
+      expectedRoutingRevision: 3,
+      expectedSourceTargetId: sourceId,
+      groupId: savedGroup().id,
+      groupRevision: 12,
+      incarnation: 3,
+      pairId: "proxy-one",
+      runtimeEpoch: "stub-runtime-epoch",
+    });
+  });
+
+  it("[TRI-09] shows the operation's state apart from the submit's answer", async () => {
+    const card = await openTwoNodeStates();
+    const groupId = savedGroup().id;
+    const sourceId = moveSourceId();
+    const destinationId = moveDestinationId();
+    setLbBindingMigrationOperations([
+      lbBindingMoveOperation(
+        { bindingId: 7, incarnation: 3, routingRevision: 3, targetId: sourceId },
+        destinationId,
+        "observed",
+        "op-observed",
+        groupId,
+      ),
+      lbBindingMoveOperation(
+        { bindingId: 8, incarnation: 4, routingRevision: 1, targetId: sourceId },
+        destinationId,
+        "pending_boundary",
+        "op-pending",
+        groupId,
+      ),
+    ]);
+    const panel = await openBindingList(card, 0);
+    const operations = panel.locator("[data-lb-binding-operations] .lb-binding-operation");
+    await expectPage(operations).toHaveCount(2);
+    await expectPage(operations.locator(".lb-binding-operation-state")).toHaveText([
+      "a later request was seen using the destination",
+      "waiting for the current request boundary",
+    ]);
+    // Only a record the server said is cancellable offers a cancel.
+    await expectPage(panel.locator("[data-lb-binding-move-cancel]")).toHaveCount(1);
+    await expectPage(panel.locator("[data-lb-binding-move-cancel]")).toHaveAttribute(
+      "data-lb-binding-move-cancel",
+      "op-pending",
+    );
+    await expectPage(panel.locator("[data-lb-binding-operation-reason]")).toHaveCount(0);
+
+    await page.locator("#languageSelect").selectOption("zh");
+    await expectPage(operations.locator(".lb-binding-operation-state")).toHaveText([
+      "已观测到后续请求使用目标节点",
+      "等待当前请求边界",
+    ]);
+    await expectPage(panel.locator(".lb-binding-operations-title")).toHaveText("迁移操作");
+  });
+
+  it("[TRI-09] cancels a parked intent with one DELETE", async () => {
+    const card = await openTwoNodeStates();
+    const groupId = savedGroup().id;
+    const sourceId = moveSourceId();
+    const destinationId = moveDestinationId();
+    setLbBindingMigrationOperations([
+      lbBindingMoveOperation(
+        { bindingId: 8, incarnation: 4, routingRevision: 1, targetId: sourceId },
+        destinationId,
+        "pending_boundary",
+        "op-pending",
+        groupId,
+      ),
+    ]);
+    setLbCancelReply({
+      response: {
+        bindingId: 8,
+        effect: "none",
+        fromTargetId: sourceId,
+        groupRevision: 12,
+        inFlightAtRequest: 0,
+        operationId: "op-pending",
+        routingRevision: 1,
+        runtimeEpoch: "stub-runtime-epoch",
+        state: "cancelled",
+        toTargetId: destinationId,
+      },
+    });
+    const panel = await openBindingList(card, 0);
+    const cancel = panel.locator("[data-lb-binding-move-cancel]");
+    await expectPage(cancel).toHaveCount(1);
+    await cancel.click();
+    await expectPage(panel.locator("[data-lb-binding-cancel-notice]")).toHaveText(
+      "This registered move was cancelled.",
+    );
+    expect(moveWrites()).toEqual(["DELETE /api/load-balancer/task-moves/op-pending"]);
+    // A cancel that landed is not answered as a move that reached its target.
+    await expectPage(panel.locator("[data-lb-binding-move-notice]")).toHaveCount(0);
+
+    await page.locator("#languageSelect").selectOption("zh");
+    await expectPage(panel.locator("[data-lb-binding-cancel-notice]")).toHaveText(
+      "这次登记的迁移已取消",
+    );
+  });
+
+  it("[TRI-09] offers no cancel on an applied move", async () => {
+    const card = await openTwoNodeStates();
+    const groupId = savedGroup().id;
+    const sourceId = moveSourceId();
+    const destinationId = moveDestinationId();
+    setLbBindingMigrationOperations([
+      lbBindingMoveOperation(
+        { bindingId: 8, incarnation: 4, routingRevision: 1, targetId: sourceId },
+        destinationId,
+        "applied",
+        "op-applied",
+        groupId,
+      ),
+    ]);
+    const panel = await openBindingList(card, 0);
+    // An applied record carries no cancel button at all: the route moved, so a cancel would be a
+    // lie about a write that happened.
+    await expectPage(panel.locator("[data-lb-binding-move-cancel]")).toHaveCount(0);
+    await expectPage(panel.locator(".lb-binding-operation-state")).toHaveText(
+      "route changed, waiting for the next request",
+    );
+    expect(moveWrites()).toEqual([]);
+
+    await page.locator("#languageSelect").selectOption("zh");
+    await expectPage(panel.locator(".lb-binding-operation-state")).toHaveText(
+      "路由已改，等待下一次请求",
+    );
+  });
+
+  it("[TRI-09] keeps the operation of a binding that left the filtered page", async () => {
+    const card = await openTwoNodeStates();
+    const groupId = savedGroup().id;
+    const sourceId = moveSourceId();
+    const destinationId = moveDestinationId();
+    // The move took the binding off the node this panel lists, so the row is gone from the page
+    // while the record of the move is still the thing the user has to be able to read.
+    setLbBindingMigrationOperations([
+      lbBindingMoveOperation(
+        { bindingId: 999, incarnation: 77, routingRevision: 9, targetId: "target-gone" },
+        destinationId,
+        "expired_after_apply",
+        "op-expired",
+        groupId,
+      ),
+    ]);
+    const panel = await openBindingList(card, 0);
+    await expectPage(panel.locator(".lb-binding")).toHaveCount(20);
+    await expectPage(panel.locator("[data-lb-binding-operation]")).toHaveCount(1);
+    await expectPage(panel.locator(".lb-binding-operation-route")).toHaveText(
+      `#999 target-gone → ${destinationId}`,
+    );
+    await expectPage(panel.locator(".lb-binding-operation-state")).toHaveText(
+      "the route moved again before the next request",
+    );
+    await expectPage(panel.locator("[data-lb-binding-operation-reason]")).toHaveCount(0);
+    await expectPage(panel.locator("[data-lb-binding-move-cancel]")).toHaveCount(0);
+    // The records came with the filtered read of this node and do not depend on the row being on
+    // that page.
+    expect(lbBindingReads.at(-1)?.targetId).toBe(sourceId);
+
+    // The node's whole page went empty once the binding moved away. The record still has to be
+    // readable there - it is the page the user was looking at when they asked for the move - so a
+    // page with no rows shows the operation rather than leaving the move looking unfinished.
+    await page.route("**/api/load-balancer/tasks*", (route) => {
+      const query = taskReadQuery(new URL(route.request().url()));
+      const reply = lbBindingFixturePage(query);
+      if (!("response" in reply)) throw new Error("the stub refused the binding list");
+      void route.fulfill({
+        json: { ...reply.response, items: [], totalBindings: 0, hasMore: false, nextOffset: 0 },
+      });
+    });
+    await expectPage(panel.locator("[data-lb-binding-empty]")).toBeVisible();
+    await expectPage(panel.locator(".lb-binding")).toHaveCount(0);
+    await expectPage(panel.locator('[data-lb-binding-operation="op-expired"]')).toHaveCount(1);
+    await expectPage(panel.locator(".lb-binding-operation-state")).toHaveText(
+      "the route moved again before the next request",
+    );
+
+    await page.locator("#languageSelect").selectOption("zh");
+    await expectPage(panel.locator("[data-lb-binding-empty]")).toHaveText(
+      "这个节点目前没有 binding",
+    );
+    await expectPage(panel.locator(".lb-binding-operation-state")).toHaveText(
+      "路由在下次请求前又被改动",
+    );
+  });
+
+  it("[TRI-09] calls an expired intent expired, never observed", async () => {
+    const card = await openTwoNodeStates();
+    const groupId = savedGroup().id;
+    const sourceId = moveSourceId();
+    const destinationId = moveDestinationId();
+    setLbBindingMigrationOperations([
+      {
+        ...lbBindingMoveOperation(
+          { bindingId: 8, incarnation: 4, routingRevision: 1, targetId: sourceId },
+          destinationId,
+          "expired",
+          "op-expired",
+          groupId,
+        ),
+        endReason: "runtime_reloaded",
+        endedAt: 1_792_830_671_500,
+      },
+    ]);
+    const panel = await openBindingList(card, 0);
+    await expectPage(panel.locator(".lb-binding-operation-state")).toHaveText("expired");
+    await expectPage(panel.locator("[data-lb-binding-operation-reason]")).toHaveText(
+      "runtime_reloaded",
+    );
+    await expectPage(panel.locator("[data-lb-binding-move-cancel]")).toHaveCount(0);
+    await expectPage(panel.locator(".lb-binding-operation")).toHaveClass(/is-expired/);
+
+    await page.locator("#languageSelect").selectOption("zh");
+    await expectPage(panel.locator(".lb-binding-operation-state")).toHaveText("已失效");
+  });
+
+  it("[TRI-09] calls a submission of a generation this page no longer shows unknown", async () => {
+    const card = await openTwoNodeStates();
+    const sourceId = moveSourceId();
+    const destinationId = moveDestinationId();
+    setLbMoveReply({
+      response: {
+        bindingId: 7,
+        effect: "next_request",
+        fromTargetId: sourceId,
+        groupRevision: 12,
+        inFlightAtRequest: 1,
+        operationId: "op-7",
+        routingRevision: 4,
+        runtimeEpoch: "stub-runtime-epoch",
+        state: "applied",
+        toTargetId: destinationId,
+      },
+    });
+    const panel = await openBindingList(card, 0);
+    const row = bindingRow(panel, 7);
+    await row.locator("[data-lb-binding-move-target]").selectOption(destinationId);
+    await row.locator("[data-lb-binding-move]").click();
+    await expectPage(row.locator("[data-lb-binding-move-notice]")).toHaveText(
+      "The route changed; only the next request is affected.",
+    );
+
+    // The runtime this page addressed is gone, so what the submission reached is no longer
+    // something the list can answer. It is named as unknown instead of being kept under the word
+    // it was answered with, and no retry is offered for it.
+    setLbBindingRuntimeEpoch("stub-runtime-epoch-next");
+    const seenStatusReads = lbStatusReads.length;
+    await waitForLbPoll(seenStatusReads);
+    await expectPage(row.locator("[data-lb-binding-move-notice]")).toHaveText(
+      "The runtime or the group version changed; the current state of this submission cannot be confirmed.",
+    );
+    await expectPage(row.locator("[data-lb-binding-move-retry]")).toHaveCount(0);
+
+    await page.locator("#languageSelect").selectOption("zh");
+    await expectPage(row.locator("[data-lb-binding-move-notice]")).toHaveText(
+      "运行时或组版本已经更换，这次提交的最新状态无法确认",
+    );
   });
 
   it("[TRI-06] does not read a failed history query as no history", async () => {

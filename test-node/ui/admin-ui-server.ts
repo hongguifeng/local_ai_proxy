@@ -19,6 +19,9 @@ import {
   groupLogQueries,
   lbBindingFixturePage,
   lbBindingReads,
+  lbCancelReplyValue,
+  lbMoveCalls,
+  lbMoveReplyValue,
   lbStatusReads,
   loadBalancerStatusFixture,
   logQueries,
@@ -149,15 +152,24 @@ export async function startStubAdminServer(): Promise<void> {
         lbBindingReads.push(asked);
         return lbBindingFixturePage(asked);
       },
-      // [TRI-08] The migration write and its cancel are not part of the UI either (TRI-09): the
-      // page has no button that asks for a move, so the stub answers the named refusal an empty
-      // assembly gives. The shape is the reply the real service returns, not a new one.
-      moveBinding: () => ({
-        rejection: { code: "pair_not_found", detail: undefined },
-      }),
-      cancelMoveBinding: () => ({
-        rejection: { code: "operation_not_found", detail: undefined },
-      }),
+      // [TRI-09] The page can now ask for a move and call one off. The stub records what it was
+      // sent and answers the reply the test arranged, in the shapes the real service returns.
+      moveBinding: (query) => {
+        lbMoveCalls.push({
+          method: "POST",
+          url: "/api/load-balancer/task-moves",
+          body: { ...query },
+        });
+        return lbMoveReplyValue();
+      },
+      cancelMoveBinding: (operationId) => {
+        lbMoveCalls.push({
+          method: "DELETE",
+          url: `/api/load-balancer/task-moves/${operationId}`,
+          body: null,
+        });
+        return lbCancelReplyValue();
+      },
     },
     pairService: {
       listPairs: () => pairs,

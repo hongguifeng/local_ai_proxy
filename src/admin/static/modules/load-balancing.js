@@ -138,8 +138,10 @@ export function createLoadBalancing({
    * @param {string} targetId
    * @param {{ name?: string } | undefined} target
    * @param {{ pairIndex: number, groupIndex: number, nodeIndex: number, pairId: string, groupId: string }} context
+   * @param {Map<string, string>} nodeNames names for the destination options of a move, read
+   *   from the pair's own targets so an option never has to guess what a node is called
    */
-  function lbStatusRowHtml(targetId, target, context) {
+  function lbStatusRowHtml(targetId, target, context, nodeNames) {
     const id = escapeHtml(targetId);
     const name = (target && target.name) || targetId;
     const fact = (key, label, value) =>
@@ -164,7 +166,7 @@ export function createLoadBalancing({
     <div class="lb-node-tools">
       <button type="button" class="lb-node-bindings-toggle" data-lb-bindings-toggle aria-expanded="${panel.open ? "true" : "false"}" aria-controls="${panelId}"><span class="lb-node-bindings-label">${escapeHtml(t("lbNodeBindings"))}</span><span class="lb-picker-caret" aria-hidden="true"></span></button>
     </div>
-    <div class="lb-binding-panel" id="${panelId}" data-lb-binding-pair="${escapeHtml(context.pairId)}" data-lb-binding-group="${escapeHtml(context.groupId)}" data-lb-binding-node="${id}"${panel.open ? "" : " hidden"}>${lbBindingPanelHtml(panel, name)}</div>
+    <div class="lb-binding-panel" id="${panelId}" data-lb-binding-pair="${escapeHtml(context.pairId)}" data-lb-binding-group="${escapeHtml(context.groupId)}" data-lb-binding-node="${id}"${panel.open ? "" : " hidden"}>${lbBindingPanelHtml(panel, name, nodeNames)}</div>
   </div>`;
   }
 
@@ -179,12 +181,16 @@ export function createLoadBalancing({
   }
 
   function lbNodeStatesHtml(targetIds, targets, context) {
+    const nodeNames = new Map(
+      (targets || []).map((target) => [target.id, target.name || target.id]),
+    );
     return targetIds
       .map((targetId, nodeIndex) =>
         lbStatusRowHtml(
           targetId,
           (targets || []).find((item) => item.id === targetId),
           { ...context, nodeIndex },
+          nodeNames,
         ),
       )
       .join("");
@@ -244,9 +250,49 @@ export function createLoadBalancing({
       no_traffic_database: "is-no-database",
       failed: "is-failed",
     },
+    /**
+     * [TRI-09] Why a binding is not offered for a move, in the migration gate's own code names.
+     * The button's enabled state comes from `movable.ok` and nothing else, so a page never
+     * re-derives the gate from target URLs, model names or cooldowns.
+     */
     moveReason: {
-      migration_unavailable: "lbMoveReasonMigrationUnavailable",
-      in_flight: "lbMoveReasonInFlight",
+      response_state_dependency: "lbMoveReasonResponseState",
+      state_unknown: "lbMoveReasonStateUnknown",
+      no_eligible_destination: "lbMoveReasonNoEligible",
+    },
+    /** Why one candidate is not eligible, in the same gate's names. */
+    destinationReason: {
+      target_unknown: "lbMoveReasonTargetUnknown",
+      target_disabled: "lbMoveReasonTargetDisabled",
+      target_cooldown: "lbMoveReasonTargetCooldown",
+      target_asleep: "lbMoveReasonTargetAsleep",
+      same_physical_key: "lbMoveReasonSamePhysicalKey",
+      model_mismatch: "lbMoveReasonModelMismatch",
+    },
+    /**
+     * What an intent looks like now, as the list reports it. `applied` says the route changed
+     * and nothing more; `observed` says a later request was seen using the destination, which is
+     * not a claim that the upstream answered well.
+     */
+    operationState: {
+      requested: "lbMoveStateRequested",
+      rejected: "lbMoveStateRejected",
+      pending_boundary: "lbMoveStatePending",
+      applied: "lbMoveStateApplied",
+      observed: "lbMoveStateObserved",
+      cancelled: "lbMoveStateCancelled",
+      expired: "lbMoveStateExpired",
+      expired_after_apply: "lbMoveStateExpiredAfterApply",
+    },
+    operationStateClass: {
+      requested: "is-requested",
+      rejected: "is-rejected",
+      pending_boundary: "is-pending",
+      applied: "is-applied",
+      observed: "is-observed",
+      cancelled: "is-cancelled",
+      expired: "is-expired",
+      expired_after_apply: "is-expired-after-apply",
     },
     associationReason: {
       exact_key_links: "lbReasonExactKeyLinks",
@@ -326,6 +372,20 @@ export function createLoadBalancing({
       // a disposal can stop it and an old callback cannot reach a newer panel.
       readOwner: null,
       readLifecycle: null,
+      // The versions a submit has to carry back. They come from the envelope the rows came in,
+      // so a page never derives a group revision or an incarnation it was not given.
+      runtimeEpoch: null,
+      groupRevision: null,
+      // The group's migration records as the list reports them, newest first and independent of
+      // the node filter: a binding that moved is gone from this page, its record is not.
+      operations: [],
+      // What the user has chosen and what the server answered, per binding, so a refresh can
+      // rebuild the markup without wiping a selection, a confirmation or a conflict notice.
+      moves: new Map(),
+      // The cancels on their way, so one button cannot be clicked into two DELETEs.
+      cancelling: new Set(),
+      cancelNoticeKey: null,
+      cancelNoticeDetail: "",
     };
     bindingPanels.set(key, created);
     return created;
@@ -465,7 +525,7 @@ export function createLoadBalancing({
    * what the server says about moving it. Several linked tasks still make one row with one
    * move affordance, because the thing that could move is the binding, not each task.
    */
-  function lbBindingRowHtml(item, now, nodeLabel) {
+  function lbBindingRowHtml(panel, item, now, nodeLabel, nodeNames) {
     const fact = (name, label, value, detail) => {
       const text = `${label}: ${value}`;
       const title = detail === "" ? text : `${text} · ${detail}`;
@@ -477,10 +537,6 @@ export function createLoadBalancing({
     const activityClass = lbBindingVocabulary.activityClass[item.activity] ?? "";
     const confidenceClass =
       association.confidence === "none" ? "is-none" : `is-${escapeHtml(association.confidence)}`;
-    const moveReasons = item.movable.reasons.map((reason) =>
-      lbBindingWord(reason, lbBindingVocabulary.moveReason),
-    );
-    const moveTitle = [t("lbMoveNextRequestHint")].concat(moveReasons).join(" · ");
     const taskList = tasks.length
       ? `<ul class="lb-binding-task-list">${tasks.map((task) => lbBindingTaskHtml(task)).join("")}</ul>`
       : "";
@@ -492,7 +548,7 @@ export function createLoadBalancing({
           )
           .join("")}</p>`
       : "";
-    return `<div class="lb-binding" data-lb-binding-id="${item.bindingId}" data-lb-binding-node="${escapeHtml(item.targetId)}">
+    return `<div class="lb-binding" data-lb-binding-id="${item.bindingId}" data-lb-binding-incarnation="${item.incarnation}" data-lb-binding-node="${escapeHtml(item.targetId)}">
     <div class="lb-binding-head">
       <span class="lb-binding-key" data-lb-binding-key title="${escapeHtml(String(item.bindingId))}">#${item.bindingId}</span>
       <span class="lb-binding-model" data-lb-binding-model title="${escapeHtml(model)}">${escapeHtml(model)}</span>
@@ -523,10 +579,7 @@ export function createLoadBalancing({
       <p class="lb-binding-coverage" data-lb-binding-coverage>${lbBindingCoverageHtml(association.coverage)}</p>
       ${reasonChips}
     </div>
-    <div class="lb-binding-tools">
-      <button type="button" class="lb-binding-move" data-lb-binding-move${item.movable.ok ? "" : " disabled"} title="${escapeHtml(moveTitle)}">${escapeHtml(t("lbMoveBinding"))}</button>
-      <span class="lb-binding-move-reasons" data-lb-binding-move-reasons>${escapeHtml(moveReasons.join(" · "))}</span>
-    </div>
+    ${lbBindingMoveHtml(panel, item, moveDraftFor(panel, item), nodeNames)}
   </div>`;
   }
 
@@ -536,7 +589,7 @@ export function createLoadBalancing({
    * language switch - redraws these rows from the same panel state, so the list never has to
    * be read twice for one opening.
    */
-  function lbBindingPanelHtml(panel, nodeLabel) {
+  function lbBindingPanelHtml(panel, nodeLabel, nodeNames) {
     if (bindingErrorText(panel) !== "" && panel.items.length === 0) {
       return `<p class="lb-binding-error" data-lb-binding-error>${escapeHtml(bindingErrorText(panel))}${
         panel.errorDetail === ""
@@ -556,7 +609,12 @@ export function createLoadBalancing({
               : ` <span class="lb-binding-error-detail" data-lb-binding-error-detail>${escapeHtml(panel.errorDetail)}</span>`
           }</p>`;
     if (panel.items.length === 0) {
-      return `${staleNote}<p class="lb-binding-empty" data-lb-binding-empty>${escapeHtml(t("lbBindingsNone"))}</p>`;
+      // The operation list goes out even with no rows: a move that was applied took its binding
+      // off this node's page, and the record of that move is the one thing the user still has to
+      // be able to read here. Dropping it with the rows would leave the move looking unfinished.
+      return `${staleNote}<p class="lb-binding-empty" data-lb-binding-empty>${escapeHtml(
+        t("lbBindingsNone"),
+      )}</p>${lbBindingOperationsHtml(panel)}`;
     }
     const linkedTasks = panel.items.reduce(
       (total, item) => total + item.associations.tasks.length,
@@ -571,13 +629,62 @@ export function createLoadBalancing({
     return [
       staleNote,
       summary,
-      panel.items.map((item) => lbBindingRowHtml(item, panel.now, nodeLabel)).join(""),
+      panel.items
+        .map((item) => lbBindingRowHtml(panel, item, panel.now, nodeLabel, nodeNames))
+        .join(""),
+      lbBindingOperationsHtml(panel),
       pager,
     ].join("");
   }
 
-  /** Repaint one panel from the state it holds. A row that is gone from the document needs
-   *  nothing: the next build of the card reads the same state. */
+  /**
+   * Which control inside a panel the user was working in, if any. The panel is rebuilt from the
+   * status poll, so the identity of a control has to be recorded in a way a rebuilt panel can
+   * find again: the binding it belongs to and which affordance of that binding it is.
+   */
+  function capturePanelFocus(element) {
+    const active = document.activeElement;
+    if (!(active instanceof HTMLElement) || !element.contains(active)) return null;
+    const row = closestOn(active, ".lb-binding");
+    if (row === null) return null;
+    const bindingId = row.dataset.lbBindingId;
+    if (bindingId === undefined) return null;
+    if (active.dataset.lbBindingMoveTarget !== undefined) return [bindingId, "target"];
+    if (active.dataset.lbBindingMoveConfirm !== undefined) return [bindingId, "confirm"];
+    if (active.dataset.lbBindingMove !== undefined) return [bindingId, "submit"];
+    if (active.dataset.lbBindingMoveRetry !== undefined) return [bindingId, "retry"];
+    if (active.dataset.lbBindingMoveCancel !== undefined) {
+      return [bindingId, `cancel:${active.dataset.lbBindingMoveCancel}`];
+    }
+    return null;
+  }
+
+  /** Put the focus back where the user left it, on the control the rebuild made again. */
+  function restorePanelFocus(element, focus) {
+    if (focus === null) return;
+    const row = element.querySelector(`.lb-binding[data-lb-binding-id="${focus[0]}"]`);
+    if (row === null) return;
+    const target =
+      focus[1] === "target"
+        ? qsOn(row, "[data-lb-binding-move-target]")
+        : focus[1] === "confirm"
+          ? qsOn(row, "[data-lb-binding-move-confirm]")
+          : focus[1] === "submit"
+            ? qsOn(row, "[data-lb-binding-move]")
+            : focus[1] === "retry"
+              ? qsOn(row, "[data-lb-binding-move-retry]")
+              : qsOn(row, `[data-lb-binding-move-cancel="${focus[1].slice(6)}"]`);
+    if (target !== null) target.focus();
+  }
+
+  /**
+   * Repaint one panel from the state it holds. A row that is gone from the document needs
+   * nothing: the next build of the card reads the same state. The panel is rebuilt from scratch,
+   * so the two things a rebuild would otherwise lose are put back on purpose: the choice the
+   * user made lives in the panel and is rendered again, and the control the user was working in
+   * is found again and re-focused. A poll therefore cannot wipe a destination, a confirmation or
+   * a conflict notice, and it cannot move the caret out from under the user.
+   */
   function renderBindingPanel(context) {
     const panel = bindingPanels.get(
       bindingPanelKey(context.pairId, context.groupId, context.targetId),
@@ -585,7 +692,13 @@ export function createLoadBalancing({
     if (panel === undefined) return;
     const element = lbBindingPanelElement(context);
     if (element === null) return;
-    element.innerHTML = lbBindingPanelHtml(panel, lbNodeLabelOfPanel(element, context));
+    const focus = capturePanelFocus(element);
+    element.innerHTML = lbBindingPanelHtml(
+      panel,
+      lbNodeLabelOfPanel(element, context),
+      lbNodeNamesForCard(closestOn(element, ".lb-card")),
+    );
+    restorePanelFocus(element, focus);
   }
 
   /**
@@ -642,6 +755,12 @@ export function createLoadBalancing({
     panel.now = data.now;
     panel.nextOffset = data.nextOffset;
     panel.loaded = true;
+    panel.runtimeEpoch = data.runtimeEpoch;
+    panel.groupRevision = data.groupRevision;
+    // Newest first: the newest submit is the one a reader has to be shown, and a binding can
+    // carry several records whose ids never line up into a sequence.
+    panel.operations = data.migrationOperations;
+    pruneMoveDrafts(panel);
     panel.errorKey = null;
     panel.errorMessage = "";
     panel.errorDetail = "";
@@ -665,6 +784,193 @@ export function createLoadBalancing({
     panel.total = 0;
     panel.hasMore = false;
     panel.nextOffset = 0;
+    panel.operations = [];
+    panel.runtimeEpoch = null;
+    panel.groupRevision = null;
+  }
+
+  // ------------------------------------------------------------ [TRI-09] the move a row can make
+
+  /**
+   * What the user has chosen for one binding, and what the server said about it. It lives on the
+   * panel rather than in the DOM because the panel is rebuilt from the status poll: a choice that
+   * only existed in a `<select>` would be wiped by the next refresh, and a conflict notice that
+   * only existed as text would be wiped with it.
+   */
+  function moveDraftFor(panel, item) {
+    const key = bindingAddress(item);
+    const known = panel.moves.get(key);
+    if (known !== undefined) return known;
+    const created = {
+      destinationTargetId: null,
+      confirmed: false,
+      submitting: false,
+      // A result the browser cannot tell apart from one that never arrived. Only then may the
+      // same key be sent again; a definite answer is never repeated with a new key.
+      uncertain: false,
+      noticeKey: null,
+      noticeDetail: "",
+      // The frozen instruction, so a retry repeats what was decided rather than whatever the
+      // route and the poll look like now.
+      key: null,
+      payload: null,
+      // The runtime the instruction was addressed to. A callback that comes back after this pair
+      // runs a different runtime describes an address that no longer exists, so its state is
+      // named unknown rather than kept under the word it was answered with.
+      builtEpoch: null,
+      operationId: null,
+    };
+    panel.moves.set(key, created);
+    return created;
+  }
+
+  /**
+   * Forget the drafts whose binding is no longer on this page. The operation a draft recorded is
+   * still shown in the panel's own list - it does not live in the draft - so dropping the draft
+   * loses no state the user still needs to read.
+   */
+  function pruneMoveDrafts(panel) {
+    const living = new Set(panel.items.map(bindingAddress));
+    [...panel.moves.keys()].forEach((key) => {
+      if (!living.has(key)) panel.moves.delete(key);
+    });
+  }
+
+  /** The node names a candidate option can show, read from the card the panel sits in. */
+  function lbNodeNamesForCard(card) {
+    const names = new Map();
+    if (card === null) return names;
+    qsaOn(card, ".lb-node-state").forEach((row) => {
+      const targetId = row.dataset.lbStatusTarget;
+      const name = qsOn(row, ".lb-node-name");
+      if (targetId === undefined || name === null) return;
+      names.set(targetId, name.textContent || targetId);
+    });
+    return names;
+  }
+
+  /**
+   * One binding's move affordance: the destination the server would accept, the warning the
+   * server asked to be confirmed, and the answer the last submit gave. Everything here is the
+   * server's decision shown in the server's words - the page compares nothing.
+   */
+  function lbBindingMoveHtml(panel, item, draft, nodeNames) {
+    if (!item.movable.ok) {
+      const reasons = item.movable.reasons.map((reason) =>
+        lbBindingWord(reason, lbBindingVocabulary.moveReason),
+      );
+      return `<div class="lb-binding-tools">
+      <button type="button" class="lb-binding-move" data-lb-binding-move disabled title="${escapeHtml(t("lbMoveNextRequestHint"))}">${escapeHtml(t("lbMoveBinding"))}</button>
+      <span class="lb-binding-move-reasons" data-lb-binding-move-reasons>${escapeHtml(reasons.join(" · "))}</span>
+    </div>`;
+    }
+    const chosen = draft.destinationTargetId;
+    const options = item.movable.destinations.map((destination) => {
+      const name = nodeNames.get(destination.targetId) ?? destination.targetId;
+      const label = destination.eligible
+        ? name
+        : `${name} (${lbBindingWord(destination.reason ?? "", lbBindingVocabulary.destinationReason)})`;
+      const warning =
+        destination.eligible && destination.metricsUnknown ? ` ${t("lbMoveMetricsUnknown")}` : "";
+      return `<option value="${escapeHtml(destination.targetId)}"${
+        destination.eligible ? "" : " disabled"
+      }${chosen === destination.targetId ? " selected" : ""}>${escapeHtml(`${label}${warning}`)}</option>`;
+    });
+    const selected = item.movable.destinations.find(
+      (destination) => destination.targetId === chosen,
+    );
+    const needsConfirmation = selected !== undefined && selected.metricsUnknown;
+    const canSubmit =
+      !draft.submitting &&
+      chosen !== null &&
+      selected !== undefined &&
+      selected.eligible &&
+      (!needsConfirmation || draft.confirmed);
+    // The runtime this instruction was addressed to is gone, so what it reached is no longer
+    // something the list can answer. It is named as unknown rather than kept under the word it
+    // was answered with, and no retry is offered for an address that does not exist.
+    const generationChanged = draft.builtEpoch !== null && draft.builtEpoch !== panel.runtimeEpoch;
+    const noticeKey = generationChanged ? "lbMoveGenerationChanged" : draft.noticeKey;
+    const notice =
+      noticeKey === null && draft.noticeDetail === ""
+        ? ""
+        : `<p class="lb-binding-move-notice" data-lb-binding-move-notice>${
+            noticeKey === null ? "" : escapeHtml(t(noticeKey))
+          }${
+            draft.noticeDetail === ""
+              ? ""
+              : ` <span class="lb-binding-move-notice-detail" data-lb-binding-move-notice-detail>${escapeHtml(draft.noticeDetail)}</span>`
+          }</p>`;
+    const retry =
+      draft.uncertain && !generationChanged
+        ? `<button type="button" class="lb-binding-move-retry" data-lb-binding-move-retry${
+            draft.submitting ? " disabled" : ""
+          }>${escapeHtml(t("lbMoveRetry"))}</button>`
+        : "";
+    return `<div class="lb-binding-tools lb-binding-move-tools">
+    <label class="lb-binding-move-pick">
+      <span class="lb-binding-move-pick-label">${escapeHtml(t("lbMoveChooseTarget"))}</span>
+      <select class="lb-binding-move-target" data-lb-binding-move-target aria-label="${escapeHtml(t("lbMoveChooseTarget"))}">
+        <option value="">${escapeHtml(t("lbMoveChooseTarget"))}</option>
+        ${options.join("")}
+      </select>
+    </label>
+    ${
+      needsConfirmation
+        ? `<label class="lb-binding-move-confirm"><input type="checkbox" class="lb-binding-move-confirm-input" data-lb-binding-move-confirm${draft.confirmed ? " checked" : ""}><span>${escapeHtml(t("lbMoveConfirmUnknown"))}</span></label>`
+        : ""
+    }
+    <button type="button" class="lb-binding-move" data-lb-binding-move${canSubmit ? "" : " disabled"} title="${escapeHtml(t("lbMoveNextRequestHint"))}">${escapeHtml(t("lbMoveBinding"))}</button>
+    ${retry}
+    ${notice}
+  </div>`;
+  }
+
+  /**
+   * The operation block of a panel. It sits below the rows because a binding that has been
+   * applied leaves the node page it was listed on: the record of the move still has to be
+   * readable there, or a pending move would look like it never finished.
+   */
+  function lbBindingOperationsHtml(panel) {
+    if (panel.operations.length === 0) return "";
+    return `<ul class="lb-binding-operations" data-lb-binding-operations>
+    <li class="lb-binding-operations-title">${escapeHtml(t("lbMoveOperations"))}</li>
+    ${panel.operations
+      .map(
+        (operation) =>
+          `<li class="lb-binding-operation ${
+            lbBindingVocabulary.operationStateClass[operation.state] ?? ""
+          }" data-lb-binding-operation="${escapeHtml(operation.operationId)}">
+        <span class="lb-binding-operation-route">${escapeHtml(
+          `#${operation.bindingId} ${operation.sourceTargetId} \u2192 ${operation.destinationTargetId}`,
+        )}</span>
+        <span class="lb-binding-operation-state">${escapeHtml(
+          lbBindingWord(operation.state, lbBindingVocabulary.operationState),
+        )}</span>
+        ${
+          operation.cancellable
+            ? `<button type="button" class="lb-binding-operation-cancel" data-lb-binding-move-cancel="${escapeHtml(operation.operationId)}"${panel.cancelling.has(operation.operationId) ? " disabled" : ""}>${escapeHtml(t("lbMoveCancel"))}</button>`
+            : ""
+        }
+        ${
+          operation.endReason === null
+            ? ""
+            : `<span class="lb-binding-operation-reason" data-lb-binding-operation-reason>${escapeHtml(operation.endReason)}</span>`
+        }
+      </li>`,
+      )
+      .join("")}
+  </ul>${
+    panel.cancelNoticeKey === null && panel.cancelNoticeDetail === ""
+      ? ""
+      : `<p class="lb-binding-cancel-notice" data-lb-binding-cancel-notice>${
+          panel.cancelNoticeKey === null ? "" : escapeHtml(t(panel.cancelNoticeKey))
+        }${
+          panel.cancelNoticeDetail === ""
+            ? ""
+            : ` <span class="lb-binding-cancel-notice-detail" data-lb-binding-cancel-notice-detail>${escapeHtml(panel.cancelNoticeDetail)}</span>`
+        }</p>`
+  }`;
   }
 
   /**
@@ -815,6 +1121,260 @@ export function createLoadBalancing({
     // The server's progress, not the rows held here: dropping a row that came back under an
     // address already shown would otherwise ask for the same page again.
     void readBindingPage(context, panel, panel.nextOffset);
+  }
+
+  /**
+   * The instruction one confirmed intent sends: built from what the list answered, never from a
+   * later poll. `runtimeEpoch` and `groupRevision` come from the envelope and `incarnation` and
+   * `routingRevision` from the row, because the server does not derive them - a client that
+   * cannot carry them has not looked at the route it says it is changing.
+   *
+   * The idempotency key is made here, once, and travels with the frozen payload: a retry after a
+   * result the browser could not tell apart repeats this same instruction instead of stamping a
+   * newer revision onto an older key.
+   */
+  function buildMovePayload(context, panel, item, destinationTargetId) {
+    if (panel.runtimeEpoch === null || panel.groupRevision === null) return null;
+    return {
+      pairId: context.pairId,
+      groupId: context.groupId,
+      runtimeEpoch: panel.runtimeEpoch,
+      bindingId: item.bindingId,
+      incarnation: item.incarnation,
+      groupRevision: panel.groupRevision,
+      expectedRoutingRevision: item.routingRevision,
+      expectedSourceTargetId: item.targetId,
+      destinationTargetId,
+      idempotencyKey: crypto.randomUUID(),
+    };
+  }
+
+  /** The row a control belongs to, and the item that row was rendered from. */
+  function bindingRowContext(panel, element) {
+    const row = closestOn(element, ".lb-binding");
+    if (row === null) return null;
+    const bindingId = Number(row.dataset.lbBindingId);
+    const incarnation = Number(row.dataset.lbBindingIncarnation);
+    const item =
+      panel.items.find(
+        (candidate) => candidate.bindingId === bindingId && candidate.incarnation === incarnation,
+      ) ?? null;
+    return item === null ? null : { row, item };
+  }
+
+  /**
+   * A write is not a read: closing the panel must not be reported to the user as though the
+   * server had called the intent off. So a write is sent without the surface's signal and its
+   * answer is guarded instead - a callback whose surface is gone, or whose runtime is no longer
+   * the one this page shows, writes nothing into the panel.
+   */
+  function moveWriteBelongsToPanel(panel, draft) {
+    return panel.readLifecycle === lifecycle && draft.builtEpoch === panel.runtimeEpoch;
+  }
+
+  /** @typedef {Error & { code?: string }} MoveWriteError */
+
+  /**
+   * Send one write and say which way it went: the server answered, or nothing came back and the
+   * outcome is unknown. `code` is present only when the answer carried the API's error shape,
+   * which is what tells a refusal the page can name apart from a request that never arrived.
+   */
+  /**
+   * A write's outcome, as the browser can tell it: the server answered, or nothing came back and
+   * the outcome is unknown. `code` is present only when the answer carried the API's error shape,
+   * which is what tells a refusal the page can name apart from a request that never arrived.
+   * A write is sent without the surface's signal on purpose: closing a panel is not a cancel, and
+   * a request that never arrived must not be reported as a refusal or as a cancellation.
+   * @typedef {{ kind: "answered", answer: import("../../ui-contracts.js").ApiResult<"/api/load-balancer/task-moves"> }} MoveAnswered
+   * @typedef {{ kind: "failed", error: MoveWriteError }} MoveFailed
+   */
+
+  /** @returns {Promise<MoveAnswered | MoveFailed>} */
+  async function postMoveWrite(payload) {
+    try {
+      return {
+        kind: "answered",
+        answer: await request("/api/load-balancer/task-moves", {
+          method: "POST",
+          body: JSON.stringify(payload),
+        }),
+      };
+    } catch (error) {
+      return {
+        kind: "failed",
+        error: error instanceof Error ? error : new Error(String(error)),
+      };
+    }
+  }
+
+  /** @returns {Promise<MoveAnswered | MoveFailed>} */
+  async function deleteMoveWrite(operationId) {
+    try {
+      return {
+        kind: "answered",
+        answer: await request(`/api/load-balancer/task-moves/${encodeURIComponent(operationId)}`, {
+          method: "DELETE",
+        }),
+      };
+    } catch (error) {
+      return {
+        kind: "failed",
+        error: error instanceof Error ? error : new Error(String(error)),
+      };
+    }
+  }
+
+  /**
+   * Send the frozen instruction. The answer is the submit's receipt - what the server decided at
+   * the moment it answered - and never the operation's current state, which the list below
+   * shows. `applied` says the route changed and nothing about the upstream; `pending_boundary`
+   * says nothing changed yet and the intent waits for the request boundary.
+   */
+  async function submitBindingMove(context, panel, item, draft) {
+    const destination = draft.destinationTargetId;
+    if (destination === null) return;
+    const payload = draft.payload ?? buildMovePayload(context, panel, item, destination);
+    if (payload === null) {
+      draft.noticeKey = "lbMoveNoEnvelope";
+      renderBindingPanel(context);
+      return;
+    }
+    draft.payload = payload;
+    draft.key = payload.idempotencyKey;
+    draft.builtEpoch = panel.runtimeEpoch;
+    draft.submitting = true;
+    draft.uncertain = false;
+    draft.noticeKey = null;
+    draft.noticeDetail = "";
+    renderBindingPanel(context);
+    const outcome = await postMoveWrite(payload);
+    if (outcome.kind === "failed") {
+      if (moveWriteBelongsToPanel(panel, draft)) {
+        applyMoveError(panel, context, item, draft, outcome.error);
+      } else {
+        draft.submitting = false;
+      }
+      if (panel.readLifecycle === lifecycle) renderBindingPanel(context);
+      return;
+    }
+    if (!moveWriteBelongsToPanel(panel, draft)) {
+      // The pair is running a different runtime now. The receipt the server gave is not rewritten
+      // by a later lifecycle, but it is no longer this page's answer.
+      draft.submitting = false;
+      return;
+    }
+    applyMoveAnswer(draft, outcome.answer);
+    renderBindingPanel(context);
+  }
+
+  /**
+   * What a receipt means on the page. `applied` says the in-memory route changed and nothing
+   * else; `pending_boundary` says nothing changed yet and the intent waits for the request
+   * boundary; `already_there` says no write was needed. None of them says the upstream answered,
+   * and none of them is the operation's current state - that is the record list below the rows.
+   */
+  function applyMoveAnswer(draft, answer) {
+    draft.submitting = false;
+    draft.uncertain = false;
+    draft.operationId = answer.operationId;
+    draft.noticeKey =
+      answer.state === "applied"
+        ? "lbMoveAppliedNotice"
+        : answer.state === "pending_boundary"
+          ? "lbMovePendingNotice"
+          : answer.state === "already_there"
+            ? "lbMoveAlreadyThereNotice"
+            : null;
+    draft.noticeDetail = "";
+    // The instruction was answered, so it is spent: a later submit is a new instruction with a
+    // new key, never this key stamped with whatever a later poll happens to read.
+    draft.payload = null;
+    draft.key = null;
+  }
+
+  /**
+   * A write that came back as an answer, as opposed to one whose outcome the browser cannot
+   * tell. A refusal that carried the server's code is definite: the page keeps the choice the
+   * user made, says what the server said, and waits for the user to submit again by hand. It
+   * never picks a newer revision and sends it on its own, and it never reuses the spent key.
+   */
+  function applyMoveError(panel, context, item, draft, error) {
+    const code = typeof error.code === "string" ? error.code : "";
+    draft.submitting = false;
+    if (code === "") {
+      // Nothing came back at all, so whether the route moved is unknown. The same instruction
+      // may be sent again under the same key; a new key would risk moving it twice.
+      draft.uncertain = true;
+      draft.noticeKey = "lbMoveUncertainNotice";
+      draft.noticeDetail = String(error.message || error);
+      return;
+    }
+    draft.uncertain = false;
+    draft.payload = null;
+    draft.key = null;
+    draft.noticeKey =
+      code === "binding_stale"
+        ? "lbMoveConflictNotice"
+        : code === "operation_expired"
+          ? "lbMoveExpiredNotice"
+          : null;
+    draft.noticeDetail = String(error.message || error);
+    if (draft.noticeKey === null && draft.noticeDetail === "") {
+      draft.noticeKey = "lbMoveRejectedNotice";
+    }
+    // The row the user was looking at is stale by the server's own answer, so the next status
+    // read replaces it and the user submits against what the list says now.
+    void readBindingPage(context, panel, 0);
+  }
+
+  /** Repeat the instruction whose result the browser could not tell apart, key and all. */
+  async function retryBindingMove(context, panel, item, draft) {
+    if (draft.payload === null || !draft.uncertain) return;
+    draft.submitting = true;
+    renderBindingPanel(context);
+    const outcome = await postMoveWrite(draft.payload);
+    if (outcome.kind === "failed") {
+      if (moveWriteBelongsToPanel(panel, draft)) {
+        applyMoveError(panel, context, item, draft, outcome.error);
+      } else {
+        draft.submitting = false;
+      }
+      if (panel.readLifecycle === lifecycle) renderBindingPanel(context);
+      return;
+    }
+    if (!moveWriteBelongsToPanel(panel, draft)) {
+      draft.submitting = false;
+      return;
+    }
+    applyMoveAnswer(draft, outcome.answer);
+    renderBindingPanel(context);
+  }
+
+  /**
+   * Call off an intent that has not been applied. Only a record the server said is cancellable
+   * carries this button, and a route that already moved answers `operation_already_applied`
+   * rather than pretending the write never happened - the sentence then points at a move back.
+   */
+  async function cancelBindingMove(context, panel, operationId) {
+    if (panel.cancelling.has(operationId)) return;
+    panel.cancelling.add(operationId);
+    renderBindingPanel(context);
+    const outcome = await deleteMoveWrite(operationId);
+    panel.cancelling.delete(operationId);
+    if (panel.readLifecycle !== lifecycle) return;
+    if (outcome.kind === "failed") {
+      // A refusal that carried the API's code is the server's own sentence, which is not the
+      // console's to translate. One that carried no code never reached the server, so the
+      // operation's state stays unknown - it is never reported as a cancellation.
+      panel.cancelNoticeKey =
+        typeof outcome.error.code === "string" ? null : "lbMoveCancelUnreachable";
+      panel.cancelNoticeDetail = String(outcome.error.message || outcome.error);
+      renderBindingPanel(context);
+      return;
+    }
+    panel.cancelNoticeKey = outcome.answer.state === "cancelled" ? "lbMoveCancelledNotice" : null;
+    panel.cancelNoticeDetail = "";
+    renderBindingPanel(context);
   }
 
   /**
@@ -1167,9 +1727,43 @@ export function createLoadBalancing({
       loadMoreBindings(moreButton);
       return true;
     }
-    // The move button carries no submit path in this step: the server answers every binding
-    // `movable.ok: false`, so the button is rendered disabled and nothing is posted. The
-    // destination picker and the submit call arrive with the migration API (TRI-09).
+    const moveRow = closestFrom(event.target, ".lb-binding");
+    const movePanelElement = moveRow === null ? null : closestOn(moveRow, ".lb-binding-panel");
+    const moveContext =
+      movePanelElement === null ? null : bindingContextFromElement(movePanelElement);
+    if (moveContext !== null) {
+      const panel = bindingPanelFor(moveContext.pairId, moveContext.groupId, moveContext.targetId);
+      const row = bindingRowContext(panel, asElement(event.target));
+      if (row !== null) {
+        const draft = moveDraftFor(panel, row.item);
+        if (asElement(event.target)?.matches("[data-lb-binding-move]")) {
+          // One intent is in flight at a time, so a double click cannot become two writes.
+          if (!draft.submitting && !controlIsDisabled(event.target)) {
+            void submitBindingMove(moveContext, panel, row.item, draft);
+          }
+          return true;
+        }
+        if (asElement(event.target)?.matches("[data-lb-binding-move-retry]")) {
+          if (!draft.submitting) void retryBindingMove(moveContext, panel, row.item, draft);
+          return true;
+        }
+      }
+    }
+    const cancelButton = closestFrom(event.target, "[data-lb-binding-move-cancel]");
+    if (cancelButton !== null) {
+      const cancelPanelElement = closestOn(cancelButton, ".lb-binding-panel");
+      const cancelContext =
+        cancelPanelElement === null ? null : bindingContextFromElement(cancelPanelElement);
+      const operationId = asElement(cancelButton)?.dataset.lbBindingMoveCancel;
+      if (cancelContext !== null && operationId !== undefined) {
+        void cancelBindingMove(
+          cancelContext,
+          bindingPanelFor(cancelContext.pairId, cancelContext.groupId, cancelContext.targetId),
+          operationId,
+        );
+        return true;
+      }
+    }
     if (lbCard && asElement(event.target)?.matches("[data-remove-lb]")) {
       const group = (pair.load_balancers || [])[Number(lbCard.dataset.lbIndex)];
       if (group) forgetLbGroupOpen(pair, group);
@@ -1309,8 +1903,42 @@ export function createLoadBalancing({
       true,
     );
 
+    listen(document, "change", (event) => {
+      const control = asElement(event.target);
+      if (control === null) return;
+      const panelElement = closestOn(control, ".lb-binding-panel");
+      if (panelElement === null) return;
+      const context = bindingContextFromElement(panelElement);
+      if (context === null) return;
+      const panel = bindingPanelFor(context.pairId, context.groupId, context.targetId);
+      const row = bindingRowContext(panel, control);
+      if (row === null) return;
+      const draft = moveDraftFor(panel, row.item);
+      if (control.dataset.lbBindingMoveTarget !== undefined) {
+        const chosen = control instanceof HTMLSelectElement ? control.value : "";
+        draft.destinationTargetId = chosen === "" ? null : chosen;
+        // A different destination is a different instruction: its key is made again, and a
+        // warning that was confirmed for the old one is not carried over to the new.
+        draft.confirmed = false;
+        draft.key = null;
+        draft.payload = null;
+        draft.uncertain = false;
+        draft.noticeKey = null;
+        draft.noticeDetail = "";
+      } else if (control.dataset.lbBindingMoveConfirm !== undefined) {
+        draft.confirmed = control instanceof HTMLInputElement && control.checked;
+      } else {
+        return;
+      }
+      renderBindingPanel(context);
+    });
     listen(document, "visibilitychange", updatePolling);
     updatePolling();
+  }
+
+  /** Whether the browser already sees this control as unclickable. */
+  function controlIsDisabled(candidate) {
+    return asElement(candidate) instanceof HTMLButtonElement && candidate.disabled;
   }
   function dispose() {
     if (!lifecycle) return;

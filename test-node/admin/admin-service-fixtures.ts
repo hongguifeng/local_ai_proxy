@@ -78,6 +78,7 @@ export function emptyBindingListResponse(): LoadBalancerBindingListResponse {
     items: [],
     limit: 50,
     migration: "unavailable",
+    migrationOperations: [],
     nextOffset: 0,
     nodes: [],
     now: 0,

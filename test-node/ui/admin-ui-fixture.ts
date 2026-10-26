@@ -3,9 +3,16 @@ import type { LogListItem, TaskBrief } from "../../src/maintenance/index.js";
 import type {
   LoadBalancerBindingListItem,
   LoadBalancerBindingListReply,
+  LoadBalancerBindingMovability,
   LoadBalancerBindingNode,
+  LoadBalancerCancelMoveReply,
+  LoadBalancerDestinationReason,
   LoadBalancerHistoryCoverage,
+  LoadBalancerMigrationOperation,
+  LoadBalancerMigrationOperationState,
+  LoadBalancerMovableReason,
   LoadBalancerNodeMetrics,
+  LoadBalancerTaskMoveReply,
 } from "../../src/proxy/index.js";
 
 export const logQueries: string[] = [];
@@ -179,6 +186,205 @@ export let lbBindingVisualRows: number | null = null;
 
 const LB_BINDING_NOW = 1_792_830_671_228;
 
+/**
+ * [TRI-09] the move answer the stub gives, and the knobs a test sets to arrange one.
+ *
+ * The stub answers with the real service's reply shapes, so a page cannot be built against a
+ * convenience object the production service would never return. The eligibility of a candidate
+ * and the state gate that blocks a binding are separate knobs because they are separate
+ * questions: one names a destination, the other names the binding.
+ */
+let lbBindingGroupMemberIds: readonly string[] = [];
+let lbBindingMoveBlocking: LoadBalancerMovableReason | null = null;
+const lbBindingIneligibleDestinations = new Map<string, LoadBalancerDestinationReason>();
+
+/**
+ * How the page the panel reads looks: the runtime it names, and how far the route on row 7 has
+ * moved since the last read. A test moves these to make a generation change or a stale row real,
+ * rather than to make the page answer something the service would never say.
+ */
+let lbBindingRuntimeEpoch = "stub-runtime-epoch";
+let lbBindingRouteBump = 0;
+
+export function setLbBindingRuntimeEpoch(runtimeEpoch: string): void {
+  lbBindingRuntimeEpoch = runtimeEpoch;
+}
+
+export function setLbBindingRouteBump(bump: number): void {
+  lbBindingRouteBump = bump;
+}
+
+/** Make every row report one binding-level refusal, or none again. */
+export function setLbBindingMoveBlocking(reason: LoadBalancerMovableReason | null): void {
+  lbBindingMoveBlocking = reason;
+}
+
+/** Take one candidate out of the running with the refusal the real gate would name. */
+export function setLbBindingIneligibleDestination(
+  targetId: string,
+  reason: LoadBalancerDestinationReason | null,
+): void {
+  if (reason === null) lbBindingIneligibleDestinations.delete(targetId);
+  else lbBindingIneligibleDestinations.set(targetId, reason);
+}
+
+/**
+ * Whether an engine answer says enough to be load evidence. One rule for the node projection
+ * and for the destination warning, so a node that was shown as unmeasured cannot be offered as
+ * a destination the console would not have to warn about.
+ */
+function lbBindingNodeNumbersSkipped(index: number): boolean {
+  return lbStatusPartialMetrics && index === 1;
+}
+
+/**
+ * One row's movability, built the way the service builds it: the candidates are the group's
+ * other members, an ineligible one carries the refusal its gate gave, and a member whose engine
+ * did not answer is offered with a warning instead of a refusal.
+ */
+function lbBindingMovable(targetId: string): LoadBalancerBindingMovability {
+  const destinations = lbBindingGroupMemberIds
+    .filter((candidate) => candidate !== targetId)
+    .map((candidate) => {
+      const refusal = lbBindingIneligibleDestinations.get(candidate);
+      const index = lbBindingGroupMemberIds.indexOf(candidate);
+      return {
+        eligible: refusal === undefined,
+        metricsUnknown: lbBindingNodeNumbersSkipped(index),
+        reason: refusal ?? null,
+        targetId: candidate,
+      };
+    });
+  const reasons: LoadBalancerMovableReason[] =
+    lbBindingMoveBlocking === null ? [] : [lbBindingMoveBlocking];
+  const eligibleCount = destinations.filter((destination) => destination.eligible).length;
+  if (eligibleCount === 0) {
+    // A row with nowhere to move is not a row that can be moved, whatever the state gate says.
+    reasons.push("no_eligible_destination");
+  }
+  return {
+    destinations,
+    ok: lbBindingMoveBlocking === null && eligibleCount > 0,
+    reasons,
+  };
+}
+
+/**
+ * The migration records a stub page carries. `null` means "answer what the first row's own
+ * address would make coherent", which is what keeps a baseline showing a record the service
+ * could really have written rather than a fixture id no runtime ever issued.
+ */
+let lbBindingOperations: LoadBalancerMigrationOperation[] | null = null;
+
+export function setLbBindingMigrationOperations(
+  rows: LoadBalancerMigrationOperation[] | null,
+): void {
+  lbBindingOperations = rows;
+}
+
+/**
+ * One migration record for a test to arrange, built from a row that exists so its ids are the
+ * ids the page carries. A test names the state it wants shown; the fixture does not invent one.
+ */
+export function lbBindingMoveOperation(
+  source: {
+    readonly bindingId: number;
+    readonly incarnation: number;
+    readonly routingRevision: number;
+    readonly targetId: string;
+  },
+  destinationTargetId: string,
+  state: LoadBalancerMigrationOperationState,
+  operationId: string,
+  groupId: string,
+): LoadBalancerMigrationOperation {
+  return lbBindingOperation(source, destinationTargetId, state, operationId, groupId);
+}
+
+function lbBindingOperation(
+  item: Pick<
+    LoadBalancerBindingListItem,
+    "bindingId" | "incarnation" | "routingRevision" | "targetId"
+  >,
+  destinationTargetId: string,
+  state: LoadBalancerMigrationOperationState,
+  operationId: string,
+  groupId: string,
+): LoadBalancerMigrationOperation {
+  const pending = state === "pending_boundary";
+  return {
+    appliedRoutingRevision: pending ? null : item.routingRevision + 1,
+    bindingId: item.bindingId,
+    cancellable: pending,
+    createdAt: LB_BINDING_NOW - 60_000,
+    destinationTargetId,
+    endReason: null,
+    endedAt: null,
+    expiresAt: LB_BINDING_NOW + 900_000,
+    groupId,
+    groupRevision: 12,
+    incarnation: item.incarnation,
+    operationId,
+    sourceRoutingRevision: item.routingRevision,
+    sourceTargetId: item.targetId,
+    state,
+  };
+}
+
+/** What the page POSTed and what it DELETEd, in the order the browser sent them. */
+export const lbMoveCalls: {
+  method: string;
+  url: string;
+  body: Record<string, unknown> | null;
+}[] = [];
+
+/**
+ * What the stub `moveBinding()` answers. The default is the named refusal an empty assembly
+ * gives; a test that wants a write to land sets a real reply.
+ */
+let lbMoveReply: LoadBalancerTaskMoveReply = {
+  rejection: { code: "pair_not_found", detail: undefined },
+};
+let lbCancelReply: LoadBalancerCancelMoveReply = {
+  rejection: { code: "operation_not_found", detail: undefined },
+};
+
+export function setLbMoveReply(reply: LoadBalancerTaskMoveReply): void {
+  lbMoveReply = reply;
+}
+
+export function lbMoveReplyValue(): LoadBalancerTaskMoveReply {
+  return lbMoveReply;
+}
+
+export function lbCancelReplyValue(): LoadBalancerCancelMoveReply {
+  return lbCancelReply;
+}
+
+export function setLbCancelReply(reply: LoadBalancerCancelMoveReply): void {
+  lbCancelReply = reply;
+}
+
+export function resetLbMoveState(): void {
+  lbBindingGroupMemberIds = [];
+  lbBindingMoveBlocking = null;
+  lbBindingIneligibleDestinations.clear();
+  lbBindingOperations = null;
+  lbBindingRuntimeEpoch = "stub-runtime-epoch";
+  lbBindingRouteBump = 0;
+  lbMoveCalls.length = 0;
+  lbMoveReply = { rejection: { code: "pair_not_found", detail: undefined } };
+  lbCancelReply = { rejection: { code: "operation_not_found", detail: undefined } };
+}
+
+export function lbMoveCall(index: number): (typeof lbMoveCalls)[number] {
+  const call = lbMoveCalls[index];
+  if (call === undefined) {
+    throw new Error(`The page sent no migration call number ${index}`);
+  }
+  return call;
+}
+
 function lbBindingCoverage(
   overrides: Partial<LoadBalancerHistoryCoverage> = {},
 ): LoadBalancerHistoryCoverage {
@@ -254,7 +460,7 @@ function lbBindingQuietItem(targetId: string, index: number): LoadBalancerBindin
     lastResponseEndedAt: lastSeenAt + 5_000,
     lastSeenAt,
     model: `quiet-model-${index + 1}`,
-    movable: { ok: false, reasons: ["migration_unavailable"] },
+    movable: lbBindingMovable(targetId),
     recentRequestStarts: [],
     requestCount: 1,
     routingRevision: 1,
@@ -315,11 +521,11 @@ function lbBindingFirstNodeItems(targetId: string, round: number): LoadBalancerB
     lastResponseEndedAt: LB_BINDING_NOW - 5_000,
     lastSeenAt: LB_BINDING_NOW - 7_000,
     model: "Qwen3.8-Flash-Next",
-    movable: { ok: false, reasons: ["migration_unavailable", "in_flight"] },
+    movable: lbBindingMovable(targetId),
     recentRequestStarts: [LB_BINDING_NOW - 8_000],
     // The round is what makes a late answer visible: the panel must end on the newer number.
     requestCount: round === 0 ? 14 : 999,
-    routingRevision: 3,
+    routingRevision: 3 + lbBindingRouteBump,
     targetId,
   };
   const candidateBinding: LoadBalancerBindingListItem = {
@@ -384,7 +590,7 @@ function lbBindingFirstNodeItems(targetId: string, round: number): LoadBalancerB
     lastResponseEndedAt: LB_BINDING_NOW - 118_000,
     lastSeenAt: LB_BINDING_NOW - 120_000,
     model: "claude-4.5-sonnet",
-    movable: { ok: false, reasons: ["migration_unavailable"] },
+    movable: lbBindingMovable(targetId),
     recentRequestStarts: [LB_BINDING_NOW - 120_000],
     requestCount: 3,
     routingRevision: 1,
@@ -421,7 +627,7 @@ function lbBindingFirstNodeItems(targetId: string, round: number): LoadBalancerB
     lastResponseEndedAt: null,
     lastSeenAt: LB_BINDING_NOW - 900_000,
     model: "VeryLongModelNameForCheckingThatTheCardNeverGrowsWiderThanItsNeighbours",
-    movable: { ok: false, reasons: ["migration_unavailable"] },
+    movable: lbBindingMovable(targetId),
     recentRequestStarts: [],
     requestCount: 0,
     routingRevision: 2,
@@ -465,7 +671,7 @@ function lbBindingFirstNodeItems(targetId: string, round: number): LoadBalancerB
     lastResponseEndedAt: LB_BINDING_NOW - 3_540_000,
     lastSeenAt: LB_BINDING_NOW - 3_600_000,
     model: "qwen3.6-27b",
-    movable: { ok: false, reasons: ["migration_unavailable"] },
+    movable: lbBindingMovable(targetId),
     recentRequestStarts: [],
     requestCount: 1,
     routingRevision: 4,
@@ -501,7 +707,7 @@ function lbBindingFirstNodeItems(targetId: string, round: number): LoadBalancerB
     lastResponseEndedAt: null,
     lastSeenAt: LB_BINDING_NOW - 7_200_000,
     model: "gpt-4o-mini",
-    movable: { ok: false, reasons: ["migration_unavailable"] },
+    movable: lbBindingMovable(targetId),
     recentRequestStarts: [],
     requestCount: 2,
     routingRevision: 1,
@@ -550,7 +756,7 @@ function lbBindingSecondNodeItems(targetId: string): LoadBalancerBindingListItem
       lastResponseEndedAt: null,
       lastSeenAt: LB_BINDING_NOW - 900_000,
       model: "A-Nano-Reasoner",
-      movable: { ok: false, reasons: ["migration_unavailable"] },
+      movable: lbBindingMovable(targetId),
       recentRequestStarts: [],
       requestCount: 0,
       routingRevision: 1,
@@ -564,7 +770,7 @@ function lbBindingFixtureNode(
   index: number,
   bindings: number,
 ): LoadBalancerBindingNode {
-  const skipped = lbStatusPartialMetrics && index === 1;
+  const skipped = lbBindingNodeNumbersSkipped(index);
   const metrics: LoadBalancerNodeMetrics = {
     awake: true,
     completeness: skipped ? "partial" : "complete",
@@ -618,6 +824,7 @@ export function lbBindingFixturePage(
   if (group === undefined) {
     return { error: "group_not_found" };
   }
+  lbBindingGroupMemberIds = group.members.map((member) => member.target_id);
   const itemsFor = (targetId: string, index: number) =>
     index === 0
       ? lbBindingVisualRows === null
@@ -642,20 +849,39 @@ export function lbBindingFixturePage(
           );
   const page = filtered.slice(query.offset, query.offset + query.limit);
   const hasMore = query.offset + page.length < filtered.length;
+  const otherMember = group.members.find(
+    (member) => member.target_id !== page[0]?.targetId,
+  )?.target_id;
+  const operations =
+    lbBindingOperations ??
+    (page[0] === undefined || otherMember === undefined
+      ? []
+      : [
+          {
+            ...lbBindingOperation(
+              page[0],
+              otherMember,
+              "pending_boundary",
+              "stub-move-1",
+              group.id,
+            ),
+          },
+        ]);
   return {
     response: {
-      groupRevision: 12,
+      groupRevision: 12 + lbBindingRouteBump,
       groupId: group.id,
       hasMore,
       items: page,
       limit: query.limit,
-      migration: "unavailable",
+      migration: "available",
+      migrationOperations: operations,
       nextOffset: hasMore ? query.offset + page.length : query.offset,
       nodes,
       now: LB_BINDING_NOW,
       offset: query.offset,
       pairId: pair.id,
-      runtimeEpoch: "stub-runtime-epoch",
+      runtimeEpoch: lbBindingRuntimeEpoch,
       targetFilter: query.targetId ?? null,
       totalBindings: filtered.length,
     },
@@ -1551,6 +1777,7 @@ export function resetFixtureData(): void {
   lbBindingFailure = null;
   lbBindingRound = 0;
   lbBindingVisualRows = null;
+  resetLbMoveState();
   pairsSaveIssues = null;
   modelCatalogOutcome = {
     models: [],

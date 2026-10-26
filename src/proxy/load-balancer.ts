@@ -195,6 +195,33 @@ export interface LoadBalancerBindingSnapshot {
   readonly entries: readonly LoadBalancerBindingEntry[];
 }
 
+/**
+ * What one group member would do as a destination for one binding, in the write gate's own
+ * code names. `code` is the one condition the gate stopped at, so a reader never sees a list
+ * of reasons the write would never have produced.
+ */
+export interface LoadBalancerMoveDestinationGate {
+  readonly targetId: string;
+  readonly eligible: boolean;
+  readonly code: MigrationRejectionCode | undefined;
+}
+
+/**
+ * What the same gates `moveBinding()` runs say about one binding: the condition that stops
+ * the binding itself from moving at all, and every group member as a candidate destination.
+ *
+ * This is a preview, not a second authority: `moveBinding()` re-runs these very predicates at
+ * submit and again at the write, so a "yes" here can only ever be a promise that the same
+ * question will be asked again. Reading it changes nothing - no TTL, no counter, no target,
+ * no reservation and no record - and it never writes an intent.
+ */
+export interface LoadBalancerMoveGates {
+  /** Why this binding may not move whatever the destination is, in the state gate's codes. */
+  readonly blocking: readonly MigrationRejectionCode[];
+  /** Every group member except the node the binding is already on. */
+  readonly destinations: readonly LoadBalancerMoveDestinationGate[];
+}
+
 export class LoadBalancer {
   readonly #pairId: string;
   readonly #options: LoadBalancerOptions;
@@ -1144,6 +1171,46 @@ export class LoadBalancer {
       groupId,
       groupRevision: this.#groupRevisions.get(groupId),
       entries,
+    };
+  }
+
+  /**
+   * [TRI-09] What the write gates would say about one binding right now, without writing
+   * anything. The binding-level answer is the state gate's own refusal, and each group member
+   * is judged by `#eligibilityRejection()` - the same function `moveBinding()` calls at submit
+   * and again inside `#attemptMove()`. That is the whole point of this entry: the list shows
+   * the server's decision instead of letting the console re-derive it from target URLs and
+   * model names, and the decision shown is the one the write will re-check.
+   *
+   * Nothing here is a reservation, a record or a promise: `inFlight > 0` is not consulted,
+   * because a binding with a request running can still have an intent registered for the next
+   * request boundary. Whether the submit would apply now or wait is the write's own answer.
+   * A binding that left the table, or a group this runtime no longer has, has nothing to
+   * report - the caller gets nothing rather than a list built on a binding that is gone.
+   */
+  moveGatesFor(groupId: string, ref: BindingRef): LoadBalancerMoveGates | undefined {
+    const binding = this.bindingForRef(ref);
+    if (binding === undefined) {
+      return undefined;
+    }
+    const group = this.#groupById.get(groupId);
+    if (group === undefined) {
+      return undefined;
+    }
+    const state = this.#stateRejection(binding);
+    const destinations = loadBalancerMemberTargetIds(group)
+      .filter((targetId) => targetId !== binding.targetId)
+      .map((targetId) => {
+        const rejection = this.#eligibilityRejection(groupId, binding, targetId);
+        return {
+          targetId,
+          eligible: rejection === undefined,
+          code: rejection?.code,
+        };
+      });
+    return {
+      blocking: state === undefined ? [] : [state.code],
+      destinations,
     };
   }
 

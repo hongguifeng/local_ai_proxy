@@ -528,6 +528,7 @@ describe("[AI-08] declared decisions through a running admin server", () => {
         "items",
         "limit",
         "migration",
+        "migrationOperations",
         "nextOffset",
         "nodes",
         "now",
@@ -581,8 +582,8 @@ describe("[AI-08] declared decisions through a running admin server", () => {
     );
 
     expect(field(bindingRow, "movable")["smuggled_movable_field"]).toBeUndefined();
-    expect(field(bindingRow, "movable")["reasons"]).toEqual(["in_flight"]);
-    expect(sortedKeys(field(bindingRow, "movable"))).toEqual(["ok", "reasons"]);
+    expect(field(bindingRow, "movable")["reasons"]).toEqual(["state_unknown"]);
+    expect(sortedKeys(field(bindingRow, "movable"))).toEqual(["destinations", "ok", "reasons"]);
     // The cost signal keeps the ledger's own names; the stub's `summaryPresent` and
     // `taskCount` are not declared and so never appear.
     const context = field(bindingRow, "context");
@@ -1061,7 +1062,7 @@ function adminStubs(): PartialAdminServerOptions {
                   lastSeenAt: 1,
                   model: "gpt-test",
                   movable: smuggle(
-                    { ok: false, reasons: ["in_flight"] },
+                    { destinations: [], ok: false, reasons: ["state_unknown"] },
                     "smuggled_movable_field",
                     "gone",
                   ),
@@ -1112,6 +1113,7 @@ function adminStubs(): PartialAdminServerOptions {
               ),
             ],
             runtimeEpoch: "epoch",
+            migrationOperations: [],
             totalBindings: 1,
           },
           "smuggled_list_field",
