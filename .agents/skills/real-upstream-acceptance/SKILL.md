@@ -48,7 +48,7 @@ description: >-
 - The summary model only sees `model`/`messages`/`input`/`instructions` (`prepareSummaryRequest`),
   so client identity has to travel as a separate `client` block. A summary endpoint also
   rejects any payload without a `segments` array (`parseSummaryPayload` in
-  `src/maintenance/log-query-service.ts`) with `summary_failed` and "did not return the
+  `src/maintenance/summary-answer.ts`) with `summary_failed` and "did not return the
   expected JSON shape".
 - The usage-statistics routes answer 400 when `from` and `to` are missing. Copy the query
   shapes from `probeUrl` in `test-node/admin/api-contract.test.ts` instead of inventing them.

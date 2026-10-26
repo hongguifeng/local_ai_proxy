@@ -58,16 +58,16 @@ description: >-
 - A collapsed section is too short for the sticky constraint, so `toggleLogGroupBody` aligns
   the header with the scrollport's content top (`logListContentTop`) before expanding;
   otherwise the header paints over the first record.
-- The record list pages 20 rows per request and expanding one level creates new lazy nodes,
-  so a deep record needs repeated `[data-load-more-records]` clicks and an assertion about
+- The record list reads 200 records when a group expands and appends 100 per
+  `[data-load-more-records]` click (`loadLogGroup` / `loadMoreLogGroup`), and expanding one
+  level creates new lazy nodes, so a deep record needs repeated clicks and an assertion about
   "every lazy node is done" can never pass — wait for the count that existed before the click.
 - Refresh contracts: the automatic tick re-reads every group already on screen, so its `limit`
   must stay inside `LOG_GROUP_PAGE_MAX_LIMIT` and a truncated page carries over the groups the
   user paged past (`mergeLogGroupSummaries` with `keepMissing`). `loadLogs` coalesces a request
   that arrives while another is in flight (`state.logsQueued`) instead of dropping it, and the
   pending-row sweep reads one rotating slice per tick (`PENDING_REFRESH_BATCH`,
-  `PENDING_REFRESH_CONCURRENCY`, `state.pendingSweepCursor`), so tests that count `detailReads`
-  only see the current batch.
+  `state.pendingSweepCursor`), so tests that count `detailReads` only see the current batch.
 - In-flight rows are swept through `GET /api/logs/records?ids=a,b` (body-free rows plus
   `pending`), because one detail read inflates every stored chunk of a record. Batch rows carry
   no bodies, so the selected record has to stay out of `refreshedIds` for its detail to be
