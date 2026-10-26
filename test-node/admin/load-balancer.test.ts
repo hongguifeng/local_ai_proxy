@@ -357,4 +357,32 @@ describe("GET /api/load-balancer/status", () => {
     });
     expect(verify.statusCode).toBe(404);
   });
+
+  it("TRI-01 the status payload counts bindings and never hands out a binding number", () => {
+    const balancer = new LoadBalancer("pair-a");
+    balancer.reconfigure(
+      pair("pair-a", [target("target-a", "http://127.0.0.1:1")], [group("lb-live", ["target-a"])]),
+    );
+    const table = balancer.tableFor("lb-live");
+    if (table === undefined) {
+      throw new Error("An enabled group must have an affinity table.");
+    }
+    const binding = table.bind(identityFor("session-addressing"), "target-a");
+    const configured = pair("pair-a", [], [group("lb-live", ["target-a"])]);
+
+    const status = createLoadBalancerAdminService(
+      source([configured], balancer, undefined),
+    ).getStatus();
+
+    expect(status.pairs[0]?.groups[0]?.bindings).toBe(1);
+    expect(status.pairs[0]?.groups[0]?.nodes[0]?.bindings).toBe(1);
+    // The status view is a count per node, never a handle to one binding: a binding number
+    // is only unique inside one runtime, so addressing by it across a restart would land on
+    // a different task. Publishing an addressable identity is TRI-05 work.
+    const serialized = JSON.stringify(status);
+    expect(serialized).not.toContain("bindingId");
+    expect(serialized).not.toContain("routingRevision");
+    expect(serialized).not.toContain(balancer.runtimeEpoch);
+    expect(balancer.bindingRefFor("lb-live", binding).runtimeEpoch).toBe(balancer.runtimeEpoch);
+  });
 });

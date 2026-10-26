@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 
 import {
   AFFINITY_TTL_MS,
+  INITIAL_ROUTING_REVISION,
   LoadAffinityTable,
   MAX_BINDINGS_PER_GROUP,
   MAX_BUCKET_SCAN,
@@ -454,5 +455,131 @@ describe("load affinity table", () => {
     const serialized = JSON.stringify(table.snapshot());
     expect(serialized).not.toContain(secret);
     expect(serialized).not.toContain("print");
+  });
+});
+
+describe("TRI-01 binding identity and versions", () => {
+  it("TRI-01 only a real target change moves the routing revision", () => {
+    const table = new LoadAffinityTable();
+    const payload = { ...responsesPayload("rules", ["one"]), prompt_cache_key: "cache-1" };
+    const first = identity(payload);
+    const binding = table.bind(first, "node-a");
+    expect(binding.incarnation).toBe(1);
+    expect(binding.routingRevision).toBe(INITIAL_ROUTING_REVISION);
+
+    // The same node, even through the rebinding path, is not a move.
+    const kept = table.bind(first, "node-a", { allowRebind: true });
+    expect(kept).toBe(binding);
+    expect(kept.routingRevision).toBe(INITIAL_ROUTING_REVISION);
+
+    // A move the caller did not allow does not happen, and does not move the version.
+    const refused = table.bind(first, "node-b");
+    expect(refused.targetId).toBe("node-a");
+    expect(refused.routingRevision).toBe(INITIAL_ROUTING_REVISION);
+
+    // An allowed move is visible on the binding itself.
+    const moved = table.bind(first, "node-b", { allowRebind: true });
+    expect(moved.targetId).toBe("node-b");
+    expect(moved.routingRevision).toBe(INITIAL_ROUTING_REVISION + 1);
+
+    // rebind() follows the same rule: a no-op keeps the version, a move adds one.
+    expect(table.rebind(moved, "node-b")).toBe(true);
+    expect(moved.routingRevision).toBe(INITIAL_ROUTING_REVISION + 1);
+    expect(table.rebind(moved, "node-c")).toBe(true);
+    expect(moved.targetId).toBe("node-c");
+    expect(moved.routingRevision).toBe(INITIAL_ROUTING_REVISION + 2);
+  });
+
+  it("TRI-01 a freed binding number is never handed out again by the same table", () => {
+    const table = new LoadAffinityTable();
+    const first = table.bind(identity(responsesPayload("rules", ["one"])), "node-a");
+    const second = table.bind(identity(responsesPayload("rules", ["two"])), "node-a");
+    expect(second.id).toBe(first.id + 1);
+    expect(second.incarnation).toBe(first.incarnation + 1);
+
+    table.remove(first);
+    const third = table.bind(identity(responsesPayload("rules", ["three"])), "node-a");
+    expect(third.id).not.toBe(first.id);
+    expect(third.incarnation).toBe(second.incarnation + 1);
+    expect(table.bindingForId(first.id)).toBeUndefined();
+  });
+
+  it("TRI-01 a table can share the incarnation counter of its runtime", () => {
+    let allocated = 10;
+    const table = new LoadAffinityTable({
+      nextIncarnation: () => {
+        allocated += 1;
+        return allocated;
+      },
+    });
+    const first = table.bind(identity(responsesPayload("rules", ["one"])), "node-a");
+    const second = table.bind(identity(responsesPayload("rules", ["two"])), "node-a");
+
+    expect(first.incarnation).toBe(11);
+    expect(second.incarnation).toBe(12);
+    expect(allocated).toBe(12);
+  });
+
+  it("TRI-01 looking a binding up by number changes nothing", () => {
+    const time = clock();
+    const table = new LoadAffinityTable({ now: time.now });
+    const payload = { ...responsesPayload("rules", ["one"]), prompt_cache_key: "cache-1" };
+    const binding = table.bind(identity(payload), "node-a");
+    const seenAt = binding.lastSeenAt;
+    const counted = binding.requestCount;
+
+    time.advance(500);
+    expect(table.bindingForId(binding.id)).toBe(binding);
+    expect(binding.lastSeenAt).toBe(seenAt);
+    expect(binding.requestCount).toBe(counted);
+    expect(table.bindingForId(binding.id + 1)).toBeUndefined();
+  });
+
+  it("TRI-01 a late response id write cannot bring an evicted binding back", () => {
+    const time = clock();
+    const table = new LoadAffinityTable({ now: time.now, ttlMs: 1_000 });
+    const payload = { ...responsesPayload("rules", ["one"]), prompt_cache_key: "cache-1" };
+    const binding = table.bind(identity(payload), "node-a");
+    table.attachResponseIds(binding, ["resp-1"]);
+
+    time.advance(1_200);
+    expect(table.sweepExpired()).toBe(1);
+    expect(table.size).toBe(0);
+    expect(table.bindingForExactKey("response:resp-1")).toBeUndefined();
+
+    // A response that finished after the eviction teaches the table nothing: writing its
+    // ids back would put an object the table removed back into the exact index.
+    table.attachResponseIds(binding, ["resp-2", ""]);
+    expect(table.size).toBe(0);
+    expect(table.snapshot()).toStrictEqual({ bindings: 0, exactKeys: 0, buckets: 0, byTarget: {} });
+    expect(table.bindingForExactKey("response:resp-2")).toBeUndefined();
+    expect(table.bindingForId(binding.id)).toBeUndefined();
+    expect(binding.routingRevision).toBe(INITIAL_ROUTING_REVISION);
+    expect(
+      table.lookup(
+        identity({ ...responsesPayload("rules", ["two"]), previous_response_id: "resp-2" }),
+      ),
+    ).toBeUndefined();
+  });
+
+  it("TRI-01 a late rebind of an evicted binding is refused", () => {
+    const time = clock();
+    const table = new LoadAffinityTable({
+      now: time.now,
+      maxBindingsPerGroup: 1,
+      maxBucketSize: 32,
+    });
+    const kept = table.bind(identity(responsesPayload("rules", ["kept"])), "node-a");
+    time.advance(10);
+    table.bind(identity(responsesPayload("rules", ["doomed"])), "node-a");
+
+    // The group cap dropped the first binding; a reference that arrives afterwards cannot
+    // rewrite it, and cannot rewrite the table either.
+    expect(table.size).toBe(1);
+    expect(table.bindingForId(kept.id)).toBeUndefined();
+    expect(table.rebind(kept, "node-b")).toBe(false);
+    expect(kept.targetId).toBe("node-a");
+    expect(kept.routingRevision).toBe(INITIAL_ROUTING_REVISION);
+    expect(table.snapshot().byTarget).toStrictEqual({ "node-a": 1 });
   });
 });

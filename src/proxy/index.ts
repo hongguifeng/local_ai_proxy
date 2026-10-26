@@ -127,6 +127,14 @@ export {
   type LoadSample,
 } from "./load-balancer.js";
 export {
+  INITIAL_GROUP_REVISION,
+  INITIAL_ROUTING_REVISION,
+  MIGRATION_TRANSITIONS,
+  isMigrationTransitionAllowed,
+  type BindingRef,
+  type MigrationState,
+} from "./load-migration-contract.js";
+export {
   parseInjectRequestFields,
   parseStripRequestFields,
   transformRequestJsonFields,

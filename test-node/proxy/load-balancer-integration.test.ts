@@ -814,6 +814,8 @@ describe("load balancing end to end", () => {
     }
     expect(affinity.snapshot().byTarget["target-alive"]).toBe(1);
     expect(affinity.snapshot().byTarget["target-dead"]).toBeUndefined();
+    // TRI-01: one switch, one routing revision, on the binding that survived it.
+    expect(affinity.bindingForId(1)?.routingRevision).toBe(1);
     expect(balancer.inFlight("target-alive")).toBe(0);
     expect(balancer.inFlight("target-dead")).toBe(0);
 

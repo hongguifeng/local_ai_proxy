@@ -1,5 +1,6 @@
 import { stableJsonStringify } from "../shared/index.js";
 
+import { INITIAL_ROUTING_REVISION } from "./load-migration-contract.js";
 import { stableHash, type EndpointKind } from "./protocol/analysis.js";
 import { userHashPrefixMatches, type TaskIdentity } from "./protocol/task-identity.js";
 
@@ -24,6 +25,13 @@ export interface LoadAffinityOptions {
   readonly maxBucketSize?: number | undefined;
   readonly maxBucketScan?: number | undefined;
   readonly now?: (() => number) | undefined;
+  /**
+   * Allocator for binding incarnations. A pair runtime shares one allocator across all of
+   * its group tables, so a rebuilt table cannot hand out an incarnation that a reference
+   * from earlier in the same runtime still points at. Without one the table counts on its
+   * own, which is only unique inside that table.
+   */
+  readonly nextIncarnation?: (() => number) | undefined;
 }
 
 /** What a binding keeps. Only hashes and ids, never request text. */
@@ -36,8 +44,21 @@ export interface AffinityEvidence {
 }
 
 export interface AffinityBinding {
+  /** Unique inside this table, and only inside it: never an identifier on its own. */
   readonly id: number;
+  /**
+   * Unique inside one pair runtime. It is allocated once when the binding is created and
+   * never rewritten, so a reference that carries it can only name the binding object it was
+   * taken from, never a later binding that happened to reuse the numeric `id`.
+   */
+  readonly incarnation: number;
   targetId: string;
+  /**
+   * Version of this binding's target. It starts at `INITIAL_ROUTING_REVISION` and moves by
+   * one every time the target actually changes, so every path that moves a task - a rebind,
+   * a rebinding `bind()`, a failover - is observable from a stale reference.
+   */
+  routingRevision: number;
   readonly bucketKey: string;
   readonly evidence: AffinityEvidence;
   lastSeenAt: number;
@@ -77,6 +98,8 @@ export class LoadAffinityTable {
   readonly #bindings = new Map<number, AffinityBinding>();
   readonly #exactIndex = new Map<string, AffinityBinding>();
   readonly #buckets = new Map<string, AffinityBinding[]>();
+  readonly #allocateIncarnation: () => number;
+  #localNextIncarnation = 1;
   #nextId = 1;
 
   constructor(options: LoadAffinityOptions = {}) {
@@ -85,6 +108,13 @@ export class LoadAffinityTable {
     this.#maxBucketSize = options.maxBucketSize ?? MAX_BUCKET_SIZE;
     this.#maxBucketScan = options.maxBucketScan ?? MAX_BUCKET_SCAN;
     this.#now = options.now ?? Date.now;
+    this.#allocateIncarnation =
+      options.nextIncarnation ??
+      (() => {
+        const allocated = this.#localNextIncarnation;
+        this.#localNextIncarnation += 1;
+        return allocated;
+      });
   }
 
   get size(): number {
@@ -146,7 +176,11 @@ export class LoadAffinityTable {
     return undefined;
   }
 
-  /** Create or refresh the binding for a request and return it. */
+  /**
+   * Create or refresh the binding for a request and return it. Moving an existing binding
+   * to another node - the `allowRebind` path `plan()` uses, and the one a failover takes -
+   * also moves its routing revision, so a caller that saw the old target can tell.
+   */
   bind(
     identity: TaskIdentity,
     targetId: string,
@@ -158,6 +192,7 @@ export class LoadAffinityTable {
         if (!options.allowRebind) {
           return hit.binding;
         }
+        hit.binding.routingRevision += 1;
         hit.binding.targetId = targetId;
       }
       this.#registerExactKeys(hit.binding, identity.exactKeys);
@@ -166,7 +201,9 @@ export class LoadAffinityTable {
 
     const binding: AffinityBinding = {
       id: this.#nextId++,
+      incarnation: this.#allocateIncarnation(),
       targetId,
+      routingRevision: INITIAL_ROUTING_REVISION,
       bucketKey: bucketKeyFor(identity),
       evidence: evidenceFor(identity),
       lastSeenAt: this.#now(),
@@ -184,16 +221,34 @@ export class LoadAffinityTable {
     return binding;
   }
 
-  /** Point this binding at another node after a failover, keeping its identity. */
-  rebind(binding: AffinityBinding, targetId: string): void {
+  /**
+   * Point this binding at another node after a failover, keeping its identity. Returns
+   * false when the binding is no longer in the table: a reference that arrives after a TTL,
+   * LRU or prune eviction must not rewrite a binding the table already gave up on.
+   */
+  rebind(binding: AffinityBinding, targetId: string): boolean {
+    if (this.#bindings.get(binding.id) !== binding) {
+      return false;
+    }
     const now = this.#now();
-    binding.targetId = targetId;
+    if (binding.targetId !== targetId) {
+      binding.routingRevision += 1;
+      binding.targetId = targetId;
+    }
     binding.lastSeenAt = now;
     binding.lastBoundAt = now;
+    return true;
   }
 
-  /** Learn the response ids a completed response produced for this binding. */
+  /**
+   * Learn the response ids a completed response produced for this binding. A response that
+   * finished after its binding was evicted teaches nothing: writing the keys back would put
+   * an object the table removed back into the exact index.
+   */
   attachResponseIds(binding: AffinityBinding, responseIds: readonly string[]): void {
+    if (this.#bindings.get(binding.id) !== binding) {
+      return;
+    }
     const keys = responseIds
       .filter((responseId) => responseId !== "")
       .map((responseId) => `response:${responseId}`);
@@ -265,6 +320,15 @@ export class LoadAffinityTable {
 
   bindingForExactKey(exactKey: string): AffinityBinding | undefined {
     return this.#exactIndex.get(exactKey);
+  }
+
+  /**
+   * Look a binding up by its numeric id without touching its TTL or its counters. The id is
+   * only unique inside this table, so a caller that came from further away must still check
+   * the incarnation before it writes anything.
+   */
+  bindingForId(bindingId: number): AffinityBinding | undefined {
+    return this.#bindings.get(bindingId);
   }
 
   #usable(

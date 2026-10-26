@@ -488,6 +488,71 @@ describe("ProxyRuntimeRegistry", () => {
     }
   });
 
+  it("TRI-01 keeps the runtime epoch across an in-place reload and replaces it on a restart", async () => {
+    const upstream = http.createServer((_request, response) => response.end("balanced"));
+    const upstreamPort = await listen(upstream);
+    const logRoot = await mkdtemp(path.join(os.tmpdir(), "llm-proxy-runtime-epoch-"));
+    const registry = new ProxyRuntimeRegistry();
+    const pair = loadBalancedPairFixture(upstreamPort, logRoot);
+
+    try {
+      await registry.startPair(pair);
+      const balancer = registry.loadBalancer(pair.id);
+      if (balancer === undefined) {
+        throw new Error("Starting a pair must create its load balancer.");
+      }
+      const table = balancer.tableFor("runtime-lb");
+      if (table === undefined) {
+        throw new Error("An enabled group must have an affinity table.");
+      }
+      const startedEpoch = registry.runtimeEpoch(pair.id);
+      expect(startedEpoch).toBe(balancer.runtimeEpoch);
+
+      const binding = table.bind(affinityEvidence("epoch-session"), "runtime-target");
+      const ref = balancer.bindingRefFor("runtime-lb", binding);
+
+      // A reload that keeps the listener keeps the runtime: the same reference still works.
+      await registry.reloadPair(pair);
+      expect(registry.runtimeEpoch(pair.id)).toBe(startedEpoch);
+      expect(registry.loadBalancer(pair.id)).toBe(balancer);
+      expect(balancer.bindingForRef(ref)).toBe(binding);
+
+      // Stopping drops the epoch, so there is nothing for an old reference to address.
+      await registry.stopPair(pair.id);
+      expect(registry.runtimeEpoch(pair.id)).toBeUndefined();
+      expect(balancer.bindingForRef(ref)).toBeUndefined();
+
+      // The next start is a new runtime, and it numbers its bindings from one again.
+      await registry.startPair(pair);
+      const restarted = registry.loadBalancer(pair.id);
+      if (restarted === undefined) {
+        throw new Error("Starting a pair must create its load balancer.");
+      }
+      const restartedEpoch = registry.runtimeEpoch(pair.id);
+      expect(restartedEpoch).toBeDefined();
+      expect(restartedEpoch).not.toBe(startedEpoch);
+      const restartedTable = restarted.tableFor("runtime-lb");
+      if (restartedTable === undefined) {
+        throw new Error("An enabled group must have an affinity table.");
+      }
+      const newcomer = restartedTable.bind(affinityEvidence("epoch-session-two"), "runtime-target");
+      expect(newcomer.id).toBe(ref.bindingId);
+      expect(restarted.bindingForRef(ref)).toBeUndefined();
+
+      // A release that belongs to the previous runtime cannot move the new one's ledger.
+      balancer.reserve("localhost-target");
+      balancer.release("localhost-target");
+      expect(restarted.inFlight("localhost-target")).toBe(0);
+      expect(restarted.bindingForRef(restarted.bindingRefFor("runtime-lb", newcomer))).toBe(
+        newcomer,
+      );
+    } finally {
+      await registry.stopAll();
+      await close(upstream);
+      await rm(logRoot, { force: true, recursive: true, maxRetries: 5, retryDelay: 100 });
+    }
+  });
+
   it("LB11-07 keeps affinity, reservations and sampling alive across a live reload", async () => {
     const slow = await startStickyEngine("slow", 250);
     const fast = await startStickyEngine("fast", 0);

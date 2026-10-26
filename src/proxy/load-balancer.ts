@@ -6,8 +6,10 @@ import type {
 } from "../config/index.js";
 
 import { loadBalancerMemberTargetIds } from "../config/index.js";
+import { createRequestId, stableJsonStringify } from "../shared/index.js";
 
 import { LoadAffinityTable, type AffinityBinding } from "./load-affinity.js";
+import { INITIAL_GROUP_REVISION, type BindingRef } from "./load-migration-contract.js";
 import { tryCanonicalNodeKey } from "./node-identity.js";
 import { modelPatternMatches } from "./routing.js";
 import type { TaskIdentity } from "./protocol/task-identity.js";
@@ -75,10 +77,13 @@ export interface LoadBalancerDecision {
 /**
  * A synchronous choice. The caller owns the reservation: `release` must run once, no
  * matter whether the response finished, the client went away or the upstream failed.
+ * `bindingRef` is the identity this reservation was created with, so a late release or a
+ * late write can be checked against the current table instead of guessing by number.
  */
 export interface LoadBalancerReservation {
   readonly decision: LoadBalancerDecision;
   readonly binding: AffinityBinding;
+  readonly bindingRef: BindingRef;
   markDispatched(now?: number): void;
   release(): void;
 }
@@ -115,6 +120,20 @@ export interface LoadBalancerSnapshot {
 export class LoadBalancer {
   readonly #pairId: string;
   readonly #options: LoadBalancerOptions;
+  /**
+   * Identity of this runtime. A LoadBalancer instance is the pair's long-lived state: built
+   * when the pair starts, kept through a reload that leaves the listener alone, dropped when
+   * the pair stops and replaced by a new one on the next start. So the value created here
+   * changes exactly when the design says it must - pair stop, pair restart, process restart -
+   * and survives exactly when it must not.
+   */
+  readonly #runtimeEpoch: string = createRequestId();
+  #groupRevisions = new Map<string, number>();
+  #groupSignatures = new Map<string, string>();
+  /** Revisions of groups that left the configuration, kept so a number is never replayed. */
+  #retiredGroupRevisions = new Map<string, number>();
+  /** One allocator for every table of this runtime, so incarnations never repeat here. */
+  #nextIncarnation = 1;
   #nodes = new Map<string, LoadBalancerNode>();
   readonly #tables = new Map<string, LoadAffinityTable>();
   readonly #reservations = new Map<string, number>();
@@ -128,6 +147,11 @@ export class LoadBalancer {
 
   get pairId(): string {
     return this.#pairId;
+  }
+
+  /** The runtime every binding reference from this balancer carries. */
+  get runtimeEpoch(): string {
+    return this.#runtimeEpoch;
   }
 
   /** Apply a new configuration without dropping anything that is still valid. */
@@ -155,6 +179,7 @@ export class LoadBalancer {
       next.set(target.id, node);
     }
     this.#nodes = next;
+    this.#syncGroupVersions(pair);
 
     const groups = new Map<string, LoadBalancerGroup>();
     for (const group of pair.load_balancers) {
@@ -168,7 +193,7 @@ export class LoadBalancer {
     }
     for (const groupId of groups.keys()) {
       if (!this.#tables.has(groupId)) {
-        this.#tables.set(groupId, new LoadAffinityTable(this.#options));
+        this.#tables.set(groupId, this.#newTable());
       }
     }
 
@@ -213,6 +238,48 @@ export class LoadBalancer {
 
   tableFor(groupId: string): LoadAffinityTable | undefined {
     return this.#tables.get(groupId);
+  }
+
+  /**
+   * The group's current version. A caller that saw an older number is stale: the bindings
+   * may still be valid, but the target configuration behind them is not what was checked.
+   * Nothing is handed out for a group this runtime never had, and a number is never reused.
+   */
+  groupRevision(groupId: string): number | undefined {
+    return this.#groupRevisions.get(groupId);
+  }
+
+  /** The identity a caller has to carry to address this binding. */
+  bindingRefFor(groupId: string, binding: AffinityBinding): BindingRef {
+    return {
+      runtimeEpoch: this.#runtimeEpoch,
+      groupId,
+      bindingId: binding.id,
+      routingRevision: binding.routingRevision,
+      incarnation: binding.incarnation,
+    };
+  }
+
+  /**
+   * Resolve a binding reference against this runtime. Four different things make a reference
+   * dead, and all four resolve to nothing: a runtime that has since been replaced, a group
+   * that disappeared, a binding that was evicted, and a numeric id a rebuilt table handed to
+   * a different binding. A late write therefore can only ever reach the binding it was
+   * created with, never the one that happens to share its number.
+   */
+  bindingForRef(ref: BindingRef): AffinityBinding | undefined {
+    if (ref.runtimeEpoch !== this.#runtimeEpoch) {
+      return undefined;
+    }
+    const table = this.#tables.get(ref.groupId);
+    if (table === undefined) {
+      return undefined;
+    }
+    const binding = table.bindingForId(ref.bindingId);
+    if (binding === undefined) {
+      return undefined;
+    }
+    return binding.incarnation === ref.incarnation ? binding : undefined;
   }
 
   groupIds(): readonly string[] {
@@ -400,12 +467,71 @@ export class LoadBalancer {
     return this.#reservations.get(targetId) ?? 0;
   }
 
+  /** A table of this runtime: its bindings get incarnations from the runtime's allocator. */
+  #newTable(): LoadAffinityTable {
+    return new LoadAffinityTable({
+      ...this.#options,
+      nextIncarnation: () => {
+        const allocated = this.#nextIncarnation;
+        this.#nextIncarnation += 1;
+        return allocated;
+      },
+    });
+  }
+
+  /**
+   * Version every group against its routing signature. A group keeps its revision while
+   * nothing that changes routing moved; a material change - a target URL, a forwarded model
+   * name, a request transform, a log root, membership or an enabled flag - bumps it, so an
+   * intent registered under the old number is now visibly stale. A number is never handed
+   * out twice inside one runtime: a group that comes back gets the next revision after the
+   * one it retired, not the one it had before it disappeared.
+   */
+  #syncGroupVersions(pair: ProxyPair): void {
+    const targetsById = new Map<string, TargetConfig>();
+    for (const target of pair.targets) {
+      targetsById.set(target.id, target);
+    }
+
+    const revisions = new Map<string, number>();
+    const signatures = new Map<string, string>();
+    for (const group of pair.load_balancers) {
+      const signature = groupRoutingSignature(group, targetsById);
+      const previousRevision = this.#groupRevisions.get(group.id);
+      const previousSignature = this.#groupSignatures.get(group.id);
+      const revision =
+        previousRevision === undefined
+          ? (this.#retiredGroupRevisions.get(group.id) ?? 0) + INITIAL_GROUP_REVISION
+          : previousSignature === signature
+            ? previousRevision
+            : previousRevision + 1;
+      revisions.set(group.id, revision);
+      signatures.set(group.id, signature);
+    }
+
+    const retired = new Map(this.#retiredGroupRevisions);
+    for (const [groupId, revision] of this.#groupRevisions) {
+      if (!revisions.has(groupId)) {
+        retired.set(groupId, revision);
+      }
+    }
+    for (const groupId of revisions.keys()) {
+      retired.delete(groupId);
+    }
+
+    this.#groupRevisions = revisions;
+    this.#groupSignatures = signatures;
+    this.#retiredGroupRevisions = retired;
+  }
+
   #reservation(binding: AffinityBinding, decision: LoadBalancerDecision): LoadBalancerReservation {
     const targetId = decision.targetId;
+    const bindingRef = this.bindingRefFor(decision.groupId, binding);
     let released = false;
     return {
       decision,
       binding,
+      bindingRef,
       markDispatched: (now?: number): void => {
         this.markDispatched(targetId, now);
       },
@@ -518,6 +644,11 @@ export class LoadBalancer {
     return ordered[0]?.node;
   }
 
+  /**
+   * Drop everything the request path owns: bindings and reservations. The group version
+   * counters stay, because they belong to this runtime and must never hand out the same
+   * number twice should the pair be configured again before it is replaced.
+   */
   clear(): void {
     for (const table of this.#tables.values()) {
       table.clear();
@@ -547,6 +678,48 @@ export class LoadBalancer {
 
 function canonicalKeyFor(target: TargetConfig): string {
   return tryCanonicalNodeKey(target.target_url) ?? target.target_url;
+}
+
+/**
+ * What makes a group route differently: which nodes it may use and what each of them
+ * receives, plus the group's own model pattern, strategy, sampling and failover switches.
+ * Only how a group is named is left out, because a rename sends the same request to the
+ * same node, and a binding that still points at that node under those rules is still the
+ * binding it was.
+ */
+function groupRoutingSignature(
+  group: LoadBalancerGroup,
+  targetsById: ReadonlyMap<string, TargetConfig>,
+): string {
+  return stableJsonStringify({
+    enabled: group.enabled,
+    failoverEnabled: group.failover_enabled,
+    members: group.members.map((member) => ({
+      modelId: member.model_id,
+      routing: targetRoutingSettings(targetsById.get(member.target_id)),
+      targetId: member.target_id,
+    })),
+    metricsEnabled: group.metrics_enabled,
+    modelPattern: group.model_pattern,
+    strategy: group.strategy,
+  });
+}
+
+/** The part of a target that changes what the node receives or where its log goes. */
+function targetRoutingSettings(target: TargetConfig | undefined): Record<string, unknown> | null {
+  if (target === undefined) {
+    // The member names a target that is no longer in the pair.
+    return null;
+  }
+  return {
+    enabled: target.enabled,
+    injectRequestFields: target.inject_request_fields,
+    logRoot: target.log_root,
+    modelMappings: target.model_mappings,
+    stripRequestFields: target.strip_request_fields,
+    targetHeaders: target.target_headers,
+    targetUrl: target.target_url,
+  };
 }
 
 function freshSample(sample: LoadSample | undefined, now: number): LoadSample | undefined {

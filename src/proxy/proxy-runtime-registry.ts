@@ -101,6 +101,17 @@ export class ProxyRuntimeRegistry {
     return this.#entry(pairId).loadMonitor;
   }
 
+  /**
+   * The identity of the pair's current runtime, or nothing while it is not running. A reload
+   * that keeps the listener keeps the value, because the balancer that carries it is reused;
+   * stopping the pair drops it and the next start builds a new one. That is what lets a
+   * management reference from an older runtime be refused instead of applied to a binding
+   * that only looks like the one it was taken from.
+   */
+  runtimeEpoch(pairId: string): string | undefined {
+    return this.#entry(pairId).loadBalancer?.runtimeEpoch;
+  }
+
   diagnostics(): ProxyRuntimeDiagnostics {
     let activeRequests = 0;
     let resourcePairs = 0;

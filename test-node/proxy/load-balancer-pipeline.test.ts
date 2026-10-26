@@ -1363,6 +1363,19 @@ describe("connection failover and refused groups", () => {
     expect(balancer.inFlight("target-refused")).toBe(0);
     expect(balancer.inFlight("target-healthy")).toBe(0);
 
+    // TRI-01: the switch moved the task, and the move is visible on the binding itself.
+    // Looking the binding up by number does not touch its TTL or its counters.
+    const failoverTable = balancer.tableFor("lb-failover");
+    if (failoverTable === undefined) {
+      throw new Error("An enabled group must have an affinity table.");
+    }
+    const movedBinding = failoverTable.bindingForId(1);
+    if (movedBinding === undefined) {
+      throw new Error("The task must still carry its binding.");
+    }
+    expect(movedBinding.targetId).toBe("target-healthy");
+    expect(movedBinding.routingRevision).toBe(1);
+
     // LB07-05: the task now belongs to the node that answered, not the one that refused.
     const second = echoed(
       (
@@ -1378,6 +1391,8 @@ describe("connection failover and refused groups", () => {
     expect(routeOf(eventRecords(records, "request_finished")[1])).toMatchObject({
       load_balance: { decision: "affinity", failover_from: null },
     });
+    // TRI-01: a follow-up that stays on the node the failover chose moves no revision.
+    expect(movedBinding.routingRevision).toBe(1);
 
     await listener.close();
     await close(healthy.server);
