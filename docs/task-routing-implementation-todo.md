@@ -1,6 +1,6 @@
 # Task 路由功能实现 TODO
 
-基线：`1c983a10751aaf102a55e223a92e09c1b74e6391`。设计权威：[Task 路由观测、手动迁移与自动再均衡设计](./task-routing-design.md)。当前状态：8 / 12 项验收通过；TRI-08 的两轮返工与 TRI-06 的三个提交（原实现、复审返工、行上限修正）都已通过父代理独立复审并按顺序整合进主 checkout；TRI-09 已实现、待父代理独立复审，本清单不自接为 9 / 12：迁移控件、`POST`/`DELETE` 接线与真实浏览器请求闭环都已落地并在本 lane 的一个提交里，但尚未被任何人接为验收通过，自动策略同样未验收。控件以后又过了两轮：`6652d21` 把一个答复留在发出它的那一页，`c13260a` 把 dispose 与换代时还在途的写当场摘下并留下冻结的重放，两轮的验收都还挂在父代理那里。
+基线：`1c983a10751aaf102a55e223a92e09c1b74e6391`。设计权威：[Task 路由观测、手动迁移与自动再均衡设计](./task-routing-design.md)。当前状态：9 / 12 项验收通过——TRI-09 已由父代理独立复审通过，并按显式顺序的 9 个提交整合进主 checkout（source 到主树 hash 的对应、父代理的独立漏洞探针与本轮 gate/视觉/打包/冒烟/ABI 证据都在下面的「TRI-09 整合与交付（主树）」一节）；TRI-08 的两轮返工与 TRI-06 的三个提交（原实现、复审返工、行上限修正）也都已通过父代理独立复审并按顺序整合进主 checkout；TRI-10、TRI-11、TRI-12（advise、真实引擎校准、自动执行与最终收口）未开始、未验收。TRI-09 交付期间的状态当时记的是「已实现、待父代理独立复审，本清单不自接为 9 / 12」：迁移控件、`POST`/`DELETE` 接线与真实浏览器请求闭环都已落地并在本 lane 的一个提交里，当时尚未被任何人接为验收通过；控件以后又过了两轮，`6652d21` 把一个答复留在发出它的那一页，`c13260a` 把 dispose 与换代时还在途的写当场摘下并留下冻结的重放，当时两轮的验收都还挂在父代理那里——这两轮连同首提交一起已通过父代理独立复审并在整合阶段收口，上面那句「待复审」与「仍记 8 / 12」保留为当时的记录。
 
 本文是供本地 AI 按依赖顺序执行的开发清单。每项任务都必须完成实现、测试、文档同步和本项验收后才能标记为完成。研究稿、模型比较文档和历史负载均衡文档只提供背景，不得覆盖设计权威中的状态、并发和安全合同。
 
@@ -71,7 +71,7 @@
 | [x]  | TRI-06 | P1     | 实现节点 binding 列表 UI             | TRI-05                 | 已完成 |
 | [x]  | TRI-07 | P1     | 实现统一安全迁移服务                 | TRI-01、TRI-02、TRI-03 | 已完成 |
 | [x]  | TRI-08 | P1     | 实现手动迁移 API、幂等和生命周期处理 | TRI-04、TRI-05、TRI-07 | 已完成 |
-| [ ]  | TRI-09 | P1     | 实现手动迁移 UI 和真实请求验证       | TRI-06、TRI-08         | 已实现，待父代理复审 |
+| [x]  | TRI-09 | P1     | 实现手动迁移 UI 和真实请求验证       | TRI-06、TRI-08         | 已完成 |
 | [ ]  | TRI-10 | P2     | 实现 advise 模式和建议状态           | TRI-03、TRI-07、TRI-09 | 未开始 |
 | [ ]  | TRI-11 | P2     | 真实引擎校准并决定是否开启 auto      | TRI-10                 | 未开始 |
 | [ ]  | TRI-12 | P2     | 自动执行、最终回归和交付收口         | TRI-11                 | 未开始 |
@@ -1177,7 +1177,9 @@
 
 ### TRI-09
 
-- 状态：已实现，待父代理独立复审（本清单仍记 8 / 12，不自接为 9 / 12）。本 lane 交四个提交：
+- 状态：已完成。父代理独立复审已通过，本 lane 的 9 个提交在整合阶段按显式顺序 cherry-pick 进主 checkout，
+  本清单记 **9 / 12**；下面这一段保留的是交付当时记的状态——「已实现，待父代理独立复审（本清单仍记
+  8 / 12，不自接为 9 / 12）」。本 lane 交四个提交：
   `d24af5b`（d24af5be3f881c33b546ed67e12daadf1d3d7417）交产品与测试，`04b4d2d`交基线截图与它的哈希行，
   `337853d`交设计、本清单与两份 README，`d61309f`只交上面那个端口修正；四个都只在
   `D:/code/local_ai_proxy-wt-tri09`，没有 push、没有 version/tag、没有进主 checkout，也没有跑便携版
@@ -1295,12 +1297,76 @@
     自己的映射回答 409 `binding_stale`，提示 + 服务端原句 detail）、`lb-{zh,en}-1278-move-operations.png`
     （`setLbBindingMigrationOperations` 四条记录 `applied` / `observed` / `cancelled` / `expired_after_apply`
     同时在场）。覆盖是两语言 × 宽 1278 / 窄 380，不是每个状态四份重复。
-  - 仍在的真实限制：本页只认行上的重试，行不在本页时只在行下说一句，本轮不做 off-page 重放；一次
-    成功的回执会被用户的新意图覆盖，不建无限历史，操作的当前事实以列表 GET 为准；取消 claim 由发起它
-    的 attempt 释放，代际换了不锁死按钮，但也不同步告诉用户“取消成功了还是失败了”（操作块自己说）；
-    真实装配里 pending 真取消、跨 runtime 迟到回答与 `expired_after_apply` 仍未走一遍；便携版打包、
-    `smoke:delivery` 与 `abi:node` 仍留给整合阶段。本清单仍记 **8 / 12**，TRI-09 返工与本轮的基线/文档
-    都**待父代理独立复审**，不由本 lane 自接为验收通过。
+  - 仍在的真实限制：本页只认行上的重试，行不在本页时只在行下说一句，本轮不做 off-page 重放（页外
+    只提示，没有重放控件）；一次成功的回执会被用户的新意图覆盖，不建无限历史，操作的当前事实以列表
+    GET 为准；取消 claim 由发起它的 attempt 释放，代际换了不锁死按钮，但也不同步告诉用户“取消成功了
+    还是失败了”（操作块自己说）；真实装配里 pending 真取消、跨 runtime 迟到回答与 `expired_after_apply`
+    仍未走一遍，这三条目前只有 API 与 UI 桩用例覆盖。便携版打包、`smoke:delivery` 与 `abi:node` 当时
+    留给整合阶段，现在都已在整合阶段实跑通过（见下一节）。本清单当时记 **8 / 12**、TRI-09 返工与本轮
+    的基线/文档都**待父代理独立复审**、不由本 lane 自接为验收通过——那是交付当时的状态；父代理独立复审
+    已通过，本清单现记 **9 / 12**。
+
+#### TRI-09 整合与交付（主树）
+
+- 状态：已完成。父代理独立复审通过后，在 `D:/code/local_ai_proxy`（开工时 HEAD `eee78a0`，工作树干净）
+  按显式顺序 cherry-pick 本 lane 的 9 个提交：不 reset 整树、不改历史、不丢已验收行为，9 个全部无冲突。
+  主树整合后的 HEAD tree 与 lane `2c382b3` 的 tree 完全相同（`dc7757a3abb901205822e62384f706b03017b50d`），
+  这比“数提交个数”更强：它证明 9 个都落地且内容一字不差。source → 主树 hash：`d24af5b`→`b9a91ae`
+  （产品与测试，+22 条声明）、`04b4d2d`→`567575e`（负载均衡基线与它的哈希行）、`337853d`→`f1085b1`
+  （文档）、`d61309f`→`9db87ea`（真实 app 用例的端口修正）、`4180999`→`39b0bc3`（文档更正）、
+  `6652d21`→`20c55f7`（答复留在发出它的那一页，+9 条 UI）、`c13260a`→`dfc9ca8`（dispose 与换代同步
+  detach，+4 条 UI）、`c80430b`→`9d8a292`（历史基线一张与它的哈希行）、`2c382b3`→`1c1f54c`（最终文档）。
+  整合之后的状态收口与下面那条基线归因修正另成两个文档提交，不混进上面九个里。
+- 父代理的独立证据（不是本 lane 的自述）：先用三条漏洞探针把控件的缺陷一个个实证出来，最后用一条
+  同一代（same epoch）旧失败的探针实证修复后的行为；修复后独立跑四条关键用例为 4 pass、53 skip
+  （lane `.pi/parent-review/final-lifecycle.log`），正式负载均衡 UI 整文件 57 pass
+  （lane `.pi/tri09-final/lbui-full-1.log`），更早那一轮的 runtime 加真实 SSE 10 pass。真实 SSE 那条开的是
+  产品自己的 app、proxy、admin 与页面，只有上游是本地可控 HTTP：多个 frame 的第一帧先 flush、界面 latch
+  到 `pending_boundary` 且源节点不换，放行到完整 `[DONE]` 之后才在这个边界上 `applied`，下一份同身份请求
+  真的带着目的地的响应头到达，`observed` 与落库元数据才成立。这条链证明的是产品自己的 HTTP 路径与生命
+  周期，不是实测的 LLM 收益，所以不能被称为真实外部引擎的标定，TRI-11 仍为此保持未开始。父代理另实看了
+  中英 1278 与 380 宽度的展开、目标指标未知已选中、未知后重试、409 冲突与操作状态截图共 20 张，并把 10 张
+  基线的完整 sha256 与 PNG 尺寸逐张核对过。
+- 主树的全链验证（每一步单独跑、单独记退出码，日志 `.pi/subagents/tri09-integration-*.log`）：
+  `npm run format:check`、`npm run lint`、`npm run typecheck`、`npm run check:modules`（138 个模块，
+  323 条运行时边，115 条纯类型边，0 环 0 越界）、`npm run test`、`npm run build`、`npm run check:skills`
+  与 `git diff --check` 全部 `exit 0`。Vitest 实跑 148 个测试文件（147 通过、1 跳过）共 **1514** 项，
+  1512 通过、2 跳过，与按声明口径的加和 1479 + 22 + 9 + 4 逐项对得上。声明计数用
+  `git grep -cE "^[[:space:]]*(it|test)(\.[a-z]+)?\("` 逐提交量：`eee78a0` 1308 条声明 / 146 个含声明的文件
+  / 147 个 `.test.ts`，整合后 1343 条 / 147 个 / 148 个，增量 22 + 9 + 4 = 35，且每个中间提交的增量都单独
+  量过（首提交 +22、`6652d21` +9、`c13260a` +4，其余提交 0）。跳过的是
+  `test-node/ui/admin-ui-css-cascade.test.ts`（2 skip），与整合前同一口径。`test-node/ui/admin-ui-load-balancing.test.ts`
+  57 条声明、实跑 57 pass；`test-node/ui/real-app-load-move.test.ts` 3 pass；
+  `test-node/admin/load-balancer-tasks.test.ts` 22 pass。
+- 视觉基线：`npm run regen:ui-baselines` 重录 10 张并自动同步哈希行。其中 9 张拍出来的字节与整合后的
+  HEAD 完全相同；再与 `eee78a0` 的已提交图逐字节对照，被 TRI-09 动过的只有 `ui_lb_cn.png`、`ui_lb_en.png`
+  与 `ui_logs_cn.png`，其余 7 张与 TRI-09 之前那张字节相同。十张图的文件尺寸与登记表逐行双向自洽（一个
+  脚本把每行的尺寸与 64 位哈希跟真实文件比了两遍，输出 `ALL 10 ROWS SELF-CONSISTENT`）。三张被动过的图都
+  按原始尺寸全尺寸看过：英文负载均衡整页没有任何可见中文，两张负载均衡基线里折叠与展开各一、目标未选中时
+  `Move this binding` 保持禁用，detached / retry / unknown 这些态不在默认基线画面里。`ui_logs_cn.png` 那一枚
+  圆角像素的归因在主树复测后从“稳定结果 / 环境差异”改成了“与源码无关且每次可能不同”，登记值取多数拍出的
+  `3b4e33cd…`，次数、对照条件与两层比较口径的区别见 [ui-visual-baseline.md](./refactoring/ui-visual-baseline.md)
+  的 History 一节与本记录上面的修正。
+- 打包与交付冒烟：`npm run package:electron:portable` `exit 0`；`rebuild:electron` 与 `electron-builder`
+  之间没有跑任何 Node ABI 重建，所以带上的是 Electron ABI。产物文件名不变：
+  `release/LLM-Proxy-0.4.10-x64-portable.exe`，111968556 字节，SHA-256
+  `5f4f5e374adff138a2f6f98a0cb8ec94754f5a31055dfa083f0c0307240cad42`。查的是
+  `release/win-unpacked/resources/app.asar`（3173 项），不是旧的包：包里的 `admin-app.js` 与整合后构建的
+  bundle 字节相同（`aa93f38d…`），旧名 `lbMoveCancelUnreachable` 出现 0 次而新名 `lbMoveCancelUnknownOutcome`
+  出现 3 次，UI 侧 `detachPendingMoveWrites` / `detachAllPendingMoveWrites` / `moveDraftIsFrozen` /
+  `groupRevision` / `incarnation` / `bindingId` / `idempotencyKey` 与服务侧 `moveGatesFor` /
+  `migrationOperations` / `task-moves` 路由 / `metricsUnknown` 都在包里；已删掉的旧生成物
+  `modules-bridge.js` 不在包里，没有残留。`npm run smoke:delivery` 两次冒烟各自用自己的临时配置、
+  `LLM_PROXY_DATA_DIR`、绝对日志根与自选的空闲端口，跑在用户那台便携实例旁边而不碰它：解包载荷 health
+  776 ms、一次真实代理往返 200、`GET /api/logs?limit=5` 200 且 `total` 为 1、该次运行的日志根里出现
+  `traffic.db`（4096 字节）、子进程退出码 0；portable 包装器 health 2931 ms，同样四项全过，退出码 0。之后
+  `npm run build`（它的 `prebuild` 才跑 `rebuild:node`）在打包已经完成的前提下把 ABI 换回 Node，
+  `npm run abi:node` 用真实查询证明 `NODE_MODULE_VERSION 137`、查询结果 `{"a":1}`；包里的 SQLite 由包装器
+  冒烟证明（日志路由答 200、日志根里出现 `traffic.db`），不以 `require` 成功为据。
+- 范围与没做的事：整合止于 TRI-09，TRI-10、TRI-11、TRI-12 未开始；没有 push、没有 `npm version`、没有打
+  tag；没有停用户的便携实例、没有写用户的配置或 traffic database、没有杀不是自己启动的进程；没有改
+  `AGENTS.md` 与技能。还没覆盖的部分继续公开：真实装配里的 pending 真取消、跨 runtime 的迟到回答与
+  `expired_after_apply` 目前只有 API 与 UI 桩用例覆盖；页外的未知结果只提示，没有重放控件。
 
 ### TRI-10
 
