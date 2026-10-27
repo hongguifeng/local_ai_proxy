@@ -681,20 +681,49 @@ export function createLoadBalancing({
   }
 
   /**
+   * Whether the user is in the middle of choosing a destination: the destination picker is the
+   * control that holds focus, and the row it sits in is still a row the list reports. A repaint
+   * that lands here puts a new `<select>` where the browser's open popup is anchored, which
+   * closes it: the focus restore puts the caret back and nothing reopens a popup the element
+   * itself lost. So a poll's repaint waits, and the first repaint the picker no longer stands in
+   * the way of brings whatever the poll had learned. Holding one back cannot leave a stale row
+   * clickable - the moment the binding the row carries stops being the one the list reports,
+   * this answer is no and the poll repaints at once.
+   */
+  function destinationPickerIsInUse(element, panel) {
+    const active = document.activeElement;
+    if (!(active instanceof HTMLElement)) return false;
+    if (active.dataset.lbBindingMoveTarget === undefined) return false;
+    if (!element.contains(active)) return false;
+    const row = closestOn(active, ".lb-binding");
+    if (row === null) return false;
+    const bindingId = Number(row.dataset.lbBindingId);
+    const incarnation = Number(row.dataset.lbBindingIncarnation);
+    if (!Number.isInteger(bindingId) || !Number.isInteger(incarnation)) return false;
+    return panel.items.some(
+      (item) => item.bindingId === bindingId && item.incarnation === incarnation,
+    );
+  }
+
+  /**
    * Repaint one panel from the state it holds. A row that is gone from the document needs
    * nothing: the next build of the card reads the same state. The panel is rebuilt from scratch,
    * so the two things a rebuild would otherwise lose are put back on purpose: the choice the
    * user made lives in the panel and is rendered again, and the control the user was working in
    * is found again and re-focused. A poll therefore cannot wipe a destination, a confirmation or
-   * a conflict notice, and it cannot move the caret out from under the user.
+   * a conflict notice, and it cannot move the caret out from under the user. What a poll may not
+   * do is close a popup the user opened: only its repaint may wait, and only while the
+   * destination picker is in use. A repaint a user action asked for is never held back - the
+   * choice just made and the answer a submit gave have to be on screen before anything else.
    */
-  function renderBindingPanel(context) {
+  function renderBindingPanel(context, mayWaitForPicker = false) {
     const panel = bindingPanels.get(
       bindingPanelKey(context.pairId, context.groupId, context.targetId),
     );
     if (panel === undefined) return;
     const element = lbBindingPanelElement(context);
     if (element === null) return;
+    if (mayWaitForPicker && destinationPickerIsInUse(element, panel)) return;
     const focus = capturePanelFocus(element);
     element.innerHTML = lbBindingPanelHtml(
       panel,
@@ -1208,8 +1237,11 @@ export function createLoadBalancing({
         panel.loadingMore = false;
       }
       if (panel.readOwner === pending) panel.readOwner = null;
-      // A read whose surface is gone must not repaint a panel a newer lifecycle built.
-      if (panel.readLifecycle === lifecycle) renderBindingPanel(context);
+      // A read whose surface is gone must not repaint a panel a newer lifecycle built. A repaint
+      // that follows a poll waits while the user is choosing in the destination picker, because
+      // putting a new `<select>` where the open popup sits closes it; the choice it would have
+      // shown lives in the panel, so nothing is lost by waiting.
+      if (panel.readLifecycle === lifecycle) renderBindingPanel(context, true);
     }
   }
 

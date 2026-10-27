@@ -14,6 +14,7 @@ import {
   setLbBindingIneligibleDestination,
   setLbBindingMigrationOperations,
   setLbBindingMoveBlocking,
+  setLbBindingRound,
   setLbBindingRouteBump,
   setLbBindingRuntimeEpoch,
   setLbCancelReply,
@@ -1449,6 +1450,76 @@ describe("admin UI load balancing groups", { timeout: UI_TEST_TIMEOUT_MS }, () =
       "已登记，等当前请求结束后才会改路由",
     );
     await expectPage(row.locator("[data-lb-binding-move-target]")).toHaveValue(destinationId);
+  });
+
+  /**
+   * The destination popup is anchored to the `<select>` itself, so a repaint that puts a new
+   * element where the open popup sits closes it: the focus restore puts the caret back, and
+   * nothing reopens a popup the element lost. The mark a test leaves on that element is
+   * therefore the fact worth measuring - a rebuilt picker is a different object and cannot
+   * carry it, while the row's own numbers show whether the poll reached the screen.
+   */
+  it("[TRI-09] does not rebuild the destination picker the user is choosing in", async () => {
+    const card = await openTwoNodeStates();
+    const destinationId = moveDestinationId();
+    const panel = await openBindingList(card, 0);
+    const row = bindingRow(panel, 7);
+    const picker = row.locator("[data-lb-binding-move-target]");
+    const requests = row.locator('[data-lb-binding-fact="requests"]');
+
+    await picker.selectOption(destinationId);
+    await picker.evaluate((element) => {
+      // A dataset key comes from an index signature, so it is written with brackets.
+      element.dataset["lbUiPickerProbe"] = "open";
+    });
+    await picker.focus();
+    await expectPage(requests).toHaveText("Requests: 14");
+
+    const seenStatusReads = lbStatusReads.length;
+    const readsBeforePoll = lbBindingReads.length;
+    // The next page the stub answers with counts 999 requests on this binding, so a poll that
+    // reached this row would print that number over the control the user is working in.
+    setLbBindingRound(1);
+    await waitForLbPoll(seenStatusReads);
+    await expect
+      .poll(() => lbBindingReads.length, { timeout: UI_TEST_TIMEOUT_MS, interval: 200 })
+      .toBeGreaterThan(readsBeforePoll);
+    // The answer has had longer than it needs to run its own repaint by now.
+    await page.waitForTimeout(400);
+
+    await expectPage(picker).toHaveAttribute("data-lb-ui-picker-probe", "open");
+    await expectPage(picker).toBeFocused();
+    await expectPage(picker).toHaveValue(destinationId);
+    // The poll is held, not dropped: the newer copy of the row is still waiting behind the
+    // picker, which is why the number on screen is the old one.
+    await expectPage(requests).toHaveText("Requests: 14");
+  });
+
+  it("[TRI-09] repaints what a poll held back once the user leaves the picker", async () => {
+    const card = await openTwoNodeStates();
+    const destinationId = moveDestinationId();
+    const panel = await openBindingList(card, 0);
+    const row = bindingRow(panel, 7);
+    const picker = row.locator("[data-lb-binding-move-target]");
+    const requests = row.locator('[data-lb-binding-fact="requests"]');
+
+    await picker.selectOption(destinationId);
+    await picker.focus();
+    const seenStatusReads = lbStatusReads.length;
+    const readsBeforePoll = lbBindingReads.length;
+    setLbBindingRound(1);
+    await waitForLbPoll(seenStatusReads);
+    await expect
+      .poll(() => lbBindingReads.length, { timeout: UI_TEST_TIMEOUT_MS, interval: 200 })
+      .toBeGreaterThan(readsBeforePoll);
+    await page.waitForTimeout(400);
+    await expectPage(requests).toHaveText("Requests: 14");
+
+    // Leaving the picker ends the wait: the row is redrawn with the newer answer and the
+    // choice the panel holds comes back with it.
+    await picker.evaluate((element) => element.blur());
+    await expectPage(requests).toHaveText("Requests: 999");
+    await expectPage(picker).toHaveValue(destinationId);
   });
 
   it("[TRI-09] keeps the choice after a stale-state refusal and never resends it by itself", async () => {
