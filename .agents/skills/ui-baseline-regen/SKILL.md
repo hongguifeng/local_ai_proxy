@@ -32,15 +32,24 @@ description: >-
   1,508,040 pixels (0.2 %) and passed while the committed PNG still showed the old arrangement.
   Any markup-order or control-relocation change needs a re-capture plus a pixel diff against
   HEAD to prove the delta is real.
-- The task-detail (pricing) and statistics baselines use an adaptive viewport: the test resizes
-  to the panel's `scrollHeight` plus 52. Adding a panel block therefore changes the image
-  height, which means the doc row (size column and hash) changes too.
+- Three baselines use an adaptive viewport: the test reads an element's `scrollHeight` and
+  resizes to it plus a pad. Statistics and task-detail add 52; load balancing adds
+  `LB_CAPTURE_PAD` = 150 because the rows one capture has and the other lacks must be blank,
+  and the pad is what makes them blank (see the baseline contract's comparison rule). Adding
+  a panel block therefore changes the image height, which means the doc row (size column and
+  hash) changes too.
 - `screenshotDifference` asserts the width and never the height: it requires only that the
   rows one capture has and the other lacks carry no content, where "blank" means channels of at
   least 200 — the pane splitter border (213,221,231) sits in the bottom rows of the adaptive
   capture. A height assertion cannot hold, because the adaptive viewport follows how the
-  installed fonts wrapped the text (the same load-balancing page is 17 px shorter in Chinese and
-  16 px taller in English on the Linux runner). Do not reintroduce one.
+  installed fonts wrapped the text: the same load-balancing page measured 32 px shorter on the
+  Linux runner in Chinese, 32 px taller there in English and 54 px shorter on the windows
+  runner in English. Do not reintroduce a height assertion.
+- Tolerance for that drift is the blank band under the page, so a capture whose last content
+  row is text needs a pad larger than the drift. When the load-balancing binding list became
+  the last thing on the page, the 52 px pad left a 31 px tail, the drift outran it and the
+  blank-row check failed on text that had not moved. Raise the pad instead of relaxing the
+  check, then measure the tail on the committed image and put that number in the contract.
 - A hash change with a pixel-identical image can mean encoder metadata non-determinism, or a
   stale on-disk file: outside `REGEN_BASELINES` mode the helper only reads, so a green test
   proves nothing about the committed PNG.
@@ -77,6 +86,22 @@ npx prettier --check .
   images and report the differing count instead of treating the green test as proof.
 - A hash that matches the doc while the image does not is an environment drift, not your
   change; compare against a stash of the pre-change source to separate the two.
+- A visual test that fails only in CI is answerable without a second operating system. The
+  helper writes the capture the runner produced to `test-results/ui-visual/<baseline name>`
+  before rethrowing, and the workflow uploads `test-results/` as
+  `node-test-reports-<matrix.os>`, so:
+
+  ```bash
+  export GH_TOKEN="$(printf 'protocol=https\nhost=github.com\n\n' | git credential fill | awk -F= '/^password=/{print $2}')"
+  gh run download <run_id> -D test-results/ci-artifacts --pattern "node-test-reports-*"
+  ```
+
+  Diff that capture against the committed baseline: the ratio is rarely the problem (the
+  load-balancing captures measured 2.4–3.2 % against a 12 % limit), the failure is the blank-row
+  rule. Find each image's last row that is not channels ≥ 200, subtract to get the blank tail,
+  and compare it with `abs(heightA - heightB)`: tail smaller than drift means the taller
+  capture's last ink rows fall outside the compared band, which is what made the
+  load-balancing baselines red on both runners while no text had moved.
 
 ## Deeper material
 

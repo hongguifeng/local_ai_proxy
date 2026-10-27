@@ -81,13 +81,21 @@ npm run build
   prints the offending dependency chain, and `test` failure names the file and case.
 - An empty `gh run list --commit` answer means the sha was shortened, not that CI never ran;
   repeat with the full sha before saying anything about that commit.
-- Strip the log's `node-group\tstep\ttimestamp` prefix and its ANSI escapes before reading
-  it, or the failure block is unreadable and every failure shows once per platform:
-  `sed -E 's/^Node 24 \([^)]*\)\t[^\t]*\t[0-9T:-]+Z //; s/\x1b\[[0-9;]*m//g'`.
-- A failure only on `ubuntu-latest` is platform behavior, not this change: an expected
-  `SQLITE_CANTOPEN_ISDIR` arriving as `SQLITE_CANTOPEN`, or an integration request answered
-  431 where the runner differs from the local machine. Reproduce it in that environment
-  before touching product code.
+- `gh run view --log` prints the log with control characters in caret notation, so the escape
+  sequences arrive as the literal text `^[[31m` and a `\x1b` pattern matches nothing. Strip
+  them as text: `tr -d '\r' | sed -E 's/^[^\t]*\t[^\t]*\t[0-9T:.Z-]+ //; s/\^\[\[[0-9;]*m//g'`
+  removes the `node-group\tstep\ttimestamp` prefix and the colour codes; without that the
+  failure block is unreadable and every failure shows once per platform.
+- A failure only on `ubuntu-latest` is platform behavior, not this change, and the two seen
+  here are now explained. SQLite reports "the path I was given is a directory" with the
+  extended `SQLITE_CANTOPEN_ISDIR` on the Windows VFS and the primary `SQLITE_CANTOPEN` on the
+  unix VFS, same message: opening a directory named `traffic.db` with better-sqlite3 12.11.1
+  produced exactly those two answers on win32 and on Linux. The binding-history service records
+  the driver's code verbatim, so the test must pin the code family and not a VFS suffix.
+  The other one, an integration request answered 431 where the expectation was 200, did not
+  reproduce in a full Linux node-suite run at CI's two workers and stayed an unreproduced
+  single-run flake. Read the runner's own log and its uploaded capture before touching product
+  code; reach for a second operating system only when those cannot answer, and say so.
 - `npm run check:skills` is what fails when a skill, its reference files or the AGENTS.md
   routing index drift apart; run it first for a documentation-only change.
 - The workflow file is the source of truth for what CI runs; read it rather than assuming

@@ -533,8 +533,14 @@ describe("BindingHistoryService", () => {
     expect(result.reasons).toEqual(["history_query_failed"]);
     expect(result.coverage).toMatchObject({
       state: "failed",
-      failure: { phase: "open", errorName: "SqliteError", code: "SQLITE_CANTOPEN_ISDIR" },
+      failure: { phase: "open", errorName: "SqliteError" },
     });
+    // SQLite reports this condition with the primary code on the unix VFS and with the
+    // extended ISDIR code on the Windows VFS, and the service records whichever one the
+    // driver returned: opening a directory named traffic.db with better-sqlite3 12.11.1 gave
+    // SQLITE_CANTOPEN_ISDIR on win32 and SQLITE_CANTOPEN on Linux, same message. Pinning the
+    // extended code alone turned the ubuntu runner red, so what this pins is a cannot-open
+    // code, not which VFS suffix it grew.
     expect(result.coverage.failure?.message).toContain("unable to open database file");
   });
 

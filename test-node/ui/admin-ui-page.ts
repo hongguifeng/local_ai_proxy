@@ -145,6 +145,21 @@ export async function requiredBox(
  * The group cards, their member rows and the node-state rows are all still in the picture, so
  * the original configuration and layout coverage is kept alongside the new list.
  */
+/**
+ * Blank space kept under the load-balancing capture.
+ *
+ * `compareCapture` allows the two captures to end at different heights and checks that the
+ * rows one of them has and the other lacks are blank. That held while the tail was empty
+ * space; it stopped holding when the binding list became the last thing on the page. With
+ * the 52 px pad the blank tail measured 31 px on both sides, while the same page rendered
+ * 32 px shorter on the Linux runner in Chinese, 32 px taller there in English and 54 px
+ * shorter on the windows runner in English, so the last ink rows of the taller capture fell
+ * outside the compared band and the blank-row check failed on text that had not moved.
+ * The pad is therefore set above the largest drift seen: the tail below the last ink row is
+ * the tolerance, and 150 px leaves about 129 px of it.
+ */
+const LB_CAPTURE_PAD = 150;
+
 export async function loadLbBaseline(language: "zh" | "en"): Promise<void> {
   setLbBindingVisualRows(lbBindingBaselineRows);
   pairs.splice(0, pairs.length, ...visualLbPairs());
@@ -176,7 +191,10 @@ export async function loadLbBaseline(language: "zh" | "en"): Promise<void> {
     const el = document.querySelector("#proxies");
     return el ? el.scrollHeight : 0;
   });
-  await page.setViewportSize({ width: 1278, height: Math.min(Math.max(height + 52, 900), 4200) });
+  await page.setViewportSize({
+    width: 1278,
+    height: Math.min(Math.max(height + LB_CAPTURE_PAD, 900), 4200),
+  });
 }
 
 export async function screenshotDifference(baselinePath: string): Promise<number> {
