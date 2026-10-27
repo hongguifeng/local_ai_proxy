@@ -52,7 +52,7 @@ description: >-
 - 不把完成记录复制成当前合同，也不把历史材料改写成当前行为。
 - 修改路径后全局搜索旧路径，更新引用者和测试；不要留下“看起来像当前入口”的死链接。
 - 如果新改动涉及某个文档家族，搜索代码注释、skill、测试和 README 中对该家族旧路径的引用。与本次家族直接相关的死路径必须修复；完全无关的历史引用才可以记录为后续工作。
-- `AGENTS.md` 和每个 skill 都必须能被 `npm run check:skills` 的路径、命令和章节检查验证。
+- 对新建或整篇重写的文档正文，运行显式 `--ignore-path .gitignore` 的 Prettier 并使其通过；从已有完成记录搬迁生成的报告保留来源排版；已有表格密集文档的局部修改运行 `git diff --check`、`npx vitest run test-node/docs` 和本地链接检查，避免把无关的表格重排混入修复。
 
 ### 用最小规则控制长期增长
 
@@ -71,7 +71,9 @@ git status --short
 rg -n "旧路径|旧命令|旧符号" AGENTS.md .agents/skills docs test-node
 rg --files docs .agents/skills
 npm run check:skills
-npx prettier --ignore-path .gitignore --check AGENTS.md .agents/skills/<name>/SKILL.md docs/<changed-file>.md
+npx prettier --ignore-path .gitignore --check AGENTS.md .agents/skills/<name>/SKILL.md
+# 对新建或整篇重写的 docs 文件使用显式 Prettier；已有表格密集文档的局部修改使用：
+git diff --check
 npx vitest run test-node/docs
 ```
 

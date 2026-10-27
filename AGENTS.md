@@ -25,7 +25,7 @@
 - 用户正在运行的便携版实例只读。不要停止它，不要写它的配置或流量数据库；只允许结束自己启动的进程。
 - 测试、临时配置、数据库、日志根和端口必须隔离。真实上游验收使用 `real-upstream-acceptance` skill 的隔离方案。
 - `better-sqlite3` 的 Node ABI 和 Electron ABI 必须串行切换。打包顺序是：`build` → `rebuild:electron` → Electron 打包 → 交付冒烟 → 恢复 Node ABI。
-- 并行写入任务必须使用独立工作树和独立 `node_modules`。不要让两个写入者编辑同一文件族。
+- 长任务或独立 worktree 委派按实现、专项验证、文档收口和交付验证分阶段执行；每阶段留下可审查提交或结果记录，超时后从最近 checkpoint 恢复，不把无输出的长时间等待当成成功证据。
 - 不为了让门禁变绿而降低有意义的测试、视觉像素检查、宽度检查、空白行检查或打包检查；先定位证据，再修实现或记录真实限制。
 
 ## 标准验证
@@ -34,7 +34,7 @@
 - 技能和文档路由：`npm run check:skills`。
 - 模块依赖：`npm run check:modules`。
 - 便携交付：`npm run package:electron:portable`，随后 `npm run smoke:delivery`，最后 `npm run abi:node`。
-- 文档格式：`npx prettier --ignore-path .gitignore --check <修改的 docs 文件>`。
+- 文档验证：新建或整篇重写的 `docs/` 正文运行 `npx prettier --ignore-path .gitignore --check <文件>`；从已有完成记录搬迁生成的报告保留来源排版；已有表格密集文档的局部修改运行 `git diff --check` 和 `npx vitest run test-node/docs`，避免无关表格重排。
 - UI 改动还要运行对应浏览器测试、检查全尺寸截图、更新视觉基线登记和英文截图检查；细节由 `ui-baseline-regen` skill 负责。
 - Windows 上运行 Vitest 或 UI 基线命令时从大写盘符路径进入，例如 `cd /D/code/local_ai_proxy`。
 

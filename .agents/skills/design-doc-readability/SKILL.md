@@ -52,8 +52,7 @@ npm test -- test-node/docs
   as signals for editing. These measurements describe document structure; they do not
   establish reading time, comprehension or design correctness.
 - A document that sets a constant without a measured source is unfinished, not concise.
-- `npx prettier --ignore-path .gitignore --check` must pass on the file you touched; a
-  file under `docs/` is not covered by `npm run format:check`.
+- 对新建或整篇重写的设计文档正文，运行显式 `--ignore-path .gitignore` 的 Prettier 并使其通过；从已有完成记录搬迁生成的报告保留来源排版；已有表格密集文档的局部修改使用 `git diff --check` 和文档测试，避免为一段新内容重排历史表格。
 
 ## Deeper material
 

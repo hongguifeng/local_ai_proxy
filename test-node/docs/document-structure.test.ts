@@ -22,6 +22,17 @@ const docsCategories = [
   "reports",
   "history",
 ] as const;
+const expectedDocumentStatuses = [
+  ["docs/current/", "当前"],
+  ["docs/decisions/", "决策记录"],
+  ["docs/design/active/", "设计中"],
+  ["docs/design/accepted/", "已接受设计"],
+  ["docs/plans/active/", "计划中"],
+  ["docs/plans/archive/", "历史计划"],
+  ["docs/operations/", "运维手册"],
+  ["docs/reports/", "报告"],
+  ["docs/history/", "历史"],
+] as const;
 
 async function markdownFiles(directory: string): Promise<string[]> {
   const entries = await readdir(directory, { withFileTypes: true });
@@ -73,6 +84,24 @@ describe("documentation structure", () => {
         .map((entry) => entry.name)
         .sort(),
     ).toEqual([...docsCategories].sort());
+  });
+
+  it("enforces category-specific document lifecycle statuses", async () => {
+    const files = await markdownFiles(docsRoot);
+    const problems: string[] = [];
+    for (const file of files) {
+      const relative = path.relative(repositoryRoot, file).replaceAll("\\", "/");
+      const expected =
+        relative === "docs/README.md"
+          ? "当前"
+          : expectedDocumentStatuses.find(([prefix]) => relative.startsWith(prefix))?.[1];
+      const text = await readFile(file, "utf8");
+      const actual = /^> 状态：([^\r\n]+)$/m.exec(text)?.[1];
+      if (expected === undefined || actual !== expected) {
+        problems.push(`${relative}: expected ${expected ?? "a documented category"}, got ${actual ?? "missing"}`);
+      }
+    }
+    expect(problems).toEqual([]);
   });
 
   it("marks every current, design and plan document with a lifecycle status", async () => {
