@@ -244,12 +244,6 @@ export function createLoadBalancing({
       no_traffic_database: "lbCoverageNoTrafficDatabase",
       failed: "lbCoverageFailed",
     },
-    coverageClass: {
-      available: "is-available",
-      no_log_configured: "is-no-log",
-      no_traffic_database: "is-no-database",
-      failed: "is-failed",
-    },
     /**
      * [TRI-09] Why a binding is not offered for a move, in the migration gate's own code names.
      * The button's enabled state comes from `movable.ok` and nothing else, so a page never
@@ -475,16 +469,6 @@ export function createLoadBalancing({
     return parts.join(" · ");
   }
 
-  /**
-   * One mark the list writes. Every chip goes through here so the kinds of mark stay one
-   * shape: a box that clips, the server's own word for the value, and the whole sentence
-   * behind that word as the chip's own hover text.
-   */
-  function lbBindingFlag(className, name, word, hover) {
-    const attributes = name === "" ? "" : ` data-lb-binding-${name}`;
-    return `<span class="${className}"${attributes} title="${escapeHtml(hover)}">${escapeHtml(word)}</span>`;
-  }
-
   /** The whole history of one stored task: how firm the link is, how many requests the log
    *  holds for it, when it last saw one, whether that was on this node, whether the log has
    *  nothing finished stored for it, and where that task was called. */
@@ -508,41 +492,17 @@ export function createLoadBalancing({
     return parts.join(" · ");
   }
 
-  /**
-   * One linked task as the compact list shows it: its id and how many requests the log holds
-   * for it, plus a mark wherever the answer is not the ordinary one. `high` is the ordinary
-   * level, this node is the ordinary target, and a log that has a finished request stored is
-   * the ordinary reading - so a task whose history says nothing unusual is nothing but its id.
-   */
-  function lbBindingTaskChipHtml(task) {
-    const hover = lbBindingTaskHover(task);
-    const marks = [];
-    if (task.level !== "high") {
-      marks.push(
-        lbBindingFlag(
-          `lb-binding-task-level is-${task.level}`,
-          "task-level",
-          lbBindingWord(task.level, lbBindingVocabulary.associationLevel),
-          hover,
-        ),
-      );
-    }
-    if (task.historyTargetNode !== "same") {
-      marks.push(
-        lbBindingFlag(
-          `lb-binding-task-node is-${task.historyTargetNode}`,
-          "task-node",
-          lbBindingWord(task.historyTargetNode, lbBindingVocabulary.historyTargetNode),
-          hover,
-        ),
-      );
-    }
-    if (task.pendingRequestOnly) {
-      marks.push(
-        lbBindingFlag("lb-binding-task-pending", "task-pending", t("lbTaskPendingOnly"), hover),
-      );
-    }
-    return `<span class="lb-binding-task" data-lb-task-id="${escapeHtml(task.taskId)}"><span class="lb-binding-task-id" title="${escapeHtml(`${task.taskId} · ${hover}`)}">${escapeHtml(task.taskId)}</span><span class="lb-binding-task-count" title="${escapeHtml(`${t("lbStateRequests")}: ${task.requestCount}`)}">${escapeHtml(String(task.requestCount))}</span>${marks.join("")}</span>`;
+  /** The tasks a several-task row does not print. The `+N` chip names them with their own
+   *  counts so the hidden part of the answer stays readable without unpicking a sentence, and
+   *  the same sentence is one of the row's hover facts. A row with one task or none has nothing
+   *  hidden and says nothing. */
+  function lbBindingHiddenTasksSentence(association) {
+    if (association.tasks.length < 2) return "";
+    const list = association.tasks
+      .slice(1)
+      .map((task) => `${task.taskId} (${String(task.requestCount)})`)
+      .join(" · ");
+    return `${t("lbBindingHiddenTasksLabel")}: ${list}`;
   }
 
   /** What the history could answer for this binding, in one sentence. Only a failed read
@@ -561,46 +521,6 @@ export function createLoadBalancing({
     if (coverage.historyTruncated) parts.push(t("lbCoverageTruncated"));
     if (coverage.logWriteMayBePending) parts.push(t("lbCoverageWritePending"));
     return parts.join(" · ");
-  }
-
-  /** The marks the history leaves on a row. A history that answered normally leaves nothing
-   *  visible - it is still said in the hover text, because "readable" is a fact a reader may
-   *  want to check - and anything else keeps its own words: a broken read, a log root that
-   *  was never configured and a log root with no traffic.db are three sentences. */
-  function lbBindingCoverageFlags(coverage) {
-    const hover = lbBindingCoverageSentence(coverage);
-    const flags = [];
-    if (coverage.state !== "available") {
-      flags.push(
-        lbBindingFlag(
-          `lb-binding-coverage-state ${lbBindingVocabulary.coverageClass[coverage.state] ?? ""}`,
-          "coverage-state",
-          lbBindingWord(coverage.state, lbBindingVocabulary.coverage),
-          hover,
-        ),
-      );
-    }
-    if (coverage.historyTruncated) {
-      flags.push(
-        lbBindingFlag(
-          "lb-binding-coverage-flag is-truncated",
-          "coverage-flag-truncated",
-          t("lbCoverageTruncated"),
-          hover,
-        ),
-      );
-    }
-    if (coverage.logWriteMayBePending) {
-      flags.push(
-        lbBindingFlag(
-          "lb-binding-coverage-flag is-pending",
-          "coverage-flag-pending",
-          t("lbCoverageWritePending"),
-          hover,
-        ),
-      );
-    }
-    return flags.join("");
   }
 
   /** Why the link looks the way it does, in the association module's own names. */
@@ -655,23 +575,27 @@ export function createLoadBalancing({
       ["in-flight", `${t("lbStateInFlight")}: ${item.inFlight}`],
       ["cost", lbBindingCostTitle(item.context)],
       ["tasks", lbBindingAssociationSentence(association)],
+      ["hidden-tasks", lbBindingHiddenTasksSentence(association)],
       ["coverage", lbBindingCoverageSentence(association.coverage)],
       ["reasons", lbBindingReasonsSentence(association.reasons)],
     ].filter(([, text]) => text !== "");
   }
 
   /**
-   * One binding row, compact. One line carries the four things a reader is meant to see -
-   * which task this binding is holding, whether a request is on it right now, how many
-   * requests it has taken, and what the last one cost in input tokens - and beside them the
-   * marks that say an answer is not the ordinary one. Everything else the server answered
-   * lives on that line's hover text.
+   * One binding row, compact. One line carries the four things a reader is meant to see - which
+   * task this binding is holding, whether a request is on it right now, how many requests it has
+   * taken, and what the last one cost in input tokens - and nothing else is printed. Every mark
+   * the server earned, including a history read that broke and a link that is only a candidate,
+   * is said in the hover text instead: the row's own line carries each fact as an attribute and
+   * joins them into its title, and a figure that is worth reading on its own - the in-flight
+   * count, the full cost sentence - keeps its hover where it sits.
    *
-   * Several linked tasks still make one row with one move affordance, because the thing that
-   * could move is the binding and not each task. The row is titled by the first task the list
-   * reports and says plainly in its hover text that the title is only one of the tasks the
-   * binding holds and that the counts on the row are the binding's own. A binding the history
-   * linked to nothing has no task id to be titled by, so it is titled by its own address.
+   * Several linked tasks are still one row with one move affordance, because the thing that could
+   * move is the binding and not each task. The row is titled by the first task the list reports,
+   * the `+N` chip names the rest with their own counts, and the hover text says plainly that the
+   * title is only one of the tasks the binding holds and that the counts on the row are the
+   * binding's own. A binding the history linked to nothing has no task id to be titled by, so it
+   * is titled by its own address.
    */
   function lbBindingRowHtml(panel, item, now, nodeLabel, nodeNames) {
     const association = item.associations;
@@ -683,8 +607,6 @@ export function createLoadBalancing({
     const hoverTitle = escapeHtml(hoverFacts.map(([, text]) => text).join("\n"));
     const titledTask = tasks.length === 0 ? null : tasks[0];
     const activityClass = lbBindingVocabulary.activityClass[item.activity] ?? "";
-    const confidenceClass =
-      association.confidence === "none" ? "is-none" : `is-${association.confidence}`;
     const address = `#${item.bindingId} ${item.model === null ? "-" : item.model}`;
     const addressHover = `${address} · ${item.endpointKind} ${item.endpoint}`;
     const title = titledTask === null ? address : titledTask.taskId;
@@ -692,74 +614,21 @@ export function createLoadBalancing({
       titledTask === null
         ? addressHover
         : `${titledTask.taskId} · ${lbBindingTaskHover(titledTask)}`;
-    const marks = [];
-    if (association.confidence !== "high") {
-      marks.push(
-        lbBindingFlag(
-          `lb-binding-confidence ${confidenceClass}`,
-          "confidence",
-          lbBindingWord(association.confidence, lbBindingVocabulary.confidence),
-          `${lbBindingAssociationSentence(association)} · ${lbBindingReasonsSentence(association.reasons)}`,
-        ),
-      );
-    }
-    if (association.ambiguous) {
-      marks.push(
-        lbBindingFlag(
-          "lb-binding-ambiguous",
-          "ambiguous",
-          t("lbAmbiguous"),
-          lbBindingAssociationSentence(association),
-        ),
-      );
-    }
-    marks.push(lbBindingCoverageFlags(association.coverage));
-    if (titledTask !== null) {
-      if (titledTask.historyTargetNode !== "same") {
-        marks.push(
-          lbBindingFlag(
-            `lb-binding-task-node is-${titledTask.historyTargetNode}`,
-            "task-node",
-            lbBindingWord(titledTask.historyTargetNode, lbBindingVocabulary.historyTargetNode),
-            lbBindingTaskHover(titledTask),
-          ),
-        );
-      }
-      if (titledTask.pendingRequestOnly) {
-        marks.push(
-          lbBindingFlag(
-            "lb-binding-task-pending",
-            "task-pending",
-            t("lbTaskPendingOnly"),
-            lbBindingTaskHover(titledTask),
-          ),
-        );
-      }
-    }
+    const hiddenTasks = lbBindingHiddenTasksSentence(association);
     const several =
       tasks.length > 1
-        ? `<span class="lb-binding-task-total" data-lb-binding-tasks data-lb-binding-task-total="${tasks.length}" title="${escapeHtml(`${lbBindingAssociationSentence(association)} · ${t("lbBindingSeveralTaskNote")}`)}">+${tasks.length - 1}</span>`
-        : "";
-    const taskLine =
-      tasks.length > 1
-        ? `<p class="lb-binding-task-line" data-lb-binding-task-line>${tasks
-            .slice(1)
-            .map((task) => lbBindingTaskChipHtml(task))
-            .join("")}</p>`
+        ? `<span class="lb-binding-task-total" data-lb-binding-tasks data-lb-binding-task-total="${tasks.length}" title="${escapeHtml(`${lbBindingAssociationSentence(association)} · ${t("lbBindingSeveralTaskNote")}${hiddenTasks === "" ? "" : ` · ${hiddenTasks}`}`)}">+${tasks.length - 1}</span>`
         : "";
     return `<div class="lb-binding" data-lb-binding-id="${item.bindingId}" data-lb-binding-incarnation="${item.incarnation}" data-lb-binding-node="${escapeHtml(item.targetId)}">
     <div class="lb-binding-line"${hoverAttributes} title="${hoverTitle}">
-      <span class="lb-binding-title${
-        titledTask === null ? "" : " lb-binding-task-id"
-      }" data-lb-binding-title${
+      <span class="lb-binding-title" data-lb-binding-title${
         titledTask === null ? "" : ` data-lb-task-id="${escapeHtml(titledTask.taskId)}"`
       } title="${escapeHtml(titleHover)}">${escapeHtml(title)}</span>
       <span class="lb-binding-activity ${activityClass}" data-lb-binding-fact="activity" title="${escapeHtml(t("lbActivityNote"))}">${escapeHtml(lbBindingWord(item.activity, lbBindingVocabulary.activity))}</span>
       <span class="lb-binding-value" data-lb-binding-fact="requests" title="${escapeHtml(`${t("lbStateRequests")}: ${fullNumber(item.requestCount)}`)}">${escapeHtml(`${t("lbStateRequestsBrief")} ${fullNumber(item.requestCount)}`)}</span>
       <span class="lb-binding-value" data-lb-binding-fact="cost" title="${escapeHtml(lbBindingCostTitle(item.context))}">${escapeHtml(lbBindingCostBrief(item.context))}</span>
-      ${several}${marks.join("")}
+      ${several}
     </div>
-    ${taskLine}
     ${lbBindingMoveHtml(panel, item, moveDraftFor(panel, item), nodeNames)}
   </div>`;
   }

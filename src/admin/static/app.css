@@ -4542,15 +4542,7 @@ label span {
    colours written after this rule win their tie on specificity, not on position. */
 .lb-binding-value,
 .lb-binding-task-total,
-.lb-binding-task-count,
-.lb-binding-activity,
-.lb-binding-coverage-state,
-.lb-binding-coverage-flag,
-.lb-binding-confidence,
-.lb-binding-ambiguous,
-.lb-binding-task-level,
-.lb-binding-task-node,
-.lb-binding-task-pending {
+.lb-binding-activity {
   min-width: 0;
   padding: 1px 5px;
   border-radius: 4px;
@@ -4561,65 +4553,17 @@ label span {
   white-space: nowrap;
   overflow-wrap: normal;
 }
-/* The tasks a row holds beyond the one its title names: one chip each, and a mark only
-   where the answer is not the ordinary one. */
-.lb-binding-task-line {
-  display: flex;
-  min-width: 0;
-  flex-wrap: wrap;
-  align-items: baseline;
-  gap: 5px;
-  margin: 0;
-}
-.lb-binding-task {
-  display: flex;
-  min-width: 0;
-  flex-wrap: wrap;
-  align-items: baseline;
-  gap: 4px;
-}
-.lb-binding-task-id {
-  flex: 0 1 auto;
-  min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-  overflow-wrap: normal;
-}
-/* The marks beside a task id keep their own width and move to the next line when the id
-   runs out of room, so none of them is squeezed down to a single unreadable letter. */
-.lb-binding-task > .lb-binding-task-count,
-.lb-binding-task > .lb-binding-task-level,
-.lb-binding-task > .lb-binding-task-node,
-.lb-binding-task > .lb-binding-task-pending {
-  flex: 0 0 auto;
-}
-/* The three states a value can carry are told apart by colour, not by a wording the reader
-   has to guess: known-good, worth a second look, and simply not known. */
-.lb-binding-activity.is-idle,
-.lb-binding-confidence.is-high,
-.lb-binding-task-level.is-high,
-.lb-binding-task-node.is-same,
-.lb-binding-coverage-state.is-available {
+/* The three states the activity chip can carry are told apart by colour, not by a wording the
+   reader has to guess: known-good, worth a second look, and simply not known. */
+.lb-binding-activity.is-idle {
   background: #dcebe0;
   color: #2f6b46;
 }
-.lb-binding-activity.is-in-flight,
-.lb-binding-confidence.is-candidate,
-.lb-binding-task-level.is-candidate,
-.lb-binding-task-node.is-different,
-.lb-binding-coverage-state.is-failed,
-.lb-binding-coverage-flag,
-.lb-binding-ambiguous {
+.lb-binding-activity.is-in-flight {
   background: #f3e8d5;
   color: #8a6d3b;
 }
-.lb-binding-activity.is-unknown,
-.lb-binding-confidence.is-none,
-.lb-binding-task-node.is-unknown,
-.lb-binding-coverage-state.is-no-log,
-.lb-binding-coverage-state.is-no-database,
-.lb-binding-task-pending {
+.lb-binding-activity.is-unknown {
   background: #e4ecf5;
   color: #6b7a8a;
 }

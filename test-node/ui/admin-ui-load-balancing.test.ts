@@ -945,56 +945,54 @@ describe("admin UI load balancing groups", { timeout: UI_TEST_TIMEOUT_MS }, () =
     await expectPage(panel.locator(".lb-binding")).toHaveCount(20);
     const row = bindingRow(panel, 7);
     await expectPage(row).toHaveCount(1);
-    await expectPage(row.locator("[data-lb-task-id]")).toHaveCount(3);
-    await expectPage(row.locator(".lb-binding-task-id")).toHaveText([
-      "task-alpha",
-      "task-beta",
-      "task-gamma",
-    ]);
+    // Four values and nothing else: the row is titled by the first task the list reports, and
+    // every mark the server earned - this row's several-candidates answer included - stays in
+    // the hover text instead of beside the numbers.
+    await expectPage(row.locator("[data-lb-task-id]")).toHaveCount(1);
+    await expectPage(row.locator(".lb-binding-title")).toHaveText("task-alpha");
+    await expectPage(row.locator(".lb-binding-line > span")).toHaveCount(5);
     await expectPage(row.locator("[data-lb-binding-tasks]")).toHaveText("+2");
+    await expectPage(row.locator("[data-lb-binding-ambiguous]")).toHaveCount(0);
+    await expectPage(row.locator("[data-lb-binding-confidence]")).toHaveCount(0);
     await expectPage(hoverLine(row)).toHaveAttribute(
       "data-lb-hover-tasks",
       "Linked tasks: 3 · high confidence · several candidates",
     );
-    // A row whose link is firm wears no confidence mark: a mark is only for the answers that
-    // are not the ordinary one, and the ordinary one is still there to read in the hover text.
-    await expectPage(row.locator("[data-lb-binding-confidence]")).toHaveCount(0);
-    await expectPage(row.locator("[data-lb-binding-ambiguous]")).toBeVisible();
-    await expectPage(row.locator("[data-lb-binding-ambiguous]")).toHaveText("several candidates");
+    await expectPage(hoverLine(row)).toHaveAttribute(
+      "data-lb-hover-hidden-tasks",
+      "Tasks not shown on this row: task-beta (2) · task-gamma (1)",
+    );
     await expectPage(hoverLine(row)).toHaveAttribute(
       "data-lb-hover-reasons",
       "exact key links · several linked tasks",
     );
     // One row, one move button. The row is titled by the first task the list reports, and the
-    // several-task chip says plainly that the counts on the row are the binding's own; the
-    // binding's address is on the line, so a shared binding is never mistaken for a task.
+    // several-task chip says plainly that the counts on the row are the binding's own and names
+    // the tasks the row does not print; the binding's address is on the line, so a shared
+    // binding is never mistaken for a task.
     await expectPage(row.locator("[data-lb-binding-move]")).toHaveCount(1);
     await expectPage(hoverLine(row)).toHaveAttribute("data-lb-hover-key", "#7");
     await expectPage(row.locator("[data-lb-binding-tasks]")).toHaveAttribute(
       "title",
-      /The title is the first task the list reports/,
+      /The title is the first task the list reports[\s\S]*task-beta \(2\) · task-gamma \(1\)$/,
     );
-    // Where a linked task was served has three answers. The ordinary one - this node - wears
-    // no mark and is said in the title's hover text; the other two are shown apart.
-    await expectPage(row.locator(".lb-binding-task-node")).toHaveText([
-      "a different node",
-      "history target unknown",
-    ]);
+    // Where a linked task was served has three answers, and none of them is a chip: the ordinary
+    // one - this node - is said in the title's hover text, and the row wears no node mark.
     await expectPage(row.locator(".lb-binding-title")).toHaveAttribute(
       "title",
       /history target: same node/,
     );
-    await expectPage(
-      row.locator("[data-lb-task-id]").nth(2).locator(".lb-binding-task-pending"),
-    ).toBeVisible();
+    await expectPage(row.locator(".lb-binding-task-node")).toHaveCount(0);
 
     await page.locator("#languageSelect").selectOption("zh");
-    await expectPage(row.locator(".lb-binding-task-node")).toHaveText(["别的节点", "历史落点未知"]);
     await expectPage(row.locator("[data-lb-binding-tasks]")).toHaveAttribute(
       "title",
       /关联 task: 3/,
     );
-    await expectPage(row.locator("[data-lb-binding-confidence]")).toHaveCount(0);
+    await expectPage(hoverLine(row)).toHaveAttribute(
+      "data-lb-hover-hidden-tasks",
+      "本行未显示的 task: task-beta (2) · task-gamma (1)",
+    );
     await expectPage(hoverLine(row)).toHaveAttribute(
       "data-lb-hover-reasons",
       "精确 key 命中 · 一个绑定连到多个 task",
@@ -1003,12 +1001,13 @@ describe("admin UI load balancing groups", { timeout: UI_TEST_TIMEOUT_MS }, () =
       "title",
       /历史落点: 同一节点/,
     );
+    await expectPage(row.locator(".lb-binding-ambiguous")).toHaveCount(0);
 
     await page.locator("#languageSelect").selectOption("en");
-    await expectPage(row.locator(".lb-binding-task-node")).toHaveText([
-      "a different node",
-      "history target unknown",
-    ]);
+    await expectPage(hoverLine(row)).toHaveAttribute(
+      "data-lb-hover-hidden-tasks",
+      "Tasks not shown on this row: task-beta (2) · task-gamma (1)",
+    );
   });
 
   /** The destination a row on the first node can be moved to: the group's second member. */
@@ -2785,16 +2784,9 @@ describe("admin UI load balancing groups", { timeout: UI_TEST_TIMEOUT_MS }, () =
     const panel = await openBindingList(card, 0);
     await expectPage(panel.locator(".lb-binding")).toHaveCount(20);
     const failed = bindingRow(panel, 15);
-    await expectPage(failed.locator(".lb-binding-coverage-state")).toHaveText(
-      "history query failed",
-    );
-    await expectPage(failed.locator(".lb-binding-coverage-state")).toHaveClass(/is-failed/);
-    // The cause is not a second visible chip: it is the hover text of the mark that says the
-    // read broke, and the same sentence on the row's own line.
-    await expectPage(failed.locator(".lb-binding-coverage-state")).toHaveAttribute(
-      "title",
-      "history query failed · read · SqliteError · SQLITE_BUSY · database is locked",
-    );
+    // Nothing on the visible line speaks about history: the row shows its four values, and what
+    // the history could not answer is carried on the line's own hover text.
+    await expectPage(failed.locator(".lb-binding-coverage-state")).toHaveCount(0);
     await expectPage(hoverLine(failed)).toHaveAttribute(
       "data-lb-hover-coverage",
       "history query failed · read · SqliteError · SQLITE_BUSY · database is locked",
@@ -2806,7 +2798,6 @@ describe("admin UI load balancing groups", { timeout: UI_TEST_TIMEOUT_MS }, () =
       "data-lb-hover-tasks",
       "Linked tasks: 0 · no task linked",
     );
-    await expectPage(failed.locator("[data-lb-binding-confidence]")).toHaveText("no task linked");
     await expectPage(hoverLine(failed)).toHaveAttribute(
       "data-lb-hover-reasons",
       "history query failed",
@@ -2815,27 +2806,29 @@ describe("admin UI load balancing groups", { timeout: UI_TEST_TIMEOUT_MS }, () =
 
     // The other two causes each keep their own sentence, and a scan that ran out of room is
     // said separately from the count.
-    await expectPage(bindingRow(panel, 12).locator(".lb-binding-coverage-state")).toHaveText(
+    await expectPage(hoverLine(bindingRow(panel, 12))).toHaveAttribute(
+      "data-lb-hover-coverage",
       "no traffic database yet",
     );
-    await expectPage(bindingRow(panel, 18).locator(".lb-binding-coverage-state")).toHaveText(
+    await expectPage(hoverLine(bindingRow(panel, 18))).toHaveAttribute(
+      "data-lb-hover-coverage",
       "no log root configured",
     );
-    // A history that answered is the ordinary case and wears no mark; it is still the first
-    // part of the coverage sentence the row carries, and the two flags it grew are separate.
-    await expectPage(bindingRow(panel, 9).locator(".lb-binding-coverage-state")).toHaveCount(0);
+    // A history that answered is the ordinary case, and the two facts it grew stay separate
+    // parts of the same hover sentence.
     await expectPage(hoverLine(bindingRow(panel, 9))).toHaveAttribute(
       "data-lb-hover-coverage",
       "history available · history truncated · the log write may still be pending",
     );
-    await expectPage(bindingRow(panel, 9).locator(".lb-binding-coverage-flag")).toHaveText([
-      "history truncated",
-      "the log write may still be pending",
-    ]);
-    await expectPage(bindingRow(panel, 9).locator("[data-lb-binding-confidence]")).toHaveText(
-      "candidate",
+    await expectPage(hoverLine(bindingRow(panel, 9))).toHaveAttribute(
+      "data-lb-hover-tasks",
+      /^Linked tasks: 3 · candidate/,
     );
-    await expectPage(bindingRow(panel, 9).locator("[data-lb-task-id]")).toHaveCount(3);
+    await expectPage(hoverLine(bindingRow(panel, 9))).toHaveAttribute(
+      "data-lb-hover-hidden-tasks",
+      "Tasks not shown on this row: task-epsilon (1) · task-zeta (4)",
+    );
+    await expectPage(bindingRow(panel, 9).locator("[data-lb-task-id]")).toHaveCount(1);
 
     const panelText = await page.evaluate(() =>
       [...document.querySelectorAll(".lb-binding-panel")]
@@ -2845,26 +2838,32 @@ describe("admin UI load balancing groups", { timeout: UI_TEST_TIMEOUT_MS }, () =
     expect(panelText).not.toMatch(/undefined|null/);
 
     await page.locator("#languageSelect").selectOption("zh");
-    await expectPage(failed.locator(".lb-binding-coverage-state")).toHaveText("历史查询失败");
     // The cause stays the server's own words whatever the page speaks.
-    await expectPage(failed.locator(".lb-binding-coverage-state")).toHaveAttribute(
-      "title",
+    await expectPage(hoverLine(failed)).toHaveAttribute(
+      "data-lb-hover-coverage",
       "历史查询失败 · read · SqliteError · SQLITE_BUSY · database is locked",
     );
-    await expectPage(bindingRow(panel, 12).locator(".lb-binding-coverage-state")).toHaveText(
+    await expectPage(hoverLine(bindingRow(panel, 12))).toHaveAttribute(
+      "data-lb-hover-coverage",
       "该日志根还没有 traffic.db",
     );
-    await expectPage(bindingRow(panel, 18).locator(".lb-binding-coverage-state")).toHaveText(
+    await expectPage(hoverLine(bindingRow(panel, 18))).toHaveAttribute(
+      "data-lb-hover-coverage",
       "该节点没有配置日志根",
     );
-    await expectPage(bindingRow(panel, 9).locator(".lb-binding-coverage-flag")).toHaveText([
-      "历史被截断",
-      "日志可能还没写进去",
-    ]);
+    await expectPage(hoverLine(bindingRow(panel, 9))).toHaveAttribute(
+      "data-lb-hover-coverage",
+      "历史可读 · 历史被截断 · 日志可能还没写进去",
+    );
+    await expectPage(hoverLine(bindingRow(panel, 9))).toHaveAttribute(
+      "data-lb-hover-hidden-tasks",
+      "本行未显示的 task: task-epsilon (1) · task-zeta (4)",
+    );
 
     await page.locator("#languageSelect").selectOption("en");
-    await expectPage(failed.locator(".lb-binding-coverage-state")).toHaveText(
-      "history query failed",
+    await expectPage(hoverLine(failed)).toHaveAttribute(
+      "data-lb-hover-coverage",
+      "history query failed · read · SqliteError · SQLITE_BUSY · database is locked",
     );
   });
 
@@ -3026,7 +3025,7 @@ describe("admin UI load balancing groups", { timeout: UI_TEST_TIMEOUT_MS }, () =
     const clippedContainers = await page.evaluate(() =>
       [
         ...document.querySelectorAll(
-          ".lb-node-state, .lb-node-tools, .lb-binding-panel, .lb-binding, .lb-binding-line, .lb-binding-task-line, .lb-binding-task, .lb-binding-tools, .lb-binding-move-row",
+          ".lb-node-state, .lb-node-tools, .lb-binding-panel, .lb-binding, .lb-binding-line, .lb-binding-tools, .lb-binding-move-row",
         ),
       ]
         .filter((element) => element.scrollWidth > element.clientWidth + 1)
@@ -3044,13 +3043,12 @@ describe("admin UI load balancing groups", { timeout: UI_TEST_TIMEOUT_MS }, () =
     expect(clipped.scrollWidth).toBeGreaterThan(clipped.clientWidth);
     expect(clipped.textOverflow).toBe("ellipsis");
     expect(clipped.overflowWrap).toBe("normal");
-    // Both ids of one task line stay readable somewhere: the row wraps instead of cutting a
-    // fact away.
-    await expectPage(bindingRow(panel, 7).locator(".lb-binding-task-id")).toHaveText([
-      "task-alpha",
-      "task-beta",
-      "task-gamma",
-    ]);
+    // Every id the row does not print stays readable in the hover text: a narrow panel clips the
+    // title, it does not lose the rest of the answer.
+    await expectPage(hoverLine(bindingRow(panel, 7))).toHaveAttribute(
+      "data-lb-hover-hidden-tasks",
+      "Tasks not shown on this row: task-beta (2) · task-gamma (1)",
+    );
   });
 
   /**
@@ -3164,6 +3162,7 @@ describe("admin UI load balancing groups", { timeout: UI_TEST_TIMEOUT_MS }, () =
         /^Cost: normalized usage · input tokens: 18,400 · cache read tokens: 12,000 · observed: \d/,
       ),
       "Linked tasks: 3 · high confidence · several candidates",
+      "Tasks not shown on this row: task-beta (2) · task-gamma (1)",
       "history available",
       "exact key links · several linked tasks",
     ]);
@@ -3197,6 +3196,7 @@ describe("admin UI load balancing groups", { timeout: UI_TEST_TIMEOUT_MS }, () =
         /^成本: 归一化用量 · 输入 token: 18,400 · 缓存读取 token: 12,000 · 观测时间: \d/,
       ),
       "关联 task: 3 · 高置信 · 候选不唯一",
+      "本行未显示的 task: task-beta (2) · task-gamma (1)",
       "历史可读",
       "精确 key 命中 · 一个绑定连到多个 task",
     ]);
@@ -3216,6 +3216,7 @@ describe("admin UI load balancing groups", { timeout: UI_TEST_TIMEOUT_MS }, () =
         /^Cost: normalized usage · input tokens: 18,400 · cache read tokens: 12,000 · observed: \d/,
       ),
       "Linked tasks: 3 · high confidence · several candidates",
+      "Tasks not shown on this row: task-beta (2) · task-gamma (1)",
       "history available",
       "exact key links · several linked tasks",
     ]);

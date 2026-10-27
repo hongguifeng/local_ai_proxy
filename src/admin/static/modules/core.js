@@ -345,6 +345,7 @@ const translations = {
     lbBindingTasks: "关联 task",
     lbBindingSeveralTaskNote:
       "标题是列表报的第一个 task；行上的请求次数与 token 都是这条绑定自己的",
+    lbBindingHiddenTasksLabel: "本行未显示的 task",
     lbBindingTaskEndpointLabel: "task 端点",
     lbConfidenceHigh: "高置信",
     lbConfidenceCandidate: "候选",
@@ -918,6 +919,7 @@ const translations = {
     lbBindingTasks: "Linked tasks",
     lbBindingSeveralTaskNote:
       "The title is the first task the list reports; the request count and the token figure on this row are the binding's own",
+    lbBindingHiddenTasksLabel: "Tasks not shown on this row",
     lbBindingTaskEndpointLabel: "task endpoint",
     lbConfidenceHigh: "high confidence",
     lbConfidenceCandidate: "candidate",
