@@ -115,6 +115,34 @@ async function startMetricsServer(
   return { server, port, requests: () => hits };
 }
 
+/**
+ * A metrics endpoint whose answer the test can flip. Used to end a live suggestion on purpose,
+ * so the shape of a terminal log line is proven by the test instead of left to timing.
+ */
+async function startSwitchableMetricsServer(text: string): Promise<{
+  server: http.Server;
+  port: number;
+  requests: () => number;
+  set(next: string): void;
+}> {
+  let current = text;
+  let hits = 0;
+  const server = http.createServer((_request, response) => {
+    hits += 1;
+    response.writeHead(200, { "content-type": "text/plain" });
+    response.end(current);
+  });
+  const port = await listen(server);
+  return {
+    server,
+    port,
+    requests: () => hits,
+    set: (next: string): void => {
+      current = next;
+    },
+  };
+}
+
 /** A metrics endpoint that answers late, so an overlapping sample can be observed. */
 async function startDelayedMetricsServer(
   text: string,
@@ -582,7 +610,11 @@ vllm:engine_sleep_state{engine="0",sleep_state="weights_offloaded"} 1.0
 const ADV_GROUP = "lb-adv";
 const ADV_MEMBERS = ["target-a", "target-b", "target-c"];
 
-/** The exact keys one suggestion log line is allowed to carry. */
+/**
+ * The exact keys a suggestion log line is allowed to carry. A line that announces a new
+ * suggestion carries these seven; a line that reports one ended adds `stateReason` and nothing
+ * else. Both are asserted exactly, so a widened set is a failing test, not a relaxed one.
+ */
 const SUGGESTION_LOG_KEYS = [
   "bindingId",
   "destinationTargetId",
@@ -592,6 +624,8 @@ const SUGGESTION_LOG_KEYS = [
   "stableSamples",
   "suggestionId",
 ].sort();
+
+const TERMINAL_SUGGESTION_LOG_KEYS = [...SUGGESTION_LOG_KEYS, "stateReason"].sort();
 
 const sleep = (ms: number): Promise<void> => new Promise((resolve) => setTimeout(resolve, ms));
 
@@ -854,13 +888,16 @@ describe("[TRI-10] the advisor wired onto the monitor's own tick", () => {
 
   it("logs a suggestion with ids, targets and numbers only - never a session, body or key", async () => {
     const logger = collectingLogger();
-    const trio = await startAdvisorTrio();
+    const [busy, quietB, quietC] = await Promise.all([
+      startMetricsServer(VLLM_EXPOSITION),
+      // The destination the advisor picks is the first quiet member in configuration order,
+      // which is target-b. Flipping that engine is what ends the suggestion.
+      startSwitchableMetricsServer(IDLE_EXPOSITION),
+      startMetricsServer(IDLE_EXPOSITION),
+    ]);
     const balancer = new LoadBalancer("pair-1");
     balancer.reconfigure(
-      advisorPair(
-        { busy: trio.busy.port, idleB: trio.idleB.port, idleC: trio.idleC.port },
-        "advise",
-      ),
+      advisorPair({ busy: busy.port, idleB: quietB.port, idleC: quietC.port }, "advise"),
     );
     bindOnBusyEngine(balancer, "session-log-leak", "please keep this private");
 
@@ -873,7 +910,16 @@ describe("[TRI-10] the advisor wired onto the monitor's own tick", () => {
       );
       expect(suggestionLines.length).toBeGreaterThanOrEqual(1);
       for (const line of suggestionLines) {
-        expect(Object.keys(line.context).sort()).toEqual(SUGGESTION_LOG_KEYS);
+        // A created suggestion has no reason yet, so its line carries exactly the seven keys.
+        // A line about a suggestion that ended names why it ended - and that is the only extra
+        // key either shape may carry.
+        const keys = Object.keys(line.context).sort();
+        if (line.message === "load rebalance suggestion") {
+          expect(keys).toEqual(SUGGESTION_LOG_KEYS);
+        } else {
+          expect(keys).toEqual(TERMINAL_SUGGESTION_LOG_KEYS);
+          expect(typeof line.context["stateReason"]).toBe("string");
+        }
       }
       const serialized = JSON.stringify(logger.entries);
       expect(serialized).not.toContain("session-log-leak");
@@ -887,9 +933,31 @@ describe("[TRI-10] the advisor wired onto the monitor's own tick", () => {
           expect(String(value)).not.toMatch(/^[0-9a-f]{64}$/);
         }
       }
+
+      // Now prove the second shape on purpose: the quiet destination turns busy, so the live
+      // suggestion must end and say why. Waiting for a refusal to appear by chance would leave
+      // this branch of the contract asserted only when the timing happened to produce one.
+      quietB.set(VLLM_EXPOSITION);
+      const expiryDeadline = Date.now() + 5_000;
+      while (
+        !logger.entries.some((entry) => entry.message === "load rebalance suggestion expired") &&
+        Date.now() < expiryDeadline
+      ) {
+        await sleep(50);
+      }
+      const expiredLine = logger.entries.find(
+        (entry) => entry.message === "load rebalance suggestion expired",
+      );
+      if (expiredLine === undefined) {
+        throw new Error(`the suggestion never ended: ${JSON.stringify(logger.entries)}`);
+      }
+      expect(Object.keys(expiredLine.context).sort()).toEqual(TERMINAL_SUGGESTION_LOG_KEYS);
+      expect(expiredLine.context["stateReason"]).toBe("target_busy");
+      expect(JSON.stringify(expiredLine.context)).not.toContain("session-log-leak");
+      expect(String(expiredLine.context["suggestionId"])).toMatch(/^[0-9a-f]{32}$/);
     } finally {
       monitor.stop();
-      await closeTrio(trio);
+      await Promise.all([close(busy.server), close(quietB.server), close(quietC.server)]);
     }
   });
 });
