@@ -59,6 +59,7 @@
 - `static-checks-and-split` - static-checks-and-split 的专项操作手册。
 - `statistics-charts` - statistics-charts 的专项操作手册。
 - `traffic-log-forensics` - traffic-log-forensics 的专项操作手册。
+- `todo-workflow` - 编写、执行、收口和归档 TODO / active plan 的专项流程。
 - `ui-baseline-regen` - ui-baseline-regen 的专项操作手册。
 - `ui-markup-contracts` - ui-markup-contracts 的专项操作手册。
 - `ui-test-quirks` - ui-test-quirks 的专项操作手册。

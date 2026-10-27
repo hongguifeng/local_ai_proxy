@@ -25,6 +25,7 @@ const expectedSkills = [
   "static-checks-and-split",
   "statistics-charts",
   "traffic-log-forensics",
+  "todo-workflow",
   "ui-baseline-regen",
   "ui-markup-contracts",
   "ui-test-quirks",
