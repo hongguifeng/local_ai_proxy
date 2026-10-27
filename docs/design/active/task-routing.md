@@ -436,8 +436,8 @@ TTL、没有计数、没有目标改写、没有预留也没有记录。`inFligh
 | `activity`             | `in_flight`、`idle` 或 `unknown`；不表示 task 已完成 |
 | `lastRequestStartedAt` | 最近一次请求进入代理的时间                           |
 | `lastResponseEndedAt`  | 最近一次 reservation 释放时间                        |
-| `historyTargetNode`    | 历史落点与本节点：`same`/`different`/`unknown`      |
-| `context.source`       | 仅说明成本信号来源                                  |
+| `historyTargetNode`    | 历史落点与本节点：`same`/`different`/`unknown`       |
+| `context.source`       | 仅说明成本信号来源                                   |
 
 `context.source` 的取值是 `normalized_usage`、`request_bytes`、`none`，只说明成本信号的来源，不代表上游计费正确。
 
@@ -624,6 +624,12 @@ rebalance_mode: "off" | "advise" | "auto";
 
 自动策略状态由 `LoadMonitor` 和独立的纯判定模块持有。定时器仍由现有 `LoadMonitor` 管理，不新增 UI 依赖；其 timer 已使用 `unref()`，停止 pair 时清理 sampling 和 advisor 状态。
 
+TRI-10 已落地的口径：模式是 `LoadBalancerGroup.rebalance_mode`，由 schema、normalizer、配置读写和保存路由共同持有，
+默认 `off`；advisor 由监视器的采样 tick 驱动，自己不建 timer，因此停止 pair 后不留任何仍在运行的判定。`off`、被禁用的
+组和 `metrics_enabled: false` 的组在 advisor 入口处就被丢弃状态——「`off` 不计算」是在入口处保证的，不是事后把结果
+过滤掉。`AUTO_REBALANCE_CALIBRATED`（[load-rebalance.ts](../../../src/proxy/load-rebalance.ts)）是唯一能让 `auto` 超出
+`advise` 的开关，它只能由 TRI-11 记录的真实引擎三组对照实验置真；代码评审、单元测试和合成夹具都不能改它。
+
 ### 7.2 失衡判定
 
 自动策略只在以下信息同时满足时判定：
@@ -640,6 +646,12 @@ rebalance_mode: "off" | "advise" | "auto";
 running、waiting 缺失时不得补零参与自动判定。多个 target 共享一个 canonical key 时，引擎采样只算一次；本地 reservation 按 target 分开维护，物理节点决策使用去重后的聚合口径。
 
 稳定样本数、源节点忙阈值、目标静默时长、每组迁移速率和候选上下文上限都是待校准参数。它们不得从现有 `5s` 采样间隔、`15s` 新鲜窗口或 `0.9` KV 分档阈值直接推导。未完成真机校准时，`auto` 的运行状态为 `advise`，状态接口返回 `disabledReason: "not_calibrated"`，不得执行自动改绑。
+
+TRI-10 已落地的口径：判定只读 `assessLoadSample()` 的 `usableForLoadJudgement`（fresh、complete、awake 同时成立）和
+`engineLoadViews()` 按 canonical key 折叠后的引擎视图；「同一采样序号」按监视器在被接受的读上为每个 canonical key
+发放的递增序号理解（TRI-03 口径），重复读到同一个序号不增加稳定次数。advisor 不发起采样、不读数据库、不碰网络。
+这些参数集中成 `ADVISE_OBSERVATION_POLICY` 一处命名，状态接口在每条建议旁同时报 `calibrated: false`；它们不是自动执行
+阈值，TRI-11 必须用实测值替换后才能进入 `auto`。
 
 ### 7.3 候选选择
 
@@ -658,6 +670,12 @@ running、waiting 缺失时不得补零参与自动判定。多个 target 共享
 排序优先级：可靠成本信号升序 → 最近多轮活动证据 → 较久未开始下一请求 → 配置顺序。可靠成本信号优先使用最近完成请求的 normalized input token；缺失时可使用请求体字节数作为标注为估算的排序信号；不能把字节数宣称为 token，也不能把 `requestCount` 当作真实轮次。
 
 候选不应只取“上下文最小”的 binding。小上下文可能已经结束，迁移不会缓解源节点压力；长上下文迁移代价较高但可能仍有多轮收益。自动执行需要在“迁移成本”和“后续可观测活动”之间做保守筛选，并把不能证明的部分留给实验。
+
+TRI-10 已落地的口径：目标 enabled、非 cooldown、非 asleep、同模型、同协议、不同 physical key 和 server-side state 风险
+这些门不由 advisor 重新推导——它读 `LoadBalancer.moveGatesFor()`，即 `moveBinding()` 在提交和写入时会重跑的那同一套
+判断的结果；advisor 自己只加三个事实：`inFlight === 0`、在 `candidateActivityWindowMs` 内真的起过请求、成本信号有真实
+来源（`costSource: "none"` 表示账本什么都不知道，一律不当作物证）。`costEstimated: true` 标记那个数字是请求体字节数
+而不是 token。建议只带 id、目标、revision 和数字，不带 exact key、会话、正文或密钥。
 
 ### 7.4 自动动作时机
 
@@ -685,6 +703,10 @@ advisor 可以在采样 tick 中产生 `suggestion`，但不在后台直接改�
 
 这些阈值都是配置参数，首版实现必须把测量来源和校准结果写入设计变更记录；不能把未经真机验证的示例数值直接当产品常量。
 
+TRI-10 已落地的口径：单 binding 冷却、group 预算窗口、同一 episode 只一个活跃建议、目标承诺上限和 A→B 后禁自动 B→A
+已经在 advisor 中实现并可观测，但它们今天只作用于**是否产生建议**，不作用于执行；动作级的连续无效熔断和 group 暂停
+属于 TRI-12，TRI-11 校准前不存在自动动作可供暂停。
+
 ### 7.6 自动效果评价
 
 每次自动候选记录以下状态，但不立即调参：
@@ -698,6 +720,13 @@ advisor 可以在采样 tick 中产生 `suggestion`，但不在后台直接改�
 - 目标节点新增排队、KV 压力和错误率。
 
 单个 TTFT 变快、cache read 变少或节点计数更均匀都不能单独证明自动策略成功。自动模式的开启门槛是相同客户端脚本、相同上下文档位、相同轮次和并发条件下，至少完成“不迁移、手动边界迁移、自动策略”三组可复验对照，并在整体完成时间和尾延迟上达到预先约定的收益，同时错误率和额外计算成本没有超出约束。
+
+TRI-10 已落地的口径：状态机已经实现 `suggested`、`unused`、`rejected`、`expired` 四个状态，每个终态项都命名自己的原因
+（拒绝：`episode_live`、`binding_cooldown`、`group_budget`、`anti_flap`、`destination_commitment`、`store_full`；失效：
+`runtime_changed`、`group_changed`、`binding_gone`、`route_changed`、`state_risk`、`target_unavailable`、`target_busy`、
+`source_metrics_lost`、`destination_metrics_lost`；老化：`no_next_request`、`no_action_permitted`）。终态不可重写，到期
+即从存储移除。`applied` 和 `observed` 属于 TRI-12，今天既不产生也不上送，因此响应 schema 里也不声明它们；本节列出的
+迁移后度量（源/目标变化、后续轮数、尾延迟）需要真实对照实验才能填写，合成测试不能拿它们当收益证明。
 
 ## 8. 管理 API、服务装配与模块边界
 
@@ -739,19 +768,19 @@ v1 不新增 traffic 数据库表和 schema 版本。迁移原因写入现有开
 
 ## 10. 数值与证据
 
-| 数值或结论                                 | 类别         | 来源与限制                                                               |
-| ------------------------------------------ | ------------ | ------------------------------------------------------------------------ |
-| 指标采样间隔 5 秒                          | 现有常量     | `src/proxy/load-monitor.ts`；只描述当前采样节奏                          |
-| 指标新鲜窗口 15 秒                         | 现有常量     | `src/proxy/load-balancer.ts`；不是自动稳定窗口                           |
-| 指标超时 4 秒                              | 现有常量     | `src/proxy/load-monitor.ts`                                              |
-| affinity TTL 24 小时、单桶 32、全组 4096   | 现有常量     | `src/proxy/load-affinity.ts`；不等于活跃 task 数                         |
-| 用户消息哈希最多 64 条，超大保护 4096 条   | 现有常量     | `src/proxy/protocol/task-identity.ts`；不能作为完整上下文长度            |
-| KV 高压分档 0.9                            | 现有常量     | `src/proxy/load-balancer.ts`；只能作压力信号，不能证明 task 活跃         |
+| 数值或结论                                 | 类别         | 来源与限制                                                                        |
+| ------------------------------------------ | ------------ | --------------------------------------------------------------------------------- |
+| 指标采样间隔 5 秒                          | 现有常量     | `src/proxy/load-monitor.ts`；只描述当前采样节奏                                   |
+| 指标新鲜窗口 15 秒                         | 现有常量     | `src/proxy/load-balancer.ts`；不是自动稳定窗口                                    |
+| 指标超时 4 秒                              | 现有常量     | `src/proxy/load-monitor.ts`                                                       |
+| affinity TTL 24 小时、单桶 32、全组 4096   | 现有常量     | `src/proxy/load-affinity.ts`；不等于活跃 task 数                                  |
+| 用户消息哈希最多 64 条，超大保护 4096 条   | 现有常量     | `src/proxy/protocol/task-identity.ts`；不能作为完整上下文长度                     |
+| KV 高压分档 0.9                            | 现有常量     | `src/proxy/load-balancer.ts`；只能作压力信号，不能证明 task 活跃                  |
 | 193207 token 请求 TTFT 约 41.2 秒          | 历史记录     | `docs/design/accepted/load-balancing.md`；单次历史真机记录，不是通用 prefill 速率 |
-| 1628 token 前缀冷/热 TTFT 528/325 ms       | 历史记录     | 同上；不能单独证明迁移收益                                               |
-| 4096 binding 内存 snapshot 约 0.13–0.15 ms | 本轮合成实测 | 仅证明内存扫描局部成本；不是代理吞吐或真实任务收益                       |
-| 10000 task/60000 record 的合成查询约 34 ms | 本轮合成实测 | 只代表夹具 schema、规模和分布；不代表用户真实数据库                      |
-| 自动稳定窗口、上下文上限、迁移预算和冷却   | 待校准假设   | 必须通过真实工作负载实验后才能进入 `auto` 默认参数                       |
+| 1628 token 前缀冷/热 TTFT 528/325 ms       | 历史记录     | 同上；不能单独证明迁移收益                                                        |
+| 4096 binding 内存 snapshot 约 0.13–0.15 ms | 本轮合成实测 | 仅证明内存扫描局部成本；不是代理吞吐或真实任务收益                                |
+| 10000 task/60000 record 的合成查询约 34 ms | 本轮合成实测 | 只代表夹具 schema、规模和分布；不代表用户真实数据库                               |
+| 自动稳定窗口、上下文上限、迁移预算和冷却   | 待校准假设   | 必须通过真实工作负载实验后才能进入 `auto` 默认参数                                |
 
 关键证据必须保留可复跑脚本、输入规模、引擎版本、缓存初始条件和对照结果。禁止使用单次 TTFT、合成 SQLite 查询或内存扫描成本直接推导用户收益。
 
@@ -809,7 +838,7 @@ UI 修改必须运行 `npm run regen:ui-baselines`，检查全尺寸截图、哈
 - [ ] `previous_response_id` 或未知 server-side 状态依赖在未声明共享能力时拒绝迁移。
 - [ ] reload、failover、目标删除、group 删除、pair 重启和 TTL/LRU 清理均有状态定义与测试。
 - [ ] 手动迁移后的下一请求使用新节点，已有请求完整结束；路由元信息能够解释迁移原因。
-- [ ] `rebalance_mode` 默认 `off`；`advise` 不修改 binding；`auto` 未校准时不能执行。
+- [x] `rebalance_mode` 默认 `off`；`advise` 不修改 binding；`auto` 未校准时不能执行。
 - [ ] 自动策略使用完整新鲜样本、物理节点去重、稳定窗口、候选成本、冷却、预算和熔断。
 - [ ] 自动收益由真实引擎三组对照证明，未达门槛时保留建议模式。
 - [ ] UI 基线、admin API 合同、模块边界、全量测试、便携打包、交付冒烟和 ABI 恢复全部通过。

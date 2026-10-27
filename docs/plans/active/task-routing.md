@@ -4,7 +4,10 @@
 > 权威性：执行状态记录，不是产品合同。
 > 更新条件：任务状态、依赖或验收证据变化时更新。
 
-当前状态：TRI-01～TRI-09 已验收，TRI-10～TRI-12 尚未开始。历史整合过程和每项证据保留在本文后续完成记录中。
+当前状态：TRI-01～TRI-09 已验收并整合进主 checkout；TRI-10 在本工作树完成（实现、测试、文档已收口，等父代理审查后
+整合）；TRI-11 阻塞——本机唯一可用的真实引擎属于用户正在运行的实例，按边界不得读取其负载，也不存在第二个隔离的
+同模型引擎，因此三组对照实验无法在隔离环境中跑成；TRI-12 未开始，`auto` 今天不执行任何改绑，这一点由测试钉住。历史
+整合过程和每项证据保留在本文后续完成记录中。
 
 本文是供本地 AI 按依赖顺序执行的开发清单。每项任务都必须完成实现、测试、文档同步和本项验收后才能标记为完成。研究稿、模型比较文档和历史负载均衡文档只提供背景，不得覆盖设计权威中的状态、并发和安全合同。
 
@@ -27,7 +30,7 @@
 
 1. 第 4 节进度表的勾选和状态；
 2. 该任务的完成记录，包括修改文件、测试、已知限制和实际结果；
-3. 如实现改变设计合同，先修改 [task-routing-design.md](../../design/active/task-routing.md)，再继续代码，不要在代码和 TODO 中保留两套语义。
+3. 如实现改变设计合同，先修改 [task-routing 设计](../../design/active/task-routing.md)，再继续代码，不要在代码和 TODO 中保留两套语义。
 
 本清单不授权提交、推送、发布或操作用户正在运行的 portable 实例。验证必须使用隔离 fixture、临时配置、临时数据库、独立数据目录和空闲端口。
 
@@ -49,17 +52,17 @@
 
 ### 2.2 标准验证入口
 
-| 编号 | 目的                      | 命令或技能                                                                                                                                                                                                        |
-| ---- | ------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| V-D  | 文档格式、链接和任务依赖  | `npx prettier --ignore-path .gitignore --check docs/plans/active/task-routing.md docs/design/active/task-routing.md`                                                                                              |
-| V-T  | 相关 Node 测试            | `npm test -- <实际测试文件>`，从大写盘符路径运行                                                                                                                                                                  |
-| V-C  | 类型、lint 和模块边界     | `npm run typecheck`、`npm run lint`、`npm run check:modules`                                                                                                                                                      |
-| V-A  | 管理 API 合同             | 阅读并遵循 [admin-api-probing](../../../.agents/skills/admin-api-probing/SKILL.md)                                                                                                                                      |
-| V-R  | proxy 生命周期和 reload   | 阅读并遵循 [proxy-runtime](../../../.agents/skills/proxy-runtime/SKILL.md)                                                                                                                                              |
+| 编号 | 目的                      | 命令或技能                                                                                                                                                                                                                          |
+| ---- | ------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| V-D  | 文档格式、链接和任务依赖  | `npx prettier --ignore-path .gitignore --check docs/plans/active/task-routing.md docs/design/active/task-routing.md`                                                                                                                |
+| V-T  | 相关 Node 测试            | `npm test -- <实际测试文件>`，从大写盘符路径运行                                                                                                                                                                                    |
+| V-C  | 类型、lint 和模块边界     | `npm run typecheck`、`npm run lint`、`npm run check:modules`                                                                                                                                                                        |
+| V-A  | 管理 API 合同             | 阅读并遵循 [admin-api-probing](../../../.agents/skills/admin-api-probing/SKILL.md)                                                                                                                                                  |
+| V-R  | proxy 生命周期和 reload   | 阅读并遵循 [proxy-runtime](../../../.agents/skills/proxy-runtime/SKILL.md)                                                                                                                                                          |
 | V-U  | UI 模块、DOM 和浏览器测试 | [static-checks-and-split](../../../.agents/skills/static-checks-and-split/SKILL.md)、[ui-markup-contracts](../../../.agents/skills/ui-markup-contracts/SKILL.md)、[ui-test-quirks](../../../.agents/skills/ui-test-quirks/SKILL.md) |
-| V-B  | UI 截图和基线             | [ui-baseline-regen](../../../.agents/skills/ui-baseline-regen/SKILL.md)，运行 `npm run regen:ui-baselines`                                                                                                              |
-| V-E  | 真实上游收益实验          | [real-upstream-acceptance](../../../.agents/skills/real-upstream-acceptance/SKILL.md)                                                                                                                                   |
-| V-P  | 交付产物                  | `npm run package:electron:portable`、`npm run smoke:delivery`、`npm run abi:node`                                                                                                                                 |
+| V-B  | UI 截图和基线             | [ui-baseline-regen](../../../.agents/skills/ui-baseline-regen/SKILL.md)，运行 `npm run regen:ui-baselines`                                                                                                                          |
+| V-E  | 真实上游收益实验          | [real-upstream-acceptance](../../../.agents/skills/real-upstream-acceptance/SKILL.md)                                                                                                                                               |
+| V-P  | 交付产物                  | `npm run package:electron:portable`、`npm run smoke:delivery`、`npm run abi:node`                                                                                                                                                   |
 
 `docs/` 被默认 Prettier 忽略，文档只能使用显式 `--ignore-path .gitignore`。过滤测试必须确认实际匹配了测试；项目 `passWithNoTests` 关闭，空匹配不是通过。
 
@@ -76,8 +79,8 @@
 | [x]  | TRI-07 | P1     | 实现统一安全迁移服务                 | TRI-01、TRI-02、TRI-03 | 已完成 |
 | [x]  | TRI-08 | P1     | 实现手动迁移 API、幂等和生命周期处理 | TRI-04、TRI-05、TRI-07 | 已完成 |
 | [x]  | TRI-09 | P1     | 实现手动迁移 UI 和真实请求验证       | TRI-06、TRI-08         | 已完成 |
-| [ ]  | TRI-10 | P2     | 实现 advise 模式和建议状态           | TRI-03、TRI-07、TRI-09 | 未开始 |
-| [ ]  | TRI-11 | P2     | 真实引擎校准并决定是否开启 auto      | TRI-10                 | 未开始 |
+| [x]  | TRI-10 | P2     | 实现 advise 模式和建议状态           | TRI-03、TRI-07、TRI-09 | 已完成 |
+| [ ]  | TRI-11 | P2     | 真实引擎校准并决定是否开启 auto      | TRI-10                 | 阻塞   |
 | [ ]  | TRI-12 | P2     | 自动执行、最终回归和交付收口         | TRI-11                 | 未开始 |
 
 ## 4. 任务明细
@@ -236,13 +239,13 @@
 
 入口：[config schema](../../../src/config/config-schema.ts)、[load-monitor.ts](../../../src/proxy/load-monitor.ts)、新增纯判定模块、[load-balancer-admin.ts](../../../src/proxy/load-balancer-admin.ts)。
 
-- [ ] 在 group 配置中增加 `rebalance_mode: "off" | "advise" | "auto"`，默认 `off`，同步 schema、normalizer、读写和配置测试。
-- [ ] 将失衡判定、候选排序和 suggestion 生命周期放入不直接访问网络或数据库的纯模块。
-- [ ] 只在完整、新鲜、去重后的指标和安全候选同时满足时生成建议；缺失指标、旧样本和重复采样不产生稳定判定。
-- [ ] 候选必须满足零在途、同模型、不同 physical key、无 server-side state 风险、非人工保护和预算未超限。
-- [ ] 增加 `suggested`、`unused`、`rejected`、`expired` 原因和建议详情，但不要在 advise 模式改变 binding。
-- [ ] 复用现有 monitor timer 和 unref/stop 生命周期；不要让建议只在 UI 页面打开时运行。
-- [ ] 增加状态 API 投影，明确 `auto` 尚未校准时返回 `disabledReason: "not_calibrated"`，运行行为等同 advise。
+- [x] 在 group 配置中增加 `rebalance_mode: "off" | "advise" | "auto"`，默认 `off`，同步 schema、normalizer、读写和配置测试。
+- [x] 将失衡判定、候选排序和 suggestion 生命周期放入不直接访问网络或数据库的纯模块。
+- [x] 只在完整、新鲜、去重后的指标和安全候选同时满足时生成建议；缺失指标、旧样本和重复采样不产生稳定判定。
+- [x] 候选必须满足零在途、同模型、不同 physical key、无 server-side state 风险、非人工保护和预算未超限。
+- [x] 增加 `suggested`、`unused`、`rejected`、`expired` 原因和建议详情，但不要在 advise 模式改变 binding。
+- [x] 复用现有 monitor timer 和 unref/stop 生命周期；不要让建议只在 UI 页面打开时运行。
+- [x] 增加状态 API 投影，明确 `auto` 尚未校准时返回 `disabledReason: "not_calibrated"`，运行行为等同 advise。
 
 验收：`off` 不计算自动动作，`advise` 只提供候选，未校准的 `auto` 不改绑；同一旧样本不能重复累计稳定次数；建议不泄露请求内容。
 
@@ -283,7 +286,7 @@
 
 验收：自动策略具备可解释的建议/应用/观察/未使用/拒绝状态；真实对照实验支持开启，否则仍保持 advise；全量质量门禁、便携版打包、交付冒烟和 Node ABI 恢复均通过。
 
-验证：V-F、V-U、V-B、V-P、V-E。最终报告必须分别列出逻辑安全测试、真实收益实验和交付产物结果。
+验证：V-T、V-C、V-U、V-B、V-P、V-E。最终报告必须分别列出逻辑安全测试、真实收益实验和交付产物结果。
 
 ## 5. 需求追踪矩阵
 
@@ -408,7 +411,7 @@
   同一个对象。把两个源文件还原到初次提交后重跑，这三项新用例各自在预期断言上失败（字节数 `undefined`、ghost
   目标 inFlight 为 1、账本被调用者改成 `none`/0），修好后全部通过。
 - 修正后验证：`npm run typecheck`、`npm run lint`、`npm run check:modules`（0 环 0 越界）、`npx prettier
-  --check` 四个改动文件全部通过；`npx vitest run test-node/proxy/` 35 文件 500 项通过（初次提交 497 项，净增
+--check` 四个改动文件全部通过；`npx vitest run test-node/proxy/` 35 文件 500 项通过（初次提交 497 项，净增
   3 项与新增用例数一致）；`npm test` 140 文件通过、1 文件跳过（1288 项通过、2 项跳过），`npm run check`
   全链（format、lint、typecheck、check:modules、test、build）也跑通。修正落在初次提交之上的提交 ffd0d79，
   只含这四个源码与测试文件，研究文档与本 TODO 继续留在未跟踪状态。仍未覆盖的边界：failover 落到新 incarnation 且应答
@@ -740,7 +743,7 @@
   两份 typecheck 均 `exit 0`、`check:modules` 报 138 模块 / 323 运行时边 / 114 类型边 / 0 环 /
   0 越界、Vitest 147 文件（146 通过、1 跳过）与 1477 通过、2 跳过、`build` 通过；整合前的同一
   条链是 147 文件 / 1459 通过 / 2 跳过，1459 + 18 = 1477 正对上新增的 18 项。`npm run
-  check:skills` 7 项全过，本项整合后跑过两次（改 skill 之前与之后）。`git diff --check` 为空。
+check:skills` 7 项全过，本项整合后跑过两次（改 skill 之前与之后）。`git diff --check` 为空。
   按 AGENTS.md 的声明式口径复核
   `git grep -cE "^[[:space:]]*(it|test)(\.[a-z]+)?\(" <rev> -- test-node`：整合前 `2b583da` 为
   1290 项声明，整合后为 1308 项，增量 18 正等于原实现的 12 项、返工的 5 项与上限修正的 1 项；
@@ -1050,7 +1053,7 @@
      `kind: "refused"` 带拒绝码与句子），`describeMove` 只看这份答复，所以同键同参重试拿回
      同一 `code` 与同一 `detail`，路由也就映射出同一个状态码；首次拒绝与重放拒绝走同一条
      答复链。真实路由回归：`keeps a refused submission's refusal when the same key and parameters
-     are retried`（真 Fastify、真 `LoadBalancer`）。
+are retried`（真 Fastify、真 `LoadBalancer`）。
   2. `already_there` 绑定键与摘要。没有写记录就没有可携带答复的记录，所以回执单独成立
      （`StoredReceipt`，`operation` 为空，答复里 `operationId: null`），与记录同容量、同保留
      窗口、同 runtime 作用域；换目的地复用同一键一律 409，路由不动。单元与真实路由两条回归：
@@ -1064,7 +1067,7 @@
      `answers a parked submission with its own 202 after a lifecycle event called it off`、
      `repeats the count a submit proved instead of a count read off a binding that is gone`、
      `answers the first receipt with its own revision…`、`answers a parked submit's retry with its
-     own 202 after the boundary applied the intent`（涵盖后来 `applied` 与 `observed`）与
+own 202 after the boundary applied the intent`（涵盖后来 `applied` 与 `observed`）与
      `… after the intent was called off`（后来 `cancelled`），以及既有 replay 用例改为逐字段
      等于第一次答复。
   4. `observed` 需要真实落点证据。reservation 不再带 `migrationRoute` 字段，改成一个
@@ -1098,7 +1101,7 @@
      `MigrationOperationStore.canRecordAnswer()`：存不下就以 503 `migration_backlog_full`
      拒绝，且不写任何东西；腾空间仍然只淘汰已完成的答案，绝不提前丢仍活着的操作的回执。
      真实路由用例 `refuses a no-op the runtime cannot remember with 503 instead of a receipt
-     it cannot keep` 与两条单元用例（满时拒绝且无写、满时先淘汰已完成的答案）钉住这条，
+it cannot keep` 与两条单元用例（满时拒绝且无写、满时先淘汰已完成的答案）钉住这条，
      记录上限全程保持。容量正常时同键改目的地仍是 409 `idempotency_conflict`。
   2. 管理层的 group 预检不再越过第一份回执。`moveBinding()` 先定位 pair、runtime 与
      `runtimeEpoch`（停机与换 epoch 各自仍是 404），然后问
@@ -1108,7 +1111,7 @@
      改成不存在的 groupId 是 409 而不是绕过摘要直接 404；新键第一次问未知 group 仍是
      “Load balancer group not found.” 那条 404。
   3. 独立回执的保留窗口不再被算两次。`recordNoOpAnswer` 过去写 `expiresAt = answeredAt +
-     retentionMs`，`dropExpiredRecords` 又拿它与 `now - retentionMs` 比，实际保留的是
+retentionMs`，`dropExpiredRecords` 又拿它与 `now - retentionMs` 比，实际保留的是
      `2 * retentionMs`。现在两个索引用同一个 cutoff，各自只用自己的起算点：记录从 `endedAt`
      起保留一个窗口，独立回执从 `answeredAt` 起保留一个窗口，附在记录上的回执随记录同生
      同死，仍活着的操作的回执永不被时间清掉。单元侧三条用例分别钉住到期前、到期那一刻、
@@ -1289,7 +1292,7 @@
     它们目前有 API 与 UI 桩用例覆盖。
 - 返工轮（`6652d21` 之后再加 `c13260a` 一个产品提交、`04b4d2d` 之外的基线一张与本清单一张）：
   - 上一轮那句“obsolete 的回答不会为新页说话”当时并不成立，也没满足先前约定的 lifecycle 隔离：
-    dispose 后同一个 runtime 里重新 init，一条旧 *失败* 的 `POST` 回调照样把“结果未知”写进新页面的行。
+    dispose 后同一个 runtime 里重新 init，一条旧 _失败_ 的 `POST` 回调照样把“结果未知”写进新页面的行。
     父代理的探针（`.pi/parent-review/late-failure.test.ts` + `late-failure.config.ts`，`-t PARENT`）在
     `6652d21` 上 1 pass，就是这个漏洞的复现记录。当时那条路只是把旧回执藏起来，草稿还挂在旧 attempt
     上，下一次读就把被污染的状态显示出来。本轮不解释“这个风险可以接受”，直接改掉。
@@ -1438,24 +1441,144 @@
 
 ### TRI-10
 
-- 状态：未开始
-- 修改文件：
-- 验证：
-- 结果与限制：
+- 状态：已完成（本工作树提交 `80483a0`，完整哈希 80483a0c828f0e00bcc8976e76c68b1c0caa761f；主分支不在这个工作树里，
+  等父代理独立审查后决定是否整合）。
+- 修改文件：该提交共 30 个文件。产品侧 8 个：新增 [load-rebalance.ts](../../../src/proxy/load-rebalance.ts)（纯判定：
+  失衡、候选排序、建议状态机，不碰网络也不碰数据库），修改 [config-schema.ts](../../../src/config/config-schema.ts)
+  （`loadBalancerRebalanceModeSchema` 与 `rebalance_mode`，默认 `off`）、
+  [config-normalizer.ts](../../../src/config/config-normalizer.ts)（缺失读 `off`、命名值去空格、未知文本原样交给 schema
+  报出 group 路径，与既有 `normalizeLoadBalancerStrategy` 同形）、[config/index.ts](../../../src/config/index.ts)、
+  [proxy/index.ts](../../../src/proxy/index.ts)、
+  [load-balancer-admin.ts](../../../src/proxy/load-balancer-admin.ts)（状态里的 group 多一个 `rebalance` 块）、
+  [load-monitor.ts](../../../src/proxy/load-monitor.ts)（advisor 挂在采样 tick 上、入口丢弃、停止清理、日志）与
+  [admin-schemas.ts](../../../src/admin/admin-schemas.ts)（`loadBalancerRebalanceDto` 与它内部的闭合建议 DTO）。
+  测试侧 22 个：新增 `test-node/proxy/load-rebalance.test.ts`（24 项 `[TRI-10]`）；
+  `test-node/proxy/load-monitor.test.ts` 追加 5 项 `[TRI-10]`；`test-node/admin/load-balancer.test.ts` 追加 4 项
+  `[TRI-10]`；`test-node/admin/pairs.test.ts` 追加 2 项 `[TRI-10]`；`test-node/config/` 三份各 1 项。其余 12 份测试
+  文件各一至二行：给负载均衡 group 夹具显式写出 `rebalance_mode: "off"`，不让夹具靠隐式默认。UI 侧只动两处测试
+  桩——`test-node/ui/admin-ui-fixture.ts` 的状态夹具补上服务现在会答的 `rebalance` 块，
+  `test-node/ui/admin-ui-server.ts` 存盘前像真实路由一样先 `normalizeLoadBalancerGroups`。
+- 验证：`npm run check` 从大写盘符 `exit 0`：Prettier 全绿、lint `--max-warnings=0` 零告警、`tsconfig.json` 与
+  `tsconfig.ui.json` 两份 typecheck 均 `exit 0`、`check:modules` 报 139 模块 / 327 运行时边 / 120 类型边 /
+  0 环 / 0 越界、Vitest 150 文件（149 通过、1 跳过）与 1571 项（1569 通过、2 跳过）、`build` 通过。按 AGENTS.md
+  的声明式口径复核 `git grep -cE "^[[:space:]]*(it|test)(\.[a-z]+)?\(" HEAD~1 -- test-node` 为 1362、提交后为 1400，
+  测试文件数 149 → 150；38 项增量正等于新文件 24 + load-monitor 5 + admin load-balancer 4 + pairs 2 +
+  config 三份各 1，没有用例被删掉。定向复跑：`npx vitest run test-node/proxy/load-rebalance.test.ts
+test-node/admin/load-balancer.test.ts` 连续八次并发运行全过（24 + 10 项）；
+  `npx vitest run test-node/config/ test-node/admin/` 27 文件 289 项全过；
+  `npx vitest run test-node/ui/admin-ui-visual.test.ts test-node/ui/admin-ui-load-balancing.test.ts` 2 文件
+  70 项全过。五项变异各自被抓回：把 `off` 组也送进 advisor → `computes nothing while off` 失败；去掉
+  `runtimeEpoch` 失效检查 → 命名失效原因的项失败；把稳定阈值 `stable < min` 写成 `<=` → 14 项失败；去掉人工保护门
+  → `spares a binding a human protected` 失败；给建议日志多打一个字段 → `logs a suggestion with ids, targets and
+numbers only` 失败。变异全部还原后复跑，`git status` 只剩本次授权的文件。
+- 已成立的语义：模式属于 group，默认 `off`，`off`/`advise`/`auto` 是唯一三个合法文本，写错拼法是 400 并点名
+  `pairs.0.load_balancers.0.rebalance_mode`，不会静默降级成 `off`；`rebalance_mode` 经
+  `ConfigRepository` 存盘再读回不丢也不改名（旧配置里没写这项的组读回 `off` 并在下一次存盘时显式写出）。advisor
+  由监视器的采样 tick 驱动，自己不建 timer，`stop()` 连自己的状态一起清掉，因此建议不依赖任何 UI 页面开着。`off`、
+  禁用的组和 `metrics_enabled: false` 的组在 advisor 入口处直接 `dropGroup`，状态整体消失，不是留下一串终态记录。
+  判定只吃 `usableForLoadJudgement`（fresh + complete + awake）与按 canonical key 折叠后的引擎视图：陈旧样本、部分
+  样本、只有 KV 的样本和自称睡着的引擎都不产生判定；同一个 `sampleSequence` 被重复读到不增加稳定次数；只有两个
+  以上不同物理引擎才谈得上迁移；目标本地还有 reservation 时不许被当成空闲。候选侧读的是 `moveGatesFor()`——
+  `moveBinding()` 在提交和写入时会重跑的同一套判断，本模块不重新推导门；自己只加三件事：`inFlight === 0`、
+  `candidateActivityWindowMs` 内真的起过请求、成本信号有真实来源（`costSource: "none"` 一律拒）。`costEstimated: true`
+  标记那个数字是请求体字节数而不是 token。建议状态 `suggested` → `unused`/`rejected`/`expired` 单向，终态不被后来的
+  漂移改写，终态项到期即从存储消失；`unused` 的两个子原因分开“没有下一次请求”和“有请求但不许动”。冷却、组预算、
+  同 episode 只一个活跃建议、目标承诺上限和 A→B 后禁自动 B→A 都已实现并可在状态里读出，但它们今天只决定“要不要
+  产生建议”。状态 API 是闭合 DTO：`{calibrated, disabledReason, mode, suggestions}`，建议项 14 个声明键，未声明键
+  在两层都被序列化器丢掉；`auto` 在未校准时上送 `disabledReason: "not_calibrated"`，没有监视器的 pair 也答配置的
+  模式加同一个拒绝而不是编造建议。`AUTO_REBALANCE_CALIBRATED` 是常量 `false`，注释写明只有 TRI-11 的真实引擎三组
+  对照记录能改它，代码评审、单元测试和合成夹具都不能。
+- 不泄露：建议与日志只带 id、目标、revision、时间和数字。监视器日志行的键集被钉成七项（`bindingId`、
+  `destinationTargetId`、`groupId`、`incarnation`、`sourceTargetId`、`stableSamples`、`suggestionId`，终态行多一个
+  `stateReason`）；路由响应里没有 session id、正文、exact key、用户消息哈希和上游密钥（测试把私有 prompt 和 session
+  塞进身份，再断言响应体里不出现它们）。响应 `suggestions` 的 128 上限与 advisor 生产配置的上限逐项对齐，由
+  `test-node/admin/load-balancer.test.ts` 从路由注册的 JSON schema 里读出 `maxItems` 钉住，防止建议列表变成 500。
+- 与本轮代码直接相关的两项修正：一是 `source_metrics_lost` 曾被同时用在“源不再回答”和“目标不再回答”两种事实上，
+  后者现在叫 `destination_metrics_lost` 并在闭合枚举里占一格——源失联说明失衡可能已经消失，目标失联只说明没人知道
+  它还静默，混用会把后者读成前者。二是管理路由的轮询等的是 `state === "suggested"` 而不是“列表非空的第一项”：响应
+  是新的在前，一条比建议更晚登记的拒绝项合法地能排在最前，按下标取会让断言依赖谁先落地。这一点在并发跑里偶发过
+  一次失败，改成按状态等待后连续八次并发运行全过；单文件独跑六次全过。本轮没有删除或放宽任何断言。
+- UI：本轮没有改 `src/admin/static/**`，页面不读 `rebalance` 块，因此没有重录基线，也没有基线 diff：十张 `doc/ui_*.png`
+  与 `docs/current/contracts/ui-visual-baseline.md` 在 `git status` 里零改动，十张文件的实测 SHA-256 与登记表十行哈希
+  逐项相同。UI 浏览器测试全过（视觉 11 项 + 负载均衡行为 59 项）。浏览器保存路径不丢这个字段：
+  `loadBalancing.collectGroups` 从上一份 group 复制 `{...group}` 再覆盖有控件的字段，所以配置里写过的
+  `rebalance_mode` 能穿过一次 UI 保存；UI 新建的 group 不带这个字段，按默认存成 `off`。
+- 结果与限制：一是**没有自动执行**：`auto` 与 `advise` 走完全相同的判定路径，advisor 没有 balancer 引用，运行期唯一
+  调 `LoadBalancer.moveBinding()` 的地方是管理路由（手动迁移）。未校准的 `auto` 组产出与 `advise` 一样的建议，同时
+  binding 仍在源目标上、`routingRevision` 保持 0、`migrationOperations()` 为空——这三条断言在监视器测试和真实路由
+  测试里各钉一次。二是参数仍未校准：`ADVISE_OBSERVATION_POLICY` 里的稳定样本数、源忙阈值、活动窗口、冷却、预算、
+  承诺上限和防回摆窗口都是观察默认值，状态在每条建议旁报 `calibrated: false`，TRI-11 未交出实测值前它们不得被
+  当作执行阈值。三是排序把 token 数与字节估算放在同一个数值序里，只靠 `costEstimated` 标注区分；这两者能不能直接
+  比大小是 TRI-11 要回答的问题，本轮没有改排序规则。四是建议只活在内存里，随 pair 停止丢弃，不落盘、不进 traffic
+  数据库，跨重启不保留。五是组从配置里消失时它的 advisor 状态要等 pair 停止才释放——监视器只遍历还在的表，不会
+  再为消失的组调 `dropGroup`；这段时间里那个组的状态对 API 不可见（状态路由按配置的组走，表不在就没有条目），占用
+  上限是每组 128 条记录。六是 UI 还没有展示建议：今天只有状态 API 和结构化日志能看到它们。
+- 交付：见下面“TRI-10 交付产物”一节（便携包、交付冒烟与 Node ABI 恢复）。
+- 提交：`80483a0`，用显式 `git add --` 逐路径只收上述 30 个文件；没有 `git add -A`，也没有把 `AGENTS.md`、
+  `test-node/docs/`、`test-results/`、`logs/` 或用户实例的任何文件收进来。
+
+#### TRI-10 交付产物（便携包、交付冒烟与 Node ABI）
+
+- `npm run package:electron:portable` `exit 0`，顺序是 `build`（`prebuild` 跑 `rebuild:node`）→ `rebuild:electron` →
+  `electron-builder -w portable`；`rebuild:electron` 与打包之间没跑过任何 Node ABI 重建，所以包里是 Electron ABI。
+- 产物 `release/LLM-Proxy-0.4.10-x64-portable.exe`，111974522 字节，SHA-256
+  `a88e3ddf376336016fc894e30d6a97699da17540bbd516980faca872bcb69bcd`。与 TRI-09 登记的 111968556 字节那张不同，
+  因为本轮多了 advisor 与配置层，这是预期差异，不是基线回归。
+- 不是 stale 产物：`release/win-unpacked/resources/app.asar` 里本轮新增的名字都在——`not_calibrated` 4 次、
+  `load-rebalance` 8 次、`rebalance_mode` 10 次、`ADVISE_OBSERVATION_POLICY` 9 次、`destination_metrics_lost` 4 次。
+- `npm run smoke:delivery` 两项全过，各自用自己的临时配置、`LLM_PROXY_DATA_DIR`、绝对日志根与自选空闲端口，跑在
+  用户那台便携实例旁边而不碰它：解包载荷 health 793 ms、一次真实代理往返 200、`GET /api/logs?limit=5` 200 且
+  `total` 为 1、该次运行的日志根里出现 `traffic.db`（4096 字节）、子进程退出码 0；portable 包装器 health 2881 ms，
+  同样四项全过，退出码 0。包里 SQLite 能用是由包装器冒烟证明（日志路由答 200、日志根里出现 `traffic.db`），
+  不以 `require` 成功为据。
+- 打包完成后 `npm run build`（它的 `prebuild` 才跑 `rebuild:node`）把 ABI 换回 Node，`npm run abi:node` 用真实查询
+  证明 `NODE_MODULE_VERSION 137`、查询结果 `{"a":1}`。整个过程中只结束自己启动的进程，没停用户实例，没写用户的
+  配置与 traffic database。
 
 ### TRI-11
 
-- 状态：未开始
-- 修改文件：
-- 验证：
-- 结果与限制：
+- 状态：阻塞（缺可隔离的真实引擎环境；不伪造结论，`auto` 保持 `not_calibrated` 降级）。
+- 修改文件：本项没有改代码。工作树里与本项相关的只有 `AUTO_REBALANCE_CALIBRATED = false` 这一处常量与它旁边的
+  说明——它只能被本项的真实对照记录改动。
+- 本项做了什么：按 [real-upstream-acceptance](../../../.agents/skills/real-upstream-acceptance/SKILL.md) 的隔离要求
+  先确认环境是否可用，只读，不启动、不停止、不读写用户实例的配置与 traffic database。结论是这台机器上跑不成三组
+  对照：
+  1. 唯一在听的真实引擎是 `127.0.0.1:9393` 与 `127.0.0.1:9394`（PID 40996 与 38052，用户自己启动的 vLLM，服务
+     `D:\models\Qwen3.8-Flash-Next-AutoRound-3bpw-MTP`），用户的便携版代理此刻也在运行（PID 44988，管理端口 12346）。
+     按 AGENTS.md 的边界这两者都不能碰：给它们加负载会改变用户正在跑的实例的表现。
+  2. `nvidia-smi`：GPU 1 与 GPU 2（NVIDIA CMP 170HX 64G）显存已用 63247/65536 与 63219/65536 MiB（约 97%），GPU 2
+     利用率 84%——那就是用户那两个引擎占着的卡。剩下 GPU 0 是 RTX 3090，总显存 24576 MiB、已用 1374 MiB，而模型目录
+     `du -sh` 量出 143 GB。同模型、同 `--gpu-memory-utilization 0.96`、带 OffloadingConnector 与 PLE SSD 卸载配置的
+     第三台引擎在这张卡上起不来，三组对照需要的**两台**隔离同模型引擎更起不来。
+  3. 三组对照要量的量是整体完成时间、任务级尾延迟、源与目标 waiting、迁移后实际轮数和 unused 比例（设计第 7.6 与
+     第 11 节）。换成假 upstream 或换成一张小模型会把前提（共享 KV 卸载、前缀缓存、同模型同上下文档位）全部换掉，
+     量出来的数不能回答 TRI-11 问的问题，因此不拿它当替代品，也不把它写成校准结果。
+- 因此本轮不做的事：不写任何阈值来源，不把合成夹具或单元测试写成收益证明，不把 `AUTO_REBALANCE_CALIBRATED` 改成
+  `true`，不调整 `ADVISE_OBSERVATION_POLICY` 的数字，不因为“清单没完成”而给 `auto` 编一个可用的校准结论。
+- 后来要跑成本项需要什么：两台不属于用户的同模型真实引擎（同一份模型、同一份缓存/KV 配置）、独立
+  `LLM_PROXY_DATA_DIR`、绝对 `log_root`、空闲管理端口、固定客户端脚本与上下文档位、事先写下的可推翻阈值，以及
+  `docs/reports/` 里一份带版本、输入、样本数与原始结果的实验记录。这些条件哪一条没满足，本项就继续阻塞。
+- 验证：`nvidia-smi --query-gpu=index,name,memory.used,memory.total,utilization.gpu --format=csv`、
+  `netstat -ano | grep LISTEN`、`Get-CimInstance Win32_Process` 查 PID 命令行（只读）与
+  `du -sh /d/models/Qwen3.8-Flash-Next-AutoRound-3bpw-MTP`。本项范围没有跑实验脚本，也没有动用户实例。
 
 ### TRI-12
 
-- 状态：未开始
-- 修改文件：
-- 验证：
-- 结果与限制：
+- 状态：未开始（前置 TRI-11 阻塞；不为完成清单改变门槛）。
+- 修改文件：本项没有改代码。`applied` 与 `observed` 两个状态既不产生也不上送，因此响应 schema 里没有声明它们；
+  计划里 `proxy-request-pipeline.ts` 在 `plan()` 边界应用 pending suggestion 这条入口至今没有实现。
+- 本项今天能验的部分：自动执行不存在。运行期调用 `LoadBalancer.moveBinding()` 的只有 `src/proxy/load-balancer-admin.ts`
+  的 `moveBinding()`，它由 `POST /api/load-balancer/task-moves`（手动）触发；`src/proxy/load-rebalance.ts` 不引用
+  balancer，也不调 `moveBinding()`、`rebind()` 或任何写目标的路径。配置成 `auto` 的组在监视器测试与真实路由测试里
+  都产出与 `advise` 相同的建议，同时 binding 还在源目标、`routingRevision` 为 0、`migrationOperations()` 为空。
+- 本项没做的事：在 `plan()` 边界应用建议、动作级冷却与预算与连续无效熔断、`movedBy: "auto"` 的路由元信息、
+  TR-01～TR-08 的需求追踪收口、自动态的 UI 与基线、以及依赖 TRI-11 结果的最终回归。
+- 验证：`grep -rn "moveBinding(" src/ --include='*.ts'`（运行期写入点只有管理侧）、
+  `grep -n "moveBinding|rebind|targetId =" src/proxy/load-rebalance.ts src/proxy/load-monitor.ts`（只有注释与字段读取）、
+  `npx vitest run test-node/proxy/load-monitor.test.ts` 与 `test-node/admin/load-balancer.test.ts` 里的 `auto` 降级项。
+- 结果与限制：本项的验收条件“真实对照实验支持开启，否则仍保持 advise”今天落在“保持 advise”这一侧，因为 TRI-11
+  没有证据。交付产物按 TRI-10 的范围跑了一轮（见下一节），它验的是 advise 的可交付性，不验自动收益；
+  第 9 节的最终收口仍未全部完成。
 
 ## 8. 实施中的开放问题
 
@@ -1471,11 +1594,14 @@
 
 ## 9. 最终收口检查
 
-- [ ] 第 4 节所有任务已完成，或每个阻塞项都有明确的证据和后续任务。
-- [ ] `task-routing-design.md` 与代码、API、UI 和测试没有互相矛盾的状态或错误码。
-- [ ] `npm run typecheck`、`npm run lint`、`npm run check:modules` 和 `npm run check` 通过。
-- [ ] `npm run regen:ui-baselines` 已运行，截图已完整检查，基线哈希已更新。
-- [ ] 三组真实引擎对照结果已归档；自动模式收益和风险结论独立记录。
-- [ ] `npm run package:electron:portable`、`npm run smoke:delivery` 和 `npm run abi:node` 通过。
-- [ ] `git status --short` 和 `git diff --stat` 只包含本次授权的实现、测试、文档和基线文件。
-- [ ] 未修改用户实例、用户配置、用户 traffic database 或 `AGENTS.md`，除非另有明确授权。
+- [x] 第 4 节所有任务已完成，或每个阻塞项都有明确的证据和后续任务。（TRI-11 阻塞，证据与后来所需条件在本项
+      完成记录里；TRI-12 以 TRI-11 为前置，保持未开始）
+- [x] [task-routing 设计](../../design/active/task-routing.md) 与代码、API、UI 和测试没有互相矛盾的状态或错误码。
+      （TRI-10 的范围：第 7.1–7.6 节写上了已落地口径，`applied`/`observed` 不产生也不上送）
+- [x] `npm run typecheck`、`npm run lint`、`npm run check:modules` 和 `npm run check` 通过。
+- [ ] `npm run regen:ui-baselines` 已运行，截图已完整检查，基线哈希已更新。（TRI-12 范围；TRI-10 没改
+      `src/admin/static/**`，十张基线图与登记表逐项相同、零 diff，UI 浏览器测试 70 项全过）
+- [ ] 三组真实引擎对照结果已归档；自动模式收益和风险结论独立记录。（TRI-11 阻塞）
+- [x] `npm run package:electron:portable`、`npm run smoke:delivery` 和 `npm run abi:node` 通过。
+- [x] `git status --short` 和 `git diff --stat` 只包含本次授权的实现、测试、文档和基线文件。
+- [x] 未修改用户实例、用户配置、用户 traffic database 或 `AGENTS.md`，除非另有明确授权。

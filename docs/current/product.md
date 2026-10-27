@@ -20,15 +20,20 @@ LLM Proxy 是本地 HTTP 代理和 Web 控制台，用于检查 Agent、SDK 或�
 
 配置文件分为两层：应用配置 `llm-proxy.json` 只包含管理端 host/port；代理配置 `logs/proxies.json` 包含 pair、target、model mapping、价格规则和负载均衡组。相对路径以应用配置文件所在目录为基准。
 
-| 对象 | 关键字段 | 行为 |
-| --- | --- | --- |
-| Pair | `id`、`name`、`enabled`、`listen_host`、`listen_port` | 一个本地监听器和一组上游目标 |
-| Target | `id`、`target_url`、headers、字段改写、`log_root`、价格 | 一个上游服务和它的日志/计价设置 |
-| Model mapping | `listen`、`upstream` | 按顺序匹配模型名，可改写上游模型名 |
-| Load balancer group | `model_pattern`、策略、members | 对同一模型的多个 target 做任务粘性和负载选择 |
-| Summary model | provider、model、endpoint 等 | 任务简介生成的控制面配置，不参与代理路由 |
+| 对象                | 关键字段                                                | 行为                                         |
+| ------------------- | ------------------------------------------------------- | -------------------------------------------- |
+| Pair                | `id`、`name`、`enabled`、`listen_host`、`listen_port`   | 一个本地监听器和一组上游目标                 |
+| Target              | `id`、`target_url`、headers、字段改写、`log_root`、价格 | 一个上游服务和它的日志/计价设置              |
+| Model mapping       | `listen`、`upstream`                                    | 按顺序匹配模型名，可改写上游模型名           |
+| Load balancer group | `model_pattern`、策略、members                          | 对同一模型的多个 target 做任务粘性和负载选择 |
+| Summary model       | provider、model、endpoint 等                            | 任务简介生成的控制面配置，不参与代理路由     |
 
 配置保存是整体提交：先校验新配置，再保存并应用运行态；失败时恢复配置和监听器。保持 host/port 的 pair 使用新流水线，旧请求继续完成；改变监听地址、停用或删除 pair 会停止旧监听器。未知的配置键会随所属对象保留，以便打开并保存较旧或较新的配置时不静默丢数据。
+
+负载均衡组另有一个自动再均衡模式 `rebalance_mode`：`off`（默认）、`advise`、`auto`。`off` 的组不计算任何自动动作；
+`advise` 的组只在状态 API 与运行日志里给建议，不改绑定；`auto` 在今天与 `advise` 行为相同，并在状态里命名
+`disabledReason: "not_calibrated"`——真实引擎校准尚未完成，自动改绑不存在。建议只存在内存里，随 pair 停止一起丢弃，
+不落盘、不进 traffic 数据库。
 
 ## 3. 请求与响应
 
@@ -65,7 +70,7 @@ LLM Proxy 是本地 HTTP 代理和 Web 控制台，用于检查 Agent、SDK 或�
 
 - pair 和 target 的配置、校验、保存、启停与监听状态。
 - 目标测试、模型列表拉取、模型映射和价格配置。
-- 负载均衡组、节点状态、成员选择和粘性任务状态。
+- 负载均衡组、节点状态、成员选择和粘性任务状态；组的自动再均衡模式、建议列表与未校准降级。
 - 历史 task/record 查询、搜索、详情、导出、清理和删除。
 - 使用统计、任务简介和运行健康状态。
 
