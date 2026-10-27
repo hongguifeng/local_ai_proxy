@@ -166,7 +166,7 @@
 
 ### TRI-06：实现节点 binding 列表 UI
 
-入口：[load-balancing.js](../../../src/admin/static/modules/load-balancing.js)、相关 UI 模块、[admin-ui-load-balancing.test.ts](../../../test-node/ui/admin-ui-load-balancing.test.ts)。
+入口：[load-balancing.js](../../../src/admin/static/modules/load-balancing.js)、相关 UI 模块、[admin-ui-load-balancing-config.test.ts](../../../test-node/ui/admin-ui-load-balancing-config.test.ts)、[admin-ui-load-balancing-status.test.ts](../../../test-node/ui/admin-ui-load-balancing-status.test.ts) 和 [admin-ui-load-balancing-moves.test.ts](../../../test-node/ui/admin-ui-load-balancing-moves.test.ts)，共用 [admin-ui-lb-harness.ts](../../../test-node/ui/admin-ui-lb-harness.ts)。
 
 - [x] 在现有负载均衡状态卡片的节点行下增加可展开 binding 列表，不创建全局 task 页面。
 - [x] 分开显示 binding 数、inFlight、最近请求、最后服务 target、关联 task 数、置信度和状态 unknown。
@@ -178,7 +178,7 @@
 
 验收：页面不会把 binding 数称为 task 数；没有在途请求、unknown 指标和多 task 关联时文案准确；刷新和展开状态符合现有 UI 行为。
 
-验证：阅读 V-U 相关 skills；运行 UI lint、typecheck、`test-node/ui/admin-ui-load-balancing.test.ts` 和相关 DOM contract 测试。修改 UI 后运行 V-B，检查全尺寸截图、英文截图中的中文残留和基线哈希。
+验证：阅读 V-U 相关 skills；运行 UI lint、typecheck、`test-node/ui/admin-ui-load-balancing-status.test.ts` 和相关 DOM contract 测试。修改 UI 后运行 V-B，检查全尺寸截图、英文截图中的中文残留和基线哈希。
 
 ### TRI-07：实现统一安全迁移服务
 
@@ -219,7 +219,7 @@
 
 ### TRI-09：实现手动迁移 UI 和真实请求验证
 
-入口：[load-balancing.js](../../../src/admin/static/modules/load-balancing.js)、UI API helper、[admin-ui-load-balancing.test.ts](../../../test-node/ui/admin-ui-load-balancing.test.ts)。
+入口：[load-balancing.js](../../../src/admin/static/modules/load-balancing.js)、UI API helper、[admin-ui-load-balancing-moves.test.ts](../../../test-node/ui/admin-ui-load-balancing-moves.test.ts)，共用 [admin-ui-lb-harness.ts](../../../test-node/ui/admin-ui-lb-harness.ts)。
 
 - [x] 把节点列表的 `migration` 与 `movable` 接到 TRI-07 的迁移服务上，按钮只在服务端说可以时才可用。
 - [x] 增加目标选择器和“只影响下一次请求”的明确文案。

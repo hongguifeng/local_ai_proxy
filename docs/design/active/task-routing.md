@@ -758,7 +758,7 @@ TRI-10 已落地的口径：状态机已经实现 `suggested`、`unused`、`reje
 | `src/admin/static/app.css` 或归属组件块        | 新增布局，按 CSS cascade 审计规则归属                                |
 | `test-node/admin/api-contract.test.ts`         | 路由表、响应顶层键和空配置行为                                       |
 | `test-node/proxy/*`、`test-node/logging/*`     | binding、活动、迁移、身份关联和失败路径                              |
-| `test-node/ui/admin-ui-load-balancing.test.ts` | UI 行为和迁移反馈                                                    |
+| `test-node/ui/admin-ui-load-balancing-*.test.ts` | UI 行为和迁移反馈                                                    |
 
 历史关联查询应由现有日志查询/持久化边界提供只读能力；proxy transport 不得反向导入 admin 或 maintenance。新增运行时导入后执行 `npm run check:modules`。
 

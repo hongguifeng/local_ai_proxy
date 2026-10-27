@@ -42,7 +42,7 @@ page, `page.clock.pauseAt(that)`, drive time with `page.clock.runFor(ms)` only w
 to, and `page.clock.resume()` in a `finally`. The `finally` is not politeness: `closeTestPage`
 drains the page with a `setTimeout(resolve, 0)` inside it, and a held clock never runs that timer,
 so a test that leaves the clock paused hangs the `afterEach` hook until it times out. The cap case
-in `test-node/ui/admin-ui-load-balancing.test.ts` is the measured instance of both halves — the
+in `test-node/ui/admin-ui-load-balancing-status.test.ts` is the measured instance of both halves — the
 poll interleaved until the clock was held, and the hook timed out until the resume was added.
 
 An always-on rAF loop never settles under the fake clock: the metrics auto-refresh test timed out

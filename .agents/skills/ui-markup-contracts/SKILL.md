@@ -98,7 +98,9 @@ description: >-
 ```bash
 npm test -- test-node/ui/admin-ui-history.test.ts
 npm test -- test-node/ui/admin-ui-proxy.test.ts
-npm test -- test-node/ui/admin-ui-load-balancing.test.ts
+npm test -- test-node/ui/admin-ui-load-balancing-config.test.ts
+npm test -- test-node/ui/admin-ui-load-balancing-status.test.ts
+npm test -- test-node/ui/admin-ui-load-balancing-moves.test.ts
 npm run bundle:ui
 ```
 
