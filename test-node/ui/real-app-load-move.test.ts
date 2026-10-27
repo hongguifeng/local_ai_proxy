@@ -520,6 +520,12 @@ function bindingRow(panel: Locator, row: LoadBalancerBindingListItem): Locator {
   );
 }
 
+/** Where the facts a compact row leaves out are kept: the row's line carries each of them as
+ *  its own `data-lb-hover-*` attribute and joins them into its hover text. */
+function hoverLine(row: Locator): Locator {
+  return row.locator(".lb-binding-line");
+}
+
 /** The admin list read performed over HTTP, so the proof is not only in the DOM. */
 async function readTasks(
   adminPort: number,
@@ -833,7 +839,8 @@ describe("[TRI-09] a move made through the real console", () => {
     const row = bindingRow(sourcePanel, binding);
     await expectPage(row).toHaveCount(1);
     await expectPage(row).toHaveAttribute("data-lb-binding-node", sourceTarget);
-    await expectPage(row.locator('[data-lb-binding-fact="inFlight"]')).toHaveText(
+    await expectPage(hoverLine(row)).toHaveAttribute(
+      "data-lb-hover-in-flight",
       `In flight: ${String(binding.inFlight)}`,
     );
 
@@ -948,9 +955,10 @@ describe("[TRI-09] a move made through the real console", () => {
     expect(consoleReads).toBeGreaterThan(readsBeforeObserved);
     const destinationPanel = await openBindingPanel(page, destinationTarget);
     await expectPage(bindingRow(destinationPanel, moved)).toHaveCount(1);
-    await expectPage(
-      bindingRow(destinationPanel, moved).locator('[data-lb-binding-fact="target"]'),
-    ).toHaveText(`Target: ${SECOND_NAME}`);
+    await expectPage(hoverLine(bindingRow(destinationPanel, moved))).toHaveAttribute(
+      "data-lb-hover-target",
+      `Target: ${SECOND_NAME} · targetId: ${destinationTarget}`,
+    );
 
     // The application's own persistence says what the console says, in the product's own field
     // names: a move a person asked for is `manual`, and the record of the request that proved the

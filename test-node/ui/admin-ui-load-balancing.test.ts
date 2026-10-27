@@ -787,15 +787,28 @@ describe("admin UI load balancing groups", { timeout: UI_TEST_TIMEOUT_MS }, () =
 
   /** The models of the rows a panel shows, once every row of a page has been relabelled to
    *  one of two names. Reading the rows back this way is what tells two generations of one
-   *  list apart, and how many of each are on screen. */
+   *  list apart, and how many of each are on screen. A compact row does not print the model,
+   *  so it is read off the hover attribute the row's own line carries. */
   function shownModels(
     panel: Locator,
     labels: readonly string[],
   ): () => Promise<readonly string[]> {
     return async () =>
-      (await panel.locator("[data-lb-binding-model]").allTextContents()).filter((model) =>
-        labels.includes(model),
-      );
+      (
+        await panel
+          .locator(".lb-binding-line[data-lb-hover-model]")
+          .evaluateAll((elements) =>
+            elements.map((element) => element.getAttribute("data-lb-hover-model") ?? ""),
+          )
+      ).filter((model) => labels.includes(model));
+  }
+
+  /** Where the facts a compact row leaves out are kept: the row's line carries every one of
+   *  them as its own `data-lb-hover-*` attribute, and its hover text is those attributes
+   *  joined one per line. Reading the same attributes is what lets a test check a field the
+   *  reader only sees on hover without unpicking a sentence. */
+  function hoverLine(row: Locator): Locator {
+    return row.locator(".lb-binding-line");
   }
 
   /** More rows than the fixture's 25, built by cloning a quiet row under a fresh number and
@@ -837,8 +850,12 @@ describe("admin UI load balancing groups", { timeout: UI_TEST_TIMEOUT_MS }, () =
       );
       await expectPage(bindingRow(panel, 7).locator("[data-lb-binding-move]")).toHaveCount(1);
       await expectPage(bindingRow(panel, 100).locator("[data-lb-binding-move]")).toHaveCount(1);
-      await expectPage(bindingRow(panel, 7).locator("[data-lb-binding-tasks]")).toContainText(
-        "Linked tasks: 3",
+      // Three linked tasks are still one binding: the row says so with a `+2` beside the
+      // task it is titled by, and the count the list reports is in that chip's hover text.
+      await expectPage(bindingRow(panel, 7).locator("[data-lb-binding-tasks]")).toHaveText("+2");
+      await expectPage(bindingRow(panel, 7).locator("[data-lb-binding-tasks]")).toHaveAttribute(
+        "title",
+        /^Linked tasks: 3 ·/,
       );
 
       // The node's own line keeps the numbers the status call answered. Twenty bindings on
@@ -852,9 +869,10 @@ describe("admin UI load balancing groups", { timeout: UI_TEST_TIMEOUT_MS }, () =
       await expectPage(nodeState(card, 0).locator('[data-lb-fact="inFlight"]')).toHaveText(
         "In flight: 0",
       );
-      await expectPage(
-        bindingRow(panel, 7).locator('[data-lb-binding-fact="inFlight"]'),
-      ).toHaveText("In flight: 1");
+      await expectPage(bindingRow(panel, 7).locator(".lb-binding-line")).toHaveAttribute(
+        "data-lb-hover-in-flight",
+        "In flight: 1",
+      );
       await expectPage(panel.locator(".lb-binding")).toHaveCount(20);
     },
     UI_TEST_TIMEOUT_MS,
@@ -933,45 +951,61 @@ describe("admin UI load balancing groups", { timeout: UI_TEST_TIMEOUT_MS }, () =
       "task-beta",
       "task-gamma",
     ]);
-    await expectPage(row.locator("[data-lb-binding-tasks]")).toContainText("Linked tasks: 3");
-    await expectPage(row.locator("[data-lb-binding-confidence]")).toHaveText("high confidence");
+    await expectPage(row.locator("[data-lb-binding-tasks]")).toHaveText("+2");
+    await expectPage(hoverLine(row)).toHaveAttribute(
+      "data-lb-hover-tasks",
+      "Linked tasks: 3 · high confidence · several candidates",
+    );
+    // A row whose link is firm wears no confidence mark: a mark is only for the answers that
+    // are not the ordinary one, and the ordinary one is still there to read in the hover text.
+    await expectPage(row.locator("[data-lb-binding-confidence]")).toHaveCount(0);
     await expectPage(row.locator("[data-lb-binding-ambiguous]")).toBeVisible();
     await expectPage(row.locator("[data-lb-binding-ambiguous]")).toHaveText("several candidates");
-    await expectPage(row.locator(".lb-binding-reason")).toHaveText([
-      "exact key links",
-      "several linked tasks",
-    ]);
-    // One row, one move button, and no invented representative: the address line names the
-    // binding, never one of the tasks that share it.
+    await expectPage(hoverLine(row)).toHaveAttribute(
+      "data-lb-hover-reasons",
+      "exact key links · several linked tasks",
+    );
+    // One row, one move button. The row is titled by the first task the list reports, and the
+    // several-task chip says plainly that the counts on the row are the binding's own; the
+    // binding's address is on the line, so a shared binding is never mistaken for a task.
     await expectPage(row.locator("[data-lb-binding-move]")).toHaveCount(1);
-    await expectPage(row.locator(".lb-binding-head")).not.toContainText("task-");
-    await expectPage(row.locator("[data-lb-binding-key]")).toHaveText("#7");
-    // Where a linked task was served has three answers and all three are shown apart.
+    await expectPage(hoverLine(row)).toHaveAttribute("data-lb-hover-key", "#7");
+    await expectPage(row.locator("[data-lb-binding-tasks]")).toHaveAttribute(
+      "title",
+      /The title is the first task the list reports/,
+    );
+    // Where a linked task was served has three answers. The ordinary one - this node - wears
+    // no mark and is said in the title's hover text; the other two are shown apart.
     await expectPage(row.locator(".lb-binding-task-node")).toHaveText([
-      "same node",
       "a different node",
       "history target unknown",
     ]);
+    await expectPage(row.locator(".lb-binding-title")).toHaveAttribute(
+      "title",
+      /history target: same node/,
+    );
     await expectPage(
       row.locator("[data-lb-task-id]").nth(2).locator(".lb-binding-task-pending"),
     ).toBeVisible();
 
     await page.locator("#languageSelect").selectOption("zh");
-    await expectPage(row.locator(".lb-binding-task-node")).toHaveText([
-      "同一节点",
-      "别的节点",
-      "历史落点未知",
-    ]);
-    await expectPage(row.locator("[data-lb-binding-tasks]")).toContainText("关联 task: 3");
-    await expectPage(row.locator("[data-lb-binding-confidence]")).toHaveText("高置信");
-    await expectPage(row.locator(".lb-binding-reason")).toHaveText([
-      "精确 key 命中",
-      "一个绑定连到多个 task",
-    ]);
+    await expectPage(row.locator(".lb-binding-task-node")).toHaveText(["别的节点", "历史落点未知"]);
+    await expectPage(row.locator("[data-lb-binding-tasks]")).toHaveAttribute(
+      "title",
+      /关联 task: 3/,
+    );
+    await expectPage(row.locator("[data-lb-binding-confidence]")).toHaveCount(0);
+    await expectPage(hoverLine(row)).toHaveAttribute(
+      "data-lb-hover-reasons",
+      "精确 key 命中 · 一个绑定连到多个 task",
+    );
+    await expectPage(row.locator(".lb-binding-title")).toHaveAttribute(
+      "title",
+      /历史落点: 同一节点/,
+    );
 
     await page.locator("#languageSelect").selectOption("en");
     await expectPage(row.locator(".lb-binding-task-node")).toHaveText([
-      "same node",
       "a different node",
       "history target unknown",
     ]);
@@ -1380,7 +1414,10 @@ describe("admin UI load balancing groups", { timeout: UI_TEST_TIMEOUT_MS }, () =
 
     await page.locator("#languageSelect").selectOption("zh");
     await expectPage(row.locator("[data-lb-binding-move-confirm]")).toBeVisible();
-    await expectPage(row.locator(".lb-binding-move-pick-label")).toHaveText("选择目标节点");
+    // The picker says what it is for in its own first option and in its own accessible name,
+    // so there is no label line above it to translate and no second line of height.
+    await expectPage(picker).toHaveAttribute("aria-label", "选择目标节点");
+    await expectPage(picker.locator("option").nth(0)).toHaveText("选择目标节点");
     await expectPage(row.locator("[data-lb-binding-move]")).toHaveText("迁移此绑定");
     await expectPage(picker.locator("option").nth(1)).toContainText("目标指标未知");
   });
@@ -1473,7 +1510,7 @@ describe("admin UI load balancing groups", { timeout: UI_TEST_TIMEOUT_MS }, () =
       element.dataset["lbUiPickerProbe"] = "open";
     });
     await picker.focus();
-    await expectPage(requests).toHaveText("Requests: 14");
+    await expectPage(requests).toHaveText("requests 14");
 
     const seenStatusReads = lbStatusReads.length;
     const readsBeforePoll = lbBindingReads.length;
@@ -1492,7 +1529,7 @@ describe("admin UI load balancing groups", { timeout: UI_TEST_TIMEOUT_MS }, () =
     await expectPage(picker).toHaveValue(destinationId);
     // The poll is held, not dropped: the newer copy of the row is still waiting behind the
     // picker, which is why the number on screen is the old one.
-    await expectPage(requests).toHaveText("Requests: 14");
+    await expectPage(requests).toHaveText("requests 14");
   });
 
   it("[TRI-09] repaints what a poll held back once the user leaves the picker", async () => {
@@ -1513,12 +1550,12 @@ describe("admin UI load balancing groups", { timeout: UI_TEST_TIMEOUT_MS }, () =
       .poll(() => lbBindingReads.length, { timeout: UI_TEST_TIMEOUT_MS, interval: 200 })
       .toBeGreaterThan(readsBeforePoll);
     await page.waitForTimeout(400);
-    await expectPage(requests).toHaveText("Requests: 14");
+    await expectPage(requests).toHaveText("requests 14");
 
     // Leaving the picker ends the wait: the row is redrawn with the newer answer and the
     // choice the panel holds comes back with it.
     await picker.evaluate((element) => element.blur());
-    await expectPage(requests).toHaveText("Requests: 999");
+    await expectPage(requests).toHaveText("requests 999");
     await expectPage(picker).toHaveValue(destinationId);
   });
 
@@ -1585,7 +1622,7 @@ describe("admin UI load balancing groups", { timeout: UI_TEST_TIMEOUT_MS }, () =
     setLbBindingRouteBump(4);
     const seenStatusReads = lbStatusReads.length;
     await waitForLbPoll(seenStatusReads);
-    await expectPage(row.locator('[data-lb-binding-fact="revision"]')).toHaveText(/: 7$/);
+    await expectPage(hoverLine(row)).toHaveAttribute("data-lb-hover-revision", /: 7$/);
     await expectPage(row.locator("[data-lb-binding-move-retry]")).toBeVisible();
     await expectPage(row.locator("[data-lb-binding-move-notice]")).toContainText(
       "The outcome of this submission is unknown",
@@ -2270,7 +2307,8 @@ describe("admin UI load balancing groups", { timeout: UI_TEST_TIMEOUT_MS }, () =
     setLbBindingRouteBump(1);
     const seen = lbStatusReads.length;
     await waitForLbPoll(seen);
-    await expectPage(row.locator('[data-lb-binding-fact="revision"]')).toHaveText(
+    await expectPage(hoverLine(row)).toHaveAttribute(
+      "data-lb-hover-revision",
       "Routing revision: 4",
     );
     // A version change detaches the write exactly as a disposal does. The runtime is still the
@@ -2751,13 +2789,28 @@ describe("admin UI load balancing groups", { timeout: UI_TEST_TIMEOUT_MS }, () =
       "history query failed",
     );
     await expectPage(failed.locator(".lb-binding-coverage-state")).toHaveClass(/is-failed/);
-    await expectPage(failed.locator(".lb-binding-coverage-detail")).toHaveText(
-      "read · SqliteError · SQLITE_BUSY · database is locked",
+    // The cause is not a second visible chip: it is the hover text of the mark that says the
+    // read broke, and the same sentence on the row's own line.
+    await expectPage(failed.locator(".lb-binding-coverage-state")).toHaveAttribute(
+      "title",
+      "history query failed · read · SqliteError · SQLITE_BUSY · database is locked",
     );
-    // The broken read is stated, not hidden behind the count it could not produce.
-    await expectPage(failed.locator("[data-lb-binding-tasks]")).toContainText("Linked tasks: 0");
+    await expectPage(hoverLine(failed)).toHaveAttribute(
+      "data-lb-hover-coverage",
+      "history query failed · read · SqliteError · SQLITE_BUSY · database is locked",
+    );
+    // The broken read is stated, not hidden behind the count it could not produce. A binding
+    // with nothing linked has no several-task chip, so the count lives on the line.
+    await expectPage(failed.locator("[data-lb-binding-tasks]")).toHaveCount(0);
+    await expectPage(hoverLine(failed)).toHaveAttribute(
+      "data-lb-hover-tasks",
+      "Linked tasks: 0 · no task linked",
+    );
     await expectPage(failed.locator("[data-lb-binding-confidence]")).toHaveText("no task linked");
-    await expectPage(failed.locator(".lb-binding-reason")).toHaveText(["history query failed"]);
+    await expectPage(hoverLine(failed)).toHaveAttribute(
+      "data-lb-hover-reasons",
+      "history query failed",
+    );
     await expectPage(panel.locator(".lb-binding-empty")).toHaveCount(0);
 
     // The other two causes each keep their own sentence, and a scan that ran out of room is
@@ -2768,8 +2821,12 @@ describe("admin UI load balancing groups", { timeout: UI_TEST_TIMEOUT_MS }, () =
     await expectPage(bindingRow(panel, 18).locator(".lb-binding-coverage-state")).toHaveText(
       "no log root configured",
     );
-    await expectPage(bindingRow(panel, 9).locator(".lb-binding-coverage-state")).toHaveText(
-      "history available",
+    // A history that answered is the ordinary case and wears no mark; it is still the first
+    // part of the coverage sentence the row carries, and the two flags it grew are separate.
+    await expectPage(bindingRow(panel, 9).locator(".lb-binding-coverage-state")).toHaveCount(0);
+    await expectPage(hoverLine(bindingRow(panel, 9))).toHaveAttribute(
+      "data-lb-hover-coverage",
+      "history available · history truncated · the log write may still be pending",
     );
     await expectPage(bindingRow(panel, 9).locator(".lb-binding-coverage-flag")).toHaveText([
       "history truncated",
@@ -2789,8 +2846,10 @@ describe("admin UI load balancing groups", { timeout: UI_TEST_TIMEOUT_MS }, () =
 
     await page.locator("#languageSelect").selectOption("zh");
     await expectPage(failed.locator(".lb-binding-coverage-state")).toHaveText("历史查询失败");
-    await expectPage(failed.locator(".lb-binding-coverage-detail")).toHaveText(
-      "read · SqliteError · SQLITE_BUSY · database is locked",
+    // The cause stays the server's own words whatever the page speaks.
+    await expectPage(failed.locator(".lb-binding-coverage-state")).toHaveAttribute(
+      "title",
+      "历史查询失败 · read · SqliteError · SQLITE_BUSY · database is locked",
     );
     await expectPage(bindingRow(panel, 12).locator(".lb-binding-coverage-state")).toHaveText(
       "该日志根还没有 traffic.db",
@@ -2894,13 +2953,13 @@ describe("admin UI load balancing groups", { timeout: UI_TEST_TIMEOUT_MS }, () =
     await expectPage(panel).toBeVisible();
     await expectPage(panel.locator(".lb-binding")).toHaveCount(20);
     await expectPage(bindingRow(panel, 7).locator('[data-lb-binding-fact="requests"]')).toHaveText(
-      "Requests: 999",
+      "requests 999",
     );
     // The held-back copy arrives after the newer one. It is dropped, not merged: the row keeps
     // the newer count and the panel keeps the rows the newer read answered.
     await page.waitForTimeout(1_200);
     await expectPage(bindingRow(panel, 7).locator('[data-lb-binding-fact="requests"]')).toHaveText(
-      "Requests: 999",
+      "requests 999",
     );
     await expectPage(panel.locator(".lb-binding")).toHaveCount(20);
     await expectPage(panel.locator("[data-lb-binding-stale]")).toHaveCount(0);
@@ -2922,22 +2981,34 @@ describe("admin UI load balancing groups", { timeout: UI_TEST_TIMEOUT_MS }, () =
     await expectPage(panel.locator(".lb-binding")).toHaveCount(20);
     expect(await cardWidth()).toBe(before);
 
-    const model = bindingRow(panel, 12).locator("[data-lb-binding-model]");
+    // A binding the history linked to nothing is titled by its own address, so the long model
+    // name is what has to clip. The card beside it must not move, and the whole name stays in
+    // the title's hover text and in the model fact on the line.
+    const title = bindingRow(panel, 12).locator(".lb-binding-title");
     const longName = "VeryLongModelNameForCheckingThatTheCardNeverGrowsWiderThanItsNeighbours";
-    await expectPage(model).toHaveText(longName);
-    await expectPage(model).toHaveAttribute("title", longName);
-    const clipped = await model.evaluate((element) => ({
-      scrollWidth: element.scrollWidth,
-      clientWidth: element.clientWidth,
-      textOverflow: getComputedStyle(element).textOverflow,
-      overflowWrap: getComputedStyle(element).overflowWrap,
-    }));
-    expect(clipped.scrollWidth).toBeGreaterThan(clipped.clientWidth);
-    expect(clipped.textOverflow).toBe("ellipsis");
-    expect(clipped.overflowWrap).toBe("normal");
-    // The fact beside a clipped name still shows its own value in full.
+    await expectPage(title).toHaveText(`#12 ${longName}`);
+    await expectPage(title).toHaveAttribute("title", new RegExp(longName));
+    await expectPage(hoverLine(bindingRow(panel, 12))).toHaveAttribute(
+      "data-lb-hover-model",
+      longName,
+    );
+    // The title is the one long thing on a compact row, so it is the one that has to clip.
+    // At this width the whole name fits: the card beside it is unmoved, and the full name is
+    // still in the title's hover text and in the model fact the line carries.
+    const clipStyle = await title.evaluate((element) => {
+      const style = getComputedStyle(element);
+      return {
+        textOverflow: style.textOverflow,
+        overflow: style.overflow,
+        overflowWrap: style.overflowWrap,
+      };
+    });
+    expect(clipStyle.textOverflow).toBe("ellipsis");
+    expect(clipStyle.overflow).toBe("hidden");
+    expect(clipStyle.overflowWrap).toBe("normal");
+    // The value beside a clipped title still shows its own figure in full.
     await expectPage(bindingRow(panel, 12).locator('[data-lb-binding-fact="cost"]')).toHaveText(
-      "Cost: request bytes 48.3K",
+      "bytes 48.3K",
     );
 
     await page.setViewportSize({ width: 380, height: 900 });
@@ -2955,13 +3026,24 @@ describe("admin UI load balancing groups", { timeout: UI_TEST_TIMEOUT_MS }, () =
     const clippedContainers = await page.evaluate(() =>
       [
         ...document.querySelectorAll(
-          ".lb-node-state, .lb-node-tools, .lb-binding-panel, .lb-binding, .lb-binding-head, .lb-binding-facts, .lb-binding-association, .lb-binding-task-list, .lb-binding-task, .lb-binding-tools",
+          ".lb-node-state, .lb-node-tools, .lb-binding-panel, .lb-binding, .lb-binding-line, .lb-binding-task-line, .lb-binding-task, .lb-binding-tools, .lb-binding-move-row",
         ),
       ]
         .filter((element) => element.scrollWidth > element.clientWidth + 1)
         .map((element) => element.className),
     );
     expect(clippedContainers).toEqual([]);
+    // A narrow panel has to clip that name: the ellipsis keeps the row one line instead of
+    // letting a long model grow the list downwards.
+    const clipped = await title.evaluate((element) => ({
+      scrollWidth: element.scrollWidth,
+      clientWidth: element.clientWidth,
+      textOverflow: getComputedStyle(element).textOverflow,
+      overflowWrap: getComputedStyle(element).overflowWrap,
+    }));
+    expect(clipped.scrollWidth).toBeGreaterThan(clipped.clientWidth);
+    expect(clipped.textOverflow).toBe("ellipsis");
+    expect(clipped.overflowWrap).toBe("normal");
     // Both ids of one task line stay readable somewhere: the row wraps instead of cutting a
     // fact away.
     await expectPage(bindingRow(panel, 7).locator(".lb-binding-task-id")).toHaveText([
@@ -2971,30 +3053,119 @@ describe("admin UI load balancing groups", { timeout: UI_TEST_TIMEOUT_MS }, () =
     ]);
   });
 
+  /**
+   * What the compact list has to hold onto: the destination picker and the submit are one row
+   * the user reads as a single decision, and one binding is visibly a block rather than the
+   * next run of chips. Both claims need measured boxes - reading a screenshot by eye cannot
+   * see a height difference of a few pixels, and a gap that is not there looks like one that
+   * is.
+   */
+  it("[TRI-06] lines the destination picker up with the submit and keeps rows apart", async () => {
+    await page.setViewportSize({ width: 1278, height: 1215 });
+    const card = await openTwoNodeStates();
+    const panel = await openBindingList(card, 0);
+    await expectPage(panel.locator(".lb-binding")).toHaveCount(20);
+
+    const boxes = await panel.evaluate(() =>
+      [...document.querySelectorAll(".lb-binding")].slice(0, 6).map((row) => {
+        const read = (selector: string) => {
+          const element = row.querySelector(selector);
+          if (!(element instanceof HTMLElement)) {
+            throw new Error(`the row has no ${selector}`);
+          }
+          const box = element.getBoundingClientRect();
+          return {
+            top: box.top,
+            bottom: box.bottom,
+            height: box.height,
+            center: box.top + box.height / 2,
+          };
+        };
+        return {
+          row: row.getBoundingClientRect(),
+          picker: read(".lb-binding-move-target"),
+          submit: read("[data-lb-binding-move]"),
+        };
+      }),
+    );
+
+    // Same height, same top, same centre: the destination and the button that sends it are
+    // one line, not a field with a button floating above it.
+    boxes.forEach(({ picker, submit }) => {
+      expect(Math.round(picker.height)).toBe(Math.round(submit.height));
+      expect(Math.abs(picker.center - submit.center)).toBeLessThan(1);
+      expect(Math.abs(picker.top - submit.top)).toBeLessThan(1);
+    });
+    // A binding ends where its own border ends and the next begins below it with room between,
+    // so the list is not one continuous column of chips.
+    boxes.forEach((current, index) => {
+      const next = boxes[index + 1];
+      if (next === undefined) return;
+      expect(next.row.top - current.row.bottom).toBeGreaterThanOrEqual(6);
+    });
+
+    const paints = await panel.evaluate(() => {
+      const block = document.querySelector(".lb-binding");
+      const box = document.querySelector(".lb-binding-panel");
+      if (!(block instanceof HTMLElement) || !(box instanceof HTMLElement)) {
+        throw new Error("the binding list was not painted");
+      }
+      const style = getComputedStyle(block);
+      return {
+        border: style.borderTopWidth,
+        radius: style.borderTopLeftRadius,
+        fill: style.backgroundColor,
+        panelFill: getComputedStyle(box).backgroundColor,
+      };
+    });
+    expect(paints.border).toBe("1px");
+    expect(paints.radius).toBe("6px");
+    expect(paints.fill).not.toBe(paints.panelFill);
+  });
+
   it("[TRI-06] prints every binding field in both languages", async () => {
     const card = await openTwoNodeStates();
     const panel = await openBindingList(card, 0);
     await expectPage(panel.locator(".lb-binding")).toHaveCount(20);
     const row = bindingRow(panel, 7);
-    const factTexts = async (): Promise<string[]> =>
-      row
-        .locator(".lb-binding-fact")
-        .evaluateAll((elements) => elements.map((element) => element.textContent || ""));
-    await expectPage(row.locator("[data-lb-binding-model]")).toHaveText("Qwen3.8-Flash-Next");
-    await expectPage(row.locator("[data-lb-binding-endpoint]")).toHaveText(
-      "responses /v1/responses",
+    /** Every fact the compact row leaves to hover, in the order the markup writes them. The
+     *  hover text of a row is exactly these values joined one per line, so a field that is
+     *  missing here is missing from the tooltip too. */
+    const hoverFacts = async (): Promise<unknown[]> =>
+      hoverLine(row).evaluate((element) =>
+        [...element.attributes]
+          .filter((attribute) => attribute.name.startsWith("data-lb-hover-"))
+          .map((attribute) => attribute.value),
+      );
+    // Four values are printed and nothing else is: what the row is read for, and no second
+    // sentence beside them.
+    await expectPage(row.locator(".lb-binding-title")).toHaveText("task-alpha");
+    await expectPage(row.locator('[data-lb-binding-fact="activity"]')).toHaveText(
+      "request in flight",
     );
-    await expectPage(row.locator(".lb-binding-coverage-state")).toHaveText("history available");
-    expect(await factTexts()).toEqual([
-      "Target: Fixture Target",
+    await expectPage(row.locator('[data-lb-binding-fact="requests"]')).toHaveText("requests 14");
+    await expectPage(row.locator('[data-lb-binding-fact="cost"]')).toHaveText("input 18,400");
+    await expectPage(hoverLine(row)).not.toContainText(
+      /Routing revision|Incarnation|Last request|Cost:|targetId|normalized usage/,
+    );
+    // A history that answered is the ordinary case, so it wears no visible mark.
+    await expectPage(row.locator(".lb-binding-coverage-state")).toHaveCount(0);
+    expect(await hoverFacts()).toEqual([
+      "#7",
+      "Qwen3.8-Flash-Next",
+      "responses /v1/responses",
+      expect.stringMatching(/^Target: Fixture Target · targetId: /),
       "Routing revision: 3",
       "Incarnation: 3",
-      "Requests: 14",
-      "Last request: 8s",
-      "Last response: 5s",
+      expect.stringMatching(/^Last request: 8s · \d/),
+      expect.stringMatching(/^Last response: 5s · \d/),
       "In flight: 1",
-      "request in flight",
-      "Cost: normalized usage 18,400",
+      expect.stringMatching(
+        /^Cost: normalized usage · input tokens: 18,400 · cache read tokens: 12,000 · observed: \d/,
+      ),
+      "Linked tasks: 3 · high confidence · several candidates",
+      "history available",
+      "exact key links · several linked tasks",
     ]);
 
     await page.locator("#languageSelect").selectOption("zh");
@@ -3005,33 +3176,48 @@ describe("admin UI load balancing groups", { timeout: UI_TEST_TIMEOUT_MS }, () =
     await expectPage(panel.locator("[data-lb-binding-summary]")).toContainText(
       "本节点绑定: 20 / 25",
     );
-    expect(await factTexts()).toEqual([
-      "落点: Fixture Target",
+    await expectPage(row.locator('[data-lb-binding-fact="activity"]')).toHaveText("请求在途");
+    await expectPage(row.locator('[data-lb-binding-fact="requests"]')).toHaveText("请求 14");
+    await expectPage(row.locator('[data-lb-binding-fact="cost"]')).toHaveText("输入 1.8 万");
+    await expectPage(hoverLine(row)).not.toContainText(
+      /路由版本|编号代次|最近请求|成本:|targetId|归一化用量/,
+    );
+    await expectPage(row.locator(".lb-binding-coverage-state")).toHaveCount(0);
+    expect(await hoverFacts()).toEqual([
+      "#7",
+      "Qwen3.8-Flash-Next",
+      "responses /v1/responses",
+      expect.stringMatching(/^落点: Fixture Target · targetId: /),
       "路由版本: 3",
       "编号代次: 3",
-      "请求次数: 14",
-      "最近请求: 8s",
-      "最后响应: 5s",
+      expect.stringMatching(/^最近请求: 8s · \d/),
+      expect.stringMatching(/^最后响应: 5s · \d/),
       "进行中: 1",
-      "请求在途",
-      "成本: 归一化用量 1.8 万",
+      expect.stringMatching(
+        /^成本: 归一化用量 · 输入 token: 18,400 · 缓存读取 token: 12,000 · 观测时间: \d/,
+      ),
+      "关联 task: 3 · 高置信 · 候选不唯一",
+      "历史可读",
+      "精确 key 命中 · 一个绑定连到多个 task",
     ]);
-    await expectPage(row.locator("[data-lb-binding-endpoint]")).toHaveText(
-      "responses /v1/responses",
-    );
-    await expectPage(row.locator(".lb-binding-coverage-state")).toHaveText("历史可读");
 
     await page.locator("#languageSelect").selectOption("en");
-    expect(await factTexts()).toEqual([
-      "Target: Fixture Target",
+    expect(await hoverFacts()).toEqual([
+      "#7",
+      "Qwen3.8-Flash-Next",
+      "responses /v1/responses",
+      expect.stringMatching(/^Target: Fixture Target · targetId: /),
       "Routing revision: 3",
       "Incarnation: 3",
-      "Requests: 14",
-      "Last request: 8s",
-      "Last response: 5s",
+      expect.stringMatching(/^Last request: 8s · \d/),
+      expect.stringMatching(/^Last response: 5s · \d/),
       "In flight: 1",
-      "request in flight",
-      "Cost: normalized usage 18,400",
+      expect.stringMatching(
+        /^Cost: normalized usage · input tokens: 18,400 · cache read tokens: 12,000 · observed: \d/,
+      ),
+      "Linked tasks: 3 · high confidence · several candidates",
+      "history available",
+      "exact key links · several linked tasks",
     ]);
     const englishPanel = await panel.evaluate((element) => element.textContent || "");
     expect(englishPanel).not.toMatch(/[\u3400-\u9fff]/);

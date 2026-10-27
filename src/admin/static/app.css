@@ -4465,7 +4465,8 @@ label span {
 }
 .lb-binding-panel {
   display: grid;
-  gap: 6px;
+  min-width: 0;
+  gap: 8px;
   padding: 6px;
   border: 1px solid #dde5ef;
   border-radius: 6px;
@@ -4503,56 +4504,48 @@ label span {
 .lb-binding-error-detail {
   color: #6b7a8a;
 }
+/* A binding is its own block: its own border, its own fill and its own padding. Three
+   bindings in one list used to read as one long column of chips because the only thing
+   between them was a hairline; a row that is plainly a box tells the reader where one ends
+   and the next begins. */
 .lb-binding {
   display: grid;
+  min-width: 0;
   gap: 4px;
-  padding-bottom: 6px;
-  border-bottom: 1px solid #dde5ef;
+  padding: 6px 8px;
+  border: 1px solid #dde5ef;
+  border-radius: 6px;
+  background: #f7f9fb;
 }
-/* The binding's own address: its number, the model it was made for, and where that model
-   is called. The two long fields clip inside their own boxes, so a longer model name
-   never moves the facts beside it. */
-.lb-binding-head {
-  display: grid;
-  grid-template-columns: auto minmax(0, 1fr) minmax(0, 1fr);
+/* The four values a row is read for, in the order the reader meets them: which task this
+   binding is holding, whether a request is on it right now, how many requests it has taken,
+   and what the last one cost. Everything else the server answered is in this line's hover
+   text, so the line wraps instead of growing wider. */
+.lb-binding-line {
+  display: flex;
+  min-width: 0;
+  flex-wrap: wrap;
   align-items: baseline;
-  gap: 6px;
-  font-weight: 600;
-  color: #22303f;
+  gap: 5px;
 }
-.lb-binding-model,
-.lb-binding-endpoint {
+.lb-binding-title {
+  flex: 0 1 auto;
   min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
   overflow-wrap: normal;
+  font-weight: 600;
+  color: #22303f;
 }
-/* Three equal columns, like the node's own metric lines: a fact keeps its column, so a
-   longer value never pushes its neighbours sideways. */
-.lb-binding-facts {
-  display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
-  gap: 6px;
-}
-.lb-binding-association {
-  display: grid;
-  gap: 4px;
-}
-.lb-binding-task-line,
-.lb-binding-coverage,
-.lb-binding-reasons {
-  margin: 0;
-  font-size: 11px;
-  overflow-wrap: anywhere;
-}
-/* Every chip the list writes: one box that clips, so no value reflows its row. The state
-   colours below are written after this rule, which is what lets them win the tie. */
-.lb-binding-fact,
+/* Every box the list writes: one clipped chip, so no value reflows its line. The state
+   colours written after this rule win their tie on specificity, not on position. */
+.lb-binding-value,
+.lb-binding-task-total,
+.lb-binding-task-count,
+.lb-binding-activity,
 .lb-binding-coverage-state,
-.lb-binding-coverage-detail,
 .lb-binding-coverage-flag,
-.lb-binding-reason,
 .lb-binding-confidence,
 .lb-binding-ambiguous,
 .lb-binding-task-level,
@@ -4568,14 +4561,19 @@ label span {
   white-space: nowrap;
   overflow-wrap: normal;
 }
-.lb-binding-task-list {
-  display: grid;
-  gap: 3px;
+/* The tasks a row holds beyond the one its title names: one chip each, and a mark only
+   where the answer is not the ordinary one. */
+.lb-binding-task-line {
+  display: flex;
+  min-width: 0;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 5px;
   margin: 0;
-  padding-left: 14px;
 }
 .lb-binding-task {
   display: flex;
+  min-width: 0;
   flex-wrap: wrap;
   align-items: baseline;
   gap: 4px;
@@ -4588,17 +4586,16 @@ label span {
   white-space: nowrap;
   overflow-wrap: normal;
 }
-/* The facts beside a task id keep their full width and move to the next line when the id
+/* The marks beside a task id keep their own width and move to the next line when the id
    runs out of room, so none of them is squeezed down to a single unreadable letter. */
-.lb-binding-task > .lb-binding-task-level,
 .lb-binding-task > .lb-binding-task-count,
-.lb-binding-task > .lb-binding-task-time,
+.lb-binding-task > .lb-binding-task-level,
 .lb-binding-task > .lb-binding-task-node,
 .lb-binding-task > .lb-binding-task-pending {
   flex: 0 0 auto;
 }
-/* The three states a value can carry are told apart by colour, not by a wording the
-   reader has to guess: known-good, worth a second look, and simply not known. */
+/* The three states a value can carry are told apart by colour, not by a wording the reader
+   has to guess: known-good, worth a second look, and simply not known. */
 .lb-binding-activity.is-idle,
 .lb-binding-confidence.is-high,
 .lb-binding-task-level.is-high,
@@ -4626,17 +4623,48 @@ label span {
   background: #e4ecf5;
   color: #6b7a8a;
 }
+/* One affordance per binding, never one per linked task. */
 .lb-binding-tools {
   display: flex;
   align-items: center;
   justify-content: space-between;
   gap: 6px;
 }
+/* The row that can move puts the picker and the submit on one line and gives every sentence
+   the server asked the user to read a line of its own below it. */
+.lb-binding-move-tools {
+  display: grid;
+  min-width: 0;
+  gap: 4px;
+}
+.lb-binding-move-row {
+  display: grid;
+  min-width: 0;
+  grid-template-columns: minmax(0, 1fr) auto auto;
+  align-items: stretch;
+  gap: 6px;
+}
+/* The picker and the submit are the same height and the same text size, so they read as the
+   two halves of one decision rather than a field and a button from different passes.
+   `.lb-card select` is (0,1,1) and this selector is (0,2,0), which is what makes the
+   override hold; `min-width: 0` is what lets the picker shrink instead of pushing the
+   submit out of the card. */
+.lb-binding .lb-binding-move-target {
+  min-width: 0;
+  min-height: 28px;
+  font-size: 12px;
+  padding: 5px 26px 5px 8px;
+}
 .lb-binding-move {
   flex: 0 0 auto;
-  min-height: 24px;
-  padding: 0 8px;
-  font-size: 11px;
+  min-height: 28px;
+  padding: 5px 8px;
+  font-size: 12px;
+}
+.lb-binding-move-retry {
+  min-height: 28px;
+  padding: 5px 8px;
+  font-size: 12px;
 }
 /* The button is enabled exactly when the server says this binding can move. A disabled one
    keeps a readable fill so its reason line stays the thing the user reads. */
@@ -4654,6 +4682,23 @@ label span {
   overflow-wrap: anywhere;
   text-align: right;
 }
+.lb-binding-move-confirm {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+}
+/* What the last submit answered, on its own line: a sentence the user has to read is not a
+   decoration beside a control. Every one of these is a not-yet-settled state, which is why
+   they share the amber of the stale and error lines. */
+.lb-binding-move-notice {
+  margin: 0;
+  font-size: 11px;
+  color: #8a6d3b;
+  overflow-wrap: anywhere;
+}
+.lb-binding-move-notice-detail {
+  color: #6b7a8a;
+}
 .lb-binding-more {
   width: 100%;
   min-height: 26px;
@@ -4667,14 +4712,8 @@ label span {
     grid-template-columns: minmax(0, 1fr);
     gap: 4px;
   }
-  /* A narrow card has no room for three fact columns or a two-column address line. */
-  .lb-binding-head {
-    grid-template-columns: minmax(0, 1fr);
-    gap: 2px;
-  }
-  .lb-binding-facts {
-    grid-template-columns: repeat(2, minmax(0, 1fr));
-  }
+  /* A narrow card has no room for a button beside a long reason sentence, so the reason
+     takes the line and the button keeps its own width. */
   .lb-binding-tools {
     flex-wrap: wrap;
     justify-content: flex-start;
