@@ -1,10 +1,10 @@
 # Task 路由观测、手动迁移与自动再均衡设计
 
-> 状态：设计中
-> 权威性：未完成设计；实现前必须与代码和测试重新核对。
-> 更新条件：设计合同、范围或实现前提变化时更新。
+> 状态：设计已收敛；TRI-10 已实现，TRI-11 阻塞，TRI-12 未开始
+> 权威性：当前 task 路由、手动迁移和自动再均衡的产品设计合同；实现验收状态以执行计划为准。
+> 更新条件：设计合同、范围、实现前提或 TRI 验收证据变化时更新。
 
-- 状态：设计已收敛；TRI-01～TRI-09 已交付，TRI-10～TRI-12 尚未完成。实现前仍须以代码和计划中的验收证据为准。
+- 状态：设计已收敛；TRI-01～TRI-09 已交付，TRI-10 已实现；TRI-11 阻塞，TRI-12 尚未开始。实现验收证据以代码、测试和执行计划为准。
 - 实现权威：本文。两份独立研究稿属于会话研究材料，不作为仓库文档或实现依据。
 - 代码基线：`1c983a10751aaf102a55e223a92e09c1b74e6391`。
 - 关联现行材料：[现行架构](../../current/architecture.md)、[ADR-013](../../decisions/adr/013-load-balancing-sticky-routing.md)、[负载均衡设计](../accepted/load-balancing.md)。
@@ -436,8 +436,8 @@ TTL、没有计数、没有目标改写、没有预留也没有记录。`inFligh
 | `activity`             | `in_flight`、`idle` 或 `unknown`；不表示 task 已完成 |
 | `lastRequestStartedAt` | 最近一次请求进入代理的时间                           |
 | `lastResponseEndedAt`  | 最近一次 reservation 释放时间                        |
-| `historyTargetNode`    | 历史落点与本节点：`same`/`different`/`unknown`       |
-| `context.source`       | 仅说明成本信号来源                                   |
+| `historyTargetNode`    | 历史落点与本节点：`same`/`different`/`unknown`      |
+| `context.source`       | 仅说明成本信号来源                                  |
 
 `context.source` 的取值是 `normalized_usage`、`request_bytes`、`none`，只说明成本信号的来源，不代表上游计费正确。
 
@@ -768,19 +768,19 @@ v1 不新增 traffic 数据库表和 schema 版本。迁移原因写入现有开
 
 ## 10. 数值与证据
 
-| 数值或结论                                 | 类别         | 来源与限制                                                                        |
-| ------------------------------------------ | ------------ | --------------------------------------------------------------------------------- |
-| 指标采样间隔 5 秒                          | 现有常量     | `src/proxy/load-monitor.ts`；只描述当前采样节奏                                   |
-| 指标新鲜窗口 15 秒                         | 现有常量     | `src/proxy/load-balancer.ts`；不是自动稳定窗口                                    |
-| 指标超时 4 秒                              | 现有常量     | `src/proxy/load-monitor.ts`                                                       |
-| affinity TTL 24 小时、单桶 32、全组 4096   | 现有常量     | `src/proxy/load-affinity.ts`；不等于活跃 task 数                                  |
-| 用户消息哈希最多 64 条，超大保护 4096 条   | 现有常量     | `src/proxy/protocol/task-identity.ts`；不能作为完整上下文长度                     |
-| KV 高压分档 0.9                            | 现有常量     | `src/proxy/load-balancer.ts`；只能作压力信号，不能证明 task 活跃                  |
+| 数值或结论                                 | 类别         | 来源与限制                                                               |
+| ------------------------------------------ | ------------ | ------------------------------------------------------------------------ |
+| 指标采样间隔 5 秒                          | 现有常量     | `src/proxy/load-monitor.ts`；只描述当前采样节奏                          |
+| 指标新鲜窗口 15 秒                         | 现有常量     | `src/proxy/load-balancer.ts`；不是自动稳定窗口                           |
+| 指标超时 4 秒                              | 现有常量     | `src/proxy/load-monitor.ts`                                              |
+| affinity TTL 24 小时、单桶 32、全组 4096   | 现有常量     | `src/proxy/load-affinity.ts`；不等于活跃 task 数                         |
+| 用户消息哈希最多 64 条，超大保护 4096 条   | 现有常量     | `src/proxy/protocol/task-identity.ts`；不能作为完整上下文长度            |
+| KV 高压分档 0.9                            | 现有常量     | `src/proxy/load-balancer.ts`；只能作压力信号，不能证明 task 活跃         |
 | 193207 token 请求 TTFT 约 41.2 秒          | 历史记录     | `docs/design/accepted/load-balancing.md`；单次历史真机记录，不是通用 prefill 速率 |
-| 1628 token 前缀冷/热 TTFT 528/325 ms       | 历史记录     | 同上；不能单独证明迁移收益                                                        |
-| 4096 binding 内存 snapshot 约 0.13–0.15 ms | 本轮合成实测 | 仅证明内存扫描局部成本；不是代理吞吐或真实任务收益                                |
-| 10000 task/60000 record 的合成查询约 34 ms | 本轮合成实测 | 只代表夹具 schema、规模和分布；不代表用户真实数据库                               |
-| 自动稳定窗口、上下文上限、迁移预算和冷却   | 待校准假设   | 必须通过真实工作负载实验后才能进入 `auto` 默认参数                                |
+| 1628 token 前缀冷/热 TTFT 528/325 ms       | 历史记录     | 同上；不能单独证明迁移收益                                               |
+| 4096 binding 内存 snapshot 约 0.13–0.15 ms | 本轮合成实测 | 仅证明内存扫描局部成本；不是代理吞吐或真实任务收益                       |
+| 10000 task/60000 record 的合成查询约 34 ms | 本轮合成实测 | 只代表夹具 schema、规模和分布；不代表用户真实数据库                      |
+| 自动稳定窗口、上下文上限、迁移预算和冷却   | 待校准假设   | 必须通过真实工作负载实验后才能进入 `auto` 默认参数                       |
 
 关键证据必须保留可复跑脚本、输入规模、引擎版本、缓存初始条件和对照结果。禁止使用单次 TTFT、合成 SQLite 查询或内存扫描成本直接推导用户收益。
 

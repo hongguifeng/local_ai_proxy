@@ -886,6 +886,44 @@ describe("[TRI-10] the advisor wired onto the monitor's own tick", () => {
     }
   });
 
+  it("forgets advice when a group leaves configuration before the pair stops", async () => {
+    const trio = await startAdvisorTrio();
+    const ports = { busy: trio.busy.port, idleB: trio.idleB.port, idleC: trio.idleC.port };
+    const configured = advisorPair(ports, "advise");
+    const balancer = new LoadBalancer("pair-1");
+    balancer.reconfigure(configured);
+    bindOnBusyEngine(balancer, "session-removed-group");
+
+    const monitor = new LoadMonitor(balancer, { sampleIntervalMs: 25 });
+    monitor.start();
+    try {
+      await waitForAdvice(monitor, ADV_GROUP);
+
+      // Proxy reloads reuse the balancer and monitor, so removing a group does not stop the
+      // pair. The next monitor tick must still release the old advisor state.
+      balancer.reconfigure(
+        pair(
+          [
+            target("target-a", `http://127.0.0.1:${ports.busy}`),
+            target("target-b", `http://127.0.0.1:${ports.idleB}`),
+            target("target-c", `http://127.0.0.1:${ports.idleC}`),
+          ],
+          [],
+        ),
+      );
+      await sleep(120);
+      expect(monitor.rebalanceViews()).toEqual([]);
+
+      // Reusing the id starts with no hidden suggestion from the removed configuration.
+      balancer.reconfigure(configured);
+      const restored = monitor.rebalanceViews().find((item) => item.groupId === ADV_GROUP);
+      expect(restored?.suggestions).toEqual([]);
+    } finally {
+      monitor.stop();
+      await closeTrio(trio);
+    }
+  });
+
   it("logs a suggestion with ids, targets and numbers only - never a session, body or key", async () => {
     const logger = collectingLogger();
     const [busy, quietB, quietC] = await Promise.all([

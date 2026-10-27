@@ -20,13 +20,13 @@ LLM Proxy 是本地 HTTP 代理和 Web 控制台，用于检查 Agent、SDK 或�
 
 配置文件分为两层：应用配置 `llm-proxy.json` 只包含管理端 host/port；代理配置 `logs/proxies.json` 包含 pair、target、model mapping、价格规则和负载均衡组。相对路径以应用配置文件所在目录为基准。
 
-| 对象                | 关键字段                                                | 行为                                         |
-| ------------------- | ------------------------------------------------------- | -------------------------------------------- |
-| Pair                | `id`、`name`、`enabled`、`listen_host`、`listen_port`   | 一个本地监听器和一组上游目标                 |
-| Target              | `id`、`target_url`、headers、字段改写、`log_root`、价格 | 一个上游服务和它的日志/计价设置              |
-| Model mapping       | `listen`、`upstream`                                    | 按顺序匹配模型名，可改写上游模型名           |
-| Load balancer group | `model_pattern`、策略、members                          | 对同一模型的多个 target 做任务粘性和负载选择 |
-| Summary model       | provider、model、endpoint 等                            | 任务简介生成的控制面配置，不参与代理路由     |
+| 对象 | 关键字段 | 行为 |
+| --- | --- | --- |
+| Pair | `id`、`name`、`enabled`、`listen_host`、`listen_port` | 一个本地监听器和一组上游目标 |
+| Target | `id`、`target_url`、headers、字段改写、`log_root`、价格 | 一个上游服务和它的日志/计价设置 |
+| Model mapping | `listen`、`upstream` | 按顺序匹配模型名，可改写上游模型名 |
+| Load balancer group | `model_pattern`、策略、members | 对同一模型的多个 target 做任务粘性和负载选择 |
+| Summary model | provider、model、endpoint 等 | 任务简介生成的控制面配置，不参与代理路由 |
 
 配置保存是整体提交：先校验新配置，再保存并应用运行态；失败时恢复配置和监听器。保持 host/port 的 pair 使用新流水线，旧请求继续完成；改变监听地址、停用或删除 pair 会停止旧监听器。未知的配置键会随所属对象保留，以便打开并保存较旧或较新的配置时不静默丢数据。
 

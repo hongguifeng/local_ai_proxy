@@ -280,6 +280,22 @@ export class RebalanceAdvisor {
     this.#budgetMoments.delete(groupId);
   }
 
+  /** Drop state for groups that no longer belong to the live balancer configuration. */
+  dropGroupsExcept(groupIds: ReadonlySet<string>): void {
+    const known = new Set<string>([
+      ...this.#stability.keys(),
+      ...this.#suggestions.keys(),
+      ...this.#lastSuggestedAt.keys(),
+      ...this.#directions.keys(),
+      ...this.#budgetMoments.keys(),
+    ]);
+    for (const groupId of known) {
+      if (!groupIds.has(groupId)) {
+        this.dropGroup(groupId);
+      }
+    }
+  }
+
   viewFor(groupId: string, mode: RebalanceMode): RebalanceGroupView {
     const stored = this.#suggestions.get(groupId);
     // Newest first, the same reading order the migration records use.

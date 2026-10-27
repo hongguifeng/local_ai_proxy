@@ -12,6 +12,10 @@
 - Fastify 使用的 JSON schema。
 - `test-node/admin/api-contract.test.ts` 验证的公开响应和路由合同。
 
+负载均衡状态路由 `GET /api/load-balancer/status` 的每个 group DTO 还包含 `rebalance`：`mode` 为 `off`、`advise` 或
+`auto`，未校准的 `auto` 返回 `disabledReason: "not_calibrated"`，建议项只公开 binding/target/revision、成本数字、状态和原因。
+建议不包含请求正文、exact key、session id、用户消息哈希或 upstream key；`applied` 与 `observed` 要等 TRI-12 才能进入合同。
+
 服务实现必须返回 schema 对应的 DTO。不要先改 TypeScript 接口，再在路由中手写另一份 JSON 形状；不要为同一字段维护一份 API schema 和一份 UI 类型。
 
 ## 一条路由的完整接线

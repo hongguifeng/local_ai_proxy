@@ -4,8 +4,7 @@
 > 权威性：执行状态记录，不是产品合同。
 > 更新条件：任务状态、依赖或验收证据变化时更新。
 
-当前状态：TRI-01～TRI-09 已验收并整合进主 checkout；TRI-10 在本工作树完成（实现、测试、文档已收口，等父代理审查后
-整合）；TRI-11 阻塞——本机唯一可用的真实引擎属于用户正在运行的实例，按边界不得读取其负载，也不存在第二个隔离的
+当前状态：TRI-01～TRI-09 已验收并整合进主 checkout；TRI-10 已完成并整合进主 checkout（实现、测试、文档已收口）；TRI-11 阻塞——本机唯一可用的真实引擎属于用户正在运行的实例，按边界不得读取其负载，也不存在第二个隔离的
 同模型引擎，因此三组对照实验无法在隔离环境中跑成；TRI-12 未开始，`auto` 今天不执行任何改绑，这一点由测试钉住。历史
 整合过程和每项证据保留在本文后续完成记录中。
 
@@ -30,7 +29,7 @@
 
 1. 第 4 节进度表的勾选和状态；
 2. 该任务的完成记录，包括修改文件、测试、已知限制和实际结果；
-3. 如实现改变设计合同，先修改 [task-routing 设计](../../design/active/task-routing.md)，再继续代码，不要在代码和 TODO 中保留两套语义。
+3. 如实现改变设计合同，先修改 [task-routing-design.md](../../design/active/task-routing.md)，再继续代码，不要在代码和 TODO 中保留两套语义。
 
 本清单不授权提交、推送、发布或操作用户正在运行的 portable 实例。验证必须使用隔离 fixture、临时配置、临时数据库、独立数据目录和空闲端口。
 
@@ -52,17 +51,17 @@
 
 ### 2.2 标准验证入口
 
-| 编号 | 目的                      | 命令或技能                                                                                                                                                                                                                          |
-| ---- | ------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| V-D  | 文档格式、链接和任务依赖  | `npx prettier --ignore-path .gitignore --check docs/plans/active/task-routing.md docs/design/active/task-routing.md`                                                                                                                |
-| V-T  | 相关 Node 测试            | `npm test -- <实际测试文件>`，从大写盘符路径运行                                                                                                                                                                                    |
-| V-C  | 类型、lint 和模块边界     | `npm run typecheck`、`npm run lint`、`npm run check:modules`                                                                                                                                                                        |
-| V-A  | 管理 API 合同             | 阅读并遵循 [admin-api-probing](../../../.agents/skills/admin-api-probing/SKILL.md)                                                                                                                                                  |
-| V-R  | proxy 生命周期和 reload   | 阅读并遵循 [proxy-runtime](../../../.agents/skills/proxy-runtime/SKILL.md)                                                                                                                                                          |
+| 编号 | 目的                      | 命令或技能                                                                                                                                                                                                        |
+| ---- | ------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| V-D  | 文档格式、链接和任务依赖  | `npx prettier --ignore-path .gitignore --check docs/plans/active/task-routing.md docs/design/active/task-routing.md`                                                                                              |
+| V-T  | 相关 Node 测试            | `npm test -- <实际测试文件>`，从大写盘符路径运行                                                                                                                                                                  |
+| V-C  | 类型、lint 和模块边界     | `npm run typecheck`、`npm run lint`、`npm run check:modules`                                                                                                                                                      |
+| V-A  | 管理 API 合同             | 阅读并遵循 [admin-api-probing](../../../.agents/skills/admin-api-probing/SKILL.md)                                                                                                                                      |
+| V-R  | proxy 生命周期和 reload   | 阅读并遵循 [proxy-runtime](../../../.agents/skills/proxy-runtime/SKILL.md)                                                                                                                                              |
 | V-U  | UI 模块、DOM 和浏览器测试 | [static-checks-and-split](../../../.agents/skills/static-checks-and-split/SKILL.md)、[ui-markup-contracts](../../../.agents/skills/ui-markup-contracts/SKILL.md)、[ui-test-quirks](../../../.agents/skills/ui-test-quirks/SKILL.md) |
-| V-B  | UI 截图和基线             | [ui-baseline-regen](../../../.agents/skills/ui-baseline-regen/SKILL.md)，运行 `npm run regen:ui-baselines`                                                                                                                          |
-| V-E  | 真实上游收益实验          | [real-upstream-acceptance](../../../.agents/skills/real-upstream-acceptance/SKILL.md)                                                                                                                                               |
-| V-P  | 交付产物                  | `npm run package:electron:portable`、`npm run smoke:delivery`、`npm run abi:node`                                                                                                                                                   |
+| V-B  | UI 截图和基线             | [ui-baseline-regen](../../../.agents/skills/ui-baseline-regen/SKILL.md)，运行 `npm run regen:ui-baselines`                                                                                                              |
+| V-E  | 真实上游收益实验          | [real-upstream-acceptance](../../../.agents/skills/real-upstream-acceptance/SKILL.md)                                                                                                                                   |
+| V-P  | 交付产物                  | `npm run package:electron:portable`、`npm run smoke:delivery`、`npm run abi:node`                                                                                                                                 |
 
 `docs/` 被默认 Prettier 忽略，文档只能使用显式 `--ignore-path .gitignore`。过滤测试必须确认实际匹配了测试；项目 `passWithNoTests` 关闭，空匹配不是通过。
 
@@ -411,7 +410,7 @@
   同一个对象。把两个源文件还原到初次提交后重跑，这三项新用例各自在预期断言上失败（字节数 `undefined`、ghost
   目标 inFlight 为 1、账本被调用者改成 `none`/0），修好后全部通过。
 - 修正后验证：`npm run typecheck`、`npm run lint`、`npm run check:modules`（0 环 0 越界）、`npx prettier
---check` 四个改动文件全部通过；`npx vitest run test-node/proxy/` 35 文件 500 项通过（初次提交 497 项，净增
+  --check` 四个改动文件全部通过；`npx vitest run test-node/proxy/` 35 文件 500 项通过（初次提交 497 项，净增
   3 项与新增用例数一致）；`npm test` 140 文件通过、1 文件跳过（1288 项通过、2 项跳过），`npm run check`
   全链（format、lint、typecheck、check:modules、test、build）也跑通。修正落在初次提交之上的提交 ffd0d79，
   只含这四个源码与测试文件，研究文档与本 TODO 继续留在未跟踪状态。仍未覆盖的边界：failover 落到新 incarnation 且应答
@@ -743,7 +742,7 @@
   两份 typecheck 均 `exit 0`、`check:modules` 报 138 模块 / 323 运行时边 / 114 类型边 / 0 环 /
   0 越界、Vitest 147 文件（146 通过、1 跳过）与 1477 通过、2 跳过、`build` 通过；整合前的同一
   条链是 147 文件 / 1459 通过 / 2 跳过，1459 + 18 = 1477 正对上新增的 18 项。`npm run
-check:skills` 7 项全过，本项整合后跑过两次（改 skill 之前与之后）。`git diff --check` 为空。
+  check:skills` 7 项全过，本项整合后跑过两次（改 skill 之前与之后）。`git diff --check` 为空。
   按 AGENTS.md 的声明式口径复核
   `git grep -cE "^[[:space:]]*(it|test)(\.[a-z]+)?\(" <rev> -- test-node`：整合前 `2b583da` 为
   1290 项声明，整合后为 1308 项，增量 18 正等于原实现的 12 项、返工的 5 项与上限修正的 1 项；
@@ -1053,7 +1052,7 @@ check:skills` 7 项全过，本项整合后跑过两次（改 skill 之前与之
      `kind: "refused"` 带拒绝码与句子），`describeMove` 只看这份答复，所以同键同参重试拿回
      同一 `code` 与同一 `detail`，路由也就映射出同一个状态码；首次拒绝与重放拒绝走同一条
      答复链。真实路由回归：`keeps a refused submission's refusal when the same key and parameters
-are retried`（真 Fastify、真 `LoadBalancer`）。
+     are retried`（真 Fastify、真 `LoadBalancer`）。
   2. `already_there` 绑定键与摘要。没有写记录就没有可携带答复的记录，所以回执单独成立
      （`StoredReceipt`，`operation` 为空，答复里 `operationId: null`），与记录同容量、同保留
      窗口、同 runtime 作用域；换目的地复用同一键一律 409，路由不动。单元与真实路由两条回归：
@@ -1067,7 +1066,7 @@ are retried`（真 Fastify、真 `LoadBalancer`）。
      `answers a parked submission with its own 202 after a lifecycle event called it off`、
      `repeats the count a submit proved instead of a count read off a binding that is gone`、
      `answers the first receipt with its own revision…`、`answers a parked submit's retry with its
-own 202 after the boundary applied the intent`（涵盖后来 `applied` 与 `observed`）与
+     own 202 after the boundary applied the intent`（涵盖后来 `applied` 与 `observed`）与
      `… after the intent was called off`（后来 `cancelled`），以及既有 replay 用例改为逐字段
      等于第一次答复。
   4. `observed` 需要真实落点证据。reservation 不再带 `migrationRoute` 字段，改成一个
@@ -1101,7 +1100,7 @@ own 202 after the boundary applied the intent`（涵盖后来 `applied` 与 `obs
      `MigrationOperationStore.canRecordAnswer()`：存不下就以 503 `migration_backlog_full`
      拒绝，且不写任何东西；腾空间仍然只淘汰已完成的答案，绝不提前丢仍活着的操作的回执。
      真实路由用例 `refuses a no-op the runtime cannot remember with 503 instead of a receipt
-it cannot keep` 与两条单元用例（满时拒绝且无写、满时先淘汰已完成的答案）钉住这条，
+     it cannot keep` 与两条单元用例（满时拒绝且无写、满时先淘汰已完成的答案）钉住这条，
      记录上限全程保持。容量正常时同键改目的地仍是 409 `idempotency_conflict`。
   2. 管理层的 group 预检不再越过第一份回执。`moveBinding()` 先定位 pair、runtime 与
      `runtimeEpoch`（停机与换 epoch 各自仍是 404），然后问
@@ -1111,7 +1110,7 @@ it cannot keep` 与两条单元用例（满时拒绝且无写、满时先淘汰�
      改成不存在的 groupId 是 409 而不是绕过摘要直接 404；新键第一次问未知 group 仍是
      “Load balancer group not found.” 那条 404。
   3. 独立回执的保留窗口不再被算两次。`recordNoOpAnswer` 过去写 `expiresAt = answeredAt +
-retentionMs`，`dropExpiredRecords` 又拿它与 `now - retentionMs` 比，实际保留的是
+     retentionMs`，`dropExpiredRecords` 又拿它与 `now - retentionMs` 比，实际保留的是
      `2 * retentionMs`。现在两个索引用同一个 cutoff，各自只用自己的起算点：记录从 `endedAt`
      起保留一个窗口，独立回执从 `answeredAt` 起保留一个窗口，附在记录上的回执随记录同生
      同死，仍活着的操作的回执永不被时间清掉。单元侧三条用例分别钉住到期前、到期那一刻、
@@ -1292,7 +1291,7 @@ retentionMs`，`dropExpiredRecords` 又拿它与 `now - retentionMs` 比，实�
     它们目前有 API 与 UI 桩用例覆盖。
 - 返工轮（`6652d21` 之后再加 `c13260a` 一个产品提交、`04b4d2d` 之外的基线一张与本清单一张）：
   - 上一轮那句“obsolete 的回答不会为新页说话”当时并不成立，也没满足先前约定的 lifecycle 隔离：
-    dispose 后同一个 runtime 里重新 init，一条旧 _失败_ 的 `POST` 回调照样把“结果未知”写进新页面的行。
+    dispose 后同一个 runtime 里重新 init，一条旧 *失败* 的 `POST` 回调照样把“结果未知”写进新页面的行。
     父代理的探针（`.pi/parent-review/late-failure.test.ts` + `late-failure.config.ts`，`-t PARENT`）在
     `6652d21` 上 1 pass，就是这个漏洞的复现记录。当时那条路只是把旧回执藏起来，草稿还挂在旧 attempt
     上，下一次读就把被污染的状态显示出来。本轮不解释“这个风险可以接受”，直接改掉。
@@ -1441,8 +1440,7 @@ retentionMs`，`dropExpiredRecords` 又拿它与 `now - retentionMs` 比，实�
 
 ### TRI-10
 
-- 状态：已完成（本工作树提交 `80483a0`，完整哈希 80483a0c828f0e00bcc8976e76c68b1c0caa761f；主分支不在这个工作树里，
-  等父代理独立审查后决定是否整合）。
+- 状态：已完成（主分支已整合提交 `5e458ef`、`2924801`；文档记录来自原隔离实现提交 `80483a0` 和测试修正提交 `51fae58`）。
 - 修改文件：该提交共 30 个文件。产品侧 8 个：新增 [load-rebalance.ts](../../../src/proxy/load-rebalance.ts)（纯判定：
   失衡、候选排序、建议状态机，不碰网络也不碰数据库），修改 [config-schema.ts](../../../src/config/config-schema.ts)
   （`loadBalancerRebalanceModeSchema` 与 `rebalance_mode`，默认 `off`）、
@@ -1453,7 +1451,7 @@ retentionMs`，`dropExpiredRecords` 又拿它与 `now - retentionMs` 比，实�
   [load-monitor.ts](../../../src/proxy/load-monitor.ts)（advisor 挂在采样 tick 上、入口丢弃、停止清理、日志）与
   [admin-schemas.ts](../../../src/admin/admin-schemas.ts)（`loadBalancerRebalanceDto` 与它内部的闭合建议 DTO）。
   测试侧 22 个：新增 `test-node/proxy/load-rebalance.test.ts`（24 项 `[TRI-10]`）；
-  `test-node/proxy/load-monitor.test.ts` 追加 5 项 `[TRI-10]`；`test-node/admin/load-balancer.test.ts` 追加 4 项
+  `test-node/proxy/load-monitor.test.ts` 追加 6 项 `[TRI-10]`；`test-node/admin/load-balancer.test.ts` 追加 4 项
   `[TRI-10]`；`test-node/admin/pairs.test.ts` 追加 2 项 `[TRI-10]`；`test-node/config/` 三份各 1 项。其余 12 份测试
   文件各一至二行：给负载均衡 group 夹具显式写出 `rebalance_mode: "off"`，不让夹具靠隐式默认。UI 侧只动两处测试
   桩——`test-node/ui/admin-ui-fixture.ts` 的状态夹具补上服务现在会答的 `rebalance` 块，
@@ -1473,7 +1471,7 @@ test-node/admin/load-balancer.test.ts` 连续八次并发运行全过（24 + 10 
   五项变异各自被抓回：把 `off` 组也送进 advisor → `computes nothing while off` 失败；去掉
   `runtimeEpoch` 失效检查 → 命名失效原因的项失败；把稳定阈值 `stable < min` 写成 `<=` → 14 项失败；去掉人工保护门
   → `spares a binding a human protected` 失败；给建议日志多打一个字段 → `logs a suggestion with ids, targets and
-numbers only` 失败。变异全部还原后复跑，`git status` 只剩本次授权的文件。
+  numbers only` 失败。变异全部还原后复跑，`git status` 只剩本次授权的文件。
 - 已成立的语义：模式属于 group，默认 `off`，`off`/`advise`/`auto` 是唯一三个合法文本，写错拼法是 400 并点名
   `pairs.0.load_balancers.0.rebalance_mode`，不会静默降级成 `off`；`rebalance_mode` 经
   `ConfigRepository` 存盘再读回不丢也不改名（旧配置里没写这项的组读回 `off` 并在下一次存盘时显式写出）。advisor
@@ -1516,9 +1514,7 @@ numbers only` 失败。变异全部还原后复跑，`git status` 只剩本次�
   承诺上限和防回摆窗口都是观察默认值，状态在每条建议旁报 `calibrated: false`，TRI-11 未交出实测值前它们不得被
   当作执行阈值。三是排序把 token 数与字节估算放在同一个数值序里，只靠 `costEstimated` 标注区分；这两者能不能直接
   比大小是 TRI-11 要回答的问题，本轮没有改排序规则。四是建议只活在内存里，随 pair 停止丢弃，不落盘、不进 traffic
-  数据库，跨重启不保留。五是组从配置里消失时它的 advisor 状态要等 pair 停止才释放——监视器只遍历还在的表，不会
-  再为消失的组调 `dropGroup`；这段时间里那个组的状态对 API 不可见（状态路由按配置的组走，表不在就没有条目），占用
-  上限是每组 128 条记录。六是 UI 还没有展示建议：今天只有状态 API 和结构化日志能看到它们。
+  数据库，跨重启不保留。五是组从配置里消失时，monitor tick 会清理它的 advisor 状态；重新使用同一 group id 也不会复现旧建议。六是 UI 还没有展示建议：今天只有状态 API 和结构化日志能看到它们。
 - 交付：见下面“TRI-10 交付产物”一节（便携包、交付冒烟与 Node ABI 恢复）。
 - 提交：`80483a0`（代码与建议状态机）与 `51fae58`（测试形状修正），都用显式 `git add --` 逐路径只收授权文件；
   没有 `git add -A`，也没有把 `AGENTS.md`、`test-node/docs/`、`test-results/`、`logs/` 或用户实例的任何文件收进来。

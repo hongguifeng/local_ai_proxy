@@ -268,7 +268,9 @@ export class LoadMonitor {
    */
   #runAdvisor(): void {
     const now = this.#now();
-    for (const groupId of this.#balancer.groupIds()) {
+    const activeGroupIds = new Set(this.#balancer.groupIds());
+    this.#advisor.dropGroupsExcept(activeGroupIds);
+    for (const groupId of activeGroupIds) {
       const group = this.#balancer.groupFor(groupId);
       if (
         group === undefined ||
