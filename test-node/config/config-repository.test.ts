@@ -15,11 +15,13 @@ import { fileURLToPath } from "node:url";
 
 import { afterEach, describe, expect, it } from "vitest";
 
+import { materializeProxyConfigFile } from "../../src/config/config-normalizer.js";
 import {
   ConfigLoadError,
   ConfigRepository,
   type ConfigFileSystem,
 } from "../../src/config/config-repository.js";
+import type { ProxyConfigFile } from "../../src/config/config-schema.js";
 import { createDefaultProxyPair } from "../../src/config/defaults.js";
 
 const temporaryDirectories: string[] = [];
@@ -100,6 +102,95 @@ describe("ConfigRepository.save", () => {
     expect(JSON.parse(await readFile(configPath, "utf8"))).toEqual(config);
     expect(await repository.load()).toEqual(config);
     expect(await readdir(path.dirname(configPath))).toEqual(["proxies.json"]);
+  });
+
+  it("round-trips unknown pair and target keys and never writes control plane state", async () => {
+    const directory = await mkdtemp(path.join(os.tmpdir(), "llm-proxy-config-preserve-"));
+    temporaryDirectories.push(directory);
+    const configPath = path.join(directory, "proxies.json");
+    const sourceFile = {
+      pairs: [
+        {
+          id: "legacy-pair",
+          name: "Legacy",
+          enabled: false,
+          listen_host: "127.0.0.1",
+          listen_port: 1234,
+          // Written by a flat-pair config that predates per-target log roots.
+          log_root: "legacy-pair-logs",
+          legacy_pair_option: ["keep", 1],
+          running: true,
+          actual_listen_port: 4321,
+          expanded: true,
+          targets: [
+            {
+              id: "target-1",
+              name: "Target",
+              target_url: "http://127.0.0.1:1235",
+              legacy_target_option: { mode: "compat", version: 1 },
+              expanded: true,
+            },
+          ],
+        },
+      ],
+    };
+    await writeFile(configPath, JSON.stringify(sourceFile), "utf8");
+    const repository = new ConfigRepository(configPath, "round-trip-logs");
+
+    const loaded = await repository.load();
+    // The pair-level log_root is preserved but never decides the target log root.
+    expect(loaded.pairs[0]?.targets[0]?.log_root).toBe("round-trip-logs");
+
+    const submittedPairs = materializeProxyConfigFile(loaded).pairs.map((pair) => {
+      const editablePair = pair as Record<string, unknown>;
+      editablePair["running"] = true;
+      editablePair["actual_listen_port"] = 4321;
+      editablePair["expanded"] = true;
+      editablePair["prices_expanded"] = true;
+      editablePair["price_test_model"] = "gpt-fixture";
+      editablePair["catalog_rate"] = 0.25;
+      editablePair["not_serializable"] = () => "must not be preserved";
+      editablePair["missing"] = undefined;
+      editablePair["targets"] = (editablePair["targets"] as Record<string, unknown>[]).map(
+        (target) => ({
+          ...target,
+          expanded: true,
+          prices_expanded: true,
+          price_test_model: "gpt-fixture",
+          catalog_rate: 0.25,
+        }),
+      );
+      return editablePair;
+    });
+    await repository.save({ pairs: submittedPairs } as unknown as ProxyConfigFile);
+
+    const persisted = JSON.parse(await readFile(configPath, "utf8")) as {
+      pairs: Record<string, unknown>[];
+    };
+    const persistedPair = persisted.pairs[0];
+    if (persistedPair === undefined) throw new Error("Saved pair was not persisted.");
+    expect(persistedPair["legacy_pair_option"]).toEqual(["keep", 1]);
+    expect(persistedPair["log_root"]).toBe("legacy-pair-logs");
+    const persistedTarget = (persistedPair["targets"] as Record<string, unknown>[])[0];
+    if (persistedTarget === undefined) throw new Error("Saved target was not persisted.");
+    expect(persistedTarget["legacy_target_option"]).toEqual({ mode: "compat", version: 1 });
+    expect(persistedTarget["log_root"]).toBe("round-trip-logs");
+    for (const key of [
+      "running",
+      "actual_listen_port",
+      "expanded",
+      "prices_expanded",
+      "price_test_model",
+      "catalog_rate",
+      "not_serializable",
+      "missing",
+    ]) {
+      expect(persistedPair[key]).toBeUndefined();
+      expect(persistedTarget[key]).toBeUndefined();
+    }
+
+    const reloaded = materializeProxyConfigFile(await repository.load());
+    expect(reloaded).toEqual(materializeProxyConfigFile(loaded));
   });
 
   it("flushes and fsyncs the temporary file before rename", async () => {
