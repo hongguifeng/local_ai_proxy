@@ -46,3 +46,21 @@ had been typed after a "successful" row click.
 A caret button nested inside the field box inherited the row rule and came out 2 px taller than
 the text beside it, which is why `.target-check-model-row > button` carries the child
 combinator.
+
+## The binding row's shrink chain
+
+Measured at the 380 px viewport while compacting the route-binding list: the card was 318 px and
+the list inside it 525 px, and the ancestor walk showed the panel and the node-state row both 525 px
+with `min-width: auto` — the long model name inside a wrapping `.lb-binding-line` had min-content 493 px
+and every container above it took that as its floor. Adding `min-width: 0` to the panel, the block,
+the line, the task line and the move row brought the list to 296 px with `scrollWidth` 294 px, so the
+long name clipped inside the block instead of widening the card.
+
+The same measurement is why a clipping claim cannot be made at the default width: at 1278 px that
+title measured `scrollWidth` 493 against `clientWidth` 493 — nothing overflowed, so the ellipsis
+evidence has to come from the narrow viewport.
+
+The compact rows took the load-balancing capture from 1278×2818 / 1278×2955 down to 1278×2154 /
+1278×2260 with the adaptive viewport's 150 px blank pad still in place. The picker and the submit
+came out the same height (≈29 px) and their centres agreed within 1 px once both carried symmetric
+5 px vertical padding and `align-items: stretch` on the row grid.

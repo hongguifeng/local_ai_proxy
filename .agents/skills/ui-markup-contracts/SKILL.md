@@ -4,8 +4,10 @@ description: >-
   Structural contracts the admin UI depends on: the three-row task header grid with subgrid and
   the caret button, fact-line flex clipping with the model-name exception, target-card pointer
   reordering, fixed-width name inputs, zod stripping UI-only config fields, the task-summary
-  grid with its time-range classes, and focusable picker rows. Use when moving, aligning or
-  adding admin UI controls, or when a Playwright click hangs or a control renders wrong.
+  grid with its time-range classes, focusable picker rows, and the `min-width: 0` chain that
+  keeps a wrapping binding line from widening its card. Use when moving, aligning or adding
+  admin UI controls, when a Playwright click hangs or a control renders wrong, or when a block
+  comes out wider than the container holding it.
 ---
 
 # Admin UI markup and interaction contracts
@@ -65,6 +67,13 @@ description: >-
 - A clickable row inside a floating picker must be focusable (`tabIndex = -1`): clicking a
   non-focusable row blurs the field that opened the overlay, whose `focusout` handler hides the
   panel before the browser dispatches the click, so the pick is silently lost.
+- A wrapping line or a grid item left at `min-width: auto` sizes itself to its own min-content, so
+  one unbreakable token — a long model name under `overflow-wrap: normal` — pushes the whole
+  ancestor chain wider, not just the line. The compact binding list measured a 525 px panel inside a
+  318 px card until every nested container carried `min-width: 0`: the panel, the binding block, its
+  line, the task continuation line and the move row. New wrapping or compact list markup needs that
+  whole chain, and the claim is proved by asserting the list is no wider than its card and that the
+  long name still clips at a narrow viewport.
 - Scope a shared row height with `>` (`.target-check-model-row > button`); a caret button
   nested inside the field box otherwise inherits the row rule and comes out taller than the text
   beside it.
@@ -88,6 +97,10 @@ npm run bundle:ui
 - A control that "did nothing" usually lost the cascade or never matched a selector; a control
   that moved the wrong neighbour usually means a second shrinkable flex child.
 - A field that keeps the old value after a "successful" row click is the focusable-row bug.
+- When a block comes out wider than its container, do not guess which child is at fault: walk the
+  ancestor chain and print each element's `getBoundingClientRect().width` beside its `scrollWidth`
+  and computed `min-width`. The first ancestor whose width equals the block's is the one carrying
+  the min-content, and that is where `min-width: 0` belongs.
 
 ## Deeper material
 
