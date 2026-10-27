@@ -54,6 +54,14 @@ description: >-
 - 如果新改动涉及某个文档家族，搜索代码注释、skill、测试和 README 中对该家族旧路径的引用。与本次家族直接相关的死路径必须修复；完全无关的历史引用才可以记录为后续工作。
 - 对新建或整篇重写的文档正文，运行显式 `--ignore-path .gitignore` 的 Prettier 并使其通过；从已有完成记录搬迁生成的报告保留来源排版；已有表格密集文档的局部修改运行 `git diff --check`、`npx vitest run test-node/docs` 和本地链接检查，避免把无关的表格重排混入修复。
 
+### 过期描述改原文，不往文档尾部追加补丁段
+
+1. 触发条件：本次改动让某段叙述失效，或发现某文档的描述与代码、测试、实测不一致。
+2. 观察到的失败：给已定稿的文档追加“实现校正”一类段落，同一文件里旧说法和新说法并存，读者先读到旧结论还要自己判断哪一段作数；追加段落里的英文句子又把中文叙述切成中英混排（`docs/README.md` 的语言规则与维护检查第 4 条）。
+3. 规则：先按目录和文件头的 `状态`、`权威性`、`更新条件` 判定生命周期，再选动作。`docs/current/`、`docs/design/active/`、`docs/plans/active/`，以及文件头写明“当前代码不一致时先更新设计或明确偏差”的 `docs/design/accepted/`：原地改写错误原文，同一事实全文只留一处。`docs/plans/archive/`、`docs/reports/`、`docs/history/` 这类过程与证据记录：不动原文，把当前描述写进唯一的当前文档，再从记录里链接过去。只有文件自己声明保留为当时记录时才禁止改写。任何时候都不允许用追加段落代替改写，也不允许先选一份“能写的文档”就地塞进去。
+4. 证明方法：改完对该事实做一次全文件 `rg`，确认只剩一处表述；按 `docs/README.md` 维护检查 1–5 逐条核对，第 4 条要求中文正文不混入另一种自然语言（代码符号、路径、命令和 HTTP 字段不算混用）；表格密集文档继续跑 `git diff --check` 和 `npx vitest run test-node/docs`。逐条问题见 [reference.md](./reference.md) 的“过期描述的归属检查”。
+5. 适用范围和失效条件：适用于叙述性描述过期。错误若在实现或测试本身，先修代码，不能只改文字让文档跟错误的实现对齐；文件头明确声明为历史证据时，本规则反过来要求保持原文。
+
 ### 用最小规则控制长期增长
 
 - 优先更新已有规则或 skill，只有不存在合适归属时才新增文件。
@@ -68,7 +76,7 @@ description: >-
 
 ```bash
 git status --short
-rg -n "旧路径|旧命令|旧符号" AGENTS.md .agents/skills docs test-node
+rg -n "旧路径|旧命令|旧符号|旧标题|旧口径" AGENTS.md .agents/skills docs test-node
 rg --files docs .agents/skills
 npm run check:skills
 npx prettier --ignore-path .gitignore --check AGENTS.md .agents/skills/<name>/SKILL.md
@@ -89,6 +97,7 @@ npx vitest run test-node/docs
 - `AGENTS.md` 是否仍然只包含跨任务规则？
 - skill 的触发条件、五个固定章节、命令、链接和文档状态是否一致？
 - 当前文档是否仍与代码和测试一致，历史材料是否没有被误当成当前合同？
+- 过期的叙述是否在符合其生命周期的文档里被原地改写，而不是靠追加段落盖过去？
 
 用 `git diff` 检查内容和归属，用 `git diff --check` 检查空白，用 `npm run check:skills` 检查 skill 结构、路径和命令；不要因为格式和路由测试通过就假定经验本身正确。
 

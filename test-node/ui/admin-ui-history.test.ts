@@ -757,6 +757,14 @@ describe("admin UI history page", { timeout: UI_TEST_TIMEOUT_MS }, () => {
       group.locator(".log-group-head").press("Enter"),
     ]);
     await expectPage(groupBreakdown).toBeHidden();
+    // The breakdown table is its own section: the "Task cost" heading sits
+    // directly above it and shares the cost-green dot with the cost trend.
+    await expectPage(panel.locator("h3.section-cost").first()).toHaveText("Task cost");
+    // Each section states its scope right under the title, before the picture.
+    // The CSS that spaces this line hangs on the same sibling adjacency.
+    await expectPage(panel.locator("h3.section-cost + .pricing-note").first()).toHaveText(
+      "Whole-task cost, including requests outside this list.",
+    );
     const taskBreakdown = panel.locator(".task-breakdown").first();
     await expectPage(taskBreakdown.locator("thead")).toContainText("Share");
     await expectPage(taskBreakdown.locator("tbody tr").first()).toContainText("17.54%");
@@ -781,9 +789,9 @@ describe("admin UI history page", { timeout: UI_TEST_TIMEOUT_MS }, () => {
     );
     // The highest point is labeled with its exact value (request #5 here).
     await expectPage(tokenChart.locator(".token-chart-peak")).toHaveText("258");
-    // Cost trend line chart: one dot per priced request with its own cost;
+    // Per-request cost trend line chart: one dot per priced request with its own cost;
     // the priced per-request costs sum to the task total in the panel header.
-    await expectPage(panel).toContainText("Cost trend");
+    await expectPage(panel).toContainText("Per-request cost trend");
     const costChart = panel.locator(".cost-chart svg");
     await expectPage(costChart).toBeVisible();
     await expectPage(costChart.locator(".token-chart-dot")).toHaveCount(3);
@@ -800,9 +808,12 @@ describe("admin UI history page", { timeout: UI_TEST_TIMEOUT_MS }, () => {
     // (0.0104 + 0.0086 + 0.02375) / 3, labeled at the right edge of the plot.
     await expectPage(costChart.locator(".token-chart-mean")).toHaveCount(1);
     await expectPage(costChart.locator(".token-chart-mean-label")).toHaveText("avg $0.0143");
-    // Token output trend line chart: one dot per request with a known output
+    // Per-request token output trend line chart: one dot per request with a known output
     // token count, each carrying that request's own (non-cumulative) count.
-    await expectPage(panel).toContainText("Token output trend");
+    await expectPage(panel).toContainText("Per-request token output trend");
+    await expectPage(panel.locator("h3.section-output + .pricing-note")).toHaveText(
+      "This request's own output tokens, by request sequence; requests without an output token count yet are not shown.",
+    );
     const outputChart = panel.locator(".output-token-chart svg");
     await expectPage(outputChart).toBeVisible();
     await expectPage(outputChart.locator(".token-chart-dot")).toHaveCount(3);

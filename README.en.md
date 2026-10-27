@@ -63,7 +63,7 @@ qwen-local => qwen3
 
 ![Task details panel](doc/ui_task_detail_en.png)
 
-The **Task details** panel (open it from a task header, or its ⓘ icon button) starts with a **Task brief** card — its button asks the summary model for one short paragraph describing what the task is doing, plus the environment facts it can read (client/agent, working directory, branch, …) shown as pills, and the answer is cached until regenerated. Below it the panel summarizes a single task's total cost, per-bucket token breakdown (input / output / cache read / cache write), and a **Token trend** line chart, with model/price groups expanded to show pricing and cost share.
+The **Task details** panel (open it from a task header, or its ⓘ icon button) starts with a **Task brief** card — its button asks the summary model for one short paragraph describing what the task is doing, plus the environment facts it can read (client/agent, working directory, branch, …) shown as pills, and the answer is cached until regenerated. Below it the panel summarizes a single task's total cost, then a **Task cost** table (input / output / cache read / cache write, with a total row that carries no fill so the header band is the only filled band), and three per-request line charts — **Per-request cost trend**, **Per-request token count trend**, and **Per-request token output trend** — each labeling its highest point, followed by model/price groups expanded to show pricing and cost share.
 
 History data is stored by default in a `traffic.db` SQLite database under each log directory; proxy settings are stored in `logs/proxies.json`. Exported ZIP files contain readable Markdown, `request.json`, and `response.json`.
 

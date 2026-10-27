@@ -840,13 +840,27 @@ export function renderTaskPricingPanel() {
   // The task brief is its own card at the very top of the panel, above the
   // fact grid: it is free-form prose, so it does not fit the stat-card shape.
   const briefCard = taskBriefCardHtml(renderInput.groupId, renderInput.brief);
+  // Every section in this panel reads the same way: title, then the one line
+  // that says what the section shows and what it leaves out, then the picture.
+  // Keeping the scope line under the title means the reader knows what they are
+  // about to look at before reaching the chart or the table, instead of reading
+  // it as a caption of whatever was already drawn.
   const tokenSeries = renderInput.tokenSeries;
-  const tokenChart = `<h3 class="section-token">${escapeHtml(t("tokenTrend"))}</h3>${tokenSeries === null ? `<p>${escapeHtml(t("loading"))}</p>` : taskTokenChartHtml(tokenSeries)}<p class="pricing-note">${escapeHtml(t("tokenTrendNote"))}</p>`;
+  const tokenChart = `<h3 class="section-token">${escapeHtml(t("tokenTrend"))}</h3><p class="pricing-note">${escapeHtml(t("tokenTrendNote"))}</p>${tokenSeries === null ? `<p>${escapeHtml(t("loading"))}</p>` : taskTokenChartHtml(tokenSeries)}`;
   const costSeries = renderInput.costSeries;
-  const costChart = `<h3 class="section-cost">${escapeHtml(t("costTrend"))}</h3>${costSeries === null ? `<p>${escapeHtml(t("loading"))}</p>` : taskCostChartHtml(costSeries)}<p class="pricing-note">${escapeHtml(t("costTrendNote"))}</p>`;
+  const costChart = `<h3 class="section-cost">${escapeHtml(t("costTrend"))}</h3><p class="pricing-note">${escapeHtml(t("costTrendNote"))}</p>${costSeries === null ? `<p>${escapeHtml(t("loading"))}</p>` : taskCostChartHtml(costSeries)}`;
   const outputTokenSeries = renderInput.outputTokenSeries;
-  const outputTokenChart = `<h3 class="section-output">${escapeHtml(t("outputTokenTrend"))}</h3>${outputTokenSeries === null ? `<p>${escapeHtml(t("loading"))}</p>` : taskOutputTokenChartHtml(outputTokenSeries)}<p class="pricing-note">${escapeHtml(t("outputTokenTrendNote"))}</p>`;
-  panel.innerHTML = `<div class="pricing-panel-head"><strong>${escapeHtml(t("taskPricing"))}</strong><button type="button" data-close-pricing>${escapeHtml(t("close"))}</button></div>${briefCard}${summaryCard}${data.priced_request_count ? taskBreakdownTableHtml(data.breakdown, pricingDecimalFromNano(data.cost_nano_cny)) : `<p>${escapeHtml(reasons || t("unpriced"))}</p>`}<p class="pricing-note">${escapeHtml(t("taskWholeScope"))}</p>${costChart}${tokenChart}${outputTokenChart}<h3 class="section-groups">${escapeHtml(t("priceGroups"))}</h3>${groups || `<p>${escapeHtml(t("unpriced"))}</p>`}`;
+  const outputTokenChart = `<h3 class="section-output">${escapeHtml(t("outputTokenTrend"))}</h3><p class="pricing-note">${escapeHtml(t("outputTokenTrendNote"))}</p>${outputTokenSeries === null ? `<p>${escapeHtml(t("loading"))}</p>` : taskOutputTokenChartHtml(outputTokenSeries)}`;
+  // The breakdown table is a section of its own: the heading names it "task
+  // cost" and carries the same green dot as the cost trend below it, so the
+  // table, its total row and the cost chart read as one cost-colored group.
+  // The scope line belongs under that heading, and an unpriced task has the
+  // reason line here instead: with no heading to hold the scope line, it stays
+  // below the reason so the panel still says what its numbers would have covered.
+  const breakdownSection = data.priced_request_count
+    ? `<h3 class="section-cost">${escapeHtml(t("taskCostBreakdown"))}</h3><p class="pricing-note">${escapeHtml(t("taskWholeScope"))}</p>${taskBreakdownTableHtml(data.breakdown, pricingDecimalFromNano(data.cost_nano_cny))}`
+    : `<p>${escapeHtml(reasons || t("unpriced"))}</p><p class="pricing-note">${escapeHtml(t("taskWholeScope"))}</p>`;
+  panel.innerHTML = `<div class="pricing-panel-head"><strong>${escapeHtml(t("taskPricing"))}</strong><button type="button" data-close-pricing>${escapeHtml(t("close"))}</button></div>${briefCard}${summaryCard}${breakdownSection}${costChart}${tokenChart}${outputTokenChart}<h3 class="section-groups">${escapeHtml(t("priceGroups"))}</h3>${groups || `<p>${escapeHtml(t("unpriced"))}</p>`}`;
   fitTaskSummaryValues(panel);
 }
 function loadTaskTokenSeries(groupId, signal) {

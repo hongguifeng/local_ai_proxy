@@ -1637,6 +1637,13 @@ label span {
   color: var(--muted);
   font-size: 12px;
 }
+/* A scope line written straight under a panel heading hugs that heading (the
+   collapsed 8 px of the heading's own bottom margin) and then hands the chart
+   or table below it a full 12 px, so the line reads as part of the title rather
+   than as a caption of whatever was drawn under it. */
+.pricing-panel h3 + .pricing-note {
+  margin: 2px 0 12px;
+}
 .request-pricing {
   padding: 0 10px 8px;
 }
@@ -1823,7 +1830,10 @@ label span {
 .pricing-table thead th {
   border-top: none;
   border-bottom: 1px solid var(--line);
-  background: #edf2f7;
+  /* The header row is the darkest band of the table: it has to stay readable
+     above the near-white body rows and the pale total row, so the column names
+     carry the weight of the hierarchy instead of the small muted type. */
+  background: #dbe4ee;
   color: var(--muted);
   font-size: 11px;
   font-weight: 600;
@@ -1846,7 +1856,9 @@ label span {
   padding-top: 8px;
   padding-bottom: 8px;
   border-top: 1px solid var(--line);
-  background: var(--accent-soft);
+  /* No fill: the total row sits on the table's own white, so the bold type and
+     the border above it are what mark it as the sum, and the dark header band
+     stays the only filled band in the table. */
   font-weight: 700;
 }
 /* Group tables live inside the <details> card; let the card provide the frame. */
