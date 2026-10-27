@@ -1090,44 +1090,48 @@ export class LoadBalancer {
   /**
    * The server-side state gate, and the reason it looks the way it does.
    *
-   * The only fact available to a move is what the binding's own evidence says. Three endpoint
-   * kinds carry their whole conversation in the request body - `requestUserMessages` reads
-   * `messages` for chat and messages and `prompt` for completions - so a move cannot strand
-   * state the request did not bring with it. `responses` is the opposite: a request may name a
-   * `previous_response_id` or a stored conversation and send almost nothing itself, and nothing
-   * in this proxy proves the next engine can read that object. `other` is unknown by definition.
+   * A move is judged on what the request itself showed, not on which endpoint it arrived at. The
+   * only facts available are the binding's recorded state handles and its own body evidence.
    *
-   * A `response:` exact key carries no provenance, and that is what settles the gate.
-   * `taskExactKeys` writes one from a request's `previous_response_id`, while `attachResponseIds`
-   * writes one from an id a finished response body produced; the table stores both into the same
-   * `binding.exactKeys` set as the same `response:<id>` string, so no reader can tell a state the
-   * client depends on from an artefact an engine merely emitted. A request may name a response and
-   * still carry its whole conversation, which is the shape this gate used to let through: the key
-   * says the task is addressed through a response object, and that is a dependency this runtime
-   * cannot prove portable whatever the endpoint kind is. Since the question has no answer, one
-   * response key refuses the move everywhere - a chat task that learned its id from a finished
-   * body is held for the same reason as one that names `previous_response_id` - until TRI-11
-   * proves response state is shared across engines.
+   * A response id a request named is a dependency whatever the kind is: the client is waiting for
+   * an object that lives on the node that answered it, and nothing in this proxy proves the next
+   * engine can read it. That is what `binding.responseDependencies` holds, and it is the only
+   * thing that refuses a move on a response key. An id an engine produced in a finished body is
+   * learned through `attachResponseIds()` and deliberately never joins that set - it is an
+   * artefact the client already has, and the same `response:<id>` key still lets the next turn find
+   * the node that answered it. Provenance is therefore decided where the key is written, not
+   * guessed from its spelling at the gate.
    *
-   * What is left is the proof that needs no answer to that question: a self-contained kind moves
-   * only when it holds no response key and the binding's own evidence shows user content came in
-   * the body that created it. Without that content the request may be reading state that lives on
-   * one engine, so it is refused as `state_unknown`. A `conversation`, `thread` or session key is
-   * never accepted as proof - it is a client-side clue, and the same clue can name a conversation
-   * the next engine has never seen.
+   * What is left is the proof the request body can give. `chat`, `messages` and `completions`
+   * carry their whole conversation there - `requestUserMessages` reads `messages` for the first
+   * two and `prompt` for the last - so a move cannot strand state the request did not bring, and
+   * a `conversation` clue on one of those kinds is only a clue. A `responses` request may bring
+   * only its new turn, so a conversation, thread or session handle names history the destination
+   * may never have seen and is refused until TRI-11 proves that state is shared across engines;
+   * with no handle named, the same proof the other kinds act on decides it - user content that
+   * came in the body. An endpoint this proxy does not classify is unknown by definition, and a
+   * body it cannot read user content out of leaves no proof either, so both are refused as
+   * `state_unknown`. A `prompt_cache` key or a session header is a client-side identifier, never
+   * a handle to state, and is not read as one.
    */
   #stateRejection(binding: AffinityBinding): MigrationRejection | undefined {
-    if (carriesResponseChain(binding)) {
+    if (carriesNamedResponseDependency(binding)) {
       return migrationRejection(
         "response_state_dependency",
-        "This task is addressed through a response id, and nothing proves another engine can read that response.",
+        "This task was addressed through a response id a request named, and nothing proves another engine can read that response.",
       );
     }
     const kind = binding.evidence.kind;
-    if (!SELF_CONTAINED_ENDPOINT_KINDS.has(kind)) {
+    if (kind !== "responses" && !SELF_CONTAINED_ENDPOINT_KINDS.has(kind)) {
       return migrationRejection(
         "state_unknown",
         `The ${kind} endpoint may keep server-side state the request does not carry, and this runtime cannot prove the destination can reach it.`,
+      );
+    }
+    if (kind === "responses" && carriesConversationHandle(binding)) {
+      return migrationRejection(
+        "state_unknown",
+        "A responses request that names a conversation, thread or session id may be reading history the destination has never seen, and this runtime cannot prove the destination can reach it.",
       );
     }
     if (!carriesConversationEvidence(binding)) {
@@ -1313,6 +1317,9 @@ export class LoadBalancer {
     const hit = table.lookup(input.identity, boundNodes);
     if (hit !== undefined && !input.exclude?.has(hit.binding.targetId)) {
       const targetId = hit.binding.targetId;
+      // A hit is not a bind, so this is where a dependency the request names is recorded: the
+      // turn that asks for a stored response has to be visible to the state gate later.
+      table.noteRequestDependencies(hit.binding, input.identity);
       // The recorded load is what the node carried when it was chosen, not counting the
       // reservation this request is about to make.
       const loadBefore = this.inFlight(targetId);
@@ -1725,9 +1732,9 @@ function submitAnswer(
 /**
  * The endpoint kinds whose request body carries the whole conversation: `chat` and `messages`
  * read a `messages` array, `completions` reads a `prompt`. A move between nodes cannot strand
- * state these requests did not carry with them, which is what makes them movable while a
- * `responses` request - which may name a stored response or conversation and send almost nothing
- * itself - is not.
+ * state these requests did not carry with them. `responses` is not one of them - its body may
+ * carry only the new turn - so the state gate judges it from the handles the request named and
+ * the user content it brought, and an endpoint it does not classify stays refused.
  */
 const SELF_CONTAINED_ENDPOINT_KINDS: ReadonlySet<string> = new Set<string>([
   "chat",
@@ -1736,14 +1743,23 @@ const SELF_CONTAINED_ENDPOINT_KINDS: ReadonlySet<string> = new Set<string>([
 ]);
 
 /**
- * Whether a `response:` key points at this binding. Both sources - a request's
- * `previous_response_id` and an id a finished response body produced - land in the same set
- * under the same spelling, so this answers only "is the task addressed through a response
- * object", never "which kind of response object".
+ * Whether a request named a response object this binding is addressed through. Only the keys in
+ * this set were named by a request; an id the table learned from a finished response body is a
+ * different fact and lives only in `exactKeys`, where it still serves the next turn's lookup.
  */
-function carriesResponseChain(binding: AffinityBinding): boolean {
+function carriesNamedResponseDependency(binding: AffinityBinding): boolean {
+  return binding.responseDependencies.size > 0;
+}
+
+/**
+ * Whether a key a request supplied points at a conversation, thread or session the engine may
+ * hold. `conversationIdFrom` folds those three field spellings into this one prefix, and no other
+ * exact key uses it: the ids learned from response bodies are always written as `response:` keys,
+ * so a `conversation:` key can only have come from a request that named one.
+ */
+function carriesConversationHandle(binding: AffinityBinding): boolean {
   for (const exactKey of binding.exactKeys) {
-    if (exactKey.startsWith("response:")) {
+    if (exactKey.startsWith("conversation:")) {
       return true;
     }
   }
@@ -1753,9 +1769,8 @@ function carriesResponseChain(binding: AffinityBinding): boolean {
 /**
  * Whether the binding's own evidence shows a conversation came in the request body that created
  * it: at least one user message was read out of that body. This is the only positive proof
- * available that moving the task cannot strand context, and it needs no answer to the question
- * the exact keys cannot answer - which `response:` key names state and which one an engine
- * merely produced. No user content means no proof, so the gate refuses.
+ * available that moving the task cannot strand context. No user content means no proof, so the
+ * gate refuses.
  */
 function carriesConversationEvidence(binding: AffinityBinding): boolean {
   return binding.evidence.userHashes.length > 0;

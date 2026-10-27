@@ -77,6 +77,16 @@ export interface AffinityBinding {
   requestCount: number;
   /** Exact keys currently pointing at this binding, for symmetric cleanup. */
   readonly exactKeys: Set<string>;
+  /**
+   * Response ids a request named as its own predecessor, and only those. `attachResponseIds`
+   * never writes here: an id an engine produced in a finished body is spelled the same way in
+   * `exactKeys` - so the next turn can still find this binding by it - but it is an artefact the
+   * client already has, not a state it waits for. Keeping the two apart is what lets a move be
+   * judged on what the request asked for instead of on which endpoint the request arrived at.
+   * The record is sticky: a task that was addressed through a stored response stays addressed that
+   * way whatever later turns bring, so nothing detaches these keys when the lookup key moves.
+   */
+  readonly responseDependencies: Set<string>;
 }
 
 export type AffinityHit =
@@ -225,6 +235,7 @@ export class LoadAffinityTable {
         this.rebind(hit.binding, targetId);
       }
       this.#registerExactKeys(hit.binding, identity.exactKeys);
+      this.noteRequestDependencies(hit.binding, identity);
       return hit.binding;
     }
 
@@ -239,12 +250,14 @@ export class LoadAffinityTable {
       lastBoundAt: this.#now(),
       requestCount: 1,
       exactKeys: new Set<string>(),
+      responseDependencies: new Set<string>(),
     };
     this.#bindings.set(binding.id, binding);
     const bucket = this.#buckets.get(binding.bucketKey) ?? [];
     bucket.push(binding);
     this.#buckets.set(binding.bucketKey, bucket);
     this.#registerExactKeys(binding, identity.exactKeys);
+    this.noteRequestDependencies(binding, identity);
     this.#enforceBucketCap(binding);
     this.#enforceGroupCap();
     return binding;
@@ -272,9 +285,31 @@ export class LoadAffinityTable {
   }
 
   /**
-   * Learn the response ids a completed response produced for this binding. A response that
-   * finished after its binding was evicted teaches nothing: writing the keys back would put
-   * an object the table removed back into the exact index.
+   * Record the response object a request named against the binding that already carries the task.
+   * `bind()` calls this on both of its paths; `LoadBalancer.plan()` calls it on the affinity branch,
+   * which takes a hit without binding, so a dependency named by a later turn has exactly one place
+   * it is written. Nothing else can: only a request names a response, and an id learned from a
+   * finished body goes through `attachResponseIds()` and stays out of this record. A reference that
+   * arrived after the binding left the table writes nothing.
+   */
+  noteRequestDependencies(binding: AffinityBinding, identity: TaskIdentity): void {
+    if (this.#bindings.get(binding.id) !== binding) {
+      return;
+    }
+    const named = identity.namedResponseKey;
+    if (named !== undefined) {
+      binding.responseDependencies.add(named);
+    }
+  }
+
+  /**
+   * Learn the response ids a completed response produced for this binding. They join the lookup
+   * index under the same `response:<id>` spelling a `previous_response_id` would arrive under,
+   * which is what lets the next turn find the node that answered it. They stay out of
+   * `responseDependencies`: this write is what an engine emitted, not what a client asked for, so
+   * it cannot be the evidence that refuses a move. A response that finished after its binding was
+   * evicted teaches nothing: writing the keys back would put an object the table removed back into
+   * the exact index.
    */
   attachResponseIds(binding: AffinityBinding, responseIds: readonly string[]): void {
     if (this.#bindings.get(binding.id) !== binding) {

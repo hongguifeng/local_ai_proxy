@@ -44,6 +44,14 @@ export interface TaskIdentity {
   readonly userHashes: readonly string[];
   readonly contentFingerprint: string | undefined;
   readonly exactKeys: readonly string[];
+  /**
+   * The response object this request names as its predecessor, in exact-key spelling, or nothing
+   * when it names none. It is kept apart from `exactKeys` because the two sources of a
+   * `response:` key mean different things: this one is a state the client waits for, while an id
+   * an engine produced in a finished body is only an artefact the next turn can address by.
+   * The affinity table records the former and learns the latter.
+   */
+  readonly namedResponseKey: string | undefined;
   /** True when the user message list was longer than the retained hash budget. */
   readonly bounded: boolean;
   /** True when the conversation is beyond the guard and must rely on exact keys. */
@@ -69,9 +77,22 @@ export function taskIdentity(input: TaskIdentityInput): TaskIdentity {
     userHashes: hashes,
     contentFingerprint: contentFingerprint(kind, payload),
     exactKeys: taskExactKeys(payload, input.headers),
+    namedResponseKey: requestNamedResponseKey(payload),
     bounded,
     oversize: messageCount > MAX_TASK_USER_MESSAGES,
   };
+}
+
+/**
+ * The response object a request names as its own predecessor, in the same spelling
+ * `taskExactKeys` uses. A key from this source is a dependency: the client is asking
+ * for an object that lives on the node that answered it. An id the table learns from
+ * a finished response body is spelled the same and means something else, which is why
+ * the two are never merged back into one lookup key.
+ */
+export function requestNamedResponseKey(payload: unknown): string | undefined {
+  const id = payloadText(payload, "previous_response_id");
+  return id === "" ? undefined : `response:${id}`;
 }
 
 /**
@@ -131,7 +152,11 @@ export function addContextKey(
 export function taskExactKeys(payload: unknown, headers: RequestHeaderMap | undefined): string[] {
   const keys: string[] = [];
   const seen = new Set<string>();
-  addContextKey(keys, seen, "response", payloadText(payload, "previous_response_id"));
+  const namedResponse = requestNamedResponseKey(payload);
+  if (namedResponse !== undefined) {
+    seen.add(namedResponse);
+    keys.push(namedResponse);
+  }
   for (const key of requestContextKeys(payload, headers)) {
     if (!seen.has(key)) {
       seen.add(key);

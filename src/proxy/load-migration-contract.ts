@@ -20,6 +20,7 @@
  * | `invalidateMigrationsFor` at that failover      | parks become `expired`, an applied intent becomes `expired_after_apply` |
  * | `confirmRouted()` once the upstream answered    | the applied intent the destination proves becomes `observed`, terminal  |
  * | `attachResponseIds`                             | no target change; refused once the binding is gone      |
+ * | `noteRequestDependencies`                       | no target change; records what a request named, refused once the binding is gone |
  * | `pruneTargets`, `clear`, `sweepExpired`, `remove` | bindings are removed; versions are never replayed      |
  * | `reconfigure`                                   | `groupRevision` +1 when a group's routing signature moved; waiting intents are re-checked |
  * | `reloadPair`                                    | keeps `runtimeEpoch`; `groupRevision` follows the signature |
