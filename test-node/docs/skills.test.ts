@@ -14,6 +14,7 @@ const expectedSkills = [
   "ci-triage",
   "css-cascade-audit",
   "design-doc-readability",
+  "documentation-maintenance",
   "feature-design-review",
   "live-ui-probing",
   "packaging-smoke",
@@ -298,6 +299,20 @@ describe("project skills", () => {
     }
 
     expect(problems).toEqual([]);
+  });
+
+  it("keeps the documentation maintenance contract visible and evidence based", async () => {
+    const agents = await readFile(path.join(repositoryRoot, "AGENTS.md"), "utf8");
+    const skill = await readFile(
+      path.join(skillsRoot, "documentation-maintenance", "SKILL.md"),
+      "utf8",
+    );
+
+    expect(agents).toContain("documentation-maintenance");
+    expect(skill).toContain("跨任务、长期有效且遗漏代价高");
+    expect(skill).toContain("失效条件");
+    expect(skill).toContain("docs/current/");
+    expect(skill).toContain("AGENTS.md");
   });
 
   // AGENTS.md is always in context while a skill is loaded on demand, so a path that

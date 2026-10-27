@@ -18,6 +18,8 @@
 
 新增功能先写设计，再写计划；实现完成后把计划收口，把当前行为写入 `docs/current/`。不要把一次运行结果写成永久合同，也不要在计划里重复维护当前 API 字段表。
 
+每个任务结束时，按 [`documentation-maintenance`](.agents/skills/documentation-maintenance/SKILL.md) skill 检查是否产生了可复用的坑、验证方法或当前合同变化：有证据才沉淀，按生命周期放入唯一权威文档；只有跨任务且代价高的长期边界才进入本文件。
+
 ## 不可越过的边界
 
 - 用户正在运行的便携版实例只读。不要停止它，不要写它的配置或流量数据库；只允许结束自己启动的进程。
@@ -46,6 +48,7 @@
 - `ci-triage` - ci-triage 的专项操作手册。
 - `css-cascade-audit` - css-cascade-audit 的专项操作手册。
 - `design-doc-readability` - design-doc-readability 的专项操作手册。
+- `documentation-maintenance` - 维护 AGENTS.md、skills 和分类文档中的长期经验。
 - `feature-design-review` - feature-design-review 的专项操作手册。
 - `live-ui-probing` - live-ui-probing 的专项操作手册。
 - `packaging-smoke` - packaging-smoke 的专项操作手册。
@@ -60,5 +63,4 @@
 - `ui-markup-contracts` - ui-markup-contracts 的专项操作手册。
 - `ui-test-quirks` - ui-test-quirks 的专项操作手册。
 
-Skill 中的命令和链接必须指向当前存在的文件和脚本；改名、删除或移动文档后运行 `npm run check:skills`。
 Skill 中的命令和链接必须指向当前存在的文件和脚本；改名、删除或移动文档后运行 `npm run check:skills`。

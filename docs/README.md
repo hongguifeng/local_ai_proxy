@@ -46,6 +46,10 @@
 
 每份文档只保留一个权威入口。复制另一份文档的整段合同会制造漂移；需要引用时链接到权威文档，并说明本文件只保留什么范围。
 
+## 持续维护
+
+每项开发任务结束时都要做一次维护判断：是否出现了可复用的坑、验证方法、当前合同变化、失效路径或新的文档归属。按 [`documentation-maintenance`](../.agents/skills/documentation-maintenance/SKILL.md) skill 的证据分级更新 `AGENTS.md`、对应 skill、`docs/current/`、ADR、报告或计划；一次性现象和未经复现的猜测只留在任务记录中。只有跨任务、长期有效且遗漏代价高的边界才进入 `AGENTS.md`。
+
 ## 维护检查
 
 改动文档后至少检查：
