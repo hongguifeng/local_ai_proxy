@@ -53,7 +53,7 @@
 
 | 编号 | 目的                      | 命令或技能                                                                                                                                                                                                        |
 | ---- | ------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| V-D  | 文档格式、链接和任务依赖  | `npx prettier --ignore-path .gitignore --check docs/plans/active/task-routing.md docs/design/active/task-routing.md`                                                                                              |
+| V-D  | 文档格式、链接和任务依赖  | `git diff --check`；文档保持现有表格样式，局部修改后复核 `test-node/docs` 的文档结构与本地链接检查                                                                                                    |
 | V-T  | 相关 Node 测试            | `npm test -- <实际测试文件>`，从大写盘符路径运行                                                                                                                                                                  |
 | V-C  | 类型、lint 和模块边界     | `npm run typecheck`、`npm run lint`、`npm run check:modules`                                                                                                                                                      |
 | V-A  | 管理 API 合同             | 阅读并遵循 [admin-api-probing](../../../.agents/skills/admin-api-probing/SKILL.md)                                                                                                                                      |
