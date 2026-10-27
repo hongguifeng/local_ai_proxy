@@ -4,7 +4,7 @@ import { readFile, writeFile } from "node:fs/promises";
 import { fileURLToPath } from "node:url";
 
 const vitestBin = fileURLToPath(new URL("../node_modules/vitest/vitest.mjs", import.meta.url));
-const baselineDoc = "docs/refactoring/ui-visual-baseline.md";
+const baselineDoc = "docs/current/contracts/ui-visual-baseline.md";
 const images = [
   "ui_proxy_cn.png",
   "ui_proxy_en.png",

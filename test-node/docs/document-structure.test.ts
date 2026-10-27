@@ -5,7 +5,15 @@ import { describe, expect, it } from "vitest";
 
 const repositoryRoot = fileURLToPath(new URL("../..", import.meta.url));
 const docsRoot = path.join(repositoryRoot, "docs");
-const categories = [
+const obsoleteDocumentPaths = [
+  "docs/current-architecture.md",
+  "docs/module-design.md",
+  "docs/software-functional-specification.md",
+  "docs/refactoring/",
+  "docs/adr/",
+] as const;
+const obsoleteDocumentPathNeedles = obsoleteDocumentPaths.map((value) => value.toLowerCase());
+const docsCategories = [
   "current",
   "decisions",
   "design",
@@ -36,7 +44,7 @@ async function textFiles(directory: string): Promise<string[]> {
     const file = path.join(directory, entry.name);
     if (entry.isDirectory()) {
       files.push(...(await textFiles(file)));
-    } else if (/\.(?:ts|js|md)$/.test(entry.name)) {
+    } else if (/\.(?:ts|js|mjs|cjs|mts|cts|md|html|css)$/.test(entry.name)) {
       files.push(file);
     }
   }
@@ -54,19 +62,22 @@ function localLinks(markdown: string): string[] {
 describe("documentation structure", () => {
   it("keeps the documented categories and removes loose root documents", async () => {
     const entries = await readdir(docsRoot, { withFileTypes: true });
-    expect(entries.filter((entry) => entry.isFile() && entry.name.endsWith(".md")).map((entry) => entry.name)).toEqual([
-      "README.md",
-    ]);
+    expect(
+      entries
+        .filter((entry) => entry.isFile() && entry.name.endsWith(".md"))
+        .map((entry) => entry.name),
+    ).toEqual(["README.md"]);
     expect(
       entries
         .filter((entry) => entry.isDirectory())
         .map((entry) => entry.name)
         .sort(),
-    ).toEqual([...categories].sort());
+    ).toEqual([...docsCategories].sort());
   });
 
   it("marks every current, design and plan document with a lifecycle status", async () => {
     const files = [
+      path.join(docsRoot, "README.md"),
       ...(await markdownFiles(path.join(docsRoot, "current"))),
       ...(await markdownFiles(path.join(docsRoot, "design"))),
       ...(await markdownFiles(path.join(docsRoot, "plans"))),
@@ -87,7 +98,10 @@ describe("documentation structure", () => {
     const missing: string[] = [];
     for (const file of files) {
       for (const target of localLinks(await readFile(file, "utf8"))) {
-        if ((await stat(path.resolve(path.dirname(file), target)).catch(() => undefined)) === undefined) {
+        if (
+          (await stat(path.resolve(path.dirname(file), target)).catch(() => undefined)) ===
+          undefined
+        ) {
           missing.push(`${path.relative(repositoryRoot, file)}: ${target}`);
         }
       }
@@ -100,20 +114,14 @@ describe("documentation structure", () => {
       path.join(repositoryRoot, directory),
     );
     const files = (await Promise.all(roots.map((directory) => textFiles(directory)))).flat();
-    const testFile = path.join(repositoryRoot, "test-node/docs/document-structure.test.ts");
-    const oldPaths = [
-      "docs/current-architecture.md",
-      "docs/module-design.md",
-      "docs/software-functional-specification.md",
-      "docs/refactoring/",
-      "docs/adr/",
-    ];
+    const selfFile = fileURLToPath(import.meta.url);
     const problems: string[] = [];
     for (const file of files) {
-      if (file === testFile) continue;
-      const text = await readFile(file, "utf8");
-      for (const oldPath of oldPaths) {
-        if (text.includes(oldPath)) problems.push(`${path.relative(repositoryRoot, file)}: ${oldPath}`);
+      if (file === selfFile) continue;
+      const body = (await readFile(file, "utf8")).replaceAll("\\", "/").toLowerCase();
+      for (const oldPath of obsoleteDocumentPathNeedles) {
+        if (body.includes(oldPath))
+          problems.push(`${path.relative(repositoryRoot, file)}: ${oldPath}`);
       }
     }
     expect(problems).toEqual([]);
@@ -127,18 +135,12 @@ describe("documentation structure", () => {
       ...(await markdownFiles(path.join(docsRoot, "design", "active"))),
       ...(await markdownFiles(path.join(docsRoot, "plans", "active"))),
     ];
-    const oldPaths = [
-      "docs/current-architecture.md",
-      "docs/module-design.md",
-      "docs/software-functional-specification.md",
-      "docs/refactoring/",
-      "docs/adr/",
-    ];
     const problems: string[] = [];
     for (const file of files) {
-      const text = await readFile(file, "utf8");
-      for (const oldPath of oldPaths) {
-        if (text.includes(oldPath)) problems.push(`${path.relative(repositoryRoot, file)}: ${oldPath}`);
+      const body = (await readFile(file, "utf8")).replaceAll("\\", "/").toLowerCase();
+      for (const oldPath of obsoleteDocumentPathNeedles) {
+        if (body.includes(oldPath))
+          problems.push(`${path.relative(repositoryRoot, file)}: ${oldPath}`);
       }
     }
     expect(problems).toEqual([]);
