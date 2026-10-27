@@ -34,7 +34,7 @@
 - 日常门禁：`npm run check`。
 - 技能和文档路由：`npm run check:skills`。
 - 模块依赖：`npm run check:modules`。
-- 便携交付：`npm run package:electron:portable`，随后 `npm run smoke:delivery`，最后 `npm run abi:node`。
+- 便携交付：`npm run package:electron:portable`（= `build` → `rebuild:electron` → `electron-builder -w portable`），随后 `npm run smoke:delivery`，最后 `npm run rebuild:node` 恢复 Node ABI，再用 `npm run abi:node` 验证（`abi:node` 只跑一次真实查询来证明当前 ABI，它不恢复任何东西）。任何改动运行产物（代码、配置、UI、打包）的任务都要用它收口；只跑 `npm run build` 不算收口，`release/` 里留的是上一次构建的包，新改动在那个 exe 里不存在。不产生运行产物的任务（纯文档、纯注释）才跳过，跳过时必须写明 exe 仍是旧的、冒烟未跑。包里实际有什么按 `packaging-smoke` 查 `release/win-unpacked/resources/app.asar`，在 exe 二进制里搜字符串搜不到。
 - 文档验证：新建或整篇重写的 `docs/` 正文运行 `npx prettier --ignore-path .gitignore --check <文件>`；从已有完成记录搬迁生成的报告保留来源排版；已有表格密集文档的局部修改运行 `git diff --check` 和 `npx vitest run test-node/docs`，避免无关表格重排。
 - UI 改动还要运行对应浏览器测试、检查全尺寸截图、更新视觉基线登记和英文截图检查；细节由 `ui-baseline-regen` skill 负责。
 - Windows 上运行 Vitest 或 UI 基线命令时从大写盘符路径进入，例如 `cd /D/code/local_ai_proxy`。

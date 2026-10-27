@@ -47,6 +47,8 @@
 
 有一项回答为“否”时，优先放入 skill、当前合同、ADR 或报告。
 
+压缩或重写一份规则清单时，逐条与旧版比对：`git show <改写前的提交>:AGENTS.md`。`e49447e` 把根规则清单改写成中文时，把 `Every task ends with the portable executable` 那条义务压成了 `npm run package:electron:portable` → `npm run smoke:delivery` → `npm run abi:node` 一行命令，义务本身消失、只剩一串命令；之后跑过 `npm run check` 和 `npm run build` 的任务就不再重编译便携版，交付的还是上一次构建的 exe。找回被删的原文用 `git log -S"便携" -- AGENTS.md`；恢复时按原义务重写（触发条件、跳过条件、验证入口），不是只把命令补长。
+
 ## Skill 提案检查
 
 新增或扩展 skill 时，必须能从 frontmatter 的 `description` 判断使用时机，并在正文回答：
