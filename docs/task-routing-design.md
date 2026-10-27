@@ -165,7 +165,11 @@ interface BindingRef {
 | 指标完整且新鲜                                       | 手动可允许未知，但 UI 必须警告 | 必须       |
 | 请求依赖的服务端状态可跨目标访问                     | 未知则拒绝                     | 未知则拒绝 |
 
-v1 对 `previous_response_id` 依赖采取保守策略：检测到该依赖且 group 没有明确的共享 response 状态声明时拒绝迁移。`conversation`、thread 或 session 头本身可以只是客户端身份线索，不能单独证明服务端状态存在；如果请求没有完整上下文且运行环境无法证明状态共享，同样拒绝。
+v1 的状态门只认这条请求自己给出的证据，不认请求落在哪个端点：端点名不能替请求决定它是否依赖别处的状态，一个 `responses` 请求可以把整段输入带在身上，一个 `chat` 请求也可以点名一个存在别处的对象。判断按三件事依次进行：请求点名的依赖、请求体的证据、以及端点是否根本读不出证据。
+
+请求把 `previous_response_id` 写进 body，就是在一个存在过的响应对象上等待，不论哪个 kind 都拒绝（`response_state_dependency`）。引擎在完成的响应体里给出的 id 是另一回事：它进查询索引，下一轮仍然能靠它找到回答过这条任务的节点，但它不进依赖记录，因此本身不拒绝迁移。两种来源写成同一个 `response:<id>` 拼法，来源在写入时就分开记（请求经 `LoadAffinityTable.bind()` 与 `plan()` 的命中分支写 `noteRequestDependencies()`，响应体经 `attachResponseIds()` 只写索引），门上不按拼法猜来源。`conversation`、`thread_id` 或 metadata 里的 session id 是指向服务端历史的把手：在 `responses` 上拒绝，在整段对话随 `messages` 或 `prompt` 一起进来的 `chat`、`messages`、`completions` 上它只是客户端身份线索，不单独构成拒绝。`prompt_cache_key` 与 session 头同样是客户端线索，从不作为状态把手读取。
+
+剩下的正面证据只有请求体：至少一条 user 内容随创建这条 binding 的请求一起来。读不出这种内容就没有证据可依据，一律报 `state_unknown`——`responses` 可能只带来新一轮，`other` 是这个代理根本不分类的端点。`conversation` 字段本身不能反过来证明状态可迁移，也不能证明不可迁移；它只决定这一轮是否有东西要去别处读。要松动上面任何一条拒绝，只能靠 TRI-11 在隔离真实上游上证明状态确实跨节点共享，不许靠对 provider 的假设。
 
 目标指标过期不会阻止用户查看列表，但自动执行必须停止；手动操作可以在目标“状态未知”时提交，但服务端应返回警告并在应用前再次确认目标没有明确不可用状态。目标禁用、移出 group、明确 asleep 或 cooldown 时拒绝，不允许写入一个下一次 reload 就会被清掉的目标。
 

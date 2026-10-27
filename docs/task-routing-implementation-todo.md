@@ -937,12 +937,16 @@
   的请求体一起来的时候才移动（没有 user 消息报 `state_unknown`），`responses` 没有响应链时报
   `state_unknown`，`other` 同样报 `state_unknown`，`conversation`/`thread`/session 字段一律不作为可迁移
   的证明。设计第 5.1 节“检测到该依赖且没有明确的共享 response 状态声明时拒绝迁移”由此在两种来源上都
-  成立；要松动只能靠 TRI-11 的真实上游共享证明，不许靠假设。
+  成立；要松动只能靠 TRI-11 的真实上游共享证明，不许靠假设。这一条保留为 `5042efc`/`222ea40` 当时的
+  口径，其中「`responses` 没有响应链时报 `state_unknown`」那一半把端点当成了证据，已经不对；现行口径
+  见下面的「状态门按请求证据修正」。
 - 评审后的修正（父代理评审 5042efc 后在本 worktree 补做，不改 TRI-05/06/08/10，不加 schema，不动
   数据库，不碰用户实例）：上一版对 `chat`/`messages`/`completions` 只查 `evidence.userHashes.length > 0`，
   于是带 `previous_response_id` 又同时带 `messages`/`prompt` 的请求会被放行——exact key 说的是这条任务
   通过一个 response 对象寻址，body 只证明上下文随请求来了，不证明那个对象也能跟着搬。现在
-  `#stateRejection()` 的顺序固定为 key → kind → user 内容，提交与应用两个时点跑同一道门。新增回归：
+  `#stateRejection()` 的顺序固定为 key → kind → user 内容，提交与应用两个时点跑同一道门（保留为当时
+  的记录：现行顺序里 kind 那一问只对 `other` 成立，`responses` 改按请求点名的把手与 body 的 user 内容
+  判断，见下面的「状态门按请求证据修正」）。新增回归：
   三份 self-contained body 各带 user 内容与 `previous_response_id` 全部报 `response_state_dependency`，
   响应体学到的 `chatcmpl-1` 与被请求点名的 id 报同一码且留在原节点，`responses`（学到 id、下一轮点名）
   与 `other` 以及没有 user 内容又没有 response key 的 body 照旧拒绝，没有 response key 又有 user 内容的
@@ -975,6 +979,50 @@
   1c996d3ac5a5b015eeb53dcd50fb65728f046525）与 `542bf6e`（完整哈希
   542bf6ecac5ad67f51e0cead3f52bfc2401d762e）；两者文件集与源提交逐项相同、
   自动合并无冲突，TRI-07 独占的六份文件与源提交逐字节相同。
+
+- 状态门按请求证据修正（本 worktree 本轮；不改 TRI-10/11/12，不动自动再均衡、配置、数据库 schema、
+  打包、ABI、版本或推送；先改设计第 5.1 节，再改代码）：上一版的门把 `responses` 整个端点当成拒绝
+  理由，也把 `binding.exactKeys` 里的 `response:` 当成不带来源的键，于是「带完整 input、又没有点任何
+  服务端把手」的任务与「客户端正在等一个存在过的响应对象」的任务被同一条理由按住——用户自己的真实
+  vLLM 目标照常迁移，这里却把前者判成不可迁移。来源不再由门去猜：`taskIdentity` 把请求自己点名的
+  response 对象单列为 `namedResponseKey`，`AffinityBinding` 新增 `responseDependencies` 只由请求写入
+  （`bind()` 的两条路径与 `LoadBalancer.plan()` 的命中分支经新增的 `noteRequestDependencies()`——
+  `plan()` 命中不 bind，这是本轮补上的唯一写入点），`attachResponseIds()` 仍然只写查询索引，所以引擎
+  在完成的响应体里给出的 id 既不拒绝迁移也不弄丢亲和：下一轮点名它仍然命中同一个 binding 对象。门的
+  三问依次是请求点名的 response id（不论 kind 报 `response_state_dependency`）、`responses` 点名的
+  conversation/thread/session 把手（报 `state_unknown`；同一个线索在整段对话随 `messages` 或 `prompt`
+  进来的 `chat`/`messages`/`completions` 上只是客户端线索，不单独构成拒绝）、以及随创建这条 binding 的
+  请求一起来的 user 内容（读不出来就没有证据，报 `state_unknown`；`other` 仍按端点未分类报同一码）。
+  产品提交 `20c97d5`（完整哈希 20c97d57fa3afa8202bfe735b9c1c28b813b5dda）含
+  `src/proxy/protocol/task-identity.ts`、`src/proxy/load-affinity.ts`、`src/proxy/load-balancer.ts`、
+  `src/proxy/index.ts` 与 `src/proxy/load-migration-contract.ts` 的写入口对照表一行。
+- 改写的四条旧期望各自都在测试注释里写明旧断言为什么不再成立：学到 id 也拒绝（读到的是来源，不是
+  拼法）、`responses` 没点名也拒绝（端点名不是证据）、边界上才学到的 id 把在途意图记成 `expired`（学到
+  的 id 不是依赖，同一道门到界时仍然通过）、以及真实控制台 LB09-03 断言响应体里的 id 让移动被拒（同上）。
+  新增的七项分别证明：带完整 input 又没点把手的 `responses` 任务可以提交并应用；下一轮点名学到的 id 会
+  记下依赖并拒绝，而学到的键仍然指着那个已经搬到目标节点的 binding；conversation/`conversation_id`/
+  `thread_id`/metadata session id 四种写法都拒绝，尽管 body 带着自己那一轮；`responses` 的裸字符串
+  `input` 与根本没有 `input` 都拒绝；`plan()` 的命中分支写依赖而不动 target 与 revision，对已经被表
+  放弃的 binding 一字不写；`taskIdentity` 只点请求自己指着的那个 response；管理列表把改正后的「可以」
+  与两种拒绝一起报出来，而写接口给回同一个答案——可移动的那行 200 applied，两种依赖各 422
+  `state_not_migratable`，响应里不含 exact key、响应 id 或 conversation id。产品期望之外的既有
+  `chat`/`messages`/`completions` 断言一项未改，422/200 映射与 `LoadBalancerMovableReason` 的两种码不变。
+  测试提交 `b67adb2`（完整哈希 b67adb2e382c09c55eb564a5dc74c92c253c2b33）只含六个测试文件。
+- 验证：`npm run format:check`、`npm run lint`、`npm run typecheck`、`npm run check:modules`（138 个
+  模块、0 运行时环、0 越界）与 `npm test` 全量 147 个文件通过 / 1 跳过、1522 项通过 / 2 跳过；定向跑过
+  proxy 的 `load-migration`、`load-affinity`、`task-identity` 与 admin 的 `task-moves`、
+  `load-balancer-tasks`，以及真实应用的 `real-app-load-move`（三条全过，含改写后的 LB09-03：真实浏览器
+  里一个带完整 input 的 `/v1/responses` binding 显示可以移动，下一轮点名引擎给出的 id 后同一行改报
+  `response_state_dependency` 且路由一步未写）。声明式复核：`f143dca` 为 1346 项声明、148 个测试文件，
+  工作树 1353 项，逐项增量是 `load-migration.test.ts` 58 → 61、`load-affinity.test.ts` 26 → 28、
+  `task-identity.test.ts` 12 → 13、`load-balancer-tasks.test.ts` 22 → 23，`task-moves.test.ts` 29 与
+  `real-app-load-move.test.ts` 3 不变，没有用例被删掉。三个提交都用显式 `git add --` 挑选路径，没有
+  `git add -A` 或 `git add .`。
+- 仍然存在的限制（不拿 provider 假设去填）：`responses` 的 `input` 是一个裸字符串时表里读不出 user
+  内容，照旧报 `state_unknown`——现有证据只有「至少一条 user 消息随请求体一起来」这一条，本轮没有为
+  字符串 `input` 新造证据口径；请求点名 `previous_response_id` 或 conversation/thread/session 把手仍然
+  一律拒绝，要松动只能等 TRI-11 在隔离真实上游上证明状态确实跨节点共享。本轮没跑真实上游对照实验，也
+  没跑便携打包与交付冒烟；本条不自接为验收，等父代理独立复审。
 
 ### TRI-08
 
