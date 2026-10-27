@@ -110,7 +110,7 @@ export function createAdminServer(options: PartialAdminServerOptions): FastifyIn
       : "Internal server error.";
     // A rejected configuration names the fields it rejected, and the console shows them. A
     // response schema attached to this status would delete that list, so errors carry no
-    // schema; see docs/refactoring/admin-api-contract.md.
+    // schema; see docs/current/contracts/admin-api.md.
     const issues = error instanceof ConfigValidationError ? error.issues : undefined;
     return reply
       .code(statusCode)

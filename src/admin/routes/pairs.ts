@@ -15,7 +15,7 @@ import type { PairAdminService } from "../admin-contracts.js";
  * Pairs are answered and accepted with every key the configuration object carries: the
  * console reads keys this module does not list and posts the same object back. The schemas
  * say so on purpose — see the open/closed table in
- * `docs/refactoring/admin-api-contract.md`.
+ * `docs/current/contracts/admin-api.md`.
  */
 export function registerPairRoutes(server: FastifyInstance, pairService: PairAdminService): void {
   server.get(

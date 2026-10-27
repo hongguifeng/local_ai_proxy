@@ -1104,7 +1104,7 @@ export const api = async (url, options = {}) => {
   };
   /**
    * The one place a console call meets the wire, so the contract lives here:
-   * docs/refactoring/admin-api-contract.md declares every shape this fetch can meet — the
+   * docs/current/contracts/admin-api.md declares every shape this fetch can meet — the
    * payload a route answers on success, and `{ error: { code, message } }` on failure, with
    * `error.issues` added when a configuration is rejected.
    */

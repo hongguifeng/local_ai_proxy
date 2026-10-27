@@ -7,7 +7,7 @@ import { z } from "zod";
  * side without the other: the contract type and the serializer are the same object seen
  * twice. The conversion rules, the open/closed decisions and the two constraints that
  * have to be attached as metadata are written up in
- * `docs/refactoring/admin-api-contract.md`.
+ * `docs/current/contracts/admin-api.md`.
  *
  * A payload is closed when this project writes every key of it, and open where the
  * content is something this project does not own — the summary model's own JSON, a stored
@@ -137,7 +137,7 @@ const apiKey = z.string().max(65_536);
  * attaching this schema to an error status would delete them because
  * `fast-json-stringify` prints only the properties a schema declares. `AdminConfigFieldIssues`
  * in `admin-contracts.ts` carries them, and the reason is written up in
- * `docs/refactoring/admin-api-contract.md`.
+ * `docs/current/contracts/admin-api.md`.
  */
 const adminErrorDto = z.object({
   error: z.object({

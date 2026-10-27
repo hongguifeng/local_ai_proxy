@@ -29,6 +29,20 @@ async function markdownFiles(directory: string): Promise<string[]> {
   return files;
 }
 
+async function textFiles(directory: string): Promise<string[]> {
+  const entries = await readdir(directory, { withFileTypes: true });
+  const files: string[] = [];
+  for (const entry of entries) {
+    const file = path.join(directory, entry.name);
+    if (entry.isDirectory()) {
+      files.push(...(await textFiles(file)));
+    } else if (/\.(?:ts|js|md)$/.test(entry.name)) {
+      files.push(file);
+    }
+  }
+  return files;
+}
+
 function localLinks(markdown: string): string[] {
   // Links inside inline code are examples of syntax, not document references.
   const body = markdown.replace(/`[^`]*`/g, "");
@@ -79,6 +93,30 @@ describe("documentation structure", () => {
       }
     }
     expect(missing).toEqual([]);
+  });
+
+  it("keeps obsolete document paths out of source and current instructions", async () => {
+    const roots = ["src", "electron", "scripts", "test-node"].map((directory) =>
+      path.join(repositoryRoot, directory),
+    );
+    const files = (await Promise.all(roots.map((directory) => textFiles(directory)))).flat();
+    const testFile = path.join(repositoryRoot, "test-node/docs/document-structure.test.ts");
+    const oldPaths = [
+      "docs/current-architecture.md",
+      "docs/module-design.md",
+      "docs/software-functional-specification.md",
+      "docs/refactoring/",
+      "docs/adr/",
+    ];
+    const problems: string[] = [];
+    for (const file of files) {
+      if (file === testFile) continue;
+      const text = await readFile(file, "utf8");
+      for (const oldPath of oldPaths) {
+        if (text.includes(oldPath)) problems.push(`${path.relative(repositoryRoot, file)}: ${oldPath}`);
+      }
+    }
+    expect(problems).toEqual([]);
   });
 
   it("keeps obsolete top-level document paths out of current instructions", async () => {

@@ -59,7 +59,7 @@ const ENTRY_MODULES: readonly string[] = ["src/index.ts", "src/main.ts"];
 /**
  * Domains whose runtime must never reach these targets. The list is the
  * transport/storage/control-plane boundary from
- * `docs/refactoring/typescript-module-conventions.md` written as data.
+ * `docs/current/contracts/module-boundaries.md` written as data.
  */
 const FORBIDDEN_TARGETS: Readonly<Record<string, readonly string[]>> = {
   config: ["admin", "app", "cli", "proxy", "logging", "maintenance"],
