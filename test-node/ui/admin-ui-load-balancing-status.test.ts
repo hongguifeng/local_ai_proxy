@@ -30,6 +30,9 @@ import {
 
 describe("admin UI load balancing groups", { timeout: UI_TEST_TIMEOUT_MS }, () => {
   it("updates node numbers on a poll without losing the open panel, the draft, or the caret", async () => {
+    // Everything this test waits for is the next status tick, so the page clock is installed
+    // before the page loads and advanced by one poll interval instead of spending real time.
+    await page.clock.install();
     const card = await openPairWithGroup();
     await card.locator(".lb-card [data-lb-field='model_pattern']").fill("Qwen3.8-Flash-Next");
     await tickMembers(card.locator(".lb-card"), [0, 1]);
@@ -41,7 +44,8 @@ describe("admin UI load balancing groups", { timeout: UI_TEST_TIMEOUT_MS }, () =
       "Metrics source: -",
     );
 
-    await waitForLbPoll(0);
+    await page.clock.runFor(2_000);
+    await expect.poll(() => lbStatusReads.length).toBeGreaterThan(0);
     const firstFlight = card.locator(".lb-node-state").nth(0).locator('[data-lb-fact="inFlight"]');
     await expectPage(firstFlight).toHaveText("In flight: 0");
     await expectPage(
@@ -60,7 +64,8 @@ describe("admin UI load balancing groups", { timeout: UI_TEST_TIMEOUT_MS }, () =
     await patternInput.pressSequentially("-plus");
     setLbStatusRound(7);
     const seen = lbStatusReads.length;
-    await waitForLbPoll(seen);
+    await page.clock.runFor(2_000);
+    await expect.poll(() => lbStatusReads.length).toBeGreaterThan(seen);
     await expectPage(firstFlight).toHaveText("In flight: 7");
     await expectPage(patternInput).toHaveValue("Qwen3.8-Flash-Next-plus");
     await expectPage(patternInput).toBeFocused();
@@ -73,6 +78,9 @@ describe("admin UI load balancing groups", { timeout: UI_TEST_TIMEOUT_MS }, () =
   });
 
   it("[TRI-03] shows a metric the engine skipped as unknown instead of a fabricated zero", async () => {
+    // Every wait here is for one more status tick, so the page clock is installed before the
+    // page loads and advanced by one poll interval at a time.
+    await page.clock.install();
     const card = await openPairWithGroup();
     await card.locator(".lb-card [data-lb-field='model_pattern']").fill("Qwen3.8-Flash-Next");
     await tickMembers(card.locator(".lb-card"), [0, 1]);
@@ -85,13 +93,15 @@ describe("admin UI load balancing groups", { timeout: UI_TEST_TIMEOUT_MS }, () =
     const quietBadge = card.locator(".lb-node-state").nth(1).locator('[data-lb-fact="enabled"]');
     const idleWaiting = card.locator(".lb-node-state").nth(0).locator('[data-lb-fact="waiting"]');
 
-    await waitForLbPoll(0);
+    await page.clock.runFor(2_000);
+    await expect.poll(() => lbStatusReads.length).toBeGreaterThan(0);
     await expectPage(quietWaiting).toHaveText("Waiting: 4");
     await expectPage(quietBadge).not.toContainText("incomplete");
 
     setLbStatusPartialMetrics(true);
     const seen = lbStatusReads.length;
-    await waitForLbPoll(seen);
+    await page.clock.runFor(2_000);
+    await expect.poll(() => lbStatusReads.length).toBeGreaterThan(seen);
     // The second node's engine stopped answering: the row says unknown, and the badge says
     // why. Nothing here prints "0", "null" or "undefined" for a number that was never taken.
     await expectPage(quietWaiting).toHaveText("Waiting: -");
@@ -106,40 +116,61 @@ describe("admin UI load balancing groups", { timeout: UI_TEST_TIMEOUT_MS }, () =
 
     await page.locator("#languageSelect").selectOption("zh");
     const zhSeen = lbStatusReads.length;
-    await waitForLbPoll(zhSeen);
+    await page.clock.runFor(2_000);
+    await expect.poll(() => lbStatusReads.length).toBeGreaterThan(zhSeen);
     await expectPage(quietWaiting).toHaveText("排队: -");
     await expectPage(quietBadge).toContainText("指标不全");
     await expectPage(idleWaiting).toHaveText("排队: 3");
 
     await page.locator("#languageSelect").selectOption("en");
-    await waitForLbPoll(lbStatusReads.length);
+    const enSeen = lbStatusReads.length;
+    await page.clock.runFor(2_000);
+    await expect.poll(() => lbStatusReads.length).toBeGreaterThan(enSeen);
     await expectPage(quietWaiting).toHaveText("Waiting: -");
     setLbStatusPartialMetrics(false);
   });
 
   it("stops polling while the page is hidden or another tab is showing", async () => {
+    // The page clock is installed before the page loads so each "no poll happened" window is
+    // advanced on purpose instead of left to however long real time takes to reach a tick.
+    await page.clock.install();
     await loadAdminPage();
     const card = page.locator('.proxy-card[data-index="0"]');
     await card.locator("[data-add-lb-group]").click();
     await tickMembers(card.locator(".lb-card"), [0]);
-    await waitForLbPoll(0);
+    await page.clock.runFor(2_000);
+    await expect.poll(() => lbStatusReads.length).toBeGreaterThan(0);
+
+    // The clock is held before the counter is read: an installed clock keeps following real time,
+    // so a slow stretch between two steps can fire a tick by itself. With the clock held, the only
+    // ticks that can move this counter are the ones this test advances on purpose.
+    const frozenAt = await page.evaluate(() => Date.now());
+    await page.clock.pauseAt(frozenAt);
     const seen = lbStatusReads.length;
+    try {
+      await page.evaluate(() => {
+        Object.defineProperty(document, "hidden", { value: true, configurable: true });
+      });
+      // Three poll intervals while hidden; the counter has to stay exactly where it was.
+      await page.clock.runFor(6_000);
+      expect(lbStatusReads.length).toBe(seen);
 
-    await page.evaluate(() => {
-      Object.defineProperty(document, "hidden", { value: true, configurable: true });
-    });
-    await page.waitForTimeout(2_500);
-    expect(lbStatusReads.length).toBe(seen);
+      await page.evaluate(() => {
+        Object.defineProperty(document, "hidden", { value: false, configurable: true });
+      });
+      await page.locator('.tab[data-tab="logs"]').click();
+      // Three poll intervals on another tab; the counter has to stay exactly where it was.
+      await page.clock.runFor(6_000);
+      expect(lbStatusReads.length).toBe(seen);
 
-    await page.evaluate(() => {
-      Object.defineProperty(document, "hidden", { value: false, configurable: true });
-    });
-    await page.locator('.tab[data-tab="logs"]').click();
-    await page.waitForTimeout(2_500);
-    expect(lbStatusReads.length).toBe(seen);
-
-    await page.locator('.tab[data-tab="proxies"]').click();
-    await waitForLbPoll(seen);
+      await page.locator('.tab[data-tab="proxies"]').click();
+      await page.clock.runFor(2_000);
+      await expect.poll(() => lbStatusReads.length).toBeGreaterThan(seen);
+    } finally {
+      // closeTestPage drains the page with a setTimeout inside it, and a held clock never runs
+      // that timer, so the clock goes back to real time before the hook can close the page.
+      await page.clock.resume();
+    }
   });
 
   it("owns one poll timer across repeated init, tab changes, visibility and disposal", async () => {
@@ -242,6 +273,9 @@ describe("admin UI load balancing groups", { timeout: UI_TEST_TIMEOUT_MS }, () =
   it(
     "[TRI-06] opens one node's bindings and keeps binding counts apart from task counts",
     async () => {
+      // The only real wait in this test is one more status tick, so the page clock is installed
+      // before the page loads and advanced by one poll interval.
+      await page.clock.install();
       const card = await openTwoNodeStates();
       const panel = await openBindingList(card, 0);
       // The panel is never an empty box: it says it is reading before any row arrives.
@@ -270,7 +304,8 @@ describe("admin UI load balancing groups", { timeout: UI_TEST_TIMEOUT_MS }, () =
       // screen do not rewrite the count that poll gave, and a binding's own in-flight figure
       // is a separate measure of a separate thing.
       const beforePoll = lbStatusReads.length;
-      await waitForLbPoll(beforePoll);
+      await page.clock.runFor(2_000);
+      await expect.poll(() => lbStatusReads.length).toBeGreaterThan(beforePoll);
       await expectPage(nodeState(card, 0).locator('[data-lb-fact="bindings"]')).toHaveText(
         "Bindings: 0",
       );
@@ -287,6 +322,9 @@ describe("admin UI load balancing groups", { timeout: UI_TEST_TIMEOUT_MS }, () =
   );
 
   it("[TRI-06] says unknown activity and unknown metrics in their own words", async () => {
+    // One status tick is all the poll wait here needs, so the page clock is installed before the
+    // page loads and advanced by one poll interval.
+    await page.clock.install();
     const card = await openTwoNodeStates();
     const quietPanel = await openBindingList(card, 1);
     await expectPage(quietPanel.locator(".lb-binding")).toHaveCount(1);
@@ -312,7 +350,8 @@ describe("admin UI load balancing groups", { timeout: UI_TEST_TIMEOUT_MS }, () =
     // binding list's own "unknown" never bleeds into it or into a number.
     setLbStatusPartialMetrics(true);
     const seen = lbStatusReads.length;
-    await waitForLbPoll(seen);
+    await page.clock.runFor(2_000);
+    await expect.poll(() => lbStatusReads.length).toBeGreaterThan(seen);
     await expectPage(nodeState(card, 1).locator('[data-lb-fact="enabled"]')).toContainText(
       "Metrics incomplete",
     );
@@ -348,6 +387,9 @@ describe("admin UI load balancing groups", { timeout: UI_TEST_TIMEOUT_MS }, () =
   });
 
   it("[TRI-06] pages the list and keeps the rows the user paged to through a refresh", async () => {
+    // The refresh this test checks is one status tick away, so the page clock is installed before
+    // the page loads and advanced by one poll interval instead of waiting in real time.
+    await page.clock.install();
     const card = await openTwoNodeStates();
     const [firstTarget, secondTarget] = savedMemberIds();
     if (firstTarget === undefined || secondTarget === undefined) {
@@ -380,7 +422,8 @@ describe("admin UI load balancing groups", { timeout: UI_TEST_TIMEOUT_MS }, () =
     // the user paged to are not dropped by a poll.
     const seen = lbStatusReads.length;
     const readsBeforeRefresh = lbBindingReads.length;
-    await waitForLbPoll(seen);
+    await page.clock.runFor(2_000);
+    await expect.poll(() => lbStatusReads.length).toBeGreaterThan(seen);
     await expectPage(panel.locator(".lb-binding")).toHaveCount(25);
     // The read this poll caused is the one that asked for everything already on screen.
     await expect
@@ -436,6 +479,7 @@ describe("admin UI load balancing groups", { timeout: UI_TEST_TIMEOUT_MS }, () =
     );
     // The held-back copy arrives after the newer one. It is dropped, not merged: the row keeps
     // the newer count and the panel keeps the rows the newer read answered.
+    // Real time on purpose: the held-back copy is a real fetch, and the race is the test.
     await page.waitForTimeout(1_200);
     await expectPage(bindingRow(panel, 7).locator('[data-lb-binding-fact="requests"]')).toHaveText(
       "requests 999",
@@ -640,7 +684,7 @@ describe("admin UI load balancing groups", { timeout: UI_TEST_TIMEOUT_MS }, () =
     // rows the user paged to stay on screen.
     const seen = lbStatusReads.length;
     await page.clock.runFor(2_000);
-    await waitForLbPoll(seen);
+    await expect.poll(() => lbStatusReads.length).toBeGreaterThan(seen);
     await expect
       .poll(() => asked.some((read) => read.offset === 0 && read.limit === 200), {
         timeout: UI_TEST_TIMEOUT_MS,
@@ -758,7 +802,7 @@ describe("admin UI load balancing groups", { timeout: UI_TEST_TIMEOUT_MS }, () =
       // list keeps its 200 rows and its stated limit.
       const seen = lbStatusReads.length;
       await page.clock.runFor(2_000);
-      await waitForLbPoll(seen);
+      await expect.poll(() => lbStatusReads.length).toBeGreaterThan(seen);
       await expect
         .poll(() => asked.some((read) => read.offset === 0 && read.limit === 200), {
           timeout: UI_TEST_TIMEOUT_MS,

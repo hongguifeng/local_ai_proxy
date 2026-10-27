@@ -33,7 +33,6 @@ import {
   savedMemberIds,
   taskReadQuery,
   tickMembers,
-  waitForLbPoll,
 } from "./admin-ui-lb-harness.js";
 
 describe("admin UI load balancing groups", { timeout: UI_TEST_TIMEOUT_MS }, () => {
@@ -415,6 +414,9 @@ describe("admin UI load balancing groups", { timeout: UI_TEST_TIMEOUT_MS }, () =
   });
 
   it("preserves member mappings and selections through language and status refreshes", async () => {
+    // The refresh being checked is one status tick, so the page clock is installed before the
+    // page loads and advanced by one poll interval instead of waiting in real time.
+    await page.clock.install();
     const card = await openPairWithGroup();
     const group = card.locator(".lb-card");
     await tickMembers(group, [0, 1]);
@@ -430,7 +432,8 @@ describe("admin UI load balancing groups", { timeout: UI_TEST_TIMEOUT_MS }, () =
     await expectPage(model).toBeFocused();
     await expectPage(model).toHaveValue("  unsaved-upstream  ");
     const seen = lbStatusReads.length;
-    await waitForLbPoll(seen);
+    await page.clock.runFor(2_000);
+    await expect.poll(() => lbStatusReads.length).toBeGreaterThan(seen);
     await expectPage(model).toHaveValue("  unsaved-upstream  ");
     await expectPage(group.locator("[data-lb-member-model]")).toHaveCount(2);
     await page.locator("#languageSelect").selectOption("en");
@@ -545,6 +548,7 @@ describe("admin UI load balancing groups", { timeout: UI_TEST_TIMEOUT_MS }, () =
         button.dispatchEvent(new MouseEvent("click", { bubbles: true }));
       });
     });
+    // Real time on purpose: this window rules out what a real answer can still do.
     await page.waitForTimeout(300);
     expect(requested.filter((item) => item.url.includes("task-moves"))).toEqual([]);
     const listReads = requested.filter((item) => item.url.includes("/api/load-balancer/tasks"));
