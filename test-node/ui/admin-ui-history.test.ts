@@ -726,6 +726,39 @@ describe("admin UI history page", { timeout: UI_TEST_TIMEOUT_MS }, () => {
       "aria-label",
       "Task ID",
     );
+    // Where the id sits is an alignment claim, so measure it instead of reading
+    // a screenshot: the id starts one head gap after the title ends, and the
+    // free space lies between the id and the close button rather than between
+    // the title and the id.
+    const geometry = await panel.locator(".pricing-panel-head").evaluate((head) => {
+      const read = (element: Element) => {
+        const box = element.getBoundingClientRect();
+        return {
+          tag: element.tagName.toLowerCase(),
+          left: Math.round(box.left),
+          right: Math.round(box.right),
+        };
+      };
+      const title = head.firstElementChild;
+      const id = title?.nextElementSibling;
+      const button = id?.nextElementSibling;
+      if (
+        !(title instanceof HTMLElement) ||
+        !(id instanceof HTMLElement) ||
+        !(button instanceof HTMLElement)
+      ) {
+        throw new Error(`the head holds ${head.children.length} children, not three`);
+      }
+      return {
+        tags: [read(title), read(id), read(button)].map((box) => box.tag),
+        titleToId: read(id).left - read(title).right,
+        idToButton: read(button).left - read(id).right,
+      };
+    });
+    expect(geometry.tags).toEqual(["strong", "span", "button"]);
+    expect(geometry.titleToId).toBeGreaterThanOrEqual(11);
+    expect(geometry.titleToId).toBeLessThanOrEqual(13);
+    expect(geometry.idToButton).toBeGreaterThan(40);
     await expectPage(panel.locator(".task-summary-target")).toHaveCount(0);
     await expectPage(panel.locator(".task-summary > .task-stat-cards")).toHaveCount(1);
     await expectPage(panel.locator(".stat-card.task-stat-model")).toContainText("gpt-5");
@@ -922,6 +955,14 @@ describe("admin UI history page", { timeout: UI_TEST_TIMEOUT_MS }, () => {
       clientWidth: element.clientWidth,
     }));
     expect(widths.scrollWidth).toBeGreaterThan(widths.clientWidth);
+    // The title keeps its room and the id is the one that clips: the panel still
+    // says which kind of panel this is even in a narrow pane, and the long id
+    // that gets clipped is the one whose whole value stays in the hover text.
+    const titleWidths = await panel.locator(".pricing-panel-head strong").evaluate((element) => ({
+      scrollWidth: element.scrollWidth,
+      clientWidth: element.clientWidth,
+    }));
+    expect(titleWidths.scrollWidth).toBe(titleWidths.clientWidth);
     await idLine.click();
     const selected = await page.evaluate(() => String(window.getSelection()));
     expect(selected).toBe(longId);

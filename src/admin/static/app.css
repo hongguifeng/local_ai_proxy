@@ -1263,14 +1263,18 @@ label span {
 }
 /* The task this panel describes, named by its id on the title line: the id is
    the panel's identity rather than one of the facts it measures, so it rides
-   the head instead of a stat cell and gets the head's full width. A 32 hex
-   character id still runs out of room in a narrow pane, so it clips to an
-   ellipsis with the whole value in its hover text, and one click selects all
-   of it for copying. */
+   the head instead of a stat cell and gets the head's full width. It sits next
+   to the title instead of against the close button - the free space goes to the
+   close button's left margin - so the two read as one name. The title keeps its
+   room and the id is what clips when a narrow pane runs short: an ellipsis, with
+   the whole value still in its hover text, and one click selects all of it for
+   copying. */
+.pricing-panel-head strong {
+  flex: 0 0 auto;
+}
 .pricing-panel-task-id {
   flex: 0 1 auto;
   min-width: 0;
-  margin-left: auto;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -1279,6 +1283,9 @@ label span {
   font-size: 12px;
   color: var(--muted);
   user-select: all;
+}
+.pricing-panel-head > button {
+  margin-left: auto;
 }
 /* The task brief is a free-form paragraph the summary model writes about the
    whole task, so it gets its own card above the fact grid rather than a stat

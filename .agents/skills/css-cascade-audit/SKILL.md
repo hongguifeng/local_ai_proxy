@@ -69,6 +69,17 @@ npm run regen:ui-baselines
   identical. A reported signature that disappears and another that appears names the
   property that changed; `CSS.getMatchedStylesForNode` names the winning rule and
   `rule.style.range.startLine` its source line.
+- A reported count difference names a value, not the element that changed: the `who` list is
+  capped at three examples, so `[SPAN|status running, LABEL|switch, BUTTON|target-drag-handle]`
+  can be bystanders while the element that flipped is a `STRONG` carrying no class, and the pair
+  reads current -> baseline, not baseline -> current. To name the element, collect
+  `{tag|class|id, computed value}` for every element in document order under both sheets and diff
+  by index — the two runs have the same DOM, so index alignment holds. A scoped change inside a
+  block you own shows as exactly one element per state that contains it (measured: index 357,
+  `STRONG||`, `flex-shrink: 1 -> 0` in the states collected after the task panel was opened; the
+  panel keeps its content across a tab switch, so later states still carry its head). That is an
+  intended change, not drift: record it with its evidence instead of bending the rule so the
+  counts match.
 - An all-zero result must be falsified with a change that is guaranteed visible before it
   is believed: `*{letter-spacing:4px !important}` has to move something.
 - `admin-ui-css-ownership.test.ts` fails on a rule written outside the block, a property

@@ -57,10 +57,15 @@ description: >-
   without a schema bump — keep verbose decision detail in an in-memory admin snapshot instead.
 - The task-detail panel head (`.pricing-panel-head`, `task-detail.js`) is one flex row that
   `pricingPanelHeadHtml` builds and all three panel states (loading, load error, loaded) reuse:
-  title, the task id, the close button. The id is `flex: 0 1 auto` with `min-width: 0`, an
-  ellipsis, `margin-left: auto` and a `title` carrying the whole value, so it takes only the room
-  between the title and the button and still answers for a 32-character id in a narrow pane;
-  `user-select: all` makes one click select all of it for copying.
+  title, the task id, the close button. The id sits next to the title rather than against the
+  close button: `margin-left: auto` lives on the head's own `> button`, so the free space opens
+  between the id and the button, and the title carries `flex: 0 0 auto` — the id, not the title,
+  is what clips. The id is `flex: 0 1 auto` with `min-width: 0`, an ellipsis and a `title`
+  carrying the whole value, so it takes only the room left between the title and the button and
+  still answers for a 32-character id in a narrow pane; `user-select: all` makes one click select
+  all of it for copying. Where the id sits is an alignment claim, so `admin-ui-history.test.ts`
+  measures it with `getBoundingClientRect`: the id starts one head gap after the title ends and
+  the free space lies before the close button.
 - The task-detail summary (`.task-summary`, `task-detail.js`) is the 2-row × 4-column card grid
   alone: the model is the first card and the time bar spans the remaining three cells. Neither the
   task id nor the target address has a line of its own in it — the id is on the panel head and the
