@@ -68,6 +68,13 @@ description: >-
 - 超时不等于失败，也不等于成功；先检查工作树、提交、进程、产物和日志，再从最近 checkpoint 恢复。
 - 恢复时只接受可复验的代码和命令结果；不要根据 worker 的最后一句总结补写缺失证据。
 - 同一文件族只能有一个写入者；需要并行时使用独立 worktree 和独立 native-module 环境。
+- 需要 git 写提交信息或续跑 rebase/merge/cherry-pick 时，命令要带 `GIT_EDITOR=true`（或
+  `-c core.editor=true`）。一次 `git rebase --continue` 打开了 vim：那条命令在 harness 里被中断并
+  留下编辑器 TUI 残影，而 `git status` 报的是 “all conflicts fixed: run git rebase --continue” ——
+  占住命令的是编辑器，不是变基失败。判据是续跑后 `git log --oneline -2` 给出预期提交且
+  `git status --short` 为空；输出里出现 `COMMIT_EDITMSG` 路径、光标坐标残影或 `Command aborted`
+  就说明先进编辑器的是命令而不是 git。`commit -m`、`merge --no-edit` 和 `--ff-only` 不打开编辑器，
+  不需要这个开关；用户在自家终端里逐行写提交信息时保留编辑器是合理的。
 
 ## Standard commands
 
@@ -76,6 +83,7 @@ description: >-
 ```bash
 git status --short
 git rev-parse HEAD
+GIT_EDITOR=true git rebase --continue   # 冲突解完后续跑；不带这个开关会停在编辑器 TUI 里
 rg --files docs/plans docs/reports docs/current .agents/skills
 rg -n "任务 ID|前置任务|状态|验收|验证|完成记录|阻塞" docs/plans/active
 npx vitest run test-node/docs/document-structure.test.ts

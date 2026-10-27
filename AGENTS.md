@@ -26,6 +26,7 @@
 - 测试、临时配置、数据库、日志根和端口必须隔离。真实上游验收使用 `real-upstream-acceptance` skill 的隔离方案。
 - `better-sqlite3` 的 Node ABI 和 Electron ABI 必须串行切换。打包顺序是：`build` → `rebuild:electron` → Electron 打包 → 交付冒烟 → 恢复 Node ABI。
 - 长任务或独立 worktree 委派按实现、专项验证、文档收口和交付验证分阶段执行；每阶段留下可审查提交或结果记录，超时后从最近 checkpoint 恢复，不把无输出的长时间等待当成成功证据。
+- 会打开交互式编辑器的 git 命令（`rebase --continue`、需要写提交信息的 `merge`/`cherry-pick`、不带 `-m` 的 `commit --amend`、`tag -a`）必须带 `GIT_EDITOR=true`；命令停在编辑器 TUI 里被中断不是 git 失败，续跑前先读 `git status`，配方见 `todo-workflow`。
 - 不为了让门禁变绿而降低有意义的测试、视觉像素检查、宽度检查、空白行检查或打包检查；先定位证据，再修实现或记录真实限制。
 
 ## 标准验证
