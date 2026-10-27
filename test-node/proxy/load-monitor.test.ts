@@ -790,8 +790,13 @@ describe("[TRI-10] the advisor wired onto the monitor's own tick", () => {
       expect(offView.mode).toBe("off");
       expect(offView.suggestions).toEqual([]);
       // Sampling itself keeps running under `off`: the mode stops the automatic judgement,
-      // not the metric reading the manual status still shows.
-      expect(trio.busy.requests()).toBeGreaterThan(0);
+      // not the metric reading the manual status still shows. That metric is a real HTTP
+      // request issued on a 25 ms tick, so the wait is written out instead of assumed: the
+      // claim stays "a sample reached the busy engine", and it no longer rests on whether
+      // real time happened to reach a tick while other suites were competing for the runner.
+      await expect
+        .poll(() => trio.busy.requests(), { timeout: 5_000, interval: 25 })
+        .toBeGreaterThan(0);
 
       const revisionBefore = balancer.bindingSnapshot(ADV_GROUP)?.groupRevision;
       balancer.reconfigure(advisorPair(ports, "advise"));
