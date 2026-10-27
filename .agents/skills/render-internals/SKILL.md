@@ -27,6 +27,14 @@ description: >-
 - The task-detail panel skips rebuilds the same way through `state.taskPricingRendered`; a
   new panel block must appear in `taskPricingRenderSignature` (pricing payload, all three
   series, `state.activeTaskGroup`) or a refresh keeps the old DOM.
+- A native `<select>` popup is anchored to the element, not to the focus: a repaint that puts a
+  new `<select>` where the open popup sits closes it, and restoring focus onto the rebuilt node
+  cannot reopen it, so a focus assertion says nothing about whether the popup survived. The
+  destination picker in the binding list holds its poll repaint until the user leaves it
+  (`destinationPickerIsInUse`, passed as `renderBindingPanel(context, true)` only at the read's
+  `finally`), and that wait dies the moment the row's `bindingId + incarnation` stops being the
+  one the list reports. Prove it by marking the element and asserting the mark survives on the
+  node a later poll finds, never by `toBeFocused`.
 - The JSON panes cache their last markup in `state.jsonPaneHtml`: building the tree string is
   cheap, assigning it is what costs the user time, because the tree is tens of thousands of
   `<details>` nodes.
