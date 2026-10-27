@@ -1457,7 +1457,8 @@ retentionMs`，`dropExpiredRecords` 又拿它与 `now - retentionMs` 比，实�
   `[TRI-10]`；`test-node/admin/pairs.test.ts` 追加 2 项 `[TRI-10]`；`test-node/config/` 三份各 1 项。其余 12 份测试
   文件各一至二行：给负载均衡 group 夹具显式写出 `rebalance_mode: "off"`，不让夹具靠隐式默认。UI 侧只动两处测试
   桩——`test-node/ui/admin-ui-fixture.ts` 的状态夹具补上服务现在会答的 `rebalance` 块，
-  `test-node/ui/admin-ui-server.ts` 存盘前像真实路由一样先 `normalizeLoadBalancerGroups`。
+  `test-node/ui/admin-ui-server.ts` 存盘前像真实路由一样先 `normalizeLoadBalancerGroups`。收口审查后的测试修正另成
+  一个提交，只动 `test-node/proxy/load-monitor.test.ts` 一个文件（见下面的提交段）。
 - 验证：`npm run check` 从大写盘符 `exit 0`：Prettier 全绿、lint `--max-warnings=0` 零告警、`tsconfig.json` 与
   `tsconfig.ui.json` 两份 typecheck 均 `exit 0`、`check:modules` 报 139 模块 / 327 运行时边 / 120 类型边 /
   0 环 / 0 越界、Vitest 150 文件（149 通过、1 跳过）与 1571 项（1569 通过、2 跳过）、`build` 通过。按 AGENTS.md
@@ -1467,7 +1468,9 @@ retentionMs`，`dropExpiredRecords` 又拿它与 `now - retentionMs` 比，实�
 test-node/admin/load-balancer.test.ts` 连续八次并发运行全过（24 + 10 项）；
   `npx vitest run test-node/config/ test-node/admin/` 27 文件 289 项全过；
   `npx vitest run test-node/ui/admin-ui-visual.test.ts test-node/ui/admin-ui-load-balancing.test.ts` 2 文件
-  70 项全过。五项变异各自被抓回：把 `off` 组也送进 advisor → `computes nothing while off` 失败；去掉
+  70 项全过。全量链第一次跑在日志键断言上红了一项，定位到上面第三条修正后重跑：
+  `npx vitest run test-node/proxy/load-monitor.test.ts` 独跑十次全过（15 项），`npm run check` 再次 `exit 0`。
+  五项变异各自被抓回：把 `off` 组也送进 advisor → `computes nothing while off` 失败；去掉
   `runtimeEpoch` 失效检查 → 命名失效原因的项失败；把稳定阈值 `stable < min` 写成 `<=` → 14 项失败；去掉人工保护门
   → `spares a binding a human protected` 失败；给建议日志多打一个字段 → `logs a suggestion with ids, targets and
 numbers only` 失败。变异全部还原后复跑，`git status` 只剩本次授权的文件。
@@ -1493,11 +1496,14 @@ numbers only` 失败。变异全部还原后复跑，`git status` 只剩本次�
   `stateReason`）；路由响应里没有 session id、正文、exact key、用户消息哈希和上游密钥（测试把私有 prompt 和 session
   塞进身份，再断言响应体里不出现它们）。响应 `suggestions` 的 128 上限与 advisor 生产配置的上限逐项对齐，由
   `test-node/admin/load-balancer.test.ts` 从路由注册的 JSON schema 里读出 `maxItems` 钉住，防止建议列表变成 500。
-- 与本轮代码直接相关的两项修正：一是 `source_metrics_lost` 曾被同时用在“源不再回答”和“目标不再回答”两种事实上，
-  后者现在叫 `destination_metrics_lost` 并在闭合枚举里占一格——源失联说明失衡可能已经消失，目标失联只说明没人知道
-  它还静默，混用会把后者读成前者。二是管理路由的轮询等的是 `state === "suggested"` 而不是“列表非空的第一项”：响应
-  是新的在前，一条比建议更晚登记的拒绝项合法地能排在最前，按下标取会让断言依赖谁先落地。这一点在并发跑里偶发过
-  一次失败，改成按状态等待后连续八次并发运行全过；单文件独跑六次全过。本轮没有删除或放宽任何断言。
+- 与本轮代码直接相关的三项修正（都在收口审查里找到）：一是 `source_metrics_lost` 曾被同时用在“源不再回答”和
+  “目标不再回答”两种事实上，后者现在叫 `destination_metrics_lost` 并在闭合枚举里占一格——源失联说明失衡可能已经
+  消失，目标失联只说明没人知道它还静默，混用会把后者读成前者。二是管理路由的轮询等的是 `state === "suggested"`
+  而不是“列表非空的第一项”：响应是新的在前，一条比建议更晚登记的拒绝项合法地能排在最前，按下标取会让断言依赖
+  谁先落地。三是日志键集合的断言把两种行当成一种行：新建议的行只有七个键，而报告一条建议结束的行合法地多一个
+  `stateReason`，全量跑里只要时序造出这样一行就会红（本工作树第一次 `npm run check` 就是这样）。现在两种形状各自
+  被逐项断言，并且终态行不再靠时序碰运气：目标引擎可以切换文本，把它换成忙以后建议因 `target_busy` 结束，那一行
+  的八个键和原因被直接钉住。代码侧两处修正在 `80483a0`，测试侧两处修正另成提交 `51fae58`；没有删除或放宽任何断言。
 - UI：本轮没有改 `src/admin/static/**`，页面不读 `rebalance` 块，因此没有重录基线，也没有基线 diff：十张 `doc/ui_*.png`
   与 `docs/current/contracts/ui-visual-baseline.md` 在 `git status` 里零改动，十张文件的实测 SHA-256 与登记表十行哈希
   逐项相同。UI 浏览器测试全过（视觉 11 项 + 负载均衡行为 59 项）。浏览器保存路径不丢这个字段：
@@ -1514,8 +1520,8 @@ numbers only` 失败。变异全部还原后复跑，`git status` 只剩本次�
   再为消失的组调 `dropGroup`；这段时间里那个组的状态对 API 不可见（状态路由按配置的组走，表不在就没有条目），占用
   上限是每组 128 条记录。六是 UI 还没有展示建议：今天只有状态 API 和结构化日志能看到它们。
 - 交付：见下面“TRI-10 交付产物”一节（便携包、交付冒烟与 Node ABI 恢复）。
-- 提交：`80483a0`，用显式 `git add --` 逐路径只收上述 30 个文件；没有 `git add -A`，也没有把 `AGENTS.md`、
-  `test-node/docs/`、`test-results/`、`logs/` 或用户实例的任何文件收进来。
+- 提交：`80483a0`（代码与建议状态机）与 `51fae58`（测试形状修正），都用显式 `git add --` 逐路径只收授权文件；
+  没有 `git add -A`，也没有把 `AGENTS.md`、`test-node/docs/`、`test-results/`、`logs/` 或用户实例的任何文件收进来。
 
 #### TRI-10 交付产物（便携包、交付冒烟与 Node ABI）
 
