@@ -35,6 +35,7 @@ import {
   savedGroup,
   showThePage,
   taskReadQuery,
+  uiPollOptions,
   writeRoutes,
 } from "./admin-ui-lb-harness.js";
 
@@ -145,7 +146,7 @@ describe("admin UI load balancing groups", { timeout: UI_TEST_TIMEOUT_MS }, () =
     const picker = row.locator("[data-lb-binding-move-target]");
     await picker.selectOption(destinationId);
     await row.locator("[data-lb-binding-move]").click();
-    await expect.poll(() => requested).toBe(true);
+    await expect.poll(() => requested, uiPollOptions).toBe(true);
 
     // A write on its way is frozen the same way: one intent cannot be turned into two writes, and
     // the instruction being sent cannot be edited into a different one.
@@ -249,7 +250,7 @@ describe("admin UI load balancing groups", { timeout: UI_TEST_TIMEOUT_MS }, () =
     const seenStatusReads = lbStatusReads.length;
     await row.locator("[data-lb-binding-move-target]").focus();
     await page.clock.runFor(2_000);
-    await expect.poll(() => lbStatusReads.length).toBeGreaterThan(seenStatusReads);
+    await expect.poll(() => lbStatusReads.length, uiPollOptions).toBeGreaterThan(seenStatusReads);
     await expectPage(row.locator("[data-lb-binding-move-target]")).toBeFocused();
     await expectPage(row.locator("[data-lb-binding-move-target]")).toHaveValue(destinationId);
     await expectPage(row.locator("[data-lb-binding-move-notice]")).toHaveText(
@@ -295,7 +296,7 @@ describe("admin UI load balancing groups", { timeout: UI_TEST_TIMEOUT_MS }, () =
     // reached this row would print that number over the control the user is working in.
     setLbBindingRound(1);
     await page.clock.runFor(2_000);
-    await expect.poll(() => lbStatusReads.length).toBeGreaterThan(seenStatusReads);
+    await expect.poll(() => lbStatusReads.length, uiPollOptions).toBeGreaterThan(seenStatusReads);
     await expect
       .poll(() => lbBindingReads.length, { timeout: UI_TEST_TIMEOUT_MS, interval: 200 })
       .toBeGreaterThan(readsBeforePoll);
@@ -328,7 +329,7 @@ describe("admin UI load balancing groups", { timeout: UI_TEST_TIMEOUT_MS }, () =
     const readsBeforePoll = lbBindingReads.length;
     setLbBindingRound(1);
     await page.clock.runFor(2_000);
-    await expect.poll(() => lbStatusReads.length).toBeGreaterThan(seenStatusReads);
+    await expect.poll(() => lbStatusReads.length, uiPollOptions).toBeGreaterThan(seenStatusReads);
     await expect
       .poll(() => lbBindingReads.length, { timeout: UI_TEST_TIMEOUT_MS, interval: 200 })
       .toBeGreaterThan(readsBeforePoll);
@@ -409,7 +410,7 @@ describe("admin UI load balancing groups", { timeout: UI_TEST_TIMEOUT_MS }, () =
     setLbBindingRouteBump(4);
     const seenStatusReads = lbStatusReads.length;
     await page.clock.runFor(2_000);
-    await expect.poll(() => lbStatusReads.length).toBeGreaterThan(seenStatusReads);
+    await expect.poll(() => lbStatusReads.length, uiPollOptions).toBeGreaterThan(seenStatusReads);
     await expectPage(hoverLine(row)).toHaveAttribute("data-lb-hover-revision", /: 7$/);
     await expectPage(row.locator("[data-lb-binding-move-retry]")).toBeVisible();
     await expectPage(row.locator("[data-lb-binding-move-notice]")).toContainText(
@@ -534,7 +535,7 @@ describe("admin UI load balancing groups", { timeout: UI_TEST_TIMEOUT_MS }, () =
     setLbBindingRuntimeEpoch("stub-runtime-epoch-next");
     const seenStatusReads = lbStatusReads.length;
     await page.clock.runFor(2_000);
-    await expect.poll(() => lbStatusReads.length).toBeGreaterThan(seenStatusReads);
+    await expect.poll(() => lbStatusReads.length, uiPollOptions).toBeGreaterThan(seenStatusReads);
     await expectPage(row.locator("[data-lb-binding-move-notice]")).toHaveText(
       "The runtime or the group version changed; the current state of this submission cannot be confirmed.",
     );
@@ -590,11 +591,11 @@ describe("admin UI load balancing groups", { timeout: UI_TEST_TIMEOUT_MS }, () =
     const row = bindingRow(panel, 7);
     await row.locator("[data-lb-binding-move-target]").selectOption(destinationId);
     await row.locator("[data-lb-binding-move]").click();
-    await expect.poll(() => requested).toBe(true);
+    await expect.poll(() => requested, uiPollOptions).toBe(true);
 
     const seen = lbBindingReads.length;
     await page.evaluate("__adminUiTest.proxyConfig.dispose(); __adminUiTest.proxyConfig.init();");
-    await expect.poll(() => lbBindingReads.length).toBeGreaterThan(seen);
+    await expect.poll(() => lbBindingReads.length, uiPollOptions).toBeGreaterThan(seen);
     // The disposal is what changed this row, before this answer is released at all: the surface
     // stopped waiting while the write was on its way, so the row carries the local answer the
     // detach wrote - the outcome is unknown, with the retry of the instruction it went out under.
@@ -655,7 +656,7 @@ describe("admin UI load balancing groups", { timeout: UI_TEST_TIMEOUT_MS }, () =
     const picker = row.locator("[data-lb-binding-move-target]");
     await picker.selectOption(destinationId);
     await row.locator("[data-lb-binding-move]").click();
-    await expect.poll(() => requested).toBe(true);
+    await expect.poll(() => requested, uiPollOptions).toBe(true);
     const written = sent[0]?.body;
     if (written === null || written === undefined) {
       throw new Error("the submit put no instruction on the wire");
@@ -668,7 +669,7 @@ describe("admin UI load balancing groups", { timeout: UI_TEST_TIMEOUT_MS }, () =
     // write itself was sent without the surface's signal, so nothing can call it back.
     const seen = lbBindingReads.length;
     await page.evaluate("__adminUiTest.proxyConfig.dispose(); __adminUiTest.proxyConfig.init();");
-    await expect.poll(() => lbBindingReads.length).toBeGreaterThan(seen);
+    await expect.poll(() => lbBindingReads.length, uiPollOptions).toBeGreaterThan(seen);
     // The disposal wrote this state, not the answer. This surface stopped waiting while the
     // instruction was still on its way, so the row says the outcome is unknown and offers only
     // the retry of the instruction it went out under; the instruction stayed frozen, so the row
@@ -771,11 +772,11 @@ describe("admin UI load balancing groups", { timeout: UI_TEST_TIMEOUT_MS }, () =
     const row = bindingRow(panel, 7);
     await row.locator("[data-lb-binding-move-target]").selectOption(destinationId);
     await row.locator("[data-lb-binding-move]").click();
-    await expect.poll(() => requested).toBe(true);
+    await expect.poll(() => requested, uiPollOptions).toBe(true);
 
     const seen = lbBindingReads.length;
     await page.evaluate("__adminUiTest.proxyConfig.dispose(); __adminUiTest.proxyConfig.init();");
-    await expect.poll(() => lbBindingReads.length).toBeGreaterThan(seen);
+    await expect.poll(() => lbBindingReads.length, uiPollOptions).toBeGreaterThan(seen);
     // What the row carries now was written by the disposal, and this answered receipt - the
     // server's own `applied` - is released only afterwards.
     const stateBeforeRelease = await rowMoveState(row);
@@ -847,12 +848,12 @@ describe("admin UI load balancing groups", { timeout: UI_TEST_TIMEOUT_MS }, () =
     const cancel = panel.locator('[data-lb-binding-move-cancel="op-pending"]');
     await expectPage(cancel).toHaveCount(1);
     await cancel.click();
-    await expect.poll(() => releases.length).toBe(1);
+    await expect.poll(() => releases.length, uiPollOptions).toBe(1);
     await expectPage(cancel).toBeDisabled();
 
     const seen = lbBindingReads.length;
     await page.evaluate("__adminUiTest.proxyConfig.dispose(); __adminUiTest.proxyConfig.init();");
-    await expect.poll(() => lbBindingReads.length).toBeGreaterThan(seen);
+    await expect.poll(() => lbBindingReads.length, uiPollOptions).toBeGreaterThan(seen);
     // A disposal is not a cancellation the server made, and the claim the disposed attempt held
     // went with it: the new surface answers about the operation from its own read, and the
     // button is free again because nothing on this page waits for that DELETE any more.
@@ -864,7 +865,7 @@ describe("admin UI load balancing groups", { timeout: UI_TEST_TIMEOUT_MS }, () =
 
     // A newer claim is made on the newer surface, and it is the newer attempt that holds it.
     await cancel.click();
-    await expect.poll(() => releases.length).toBe(2);
+    await expect.poll(() => releases.length, uiPollOptions).toBe(2);
     await expectPage(cancel).toBeDisabled();
 
     await hideThePage();
@@ -934,7 +935,7 @@ describe("admin UI load balancing groups", { timeout: UI_TEST_TIMEOUT_MS }, () =
     const picker = row.locator("[data-lb-binding-move-target]");
     await picker.selectOption(destinationId);
     await row.locator("[data-lb-binding-move]").click();
-    await expect.poll(() => releases.length).toBe(1);
+    await expect.poll(() => releases.length, uiPollOptions).toBe(1);
     const written = sent[0]?.body;
     if (written === null || written === undefined) {
       throw new Error("the submit put no instruction on the wire");
@@ -945,7 +946,7 @@ describe("admin UI load balancing groups", { timeout: UI_TEST_TIMEOUT_MS }, () =
     setLbBindingRouteBump(1);
     const seen = lbStatusReads.length;
     await page.clock.runFor(2_000);
-    await expect.poll(() => lbStatusReads.length).toBeGreaterThan(seen);
+    await expect.poll(() => lbStatusReads.length, uiPollOptions).toBeGreaterThan(seen);
     await expectPage(hoverLine(row)).toHaveAttribute(
       "data-lb-hover-revision",
       "Routing revision: 4",
@@ -1012,7 +1013,7 @@ describe("admin UI load balancing groups", { timeout: UI_TEST_TIMEOUT_MS }, () =
     // A decision made now is a different instruction: a newer key built from the versions this
     // page reads, never the frozen one sent a third time.
     await row.locator("[data-lb-binding-move]").click();
-    await expect.poll(() => lbMoveCalls.length).toBe(2);
+    await expect.poll(() => lbMoveCalls.length, uiPollOptions).toBe(2);
     expect(sent).toHaveLength(3);
     expect(sent[2]?.body).not.toEqual(written);
     expect(lbMoveCall(1).body).not.toEqual(written);
@@ -1065,11 +1066,11 @@ describe("admin UI load balancing groups", { timeout: UI_TEST_TIMEOUT_MS }, () =
     const cancel = panel.locator("[data-lb-binding-move-cancel]");
     await expectPage(cancel).toHaveCount(1);
     await cancel.click();
-    await expect.poll(() => requested).toBe(true);
+    await expect.poll(() => requested, uiPollOptions).toBe(true);
 
     const seen = lbBindingReads.length;
     await page.evaluate("__adminUiTest.proxyConfig.dispose(); __adminUiTest.proxyConfig.init();");
-    await expect.poll(() => lbBindingReads.length).toBeGreaterThan(seen);
+    await expect.poll(() => lbBindingReads.length, uiPollOptions).toBeGreaterThan(seen);
     release();
     // Real time on purpose: this window rules out what a real answer can still do.
     await page.waitForTimeout(300);
@@ -1135,7 +1136,7 @@ describe("admin UI load balancing groups", { timeout: UI_TEST_TIMEOUT_MS }, () =
     const cancel = panel.locator("[data-lb-binding-move-cancel]");
     await expectPage(cancel).toHaveCount(1);
     await cancel.click();
-    await expect.poll(() => requested).toBe(true);
+    await expect.poll(() => requested, uiPollOptions).toBe(true);
     await expectPage(cancel).toBeDisabled();
 
     // A dispatch reaches the button whatever the browser thinks is clickable, so the claim the
@@ -1201,14 +1202,14 @@ describe("admin UI load balancing groups", { timeout: UI_TEST_TIMEOUT_MS }, () =
     const picker = row.locator("[data-lb-binding-move-target]");
     await picker.selectOption(destinationId);
     await row.locator("[data-lb-binding-move]").click();
-    await expect.poll(() => requested).toBe(true);
+    await expect.poll(() => requested, uiPollOptions).toBe(true);
 
     // The pair restarted: the page now names another runtime, and the same binding number plus
     // incarnation come back as a different binding's row.
     setLbBindingRuntimeEpoch("stub-runtime-epoch-next");
     const seen = lbStatusReads.length;
     await page.clock.runFor(2_000);
-    await expect.poll(() => lbStatusReads.length).toBeGreaterThan(seen);
+    await expect.poll(() => lbStatusReads.length, uiPollOptions).toBeGreaterThan(seen);
     release();
     // Real time on purpose: this window rules out what a real answer can still do.
     await page.waitForTimeout(300);
@@ -1255,7 +1256,7 @@ describe("admin UI load balancing groups", { timeout: UI_TEST_TIMEOUT_MS }, () =
     const picker = row.locator("[data-lb-binding-move-target]");
     await picker.selectOption(destinationId);
     await row.locator("[data-lb-binding-move]").click();
-    await expect.poll(() => releases.length).toBe(1);
+    await expect.poll(() => releases.length, uiPollOptions).toBe(1);
 
     // The pair restarted while that write was on its way, and the same binding number and
     // incarnation came back on the new page. The instruction belongs to a runtime nobody shows
@@ -1263,7 +1264,7 @@ describe("admin UI load balancing groups", { timeout: UI_TEST_TIMEOUT_MS }, () =
     setLbBindingRuntimeEpoch("stub-runtime-epoch-next");
     const seenStatusReads = lbStatusReads.length;
     await page.clock.runFor(2_000);
-    await expect.poll(() => lbStatusReads.length).toBeGreaterThan(seenStatusReads);
+    await expect.poll(() => lbStatusReads.length, uiPollOptions).toBeGreaterThan(seenStatusReads);
     await expectPage(row.locator("[data-lb-binding-move-notice]")).toHaveText(
       "The runtime or the group version changed; the current state of this submission cannot be confirmed.",
     );
@@ -1275,7 +1276,7 @@ describe("admin UI load balancing groups", { timeout: UI_TEST_TIMEOUT_MS }, () =
     // still held. It is a different instruction: a newer key, addressed to a newer runtime.
     await picker.selectOption(destinationId);
     await row.locator("[data-lb-binding-move]").click();
-    await expect.poll(() => releases.length).toBe(2);
+    await expect.poll(() => releases.length, uiPollOptions).toBe(2);
     expect(sent).toHaveLength(2);
     const retired = sent[0]?.body;
     const current = sent[1]?.body;
@@ -1359,7 +1360,7 @@ describe("admin UI load balancing groups", { timeout: UI_TEST_TIMEOUT_MS }, () =
       await route.abort("failed");
     });
     await row.locator("[data-lb-binding-move-retry]").click();
-    await expect.poll(() => requested).toBe(true);
+    await expect.poll(() => requested, uiPollOptions).toBe(true);
 
     // While a retry is on its way, dispatching every button of the row sends nothing: one intent
     // is one write, and a frozen row offers no way out except the retry it already made.
@@ -1412,7 +1413,7 @@ describe("admin UI load balancing groups", { timeout: UI_TEST_TIMEOUT_MS }, () =
     });
     const seen = lbStatusReads.length;
     await page.clock.runFor(2_000);
-    await expect.poll(() => lbStatusReads.length).toBeGreaterThan(seen);
+    await expect.poll(() => lbStatusReads.length, uiPollOptions).toBeGreaterThan(seen);
     await expectPage(panel.locator('.lb-binding[data-lb-binding-id="7"]')).toHaveCount(0);
     await expectPage(panel.locator(".lb-binding")).toHaveCount(19);
     await expectPage(panel.locator('[data-lb-binding-unresolved="7"]')).toHaveText(
@@ -1424,7 +1425,7 @@ describe("admin UI load balancing groups", { timeout: UI_TEST_TIMEOUT_MS }, () =
     await page.unroute("**/api/load-balancer/tasks*");
     const again = lbStatusReads.length;
     await page.clock.runFor(2_000);
-    await expect.poll(() => lbStatusReads.length).toBeGreaterThan(again);
+    await expect.poll(() => lbStatusReads.length, uiPollOptions).toBeGreaterThan(again);
     await expectPage(row.locator("[data-lb-binding-move-retry]")).toBeVisible();
     await expectPage(row.locator("[data-lb-binding-move-notice]")).toContainText(
       "The outcome of this submission is unknown",

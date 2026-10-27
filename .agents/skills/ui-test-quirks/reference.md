@@ -107,6 +107,20 @@ The predicate does not move. A monitor that never samples still fails this, at t
 is 200 ticks of the file's own 25 ms interval. After the change: 5 of 5 runs alone and 4 of 4 full
 concurrent runs green.
 
+The browser suite has the same exposure with a sharper edge: `expect.poll` gets one second by
+default, and a poll waiting for a page fetch can lose that second on a loaded runner even when the
+poll was fired on purpose. The load-balancing status count is the measured case - `runFor(2_000)`
+had already issued the read, the count was still one short when the second ran out, and the failure
+said `expected 5 to be 6` with `Caused by: Error: Matcher did not succeed in time`. It appeared only
+on ubuntu-latest: red on CI#210, green on CI#211, red on CI#212, while windows-latest passed all
+three; the eight CI runs before this scheduling change carried no failure of that test. So it is a
+consequence of the split and the clock, not a pre-existing flake.
+
+All 51 bare `expect.poll` calls across the three load-balancing files now carry `uiPollOptions`
+from `admin-ui-lb-harness.ts` - `{ timeout: UI_TEST_TIMEOUT_MS, interval: 200 }`, the bound the
+harness' own `waitForLbPoll` has always used. The predicate stays exact and the test's own timeout is
+the same 30 s, so a count that never arrives ends the test instead of passing it.
+
 ## Socket exhaustion
 
 `listen ENOBUFS: no buffer space available 127.0.0.1` appeared in a full concurrent run: not an

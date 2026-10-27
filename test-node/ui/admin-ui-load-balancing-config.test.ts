@@ -33,6 +33,7 @@ import {
   savedMemberIds,
   taskReadQuery,
   tickMembers,
+  uiPollOptions,
 } from "./admin-ui-lb-harness.js";
 
 describe("admin UI load balancing groups", { timeout: UI_TEST_TIMEOUT_MS }, () => {
@@ -433,7 +434,7 @@ describe("admin UI load balancing groups", { timeout: UI_TEST_TIMEOUT_MS }, () =
     await expectPage(model).toHaveValue("  unsaved-upstream  ");
     const seen = lbStatusReads.length;
     await page.clock.runFor(2_000);
-    await expect.poll(() => lbStatusReads.length).toBeGreaterThan(seen);
+    await expect.poll(() => lbStatusReads.length, uiPollOptions).toBeGreaterThan(seen);
     await expectPage(model).toHaveValue("  unsaved-upstream  ");
     await expectPage(group.locator("[data-lb-member-model]")).toHaveCount(2);
     await page.locator("#languageSelect").selectOption("en");

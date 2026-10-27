@@ -50,6 +50,15 @@ export async function waitForLbPoll(previousCount: number) {
     .toBeGreaterThan(previousCount);
 }
 
+/** Budget for a poll that waits on a counter the page moves only when a fetch comes back.
+ *
+ *  Vitest gives `expect.poll` one second by default. Every counter in these suites advances once a
+ *  real round trip to the stub server has landed, and a loaded runner does not always deliver that
+ *  inside a second: the ubuntu-latest CI job is the measured instance, where `runFor` had already
+ *  fired the poll and the count was still one short when that second ran out. The bound is the
+ *  suite's own test timeout, so a count that never arrives still fails. */
+export const uiPollOptions = { timeout: UI_TEST_TIMEOUT_MS, interval: 200 };
+
 export function savedGroup() {
   const group = pairs[0]?.load_balancers[0];
   if (group === undefined) throw new Error("no load balancing group was saved");

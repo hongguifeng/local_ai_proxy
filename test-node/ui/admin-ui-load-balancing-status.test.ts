@@ -25,6 +25,7 @@ import {
   shownModels,
   taskReadQuery,
   tickMembers,
+  uiPollOptions,
   waitForLbPoll,
 } from "./admin-ui-lb-harness.js";
 
@@ -45,7 +46,7 @@ describe("admin UI load balancing groups", { timeout: UI_TEST_TIMEOUT_MS }, () =
     );
 
     await page.clock.runFor(2_000);
-    await expect.poll(() => lbStatusReads.length).toBeGreaterThan(0);
+    await expect.poll(() => lbStatusReads.length, uiPollOptions).toBeGreaterThan(0);
     const firstFlight = card.locator(".lb-node-state").nth(0).locator('[data-lb-fact="inFlight"]');
     await expectPage(firstFlight).toHaveText("In flight: 0");
     await expectPage(
@@ -65,7 +66,7 @@ describe("admin UI load balancing groups", { timeout: UI_TEST_TIMEOUT_MS }, () =
     setLbStatusRound(7);
     const seen = lbStatusReads.length;
     await page.clock.runFor(2_000);
-    await expect.poll(() => lbStatusReads.length).toBeGreaterThan(seen);
+    await expect.poll(() => lbStatusReads.length, uiPollOptions).toBeGreaterThan(seen);
     await expectPage(firstFlight).toHaveText("In flight: 7");
     await expectPage(patternInput).toHaveValue("Qwen3.8-Flash-Next-plus");
     await expectPage(patternInput).toBeFocused();
@@ -94,14 +95,14 @@ describe("admin UI load balancing groups", { timeout: UI_TEST_TIMEOUT_MS }, () =
     const idleWaiting = card.locator(".lb-node-state").nth(0).locator('[data-lb-fact="waiting"]');
 
     await page.clock.runFor(2_000);
-    await expect.poll(() => lbStatusReads.length).toBeGreaterThan(0);
+    await expect.poll(() => lbStatusReads.length, uiPollOptions).toBeGreaterThan(0);
     await expectPage(quietWaiting).toHaveText("Waiting: 4");
     await expectPage(quietBadge).not.toContainText("incomplete");
 
     setLbStatusPartialMetrics(true);
     const seen = lbStatusReads.length;
     await page.clock.runFor(2_000);
-    await expect.poll(() => lbStatusReads.length).toBeGreaterThan(seen);
+    await expect.poll(() => lbStatusReads.length, uiPollOptions).toBeGreaterThan(seen);
     // The second node's engine stopped answering: the row says unknown, and the badge says
     // why. Nothing here prints "0", "null" or "undefined" for a number that was never taken.
     await expectPage(quietWaiting).toHaveText("Waiting: -");
@@ -117,7 +118,7 @@ describe("admin UI load balancing groups", { timeout: UI_TEST_TIMEOUT_MS }, () =
     await page.locator("#languageSelect").selectOption("zh");
     const zhSeen = lbStatusReads.length;
     await page.clock.runFor(2_000);
-    await expect.poll(() => lbStatusReads.length).toBeGreaterThan(zhSeen);
+    await expect.poll(() => lbStatusReads.length, uiPollOptions).toBeGreaterThan(zhSeen);
     await expectPage(quietWaiting).toHaveText("排队: -");
     await expectPage(quietBadge).toContainText("指标不全");
     await expectPage(idleWaiting).toHaveText("排队: 3");
@@ -125,7 +126,7 @@ describe("admin UI load balancing groups", { timeout: UI_TEST_TIMEOUT_MS }, () =
     await page.locator("#languageSelect").selectOption("en");
     const enSeen = lbStatusReads.length;
     await page.clock.runFor(2_000);
-    await expect.poll(() => lbStatusReads.length).toBeGreaterThan(enSeen);
+    await expect.poll(() => lbStatusReads.length, uiPollOptions).toBeGreaterThan(enSeen);
     await expectPage(quietWaiting).toHaveText("Waiting: -");
     setLbStatusPartialMetrics(false);
   });
@@ -139,7 +140,7 @@ describe("admin UI load balancing groups", { timeout: UI_TEST_TIMEOUT_MS }, () =
     await card.locator("[data-add-lb-group]").click();
     await tickMembers(card.locator(".lb-card"), [0]);
     await page.clock.runFor(2_000);
-    await expect.poll(() => lbStatusReads.length).toBeGreaterThan(0);
+    await expect.poll(() => lbStatusReads.length, uiPollOptions).toBeGreaterThan(0);
 
     // The clock is held before the counter is read: an installed clock keeps following real time,
     // so a slow stretch between two steps can fire a tick by itself. With the clock held, the only
@@ -165,7 +166,7 @@ describe("admin UI load balancing groups", { timeout: UI_TEST_TIMEOUT_MS }, () =
 
       await page.locator('.tab[data-tab="proxies"]').click();
       await page.clock.runFor(2_000);
-      await expect.poll(() => lbStatusReads.length).toBeGreaterThan(seen);
+      await expect.poll(() => lbStatusReads.length, uiPollOptions).toBeGreaterThan(seen);
     } finally {
       // closeTestPage drains the page with a setTimeout inside it, and a held clock never runs
       // that timer, so the clock goes back to real time before the hook can close the page.
@@ -176,15 +177,15 @@ describe("admin UI load balancing groups", { timeout: UI_TEST_TIMEOUT_MS }, () =
   it("owns one poll timer across repeated init, tab changes, visibility and disposal", async () => {
     await page.clock.install();
     await loadAdminPage();
-    await expect.poll(() => lbStatusReads.length).toBe(1);
+    await expect.poll(() => lbStatusReads.length, uiPollOptions).toBe(1);
     await page.evaluate("__adminUiTest.proxyConfig.init(); __adminUiTest.proxyConfig.init();");
     await page.clock.runFor(2_000);
-    await expect.poll(() => lbStatusReads.length).toBe(2);
+    await expect.poll(() => lbStatusReads.length, uiPollOptions).toBe(2);
     await page.locator('.tab[data-tab="logs"]').click();
     await page.clock.runFor(6_000);
     expect(lbStatusReads.length).toBe(2);
     await page.locator('.tab[data-tab="proxies"]').click();
-    await expect.poll(() => lbStatusReads.length).toBe(3);
+    await expect.poll(() => lbStatusReads.length, uiPollOptions).toBe(3);
     await page.evaluate(() => {
       Object.defineProperty(document, "hidden", { value: true, configurable: true });
       document.dispatchEvent(new Event("visibilitychange"));
@@ -195,16 +196,16 @@ describe("admin UI load balancing groups", { timeout: UI_TEST_TIMEOUT_MS }, () =
       Object.defineProperty(document, "hidden", { value: false, configurable: true });
       document.dispatchEvent(new Event("visibilitychange"));
     });
-    await expect.poll(() => lbStatusReads.length).toBe(4);
+    await expect.poll(() => lbStatusReads.length, uiPollOptions).toBe(4);
     await page.evaluate(
       "__adminUiTest.proxyConfig.dispose(); __adminUiTest.proxyConfig.dispose();",
     );
     await page.clock.runFor(6_000);
     expect(lbStatusReads.length).toBe(4);
     await page.evaluate("__adminUiTest.proxyConfig.init(); __adminUiTest.proxyConfig.init();");
-    await expect.poll(() => lbStatusReads.length).toBe(5);
+    await expect.poll(() => lbStatusReads.length, uiPollOptions).toBe(5);
     await page.clock.runFor(2_000);
-    await expect.poll(() => lbStatusReads.length).toBe(6);
+    await expect.poll(() => lbStatusReads.length, uiPollOptions).toBe(6);
   });
 
   it("forwards caller and lifecycle cancellation through the production adapter", async () => {
@@ -305,7 +306,7 @@ describe("admin UI load balancing groups", { timeout: UI_TEST_TIMEOUT_MS }, () =
       // is a separate measure of a separate thing.
       const beforePoll = lbStatusReads.length;
       await page.clock.runFor(2_000);
-      await expect.poll(() => lbStatusReads.length).toBeGreaterThan(beforePoll);
+      await expect.poll(() => lbStatusReads.length, uiPollOptions).toBeGreaterThan(beforePoll);
       await expectPage(nodeState(card, 0).locator('[data-lb-fact="bindings"]')).toHaveText(
         "Bindings: 0",
       );
@@ -351,7 +352,7 @@ describe("admin UI load balancing groups", { timeout: UI_TEST_TIMEOUT_MS }, () =
     setLbStatusPartialMetrics(true);
     const seen = lbStatusReads.length;
     await page.clock.runFor(2_000);
-    await expect.poll(() => lbStatusReads.length).toBeGreaterThan(seen);
+    await expect.poll(() => lbStatusReads.length, uiPollOptions).toBeGreaterThan(seen);
     await expectPage(nodeState(card, 1).locator('[data-lb-fact="enabled"]')).toContainText(
       "Metrics incomplete",
     );
@@ -423,7 +424,7 @@ describe("admin UI load balancing groups", { timeout: UI_TEST_TIMEOUT_MS }, () =
     const seen = lbStatusReads.length;
     const readsBeforeRefresh = lbBindingReads.length;
     await page.clock.runFor(2_000);
-    await expect.poll(() => lbStatusReads.length).toBeGreaterThan(seen);
+    await expect.poll(() => lbStatusReads.length, uiPollOptions).toBeGreaterThan(seen);
     await expectPage(panel.locator(".lb-binding")).toHaveCount(25);
     // The read this poll caused is the one that asked for everything already on screen.
     await expect
@@ -529,7 +530,7 @@ describe("admin UI load balancing groups", { timeout: UI_TEST_TIMEOUT_MS }, () =
     await expectPage(panel.locator("[data-lb-binding-more]")).toHaveText("Load more (20/25)");
 
     // The new generation was read from the top, not from where the old list ran out.
-    await expect.poll(() => asked.map((read) => read.offset)).toEqual([0, 20, 0]);
+    await expect.poll(() => asked.map((read) => read.offset), uiPollOptions).toEqual([0, 20, 0]);
     expect(asked.every((read) => read.limit === 20)).toBe(true);
   });
 
@@ -566,7 +567,7 @@ describe("admin UI load balancing groups", { timeout: UI_TEST_TIMEOUT_MS }, () =
     await expectPage(panel.locator("[data-lb-binding-loading]")).toHaveCount(0);
     await expectPage(panel.locator("[data-lb-binding-error]")).toHaveCount(0);
     await expectPage(panel.locator("[data-lb-binding-stale]")).toHaveCount(0);
-    await expect.poll(() => asked.map((read) => read.offset)).toEqual([0, 20, 0]);
+    await expect.poll(() => asked.map((read) => read.offset), uiPollOptions).toEqual([0, 20, 0]);
   });
 
   it("[TRI-06] lists one binding once when the table shifted while the user paged", async () => {
@@ -684,7 +685,7 @@ describe("admin UI load balancing groups", { timeout: UI_TEST_TIMEOUT_MS }, () =
     // rows the user paged to stay on screen.
     const seen = lbStatusReads.length;
     await page.clock.runFor(2_000);
-    await expect.poll(() => lbStatusReads.length).toBeGreaterThan(seen);
+    await expect.poll(() => lbStatusReads.length, uiPollOptions).toBeGreaterThan(seen);
     await expect
       .poll(() => asked.some((read) => read.offset === 0 && read.limit === 200), {
         timeout: UI_TEST_TIMEOUT_MS,
@@ -802,7 +803,7 @@ describe("admin UI load balancing groups", { timeout: UI_TEST_TIMEOUT_MS }, () =
       // list keeps its 200 rows and its stated limit.
       const seen = lbStatusReads.length;
       await page.clock.runFor(2_000);
-      await expect.poll(() => lbStatusReads.length).toBeGreaterThan(seen);
+      await expect.poll(() => lbStatusReads.length, uiPollOptions).toBeGreaterThan(seen);
       await expect
         .poll(() => asked.some((read) => read.offset === 0 && read.limit === 200), {
           timeout: UI_TEST_TIMEOUT_MS,

@@ -48,6 +48,10 @@ description: >-
   hides which of them moved the counter. A wait that races a real server answer - a response that
   may or may not arrive inside a stated window - stays in real time and says so in a comment: the
   fake clock freezes page timers, not the stub server's reply.
+- `expect.poll` gets one second by default. A poll whose value moves only when a fetch lands needs
+  an explicit `{ timeout, interval }`, otherwise a loaded runner turns a poll that was fired on
+  purpose into what looks like a poll that never happened. `uiPollOptions` in
+  `admin-ui-lb-harness.ts` is that bound, and every poll in the load-balancing suite uses it.
 - Vitest has no `it.setTimeout`: pass the timeout as the third argument of `it()` / `describe()`.
   `UI_TEST_TIMEOUT_MS` in `test-node/ui/admin-ui-fixture.ts` is that value.
 - Lint forbids both `!` and null-stripping `as` casts: keep the type nullable and guard, then
