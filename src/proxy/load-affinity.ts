@@ -41,6 +41,16 @@ export interface AffinityEvidence {
   readonly model: string | undefined;
   readonly boundaryWithoutUser: Readonly<Record<string, string>>;
   readonly userHashes: readonly string[];
+  /**
+   * The hash of the first user message, kept separately because the routing bucket does not
+   * use it: `boundaryWithoutUser` drops that cell so a long conversation can keep pointing at
+   * one node after its opening message. A management reader needs the cell back - without it
+   * every task that shares this binding's instructions and model reads as the same task, which
+   * is what floods the binding list with unrelated history. It is the same hash the traffic log
+   * stores as the task's `first_user` boundary cell, so the two sides are compared as hashes
+   * and no stored user text is ever read.
+   */
+  readonly firstUserHash: string | undefined;
 }
 
 export interface AffinityBinding {
@@ -477,6 +487,7 @@ function copyEvidence(evidence: AffinityEvidence): AffinityEvidence {
     model: evidence.model,
     boundaryWithoutUser: { ...evidence.boundaryWithoutUser },
     userHashes: [...evidence.userHashes],
+    firstUserHash: evidence.firstUserHash,
   };
 }
 
@@ -487,6 +498,7 @@ function evidenceFor(identity: TaskIdentity): AffinityEvidence {
     model: identity.model,
     boundaryWithoutUser: identity.boundaryWithoutUser,
     userHashes: identity.userHashes,
+    firstUserHash: identity.boundary["first_user"],
   };
 }
 

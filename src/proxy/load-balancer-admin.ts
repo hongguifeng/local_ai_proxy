@@ -791,6 +791,7 @@ function bindingItem(
       boundaryWithoutUser: entry.evidence.boundaryWithoutUser,
       endpoint: entry.evidence.endpoint,
       exactKeys: entry.exactKeys,
+      firstUserHash: entry.evidence.firstUserHash,
       kind: entry.evidence.kind,
       model: entry.evidence.model,
     },

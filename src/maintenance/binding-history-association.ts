@@ -41,6 +41,16 @@ export const DEFAULT_CANDIDATE_SCAN_ROWS = 100;
 export const DEFAULT_RETURNED_TASKS_PER_QUERY = 50;
 /** How long the read connection may wait for a write lock before it reports busy. */
 export const DEFAULT_HISTORY_LOCK_WAIT_MS = 500;
+/**
+ * How far back from this binding's own activity a boundary candidate may reach.
+ *
+ * Named here rather than borrowed: the affinity table's own lifetime bound is what lets a
+ * binding be a routing authority at all, so a task whose newest record is older than that
+ * span was not routed by this binding and has no business being listed as its candidate.
+ * This is the history reader's own contract - it is reported in the coverage it returns and
+ * a caller may override it - so a change here is a change to what a candidate is.
+ */
+export const DEFAULT_CANDIDATE_ACTIVITY_WINDOW_MS = 24 * 60 * 60 * 1_000;
 
 /** The exact-key prefix the router learns from response bodies; the log stores the bare id. */
 const RESPONSE_KEY_PREFIX = "response:";
@@ -51,12 +61,15 @@ const MAX_LINKED_TASKS_CEILING = 256;
 const MAX_CANDIDATE_SCAN_CEILING = 500;
 const MAX_RETURNED_TASKS_CEILING = 200;
 const MAX_LOCK_WAIT_CEILING_MS = 5_000;
+/** The longest window a caller may claim a candidate could have been routed in. */
+const MAX_CANDIDATE_ACTIVITY_CEILING_MS = 7 * 24 * 60 * 60 * 1_000;
 
 export interface BindingHistoryQueryLimits {
   readonly maxExactKeys: number;
   readonly maxLinkedTasks: number;
   readonly candidateScanRows: number;
   readonly maxReturnedTasks: number;
+  readonly candidateActivityWindowMs: number;
 }
 
 export const DEFAULT_BINDING_HISTORY_LIMITS: BindingHistoryQueryLimits = Object.freeze({
@@ -64,6 +77,7 @@ export const DEFAULT_BINDING_HISTORY_LIMITS: BindingHistoryQueryLimits = Object.
   maxLinkedTasks: DEFAULT_LINKED_TASKS_PER_QUERY,
   candidateScanRows: DEFAULT_CANDIDATE_SCAN_ROWS,
   maxReturnedTasks: DEFAULT_RETURNED_TASKS_PER_QUERY,
+  candidateActivityWindowMs: DEFAULT_CANDIDATE_ACTIVITY_WINDOW_MS,
 });
 
 /**
@@ -71,6 +85,11 @@ export const DEFAULT_BINDING_HISTORY_LIMITS: BindingHistoryQueryLimits = Object.
  * stored in a link table beside that task and the static boundary still agrees;
  * `candidate` means only that boundary agrees. A candidate is never an identity, so it
  * never collapses into one representative task.
+ *
+ * The aggregate grade describes the whole association, not the page that was returned: one
+ * candidate in the set is enough to make it `candidate`, because a set that contains a task
+ * nothing names is not a set of identified tasks. Truncating the page must not turn that
+ * answer back into `high`, so the grade is decided before the returned-task cap is applied.
  */
 export type HistoryAssociationLevel = "high" | "candidate";
 export type HistoryAssociationConfidence = "high" | "candidate" | "none";
@@ -164,6 +183,13 @@ export interface BindingHistoryBindingEvidence {
   readonly endpoint: string;
   readonly model: string | undefined;
   readonly boundaryWithoutUser: Readonly<Record<string, string>>;
+  /**
+   * The hash of the first user message this binding's request carried, as the traffic log
+   * stores it under the task's `first_user` boundary cell. Undefined when that request named
+   * no user message at all. Like every other field here it is a hash, never the text, and it
+   * never comes back out of this service.
+   */
+  readonly firstUserHash?: string | undefined;
 }
 
 export interface BindingHistoryQuery {
@@ -264,24 +290,35 @@ export class BindingHistoryService {
     const mismatchedLinks: AssociatedTask[] = [];
     for (const row of linkedTasks) {
       const matches = exactKeyMatches.get(row.id) ?? 0;
+      const historyNode = historyTargetNode(row.target, query.canonicalKey);
       if (boundaryEvidenceMatches(row, query.binding)) {
-        high.push(associatedTask(row, "high", matches, query.canonicalKey));
+        high.push(associatedTask(row, "high", matches, historyNode));
       } else {
-        mismatchedLinks.push(associatedTask(row, "candidate", matches, query.canonicalKey));
+        mismatchedLinks.push(associatedTask(row, "candidate", matches, historyNode));
       }
     }
     const linkedIds = new Set(linkedTasks.map((row) => row.id));
     const missingLinkedTasks = [...exactKeyMatches.keys()].filter((id) => !linkedIds.has(id));
 
+    const candidateWindowAnchorMs = candidateWindowAnchor(query, latestStoredRecordAt);
     const boundaryCandidates: AssociatedTask[] = [];
     for (const row of candidates.rows) {
       if (exactKeyMatches.has(row.id)) {
         continue;
       }
-      if (!boundaryEvidenceMatches(row, query.binding)) {
+      const historyNode = historyTargetNode(row.target, query.canonicalKey);
+      if (
+        !boundaryCandidateQualifies(
+          row,
+          query.binding,
+          historyNode,
+          candidateWindowAnchorMs,
+          limits.candidateActivityWindowMs,
+        )
+      ) {
         continue;
       }
-      boundaryCandidates.push(associatedTask(row, "candidate", 0, query.canonicalKey));
+      boundaryCandidates.push(associatedTask(row, "candidate", 0, historyNode));
     }
     boundaryCandidates.sort(byTaskSortTime);
 
@@ -289,8 +326,15 @@ export class BindingHistoryService {
     const returnedTasks = tasks.slice(0, limits.maxReturnedTasks);
     const taskListTruncated = returnedTasks.length < tasks.length;
 
+    // The grade belongs to the whole association, so it is read off the assembled set and not
+    // off the page the cap cut: a task nobody named makes the answer `candidate` even when the
+    // rows that reached the caller were all exact-key links.
     const confidence: HistoryAssociationConfidence =
-      high.length > 0 ? "high" : tasks.length > 0 ? "candidate" : "none";
+      tasks.length === 0
+        ? "none"
+        : tasks.every((task) => task.level === "high")
+          ? "high"
+          : "candidate";
     // A candidate never identifies a task, however few there are, and several linked tasks
     // are equally not-one-task; the caller has to show the whole scope either way.
     const ambiguous = tasks.some((task) => task.level === "candidate") || high.length > 1;
@@ -441,12 +485,16 @@ function distinctTaskIds(
   return ids;
 }
 
-/** The task columns the reader returns, projected so no body or identity key is present. */
+/**
+ * The task columns the reader returns, projected so no body or identity key is present.
+ * The node comparison is done by the caller, which has already decided whether this row is a
+ * candidate, so the same address is never parsed twice for one task.
+ */
 function associatedTask(
   row: Readonly<TaskAssociationRow>,
   level: HistoryAssociationLevel,
   exactKeyMatches: number,
-  canonicalKey: string,
+  historyTargetNode: "same" | "different" | "unknown",
 ): AssociatedTask {
   return {
     taskId: row.id,
@@ -460,7 +508,7 @@ function associatedTask(
     lastResponseAt: row.last_response_at,
     pendingRequestOnly: row.pending_request_only,
     historyTargetUrl: row.target,
-    historyTargetNode: historyTargetNode(row.target, canonicalKey),
+    historyTargetNode,
   };
 }
 
@@ -513,6 +561,48 @@ function boundaryEvidenceMatches(
     stableJsonStringify(
       boundaryWithoutUser(storedBoundaryFingerprints(row.boundary_fingerprints)),
     ) === stableJsonStringify(binding.boundaryWithoutUser)
+  );
+}
+
+function boundaryCandidateQualifies(
+  row: Readonly<TaskAssociationRow>,
+  binding: Readonly<BindingHistoryBindingEvidence>,
+  historyNode: "same" | "different" | "unknown",
+  candidateAnchorMs: number | undefined,
+  activityWindowMs: number,
+): boolean {
+  if (historyNode === "different" || !fullBoundaryEvidenceMatches(row, binding)) {
+    return false;
+  }
+  const rowTime = recordMilliseconds(row.last_seen_at);
+  return (
+    candidateAnchorMs === undefined ||
+    (rowTime !== undefined && Math.abs(rowTime - candidateAnchorMs) <= activityWindowMs)
+  );
+}
+
+function fullBoundaryEvidenceMatches(
+  row: Readonly<TaskAssociationRow>,
+  binding: Readonly<BindingHistoryBindingEvidence>,
+): boolean {
+  if (binding.firstUserHash === undefined) {
+    return false;
+  }
+  const stored = storedBoundaryFingerprints(row.boundary_fingerprints);
+  const expected = {
+    ...binding.boundaryWithoutUser,
+    first_user: binding.firstUserHash,
+  };
+  return stableJsonStringify(stored) === stableJsonStringify(expected);
+}
+
+function candidateWindowAnchor(
+  query: Readonly<BindingHistoryQuery>,
+  latestStoredRecordAt: string | null,
+): number | undefined {
+  return (
+    query.lastRequestStartedAt ??
+    (latestStoredRecordAt === null ? undefined : recordMilliseconds(latestStoredRecordAt))
   );
 }
 
@@ -570,6 +660,12 @@ function resolveLimits(
       DEFAULT_BINDING_HISTORY_LIMITS.maxReturnedTasks,
       1,
       MAX_RETURNED_TASKS_CEILING,
+    ),
+    candidateActivityWindowMs: resolveLimit(
+      overrides?.candidateActivityWindowMs ?? base?.candidateActivityWindowMs,
+      DEFAULT_BINDING_HISTORY_LIMITS.candidateActivityWindowMs,
+      0,
+      MAX_CANDIDATE_ACTIVITY_CEILING_MS,
     ),
   };
 }
