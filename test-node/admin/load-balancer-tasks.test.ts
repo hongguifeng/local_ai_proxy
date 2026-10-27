@@ -294,7 +294,7 @@ function taskRow(
     boundary_fingerprints: {
       ...entry.evidence.boundaryWithoutUser,
       ...(overrides.instructions === undefined ? {} : { instructions: overrides.instructions }),
-      first_user: "sha-first-user",
+      first_user: entry.evidence.firstUserHash ?? "sha-first-user",
     },
     fingerprints: { input: "sha-input" },
     last_user_messages: [PRIVATE_USER_TEXT],
@@ -843,7 +843,12 @@ describe("GET /api/load-balancer/tasks", () => {
     ]);
 
     const capped = new BindingHistoryService({
-      limits: { candidateScanRows: 2, maxExactKeys: 1, maxReturnedTasks: 1 },
+      limits: {
+        candidateActivityWindowMs: 365 * 24 * 60 * 60 * 1_000,
+        candidateScanRows: 2,
+        maxExactKeys: 1,
+        maxReturnedTasks: 1,
+      },
     });
     const server = adminServer(
       source([configured], balancer, undefined, { logRoot, history: capped }),
@@ -1097,7 +1102,7 @@ describe("GET /api/load-balancer/tasks", () => {
     });
 
     const associations = row?.associations;
-    expect(associations?.confidence).toBe("high");
+    expect(associations?.confidence).toBe("candidate");
     // Several tasks is not one task, so the scope has to be shown whole.
     expect(associations?.ambiguous).toBe(true);
     expect(associations?.taskIds).toEqual(["task-pending", "task-finished", "task-drifted"]);

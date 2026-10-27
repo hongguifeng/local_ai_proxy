@@ -63,6 +63,7 @@ function evidence(
     endpoint: overrides.endpoint ?? "/v1/responses",
     model: "model-x",
     boundaryWithoutUser: overrides.boundaryWithoutUser ?? BOUNDARY,
+    firstUserHash: "sha-first-user",
   };
 }
 
@@ -70,6 +71,7 @@ function taskWrite(
   id: string,
   overrides: {
     readonly boundary?: Readonly<Record<string, string>>;
+    readonly firstUserHash?: string;
     readonly lastSeenAt?: string;
     readonly target?: string;
     readonly pending?: boolean;
@@ -91,7 +93,7 @@ function taskWrite(
     ...(overrides.target === undefined ? {} : { target: overrides.target }),
     boundary_fingerprints: {
       ...(overrides.boundary ?? BOUNDARY),
-      first_user: "sha-first-user",
+      first_user: overrides.firstUserHash ?? "sha-first-user",
     },
     fingerprints: { input: "sha-input" },
     last_user_messages: [SECRET_USER_TEXT],
@@ -290,6 +292,7 @@ describe("BindingHistoryService", () => {
         endpoint: "/v1/responses",
         model: undefined,
         boundaryWithoutUser: BOUNDARY,
+        firstUserHash: "sha-first-user",
       },
       lastRequestStartedAt: undefined,
     });
@@ -321,6 +324,97 @@ describe("BindingHistoryService", () => {
     expect(result.tasks.map((task) => task.level)).toEqual(["candidate", "candidate"]);
   });
 
+  it("[TRI-04 regression] does not turn same-boundary history into fifty tasks when an exact key identifies one", async () => {
+    const root = await newLogRoot();
+    const repository = new TrafficRepository(root);
+    repository.upsertTask(taskWrite("task-exact"));
+    repository.upsertContextLink("conversation:conv-1", "task-exact");
+    for (let index = 1; index < 70; index += 1) {
+      repository.upsertTask(
+        taskWrite(`task-noise-${index}`, {
+          firstUserHash: `sha-noise-${index}`,
+          lastSeenAt: `2026-07-18T09:${String(index).padStart(2, "0")}:00.000+08:00`,
+          target: CANONICAL_KEY,
+        }),
+      );
+    }
+    repository.close();
+
+    const result = new BindingHistoryService().queryBindingHistory({
+      logRoot: root,
+      targetId: "node-a",
+      canonicalKey: CANONICAL_KEY,
+      binding: evidence(),
+      lastRequestStartedAt: undefined,
+    });
+
+    expect(taskIds(result.tasks)).toEqual(["task-exact"]);
+    expect(result.confidence).toBe("high");
+    expect(result.ambiguous).toBe(false);
+    expect(result.reasons).toEqual(["exact_key_links"]);
+    expect(result.coverage.candidateRowsRead).toBe(70);
+    expect(result.coverage.historyTruncated).toBe(false);
+  });
+
+  it("[TRI-04 regression] lowers aggregate confidence when an exact link and a candidate coexist", async () => {
+    const root = await newLogRoot();
+    const repository = new TrafficRepository(root);
+    repository.upsertTask(taskWrite("task-exact"));
+    repository.upsertTask(taskWrite("task-candidate"));
+    repository.upsertContextLink("conversation:conv-1", "task-exact");
+    repository.close();
+
+    const result = new BindingHistoryService().queryBindingHistory({
+      logRoot: root,
+      targetId: "node-a",
+      canonicalKey: CANONICAL_KEY,
+      binding: evidence(),
+      lastRequestStartedAt: undefined,
+    });
+
+    expect(result.confidence).toBe("candidate");
+    expect(result.ambiguous).toBe(true);
+    expect(result.tasks.map((task) => task.level)).toEqual(["high", "candidate"]);
+  });
+
+  it("[TRI-04 regression] excludes candidates on another node and outside the activity window", async () => {
+    const root = await newLogRoot();
+    const repository = new TrafficRepository(root);
+    repository.upsertTask(
+      taskWrite("task-current", {
+        lastSeenAt: "2026-07-18T09:30:00.000+08:00",
+        target: CANONICAL_KEY,
+      }),
+    );
+    repository.upsertTask(
+      taskWrite("task-other-node", {
+        lastSeenAt: "2026-07-18T09:45:00.000+08:00",
+        target: "http://127.0.0.1:9000",
+      }),
+    );
+    repository.upsertTask(
+      taskWrite("task-old", {
+        lastSeenAt: "2026-07-18T07:00:00.000+08:00",
+        target: CANONICAL_KEY,
+      }),
+    );
+    repository.close();
+
+    const result = new BindingHistoryService({
+      limits: { candidateActivityWindowMs: 60 * 60 * 1_000 },
+    }).queryBindingHistory({
+      logRoot: root,
+      targetId: "node-a",
+      canonicalKey: CANONICAL_KEY,
+      binding: evidence(),
+      lastRequestStartedAt: Date.parse("2026-07-18T10:00:00.000+08:00"),
+    });
+
+    expect(taskIds(result.tasks)).toEqual(["task-current"]);
+    expect(result.tasks[0]?.historyTargetNode).toBe("same");
+    expect(result.confidence).toBe("candidate");
+    expect(result.reasons).toContain("boundary_candidates");
+  });
   it("[TRI-04] drops a link to candidate grade when the task's boundary no longer matches", async () => {
     const root = await newLogRoot();
     const repository = new TrafficRepository(root);
@@ -807,6 +901,7 @@ describe("BindingHistoryService", () => {
         endpoint: binding.evidence.endpoint,
         model: binding.evidence.model,
         boundaryWithoutUser: binding.evidence.boundaryWithoutUser,
+        firstUserHash: binding.evidence.firstUserHash,
       },
       lastRequestStartedAt: undefined,
     });
