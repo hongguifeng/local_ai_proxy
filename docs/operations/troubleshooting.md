@@ -53,3 +53,24 @@ UI 是一个 bundle；读取 `static-checks-and-split`、`ui-test-quirks` 和 `r
 ## CI 失败
 
 使用 `ci-triage` skill 通过 GitHub Actions API 读取 job 和 artifact。先下载失败 runner 的原始日志，再区分断言失败、资源超时、ABI、视觉环境差异和打包错误。不能通过增加重试、删除测试或降低像素阈值来消除未知失败。
+
+### Vitest worker 在 windows runner 上因 V8 堆耗尽退出
+
+日志签名是这三行同时出现：
+
+```text
+FATAL ERROR: Ineffective mark-compacts near heap limit Allocation failed - JavaScript heap out of memory
+[vitest-pool]: Worker forks emitted error.
+Caused by: Error: Worker exited unexpectedly
+```
+
+这不是断言失败：汇总行仍然写着全部文件通过（例如 `150 passed | 1 skipped`），只有那个 worker 手里的文件没跑完，若干用例根本没执行，最后包装步骤以 `exit code 1` 收尾。判断 CI 是否真的红，要看 job 级结论和 `FAIL` 行，不能只看 run 级结论。
+
+已测到的证据：
+
+- 只在 windows-latest 出现。同一次 run 里 ubuntu-latest 的 job 是绿的（CI#213）。
+- 这是拆文件之前就住在这里的老住户。CI#203（sha `2f86e69`，负载均衡套件还是单文件）与 CI#213（sha `38a80dc`）的 windows 日志含同一组三行。拆完之后 windows 4 次崩 1 次，拆之前 8 次崩 1 次，没有变频繁的证据。
+- 不是某个单文件过重：`test-node/pricing/pricing-benchmark.test.ts` 单独跑，在 `--max-old-space-size=512` 下也过。
+- 配置本身不必然复现：本地用 `CI=true`（仓库配置因此取 `maxWorkers: 2`）加 `--max-old-space-size=2048` 跑全量，1573 通过、2 跳过，没有崩。
+
+因此它指向的是“同一个 forked worker 连跑几十个文件后累积的状态”撞上了 Windows 的提交内存上限，而 Linux 的 overcommit 让它从不出现。再次发生时，记下 run 号和 job 号、把这三行原文留在报告里，再决定是调 worker 堆还是调并发；不要先动测试。
