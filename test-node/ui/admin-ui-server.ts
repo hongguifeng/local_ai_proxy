@@ -6,7 +6,7 @@ import {
   createAdminServer,
   loadAdminStaticAssets,
 } from "../../src/admin/index.js";
-import { ConfigValidationError } from "../../src/config/index.js";
+import { ConfigValidationError, normalizeLoadBalancerGroups } from "../../src/config/index.js";
 import { Readable } from "node:stream";
 import type { LogPendingRecord } from "../../src/maintenance/index.js";
 import { existsSync } from "node:fs";
@@ -177,7 +177,18 @@ export async function startStubAdminServer(): Promise<void> {
         if (pairsSaveIssues !== null) {
           throw new ConfigValidationError(pairsSaveIssues);
         }
-        const publicPairs = nextPairs.map(publicPair);
+        // [TRI-10] Normalize group configuration the way the real save route does before
+        // storing: a group that never named a rebalance mode reads as `off` and a named
+        // mode is trimmed and kept. The real route does the same before ProxyManager
+        // stores, so the stub's status answers read the same normalized values the real
+        // service would see - the console's serializer has no control for this field yet,
+        // so a saved group can arrive without it, exactly as it does on the real route.
+        const publicPairs = nextPairs.map((item) =>
+          publicPair({
+            ...item,
+            load_balancers: normalizeLoadBalancerGroups(item.load_balancers),
+          }),
+        );
         pairs.splice(0, pairs.length, ...publicPairs);
         return Promise.resolve(pairs);
       },

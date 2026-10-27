@@ -193,6 +193,67 @@ describe("ConfigRepository.save", () => {
     expect(reloaded).toEqual(materializeProxyConfigFile(loaded));
   });
 
+  /**
+   * [TRI-10] `rebalance_mode` is a modelled group key, so the save/load contract has to carry
+   * it explicitly: a saved `advise` reads back as `advise`, and a group written before the
+   * mode existed reads back as the modelled default `off` and is persisted as `off` on the next
+   * save. Neither direction may lose or rename the user's choice.
+   */
+  it("[TRI-10] round-trips the group rebalance mode through save and load", async () => {
+    const directory = await mkdtemp(path.join(os.tmpdir(), "llm-proxy-config-rebalance-"));
+    temporaryDirectories.push(directory);
+    const configPath = path.join(directory, "proxies.json");
+    const sourceFile = {
+      pairs: [
+        {
+          id: "proxy-1",
+          name: "Proxy",
+          enabled: false,
+          listen_host: "127.0.0.1",
+          listen_port: 1234,
+          access_log: false,
+          targets: [{ id: "target-1", target_url: "http://127.0.0.1:1235" }],
+          default_target_id: "target-1",
+          load_balancers: [
+            {
+              id: "lb-advise",
+              name: "Advisor",
+              model_pattern: "qwen*",
+              members: [{ target_id: "target-1" }],
+              rebalance_mode: "advise",
+            },
+            {
+              id: "lb-legacy",
+              name: "Legacy",
+              model_pattern: "gpt*",
+              members: [{ target_id: "target-1" }],
+            },
+          ],
+        },
+      ],
+    };
+    await writeFile(configPath, JSON.stringify(sourceFile), "utf8");
+    const repository = new ConfigRepository(configPath, "logs");
+
+    const loaded = await repository.load();
+    expect(loaded.pairs[0]?.load_balancers.map((group) => group.rebalance_mode)).toEqual([
+      "advise",
+      "off",
+    ]);
+
+    await repository.save(loaded);
+    const persisted = JSON.parse(await readFile(configPath, "utf8")) as {
+      pairs: { load_balancers: { rebalance_mode: string }[] }[];
+    };
+    expect(persisted.pairs[0]?.load_balancers.map((group) => group.rebalance_mode)).toEqual([
+      "advise",
+      "off",
+    ]);
+
+    const reloaded = await repository.load();
+    expect(reloaded.pairs[0]?.load_balancers).toEqual(loaded.pairs[0]?.load_balancers);
+  });
+
   it("flushes and fsyncs the temporary file before rename", async () => {
     const calls: string[] = [];
     const handle = {

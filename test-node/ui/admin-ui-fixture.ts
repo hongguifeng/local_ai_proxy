@@ -119,6 +119,18 @@ export function loadBalancerStatusFixture() {
         enabled: group.enabled,
         nodeTargetIds: group.members.map(({ target_id }) => target_id),
         bindings: group.members.length,
+        // [TRI-10] The stub answers the rebalance block the service answers for a group
+        // that has never been evaluated: the configured mode, no calibration, no
+        // suggestions. The mode is the one the stored configuration carries - the server
+        // stub normalizes saved groups exactly like the real save route, so a group that
+        // never named a mode is `off` here too.
+        rebalance: {
+          calibrated: false,
+          disabledReason: group.rebalance_mode === "auto" ? ("not_calibrated" as const) : null,
+          groupId: group.id,
+          mode: group.rebalance_mode,
+          suggestions: [],
+        },
         nodes: group.members.map(({ target_id }, index) => ({
           targetId: target_id,
           canonicalKey: `http://127.0.0.1:939${3 + index}`,
@@ -1727,6 +1739,7 @@ export function visualLbPairs(): PublicProxyPair[] {
       strategy: "least_load",
       metrics_enabled: true,
       failover_enabled: true,
+      rebalance_mode: "off",
     },
     {
       id: "visual-lb-cloud",
@@ -1739,6 +1752,7 @@ export function visualLbPairs(): PublicProxyPair[] {
       })),
       strategy: "round_robin",
       metrics_enabled: true,
+      rebalance_mode: "off",
       failover_enabled: true,
     },
   ];

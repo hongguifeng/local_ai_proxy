@@ -304,6 +304,7 @@ describe("normalizeLoadBalancerGroups", () => {
         strategy: "round_robin",
         metrics_enabled: false,
         failover_enabled: false,
+        rebalance_mode: "off",
       },
       {
         id: "lb-2",
@@ -314,8 +315,34 @@ describe("normalizeLoadBalancerGroups", () => {
         strategy: "least_load",
         metrics_enabled: true,
         failover_enabled: true,
+        rebalance_mode: "off",
       },
     ]);
+  });
+
+  /**
+   * [TRI-10] A group that never named a rebalance mode reads as `off`, a named mode is trimmed
+   * and kept, and an unknown mode text stays as written so the schema reports the group path
+   * instead of the normalizer guessing a safer-looking mode.
+   */
+  it("[TRI-10] defaults a missing rebalance mode to off and keeps unknown text for the schema", () => {
+    expect(normalizeLoadBalancerGroups([{ model_pattern: "qwen*" }])[0]?.rebalance_mode).toBe(
+      "off",
+    );
+    expect(
+      normalizeLoadBalancerGroups([{ model_pattern: "qwen*", rebalance_mode: " advise " }])[0]
+        ?.rebalance_mode,
+    ).toBe("advise");
+    expect(
+      normalizeLoadBalancerGroups([{ model_pattern: "qwen*", rebalance_mode: "auto" }])[0]
+        ?.rebalance_mode,
+    ).toBe("auto");
+
+    const groups = normalizeLoadBalancerGroups([
+      { model_pattern: "qwen*", rebalance_mode: "cruise_control" },
+    ]);
+    expect(groups[0]?.rebalance_mode).toBe("cruise_control");
+    expect(() => loadBalancerGroupSchema.parse(groups[0])).toThrow();
   });
 
   it("LB01-02 keeps an unknown node target so the schema can report it", () => {
@@ -416,6 +443,7 @@ describe("normalizeLoadBalancerGroups", () => {
         strategy: "round_robin",
         metrics_enabled: false,
         failover_enabled: false,
+        rebalance_mode: "off",
       },
     ]);
   });

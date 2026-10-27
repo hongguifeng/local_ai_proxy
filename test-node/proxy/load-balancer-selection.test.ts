@@ -51,6 +51,7 @@ function group(
     strategy: "least_load",
     metrics_enabled: true,
     failover_enabled: true,
+    rebalance_mode: "off",
     ...overrides,
   };
 }

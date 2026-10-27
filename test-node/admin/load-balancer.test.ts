@@ -2,6 +2,7 @@ import http from "node:http";
 import { afterEach, describe, expect, it } from "vitest";
 
 import { applicationHealth, createAdminServer } from "../../src/admin/index.js";
+import { LOAD_BALANCER_STATUS_RESPONSE_SCHEMA } from "../../src/admin/admin-schemas.js";
 import {
   createDefaultProxyPair,
   createDefaultTarget,
@@ -9,6 +10,7 @@ import {
   type TargetConfig,
 } from "../../src/config/index.js";
 import {
+  ADVISE_OBSERVATION_POLICY,
   LoadBalancer,
   LoadMonitor,
   createLoadBalancerAdminService,
@@ -68,6 +70,7 @@ function group(
     strategy: "least_load",
     metrics_enabled: true,
     failover_enabled: true,
+    rebalance_mode: "off",
     ...overrides,
   };
 }
@@ -481,5 +484,271 @@ describe("[TRI-03] what the status endpoint says about an incomplete answer", ()
 
     await close(idleEngine.server);
     await close(quietEngine.server);
+  });
+});
+
+describe("[TRI-10] what the real status route says about automatic rebalancing", () => {
+  const sortedKeys = (value: object): string[] => Object.keys(value).sort();
+
+  /**
+   * Poll the real route until the advisor's live advice for one group is in its answer.
+   * [TRI-10] It waits for the state, not for a non-empty list: the answer is newest-first, so
+   * a refusal recorded after the advice became live can legitimately be the first item. Picking
+   * by index would make the assertion depend on which record happened to land first.
+   */
+  async function waitForStatusAdvice(
+    server: ReturnType<typeof createAdminServer>,
+    groupId: string,
+    timeoutMs = 5_000,
+  ): Promise<{
+    rebalance: LoadBalancerStatusResponse["pairs"][number]["groups"][number]["rebalance"];
+    suggestion: LoadBalancerStatusResponse["pairs"][number]["groups"][number]["rebalance"]["suggestions"][number];
+  }> {
+    const deadline = Date.now() + timeoutMs;
+    for (;;) {
+      const response = await server.inject({ method: "GET", url: "/api/load-balancer/status" });
+      expect(response.statusCode).toBe(200);
+      const body: LoadBalancerStatusResponse = response.json();
+      const group = body.pairs[0]?.groups.find((item) => item.id === groupId);
+      const rebalance = group?.rebalance;
+      const suggestion = rebalance?.suggestions.find((item) => item.state === "suggested");
+      if (rebalance !== undefined && suggestion !== undefined) {
+        return { rebalance, suggestion };
+      }
+      if (Date.now() > deadline) {
+        throw new Error(
+          `No live advice through the route within ${timeoutMs} ms: ${response.payload.slice(0, 400)}`,
+        );
+      }
+      await new Promise((resolve) => setTimeout(resolve, 20));
+    }
+  }
+
+  it("answers the calibration verdict for every group through the assembled service", async () => {
+    const engine = await startCountingServer((_request, response) => {
+      response.writeHead(200, { "content-type": "text/plain" });
+      response.end(IDLE_EXPOSITION);
+    });
+    const balancer = new LoadBalancer("pair-a");
+    const configured = pair(
+      "pair-a",
+      [target("target-a", `http://127.0.0.1:${engine.port}`)],
+      [
+        group("lb-off", ["target-a"]),
+        group("lb-advise", ["target-a"], { rebalance_mode: "advise" }),
+        group("lb-auto", ["target-a"], { rebalance_mode: "auto" }),
+      ],
+    );
+    balancer.reconfigure(configured);
+    // A monitor that was never started: nothing has been evaluated yet, which is exactly
+    // the state the status answer must show - never a suggestion conjured from nothing.
+    const monitor = new LoadMonitor(balancer, { now: () => 1_000 });
+
+    const server = createAdminServer({
+      getHealth: () => applicationHealth("running"),
+      loadBalancerService: createLoadBalancerAdminService(source([configured], balancer, monitor)),
+    });
+    servers.push(server);
+
+    const response = await server.inject({ method: "GET", url: "/api/load-balancer/status" });
+    expect(response.statusCode).toBe(200);
+    const body: LoadBalancerStatusResponse = response.json();
+    const groups = body.pairs[0]?.groups ?? [];
+    const byId = new Map(groups.map((group) => [group.id, group]));
+
+    const off = byId.get("lb-off")?.rebalance;
+    expect(off).toBeDefined();
+    expect(sortedKeys(off ?? {})).toEqual(["calibrated", "disabledReason", "mode", "suggestions"]);
+    expect(off?.mode).toBe("off");
+    expect(off?.calibrated).toBe(false);
+    expect(off?.disabledReason).toBeNull();
+    expect(off?.suggestions).toEqual([]);
+
+    const advise = byId.get("lb-advise")?.rebalance;
+    expect(advise?.mode).toBe("advise");
+    expect(advise?.calibrated).toBe(false);
+    expect(advise?.disabledReason).toBeNull();
+    expect(advise?.suggestions).toEqual([]);
+
+    // The user asked for `auto`; until the TRI-11 calibration record exists the honest
+    // answer is the named refusal, on the wire, through the real serializer.
+    const auto = byId.get("lb-auto")?.rebalance;
+    expect(auto?.mode).toBe("auto");
+    expect(auto?.calibrated).toBe(false);
+    expect(auto?.disabledReason).toBe("not_calibrated");
+    expect(auto?.suggestions).toEqual([]);
+
+    await close(engine.server);
+  });
+
+  it("shows advice born on the monitor's timer, with every suggestion key the schema declares", async () => {
+    const busyEngine = await startCountingServer((_request, response) => {
+      response.writeHead(200, { "content-type": "text/plain" });
+      response.end(VLLM_EXPOSITION);
+    });
+    const idleB = await startCountingServer((_request, response) => {
+      response.writeHead(200, { "content-type": "text/plain" });
+      response.end(IDLE_EXPOSITION);
+    });
+    const idleC = await startCountingServer((_request, response) => {
+      response.writeHead(200, { "content-type": "text/plain" });
+      response.end(IDLE_EXPOSITION);
+    });
+    const configured = pair(
+      "pair-a",
+      [
+        target("target-a", `http://127.0.0.1:${busyEngine.port}`),
+        target("target-b", `http://127.0.0.1:${idleB.port}`),
+        target("target-c", `http://127.0.0.1:${idleC.port}`),
+      ],
+      [group("lb-adv", ["target-a", "target-b", "target-c"], { rebalance_mode: "advise" })],
+    );
+    const balancer = new LoadBalancer("pair-a");
+    balancer.reconfigure(configured);
+
+    // A binding on the busy engine with a real request boundary behind it. The same
+    // identity is bound and re-planned, so the second request lands on that binding.
+    const leakIdentity = taskIdentity({
+      payload: {
+        model: "Qwen3.8-Flash-Next",
+        input: [{ role: "user", content: "private rebalance prompt" }],
+      },
+      headers: { "x-claude-code-session-id": ["session-rebalance-leak"] },
+      path: "/v1/responses",
+    });
+    const table = balancer.tableFor("lb-adv");
+    if (table === undefined) {
+      throw new Error("An enabled group must have an affinity table.");
+    }
+    const binding = table.bind(leakIdentity, "target-a");
+    const ref = balancer.bindingRefFor("lb-adv", binding);
+    balancer.noteBindingRequestBytes(ref, 2_048);
+    balancer.recordBindingUsage(ref, {
+      status: "complete",
+      endpoint: "responses",
+      inputTokens: 1_840,
+      cacheReadTokens: 900,
+    });
+    const firstGroup = configured.load_balancers[0];
+    if (firstGroup === undefined) {
+      throw new Error("The fixture pair lost its group.");
+    }
+    const reservation = balancer.plan({ group: firstGroup, identity: leakIdentity });
+    expect(reservation?.decision.targetId).toBe("target-a");
+    reservation?.release();
+
+    const monitor = new LoadMonitor(balancer, { sampleIntervalMs: 25 });
+    monitor.start();
+    const server = createAdminServer({
+      getHealth: () => applicationHealth("running"),
+      loadBalancerService: createLoadBalancerAdminService(source([configured], balancer, monitor)),
+    });
+    servers.push(server);
+
+    try {
+      const { rebalance, suggestion } = await waitForStatusAdvice(server, "lb-adv");
+      expect(rebalance.mode).toBe("advise");
+      expect(rebalance.calibrated).toBe(false);
+      expect(rebalance.disabledReason).toBeNull();
+      expect(sortedKeys(suggestion)).toEqual([
+        "bindingId",
+        "costEstimated",
+        "costSource",
+        "createdAt",
+        "destinationTargetId",
+        "incarnation",
+        "inputTokens",
+        "requestBytes",
+        "routingRevision",
+        "sourceTargetId",
+        "stableSamples",
+        "state",
+        "stateReason",
+        "suggestionId",
+      ]);
+      expect(suggestion.state).toBe("suggested");
+      expect(suggestion.stateReason).toBeNull();
+      expect(suggestion.sourceTargetId).toBe("target-a");
+      expect(suggestion.destinationTargetId).toBe("target-b");
+      expect(suggestion.costSource).toBe("normalized_usage");
+      expect(suggestion.costEstimated).toBe(false);
+      expect(suggestion.inputTokens).toBe(1_840);
+      expect(suggestion.stableSamples).toBeGreaterThanOrEqual(2);
+      expect(suggestion.suggestionId).toMatch(/^[0-9a-f]{32}$/);
+
+      // A suggestion is an address inside one runtime, and nothing more: it names ids and
+      // targets, never the conversation that produced them. The route answers it, and the
+      // wire carries none of the request's private parts.
+      const leakCheck = await server.inject({
+        method: "GET",
+        url: "/api/load-balancer/status",
+      });
+      expect(leakCheck.payload).not.toContain("session-rebalance-leak");
+      expect(leakCheck.payload).not.toContain("private rebalance prompt");
+      const snapshot = balancer.bindingSnapshot("lb-adv");
+      expect(snapshot?.entries[0]?.targetId).toBe("target-a");
+      expect(snapshot?.entries[0]?.ref.routingRevision).toBe(0);
+      expect(balancer.migrationOperations()).toEqual([]);
+    } finally {
+      monitor.stop();
+      await close(busyEngine.server);
+      await close(idleB.server);
+      await close(idleC.server);
+    }
+  });
+
+  it("answers the configured mode with no suggestions when the pair has no monitor", () => {
+    const balancer = new LoadBalancer("pair-a");
+    const configured = pair(
+      "pair-a",
+      [target("target-a", "http://127.0.0.1:1")],
+      [group("lb-auto", ["target-a"], { rebalance_mode: "auto" })],
+    );
+    balancer.reconfigure(configured);
+    const status = createLoadBalancerAdminService(
+      source([configured], balancer, undefined),
+    ).getStatus();
+
+    // A stopped pair has no monitor to ask: the honest answer is the configured mode with
+    // the calibration verdict on it and the named refusal for `auto` - nothing was evaluated.
+    const rebalance = status.pairs[0]?.groups[0]?.rebalance;
+    expect(rebalance).toBeDefined();
+    expect(rebalance?.mode).toBe("auto");
+    expect(rebalance?.calibrated).toBe(false);
+    expect(rebalance?.disabledReason).toBe("not_calibrated");
+    expect(rebalance?.suggestions).toEqual([]);
+  });
+
+  /**
+   * [TRI-10] The declared response cap and the advisor's own storage ceiling must agree: a
+   * list the serializer refuses would turn advice into an error answer. The cap is read out
+   * of the JSON schema the route is registered with, so this cannot pass by copying a literal.
+   */
+  it("declares a suggestion list big enough for the advisor's production ceiling", () => {
+    type SchemaNode = Readonly<Record<string, unknown>>;
+    const step = (node: SchemaNode | undefined, key: string): SchemaNode | undefined => {
+      if (node === undefined) {
+        return undefined;
+      }
+      const properties = node["properties"] as SchemaNode | undefined;
+      const direct = properties?.[key] as SchemaNode | undefined;
+      if (direct !== undefined) {
+        return direct;
+      }
+      const items = node["items"] as SchemaNode | undefined;
+      return step(items, key);
+    };
+    const walk = (keys: readonly string[]): SchemaNode | undefined =>
+      keys.reduce<SchemaNode | undefined>(
+        (current, key) => step(current, key),
+        LOAD_BALANCER_STATUS_RESPONSE_SCHEMA,
+      );
+
+    const suggestions = walk(["pairs", "groups", "rebalance", "suggestions"]);
+    const declaredCap = suggestions?.["maxItems"];
+    expect(declaredCap).toBeTypeOf("number");
+    expect(declaredCap as number).toBeGreaterThanOrEqual(
+      ADVISE_OBSERVATION_POLICY.maxSuggestionsPerGroup,
+    );
   });
 });

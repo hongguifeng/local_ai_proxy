@@ -354,7 +354,33 @@ describe("loadBalancerGroupSchema", () => {
       strategy: "least_load",
       metrics_enabled: true,
       failover_enabled: true,
+      rebalance_mode: "off",
     });
+  });
+
+  /**
+   * [TRI-10] The automatic rebalance mode is a closed choice and the default is `off`: a group
+   * nobody configured must not compute automatic actions, and each of the three modes is the
+   * only text that means it. An unrecognised mode is a validation error naming the field, not
+   * a silent downgrade - saving a typo must not quietly become `off`.
+   */
+  it("[TRI-10] defaults rebalance_mode to off and accepts only the three named modes", () => {
+    for (const mode of ["off", "advise", "auto"] as const) {
+      const parsed = loadBalancerGroupSchema.parse({ ...groupFixture, rebalance_mode: mode });
+      expect(parsed.rebalance_mode).toBe(mode);
+      expect(loadBalancerGroupSchema.parse(parsed)).toEqual(parsed);
+    }
+
+    const rejected = loadBalancerGroupSchema.safeParse({
+      ...groupFixture,
+      rebalance_mode: "cruise_control",
+    });
+    expect(rejected.success).toBe(false);
+    const issue = rejected.error?.issues[0];
+    expect(issue?.path).toEqual(["rebalance_mode"]);
+    expect(issue?.message).toContain("expected one of");
+
+    expect(loadBalancerGroupSchema.parse(groupFixture).rebalance_mode).toBe("off");
   });
 
   it("LB01-03 accepts a group with a single node", () => {

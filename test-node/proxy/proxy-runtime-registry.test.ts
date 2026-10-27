@@ -716,6 +716,7 @@ function reloadStickyFixture(slowPort: number, fastPort: number, logRoot: string
         strategy: "round_robin",
         metrics_enabled: true,
         failover_enabled: true,
+        rebalance_mode: "off",
       },
     ],
     targets: [
@@ -811,6 +812,7 @@ function loadBalancedPairFixture(upstreamPort: number, logRoot: string): ProxyPa
         })),
         strategy: "least_load",
         metrics_enabled: true,
+        rebalance_mode: "off",
         failover_enabled: true,
       },
     ],

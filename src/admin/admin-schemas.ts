@@ -327,6 +327,59 @@ const loadBalancerNodeDto = z.object({
   targetId: z.string().max(512),
 });
 
+const loadBalancerRebalanceSuggestionDto = z.object({
+  bindingId: z.number().int().min(0),
+  costEstimated: z.boolean(),
+  costSource: z.enum(["normalized_usage", "request_bytes", "none"]),
+  createdAt: z.number().int().min(0),
+  destinationTargetId: z.string().max(512),
+  incarnation: z.number().int().min(0),
+  inputTokens: z.number().int().min(0).nullable(),
+  requestBytes: z.number().int().min(0).nullable(),
+  routingRevision: z.number().int().min(0),
+  sourceTargetId: z.string().max(512),
+  stableSamples: z.number().int().min(0),
+  // [TRI-10] `applied` and `observed` are TRI-12 states and stay undeclared here: the
+  // advisor cannot produce them before calibration, and a state the code cannot answer
+  // must not ride on the wire contract.
+  state: z.enum(["suggested", "unused", "rejected", "expired"]),
+  stateReason: z
+    .enum([
+      "anti_flap",
+      "binding_cooldown",
+      "binding_gone",
+      "destination_commitment",
+      "destination_metrics_lost",
+      "episode_live",
+      "group_budget",
+      "group_changed",
+      "no_action_permitted",
+      "no_next_request",
+      "route_changed",
+      "runtime_changed",
+      "source_metrics_lost",
+      "state_risk",
+      "store_full",
+      "target_busy",
+      "target_unavailable",
+    ])
+    .nullable(),
+  suggestionId: z.string().max(64),
+});
+
+const loadBalancerRebalanceDto = z.object({
+  // [TRI-10] Until the TRI-11 real-engine calibration record exists this is always false,
+  // and `auto` runs as advise with the named refusal below. It is the calibration verdict,
+  // not a decorative flag.
+  calibrated: z.boolean(),
+  disabledReason: z.enum(["not_calibrated"]).nullable(),
+  mode: z.enum(["off", "advise", "auto"]),
+  // [TRI-10] The cap is the advisor's own production ceiling (ADVISE_OBSERVATION_POLICY
+  // .maxSuggestionsPerGroup), not a number picked beside it: the response must always be able
+  // to carry what the advisor can store. `test-node/admin/load-balancer.test.ts` pins the pair.
+  suggestions: z.array(loadBalancerRebalanceSuggestionDto).max(128),
+});
+
 const loadBalancerGroupDto = z.object({
   bindings: z.number().int().min(0),
   enabled: z.boolean(),
@@ -337,6 +390,7 @@ const loadBalancerGroupDto = z.object({
   name: z.string().max(512),
   nodeTargetIds: z.array(z.string().max(512)).max(256),
   nodes: z.array(loadBalancerNodeDto).max(256),
+  rebalance: loadBalancerRebalanceDto,
   strategy: z.string().max(64),
 });
 

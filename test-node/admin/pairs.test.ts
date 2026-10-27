@@ -478,9 +478,59 @@ describe("load balancer configuration through the pairs API", () => {
         strategy: "least_load",
         metrics_enabled: true,
         failover_enabled: true,
+        // [TRI-10] The v1 default for the automatic rebalance mode: a group written without
+        // the field never computes automatic actions.
+        rebalance_mode: "off",
       },
     ]);
     expect(manager.listPairs()[0]?.load_balancers).toEqual(stored?.["load_balancers"]);
+  });
+
+  /**
+   * [TRI-10] A named rebalance mode is the user's decision, so the real save route must keep
+   * it: `advise` and `auto` come back exactly as written, and the running manager holds the
+   * same value. A group written without the field stays on the `off` default above.
+   */
+  it("[TRI-10] keeps an explicit rebalance mode through the save route", async () => {
+    const manager = managerWith();
+    const stored = await putPairs(manager, [
+      lbPair({ load_balancers: [{ ...group, rebalance_mode: "advise" }] }),
+    ]);
+    expect(stored.statusCode).toBe(200);
+    const written = (stored.body as { pairs: { load_balancers: Record<string, unknown>[] }[] })
+      .pairs[0];
+    expect(written?.load_balancers[0]?.["rebalance_mode"]).toBe("advise");
+    expect(manager.listPairs()[0]?.load_balancers[0]?.rebalance_mode).toBe("advise");
+
+    const asked = await putPairs(manager, [
+      lbPair({ load_balancers: [{ ...group, rebalance_mode: "auto" }] }),
+    ]);
+    expect(asked.statusCode).toBe(200);
+    const askedGroup = (asked.body as { pairs: { load_balancers: Record<string, unknown>[] }[] })
+      .pairs[0];
+    expect(askedGroup?.load_balancers[0]?.["rebalance_mode"]).toBe("auto");
+    expect(manager.listPairs()[0]?.load_balancers[0]?.rebalance_mode).toBe("auto");
+  });
+
+  /**
+   * [TRI-10] A mode nobody recognises is a validation error naming the field, on the real
+   * route: saving a typo must not quietly become `off`, and the running configuration must
+   * stay untouched by the refused write.
+   */
+  it("[TRI-10] rejects an unknown rebalance mode with its exact path", async () => {
+    const manager = managerWith();
+    const result = await putPairs(manager, [
+      lbPair({ load_balancers: [{ ...group, rebalance_mode: "cruise_control" }] }),
+    ]);
+
+    expect(result.statusCode).toBe(400);
+    const error = (
+      result.body as { error: { code: string; issues: { path: string; message: string }[] } }
+    ).error;
+    expect(error.code).toBe("invalid_config");
+    expect(error.issues[0]?.path).toBe("pairs.0.load_balancers.0.rebalance_mode");
+    expect(error.issues[0]?.message).toContain("expected one of");
+    expect(manager.listPairs()[0]?.load_balancers).toEqual([]);
   });
 
   it("LB01-01 adds an empty group list to a payload written without the field", async () => {

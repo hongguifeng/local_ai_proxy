@@ -3,6 +3,7 @@ import { isRecord } from "../shared/index.js";
 import type {
   LoadBalancerGroup,
   LoadBalancerMember,
+  LoadBalancerRebalanceMode,
   LoadBalancerStrategy,
   ModelMapping,
   ModelPrice,
@@ -275,7 +276,20 @@ function normalizeLoadBalancerGroup(
       value["metrics_enabled"] === undefined ? true : Boolean(value["metrics_enabled"]),
     failover_enabled:
       value["failover_enabled"] === undefined ? true : Boolean(value["failover_enabled"]),
+    rebalance_mode: normalizeLoadBalancerRebalanceMode(value["rebalance_mode"]),
   };
+}
+
+function normalizeLoadBalancerRebalanceMode(value: unknown): LoadBalancerRebalanceMode {
+  const text = primitiveText(value).trim();
+  if (text === "" || text === "off") {
+    return "off";
+  }
+  if (text === "advise" || text === "auto") {
+    return text;
+  }
+  // Any other text is handed to the schema, which rejects it with the group path.
+  return text as LoadBalancerRebalanceMode;
 }
 
 function normalizeLoadBalancerStrategy(value: unknown): LoadBalancerStrategy {

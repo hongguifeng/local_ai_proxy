@@ -12,6 +12,8 @@ import {
   LoadMonitor,
   METRIC_SAMPLE_INTERVAL_MS,
   taskIdentity,
+  type RebalanceGroupView,
+  type RebalanceSuggestionView,
 } from "../../src/proxy/index.js";
 
 type GroupShape = ProxyPair["load_balancers"][number];
@@ -58,6 +60,7 @@ function group(
     strategy: "least_load",
     metrics_enabled: true,
     failover_enabled: true,
+    rebalance_mode: "off",
     ...overrides,
   };
 }
@@ -90,6 +93,12 @@ const VLLM_EXPOSITION = `# TYPE vllm:num_requests_running gauge
 vllm:num_requests_running{engine="0",model_name="Qwen3.8-Flash-Next"} 3.0
 vllm:num_requests_waiting{engine="0",model_name="Qwen3.8-Flash-Next"} 2.0
 vllm:kv_cache_usage_perc{engine="0",model_name="Qwen3.8-Flash-Next"} 0.35
+`;
+
+const IDLE_EXPOSITION = `# TYPE vllm:num_requests_running gauge
+vllm:num_requests_running{engine="0",model_name="Qwen3.8-Flash-Next"} 0.0
+vllm:num_requests_waiting{engine="0",model_name="Qwen3.8-Flash-Next"} 0.0
+vllm:kv_cache_usage_perc{engine="0",model_name="Qwen3.8-Flash-Next"} 0.1
 `;
 
 /** A metrics endpoint that counts how often it was asked. */
@@ -565,5 +574,322 @@ vllm:engine_sleep_state{engine="0",sleep_state="weights_offloaded"} 1.0
       }),
     ).toBeUndefined();
     await close(engine.server);
+  });
+});
+
+// -------------------------------------------------------------------------------- [TRI-10]
+
+const ADV_GROUP = "lb-adv";
+const ADV_MEMBERS = ["target-a", "target-b", "target-c"];
+
+/** The exact keys one suggestion log line is allowed to carry. */
+const SUGGESTION_LOG_KEYS = [
+  "bindingId",
+  "destinationTargetId",
+  "groupId",
+  "incarnation",
+  "sourceTargetId",
+  "stableSamples",
+  "suggestionId",
+].sort();
+
+const sleep = (ms: number): Promise<void> => new Promise((resolve) => setTimeout(resolve, ms));
+
+/** One busy engine and two quiet ones, each its own physical key. */
+async function startAdvisorTrio(): Promise<{
+  busy: { server: http.Server; port: number; requests: () => number };
+  idleB: { server: http.Server; port: number; requests: () => number };
+  idleC: { server: http.Server; port: number; requests: () => number };
+}> {
+  const [busy, idleB, idleC] = await Promise.all([
+    startMetricsServer(VLLM_EXPOSITION),
+    startMetricsServer(IDLE_EXPOSITION),
+    startMetricsServer(IDLE_EXPOSITION),
+  ]);
+  return { busy, idleB, idleC };
+}
+
+async function closeTrio(trio: Awaited<ReturnType<typeof startAdvisorTrio>>): Promise<void> {
+  await Promise.all([close(trio.busy.server), close(trio.idleB.server), close(trio.idleC.server)]);
+}
+
+function advisorPair(
+  ports: { busy: number; idleB: number; idleC: number },
+  rebalanceMode: GroupShape["rebalance_mode"],
+  groupOverrides: Partial<GroupShape> = {},
+): ProxyPair {
+  return pair(
+    [
+      target("target-a", `http://127.0.0.1:${ports.busy}`),
+      target("target-b", `http://127.0.0.1:${ports.idleB}`),
+      target("target-c", `http://127.0.0.1:${ports.idleC}`),
+    ],
+    [group(ADV_GROUP, ADV_MEMBERS, { rebalance_mode: rebalanceMode, ...groupOverrides })],
+  );
+}
+
+/**
+ * A binding that sits on the busy engine with everything the advisor may look at: a real
+ * request boundary (zero in flight afterwards), a body size and a complete usage signal.
+ * The route it proves is the one the request path already made; the advisor changes none.
+ */
+function bindOnBusyEngine(balancer: LoadBalancer, sessionId: string, turn = "one"): void {
+  const table = balancer.tableFor(ADV_GROUP);
+  if (table === undefined) {
+    throw new Error("An enabled group must have an affinity table.");
+  }
+  const binding = table.bind(identity(sessionId, turn), "target-a");
+  const ref = balancer.bindingRefFor(ADV_GROUP, binding);
+  balancer.noteBindingRequestBytes(ref, 2_048);
+  balancer.recordBindingUsage(ref, {
+    status: "complete",
+    endpoint: "responses",
+    inputTokens: 1_840,
+    cacheReadTokens: 900,
+  });
+  const reservation = balancer.plan({
+    group: group(ADV_GROUP, ADV_MEMBERS),
+    identity: identity(sessionId, turn),
+  });
+  // The bound task must route to the engine it was bound to; if it did not, the fixture
+  // is wrong and every advice assertion below would be testing the wrong premise.
+  expect(reservation?.decision.targetId).toBe("target-a");
+  reservation?.release();
+}
+
+/** Watch the monitor's own tick until the advisor answers something for one group. */
+async function waitForAdvice(
+  monitor: LoadMonitor,
+  groupId: string,
+  timeoutMs = 5_000,
+): Promise<RebalanceSuggestionView> {
+  const deadline = Date.now() + timeoutMs;
+  for (;;) {
+    const view = monitor.rebalanceViews().find((item) => item.groupId === groupId);
+    const live = view?.suggestions.find((suggestion) => suggestion.state === "suggested");
+    if (live !== undefined) {
+      return live;
+    }
+    if (Date.now() > deadline) {
+      throw new Error(
+        `No advice within ${timeoutMs} ms. Views: ${JSON.stringify(monitor.rebalanceViews())}`,
+      );
+    }
+    await sleep(20);
+  }
+}
+
+async function waitForNoAdvice(monitor: LoadMonitor, groupId: string): Promise<RebalanceGroupView> {
+  await sleep(120); // Several ticks at the test's 25 ms sampling interval.
+  const view = monitor.rebalanceViews().find((item) => item.groupId === groupId);
+  if (view === undefined) {
+    throw new Error(
+      `The group left the monitor's views entirely: ${JSON.stringify(monitor.rebalanceViews())}`,
+    );
+  }
+  return view;
+}
+
+describe("[TRI-10] the advisor wired onto the monitor's own tick", () => {
+  it("advises on the monitor's timer and changes no route, no revision and no record", async () => {
+    const trio = await startAdvisorTrio();
+    const balancer = new LoadBalancer("pair-1");
+    balancer.reconfigure(
+      advisorPair(
+        { busy: trio.busy.port, idleB: trio.idleB.port, idleC: trio.idleC.port },
+        "advise",
+      ),
+    );
+    bindOnBusyEngine(balancer, "session-advise");
+
+    const monitor = new LoadMonitor(balancer, { sampleIntervalMs: 25 });
+    monitor.start();
+    try {
+      const advice = await waitForAdvice(monitor, ADV_GROUP);
+      expect(advice.state).toBe("suggested");
+      expect(advice.sourceTargetId).toBe("target-a");
+      expect(advice.destinationTargetId).toBe("target-b");
+      expect(advice.stableSamples).toBeGreaterThanOrEqual(2);
+      expect(advice.costSource).toBe("normalized_usage");
+      expect(advice.costEstimated).toBe(false);
+      expect(advice.inputTokens).toBe(1_840);
+      expect(advice.requestBytes).toBe(2_048);
+      expect(advice.stateReason).toBeNull();
+
+      const view = monitor.rebalanceViews().find((item) => item.groupId === ADV_GROUP);
+      expect(view?.mode).toBe("advise");
+      expect(view?.calibrated).toBe(false);
+      expect(view?.disabledReason).toBeNull();
+
+      // The advice changed nothing: the binding still sits where the request path put it,
+      // with the revision it was created with, and no move was ever registered.
+      const snapshot = balancer.bindingSnapshot(ADV_GROUP);
+      expect(snapshot?.entries).toHaveLength(1);
+      expect(snapshot?.entries[0]?.targetId).toBe("target-a");
+      expect(snapshot?.entries[0]?.ref.routingRevision).toBe(0);
+      expect(balancer.migrationOperations()).toEqual([]);
+
+      // The advice lives on the monitor, not on any UI: the status views answer from the
+      // monitor's memory after stop, and a stopped pair keeps nothing running.
+      monitor.stop();
+      expect(monitor.running).toBe(false);
+      expect(
+        monitor.rebalanceViews().find((item) => item.groupId === ADV_GROUP)?.suggestions,
+      ).toEqual([]);
+    } finally {
+      monitor.stop();
+      await closeTrio(trio);
+    }
+  });
+
+  it("computes nothing while off, and switching to off forgets everything advise had seen", async () => {
+    const trio = await startAdvisorTrio();
+    const ports = { busy: trio.busy.port, idleB: trio.idleB.port, idleC: trio.idleC.port };
+    const balancer = new LoadBalancer("pair-1");
+    balancer.reconfigure(advisorPair(ports, "off"));
+    bindOnBusyEngine(balancer, "session-off-then-advise");
+
+    const monitor = new LoadMonitor(balancer, { sampleIntervalMs: 25 });
+    monitor.start();
+    try {
+      const offView = await waitForNoAdvice(monitor, ADV_GROUP);
+      expect(offView.mode).toBe("off");
+      expect(offView.suggestions).toEqual([]);
+      // Sampling itself keeps running under `off`: the mode stops the automatic judgement,
+      // not the metric reading the manual status still shows.
+      expect(trio.busy.requests()).toBeGreaterThan(0);
+
+      const revisionBefore = balancer.bindingSnapshot(ADV_GROUP)?.groupRevision;
+      balancer.reconfigure(advisorPair(ports, "advise"));
+      const advice = await waitForAdvice(monitor, ADV_GROUP);
+      expect(advice.state).toBe("suggested");
+      // The advisor mode is not a routing change: the group revision never moved, so what
+      // vanishes next cannot be blamed on a group that "changed".
+      expect(balancer.bindingSnapshot(ADV_GROUP)?.groupRevision).toBe(revisionBefore);
+
+      balancer.reconfigure(advisorPair(ports, "off"));
+      const dropped = await waitForNoAdvice(monitor, ADV_GROUP);
+      expect(dropped.mode).toBe("off");
+      // The whole store is gone - not an expiry trail of terminal records left behind. The
+      // drop happens at the advisor's entry point, so `off` really computes nothing.
+      expect(dropped.suggestions).toEqual([]);
+      expect(balancer.bindingSnapshot(ADV_GROUP)?.groupRevision).toBe(revisionBefore);
+    } finally {
+      monitor.stop();
+      await closeTrio(trio);
+    }
+  });
+
+  it("runs an uncalibrated auto exactly like advise, says not_calibrated, and moves nothing", async () => {
+    const trio = await startAdvisorTrio();
+    const balancer = new LoadBalancer("pair-1");
+    balancer.reconfigure(
+      advisorPair({ busy: trio.busy.port, idleB: trio.idleB.port, idleC: trio.idleC.port }, "auto"),
+    );
+    bindOnBusyEngine(balancer, "session-auto-degraded");
+
+    const monitor = new LoadMonitor(balancer, { sampleIntervalMs: 25 });
+    monitor.start();
+    try {
+      const advice = await waitForAdvice(monitor, ADV_GROUP);
+      expect(advice.state).toBe("suggested");
+      expect(advice.destinationTargetId).toBe("target-b");
+
+      const view = monitor.rebalanceViews().find((item) => item.groupId === ADV_GROUP);
+      expect(view?.mode).toBe("auto");
+      expect(view?.calibrated).toBe(false);
+      expect(view?.disabledReason).toBe("not_calibrated");
+
+      // Safe degradation, proved where it matters: a group asking for `auto` produced the
+      // same advice `advise` produces, and still no binding moved, no revision stepped and
+      // no migration was ever registered. Auto cannot act before TRI-11's calibration.
+      const snapshot = balancer.bindingSnapshot(ADV_GROUP);
+      expect(snapshot?.entries[0]?.targetId).toBe("target-a");
+      expect(snapshot?.entries[0]?.ref.routingRevision).toBe(0);
+      expect(balancer.migrationOperations()).toEqual([]);
+    } finally {
+      monitor.stop();
+      await closeTrio(trio);
+    }
+  });
+
+  it("drops advice for a metrics-off or disabled group, not merely an expiry trail", async () => {
+    const trio = await startAdvisorTrio();
+    const ports = { busy: trio.busy.port, idleB: trio.idleB.port, idleC: trio.idleC.port };
+    const balancer = new LoadBalancer("pair-1");
+    balancer.reconfigure(advisorPair(ports, "advise"));
+    bindOnBusyEngine(balancer, "session-dropped-groups");
+
+    const monitor = new LoadMonitor(balancer, { sampleIntervalMs: 25 });
+    monitor.start();
+    try {
+      await waitForAdvice(monitor, ADV_GROUP);
+
+      balancer.reconfigure(advisorPair(ports, "advise", { metrics_enabled: false }));
+      const metricsOff = await waitForNoAdvice(monitor, ADV_GROUP);
+      expect(metricsOff.mode).toBe("advise");
+      expect(metricsOff.suggestions).toEqual([]);
+      await sleep(120);
+      expect(
+        monitor.rebalanceViews().find((item) => item.groupId === ADV_GROUP)?.suggestions,
+      ).toEqual([]);
+
+      balancer.reconfigure(
+        advisorPair(ports, "advise", { metrics_enabled: false, enabled: false }),
+      );
+      const disabled = await waitForNoAdvice(monitor, ADV_GROUP);
+      expect(disabled.suggestions).toEqual([]);
+
+      // The state was dropped outright, so bringing the group back starts a clean store:
+      // advice only ever appears from fresh evidence, never from what the old run saw.
+      balancer.reconfigure(advisorPair(ports, "advise"));
+      const rebuilt = await waitForAdvice(monitor, ADV_GROUP);
+      expect(rebuilt.state).toBe("suggested");
+      expect(rebuilt.stableSamples).toBeGreaterThanOrEqual(2);
+    } finally {
+      monitor.stop();
+      await closeTrio(trio);
+    }
+  });
+
+  it("logs a suggestion with ids, targets and numbers only - never a session, body or key", async () => {
+    const logger = collectingLogger();
+    const trio = await startAdvisorTrio();
+    const balancer = new LoadBalancer("pair-1");
+    balancer.reconfigure(
+      advisorPair(
+        { busy: trio.busy.port, idleB: trio.idleB.port, idleC: trio.idleC.port },
+        "advise",
+      ),
+    );
+    bindOnBusyEngine(balancer, "session-log-leak", "please keep this private");
+
+    const monitor = new LoadMonitor(balancer, { logger, sampleIntervalMs: 25 });
+    monitor.start();
+    try {
+      await waitForAdvice(monitor, ADV_GROUP);
+      const suggestionLines = logger.entries.filter((entry) =>
+        entry.message.startsWith("load rebalance suggestion"),
+      );
+      expect(suggestionLines.length).toBeGreaterThanOrEqual(1);
+      for (const line of suggestionLines) {
+        expect(Object.keys(line.context).sort()).toEqual(SUGGESTION_LOG_KEYS);
+      }
+      const serialized = JSON.stringify(logger.entries);
+      expect(serialized).not.toContain("session-log-leak");
+      expect(serialized).not.toContain("please keep this private");
+      expect(serialized).not.toContain("response:");
+      expect(serialized).not.toContain("context_key");
+      expect(String(suggestionLines[0]?.context["suggestionId"])).toMatch(/^[0-9a-f]{32}$/);
+      // Nothing that looks like an exact key or a message hash is carried anywhere.
+      for (const line of suggestionLines) {
+        for (const value of Object.values(line.context)) {
+          expect(String(value)).not.toMatch(/^[0-9a-f]{64}$/);
+        }
+      }
+    } finally {
+      monitor.stop();
+      await closeTrio(trio);
+    }
   });
 });

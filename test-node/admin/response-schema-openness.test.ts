@@ -510,6 +510,34 @@ describe("[AI-08] declared decisions through a running admin server", () => {
     expect(field(node, "metrics")["smuggled_metric_field"]).toBeUndefined();
     expect(field(node, "metrics")["running"]).toBe(2);
 
+    // [TRI-10] The rebalance block and the suggestion inside it are closed at their own
+    // depth: invented keys vanish at both levels and each object carries exactly the
+    // declared keys.
+    const rebalance = field(statusGroup, "rebalance");
+    expect(statusGroup["smuggled_rebalance_field"]).toBeUndefined();
+    expect(rebalance["smuggled_rebalance_field"]).toBeUndefined();
+    expect(sortedKeys(rebalance)).toEqual(["calibrated", "disabledReason", "mode", "suggestions"]);
+    expect(rebalance["mode"]).toBe("off");
+    expect(rebalance["calibrated"]).toBe(false);
+    const suggestion = item(list(rebalance, "suggestions"), 0);
+    expect(suggestion["smuggled_suggestion_field"]).toBeUndefined();
+    expect(sortedKeys(suggestion)).toEqual([
+      "bindingId",
+      "costEstimated",
+      "costSource",
+      "createdAt",
+      "destinationTargetId",
+      "incarnation",
+      "inputTokens",
+      "requestBytes",
+      "routingRevision",
+      "sourceTargetId",
+      "stableSamples",
+      "state",
+      "stateReason",
+      "suggestionId",
+    ]);
+
     // [TRI-05] the binding list carries eight nested declared objects on top of the page
     // itself, and each one is as closed as the page around it: an invented field disappears at
     // every depth, and the answer carries exactly the keys the schema declares - no more.
@@ -961,6 +989,41 @@ function adminStubs(): PartialAdminServerOptions {
                         targetId: "target-1",
                       },
                     ],
+                    // [TRI-10] The rebalance block is a closed DTO with a closed suggestion
+                    // inside, so the stub smuggles a key at both depths and the probes below
+                    // ask whether the serializer dropped each of them.
+                    rebalance: smuggle(
+                      {
+                        calibrated: false,
+                        disabledReason: null,
+                        groupId: "group-1",
+                        mode: "off",
+                        suggestions: [
+                          smuggle(
+                            {
+                              bindingId: 7,
+                              costEstimated: false,
+                              costSource: "normalized_usage",
+                              createdAt: 9,
+                              destinationTargetId: "target-2",
+                              incarnation: 3,
+                              inputTokens: 1_840,
+                              requestBytes: null,
+                              routingRevision: 2,
+                              sourceTargetId: "target-1",
+                              stableSamples: 2,
+                              state: "suggested",
+                              stateReason: null,
+                              suggestionId: "suggestion-fixture",
+                            },
+                            "smuggled_suggestion_field",
+                            "gone",
+                          ),
+                        ],
+                      },
+                      "smuggled_rebalance_field",
+                      "gone",
+                    ),
                     strategy: "least_loaded",
                   },
                 ],

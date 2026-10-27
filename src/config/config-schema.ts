@@ -49,6 +49,16 @@ export const loadBalancerStrategySchema = z.enum(["least_load", "round_robin"]);
 export type LoadBalancerStrategy = z.infer<typeof loadBalancerStrategySchema>;
 
 /**
+ * How far this group lets an automatic rebalance policy go (design section 7.1).
+ * `off` computes nothing, `advise` only produces suggestions, and `auto` may act - but the
+ * runtime keeps `auto` at advise behaviour until TRI-11's real-engine calibration lands, so
+ * no binding moves on its own before that evidence exists. The default is `off`: turning a
+ * group into an advisor is an explicit user decision.
+ */
+export const loadBalancerRebalanceModeSchema = z.enum(["off", "advise", "auto"]);
+export type LoadBalancerRebalanceMode = z.infer<typeof loadBalancerRebalanceModeSchema>;
+
+/**
  * One member of a load balancing group: an existing target of the same pair,
  * plus the model name forwarded to it. An empty model id means no mapping, so
  * the requested model reaches that node unchanged.
@@ -77,6 +87,7 @@ export const loadBalancerGroupSchema = z
     strategy: loadBalancerStrategySchema.default("least_load"),
     metrics_enabled: z.boolean().default(true),
     failover_enabled: z.boolean().default(true),
+    rebalance_mode: loadBalancerRebalanceModeSchema.default("off"),
   })
   .superRefine(({ id, members }, context) => {
     const seen = new Set<string>();

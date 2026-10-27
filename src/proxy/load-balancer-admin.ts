@@ -20,6 +20,11 @@ import {
   type MetricCompleteness,
   type SampleFreshness,
 } from "./load-evidence.js";
+import {
+  AUTO_NOT_CALIBRATED,
+  AUTO_REBALANCE_CALIBRATED,
+  type RebalanceGroupView,
+} from "./load-rebalance.js";
 import type { LoadMonitor, LoadNodeStatus } from "./load-monitor.js";
 import { tryCanonicalNodeKey } from "./node-identity.js";
 import type { EndpointKind } from "./protocol/analysis.js";
@@ -103,6 +108,8 @@ export interface LoadBalancerStatusGroup {
   readonly name: string;
   readonly nodeTargetIds: readonly string[];
   readonly nodes: readonly LoadBalancerStatusNode[];
+  /** [TRI-10] The advisor's state for this group, read from the monitor's memory. */
+  readonly rebalance: RebalanceGroupView;
   readonly strategy: string;
 }
 
@@ -131,6 +138,17 @@ function statusGroup(
     (monitor?.nodeStatuses() ?? []).map((status) => [status.targetId, status]),
   );
   const boundByTarget = balancer?.tableFor(group.id)?.snapshot().byTarget ?? {};
+  // [TRI-10] A stopped pair has no monitor to ask, so the honest answer is the configured
+  // mode with the calibration verdict on it and no suggestions: nothing was evaluated.
+  const rebalance: RebalanceGroupView = monitor
+    ?.rebalanceViews()
+    .find((view) => view.groupId === group.id) ?? {
+    calibrated: AUTO_REBALANCE_CALIBRATED,
+    disabledReason: group.rebalance_mode === "auto" ? AUTO_NOT_CALIBRATED : null,
+    groupId: group.id,
+    mode: group.rebalance_mode,
+    suggestions: [],
+  };
   return {
     bindings: balancer?.tableFor(group.id)?.size ?? 0,
     enabled: group.enabled,
@@ -158,6 +176,7 @@ function statusGroup(
         targetId,
       };
     }),
+    rebalance,
     strategy: group.strategy,
   };
 }

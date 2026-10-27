@@ -163,6 +163,25 @@ export {
   type SampleFreshness,
 } from "./load-evidence.js";
 export {
+  ADVISE_OBSERVATION_POLICY,
+  AUTO_NOT_CALIBRATED,
+  AUTO_REBALANCE_CALIBRATED,
+  RebalanceAdvisor,
+  type RebalanceBindingCandidate,
+  type RebalanceExpiryReason,
+  type RebalanceGroupView,
+  type RebalancePolicy,
+  type RebalanceRejectionReason,
+  type RebalanceSuggestion,
+  type RebalanceSuggestionReason,
+  type RebalanceSuggestionState,
+  type RebalanceSuggestionView,
+  type RebalanceTickInput,
+  type RebalanceTickResult,
+  type RebalanceUnusedReason,
+  type RebalanceMode,
+} from "./load-rebalance.js";
+export {
   EMPTY_LOAD_SAMPLES,
   KV_TIER_THRESHOLD,
   MAX_COOLDOWN_MS,
