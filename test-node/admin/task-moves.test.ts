@@ -216,6 +216,29 @@ function responsesIdentity(sessionId: string, turn = "one", previousResponseId?:
   });
 }
 
+/** A Responses request that names a stored conversation and still carries its own turn. */
+function storedConversationIdentity(sessionId: string) {
+  return taskIdentity({
+    payload: {
+      model: "Qwen3.8-Flash-Next",
+      input: [{ role: "user", content: `turn ${sessionId}` }],
+      conversation: { id: `conv-${sessionId}` },
+    },
+    path: "/v1/responses",
+  });
+}
+
+/** A Responses request whose `input` is not a user message the affinity table can read. */
+function bareResponsesIdentity(sessionId: string) {
+  return taskIdentity({
+    payload: {
+      model: "Qwen3.8-Flash-Next",
+      input: `next turn ${sessionId}`,
+    },
+    path: "/v1/responses",
+  });
+}
+
 /** Put a task on a node without running it through the request path. */
 function bind(
   balancer: LoadBalancer,
@@ -910,7 +933,7 @@ describe("[TRI-08] the manual move route on the service the proxy runs", () => {
     expect(onlyEntry(modelFixture.balancer).targetId).toBe("node-a");
   });
 
-  it("refuses the two state gates with 422 state_not_migratable", async () => {
+  it("refuses the state gates with 422 state_not_migratable", async () => {
     const { balancer, server } = fixture();
     bind(balancer, responsesIdentity("state-1", "one", "resp-1"), "node-a");
 
@@ -919,18 +942,30 @@ describe("[TRI-08] the manual move route on the service the proxy runs", () => {
     expect(responseDependent.code).toBe("state_not_migratable");
     expect(responseDependent.message).toContain("response id");
 
-    const unknownFixture = fixture();
-    bind(unknownFixture.balancer, responsesIdentity("state-2"), "node-a");
-    const unknownState = await submit(
-      unknownFixture.server,
-      moveBody(unknownFixture.balancer, "node-b"),
+    // A handle to server-side history is refused even though the body carried its own turn: the
+    // destination may never have seen that conversation, and nothing here proves it can reach it.
+    const conversationFixture = fixture();
+    bind(conversationFixture.balancer, storedConversationIdentity("state-2"), "node-a");
+    const conversationState = await submit(
+      conversationFixture.server,
+      moveBody(conversationFixture.balancer, "node-b"),
     );
-    expect(unknownState.status).toBe(422);
-    expect(unknownState.code).toBe("state_not_migratable");
-    expect(unknownState.message).toContain("cannot prove");
+    expect(conversationState.status).toBe(422);
+    expect(conversationState.code).toBe("state_not_migratable");
+    expect(conversationState.message).toContain("conversation, thread or session");
+    expect(conversationState.message).toContain("cannot prove");
+
+    // A Responses body the table can read no user content out of leaves the gate with no proof,
+    // whichever way that happens: a bare string `input`, or no body content at all.
+    const bareFixture = fixture();
+    bind(bareFixture.balancer, bareResponsesIdentity("state-3"), "node-a");
+    const bareInput = await submit(bareFixture.server, moveBody(bareFixture.balancer, "node-b"));
+    expect(bareInput.status).toBe(422);
+    expect(bareInput.code).toBe("state_not_migratable");
+    expect(bareInput.message).toContain("no user content");
 
     const noContentFixture = fixture();
-    bind(noContentFixture.balancer, emptyChatIdentity("state-3"), "node-a");
+    bind(noContentFixture.balancer, emptyChatIdentity("state-4"), "node-a");
     const noContent = await submit(
       noContentFixture.server,
       moveBody(noContentFixture.balancer, "node-b"),
@@ -939,14 +974,32 @@ describe("[TRI-08] the manual move route on the service the proxy runs", () => {
     expect(noContent.code).toBe("state_not_migratable");
     expect(noContent.message).toContain("no user content");
 
-    // A refusal the state gate found is not a parameter error and not a conflict, and the three
-    // causes are readable apart.
-    expect(new Set([responseDependent.message, unknownState.message, noContent.message]).size).toBe(
-      3,
-    );
+    // The causes are readable apart, and none of them is a parameter error or a conflict.
+    expect(
+      new Set([
+        responseDependent.message,
+        conversationState.message,
+        bareInput.message,
+        noContent.message,
+      ]).size,
+    ).toBe(4);
     expect(onlyEntry(balancer).targetId).toBe("node-a");
-    expect(onlyEntry(unknownFixture.balancer).targetId).toBe("node-a");
+    expect(onlyEntry(conversationFixture.balancer).targetId).toBe("node-a");
+    expect(onlyEntry(bareFixture.balancer).targetId).toBe("node-a");
     expect(onlyEntry(noContentFixture.balancer).targetId).toBe("node-a");
+
+    // The endpoint is not the refusal: a Responses task that carried its input and named no stored
+    // state is accepted, because there is nothing for the destination to be asked about.
+    const carriedFixture = fixture();
+    bind(carriedFixture.balancer, responsesIdentity("state-5", "carried"), "node-a");
+    const accepted = await submit(
+      carriedFixture.server,
+      moveBody(carriedFixture.balancer, "node-b"),
+    );
+    expect(accepted.status).toBe(200);
+    expect(accepted.payload["state"]).toBe("applied");
+    expect(accepted.payload["toTargetId"]).toBe("node-b");
+    expect(onlyEntry(carriedFixture.balancer).targetId).toBe("node-b");
   });
 
   it("answers a store that cannot take new work with 503 and still reports a refusal it found", async () => {

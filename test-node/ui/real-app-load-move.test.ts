@@ -87,7 +87,8 @@ interface Upstream {
   chatHits(): number;
   otherHits(): number;
   /** Whether the next plain answer carries a response id. That is what teaches a binding a
-   *  `response:` key, and that key is what the state gate refuses a later move for. */
+   *  `response:` lookup key - which the next turn can find the task by, and which is not by
+   *  itself a reason to refuse a move. */
   emitIds(emitting: boolean): void;
   /** Whether the next streamed answer stops after its first frame until `releaseFrames`. */
   holdFirstFrame(holding: boolean): void;
@@ -148,9 +149,10 @@ async function startUpstream(label: string): Promise<Upstream> {
         response.writeHead(200, { "content-type": "application/json" });
         response.end(
           JSON.stringify({
-            // An engine that answers with a response id teaches the table a `response:` key,
-            // and that key is what a later move is refused for. Whether this fixture teaches
-            // that is switched here, so both outcomes can be shown.
+            // An engine that answers with a response id teaches the table a `response:` lookup
+            // key. Whether this fixture teaches that is switched here, so the case that shows an
+            // emitted id leaving a move allowed and the case that shows a named id refusing one
+            // can both be run against the same upstream.
             ...(emitting ? { id: `chatcmpl-${label}-${String(counted)}` } : {}),
             object: "chat.completion",
             model,
@@ -217,6 +219,21 @@ function chatBody(conversationId: string, content: string, stream: boolean): str
   });
 }
 
+/**
+ * One Responses turn: the input travels in the body, and the request names a stored response only
+ * when this file hands it one. `instructions` stays identical across the two turns so the affinity
+ * table sees one task, not two.
+ */
+function responsesBody(instructions: string, content: string, previousResponseId?: string): string {
+  return JSON.stringify({
+    model: MODEL,
+    instructions,
+    input: [{ role: "user", content }],
+    stream: false,
+    ...(previousResponseId === undefined ? {} : { previous_response_id: previousResponseId }),
+  });
+}
+
 /** The same conversation one turn later: the earlier question comes first, so the affinity table
  *  sees a continuation of the task it already bound rather than a different task. */
 function followUpBody(conversationId: string, firstQuestion: string, nextQuestion: string): string {
@@ -236,7 +253,23 @@ async function sendChat(
   proxyPort: number,
   body: string,
 ): Promise<{ status: number; body: string }> {
-  const response = await fetch(`http://127.0.0.1:${String(proxyPort)}/v1/chat/completions`, {
+  return sendRequest(proxyPort, "/v1/chat/completions", body);
+}
+
+/** One Responses turn sent through the real proxy. */
+async function sendResponses(
+  proxyPort: number,
+  body: string,
+): Promise<{ status: number; body: string }> {
+  return sendRequest(proxyPort, "/v1/responses", body);
+}
+
+async function sendRequest(
+  proxyPort: number,
+  path: string,
+  body: string,
+): Promise<{ status: number; body: string }> {
+  const response = await fetch(`http://127.0.0.1:${String(proxyPort)}${path}`, {
     method: "POST",
     headers: { "content-type": "application/json" },
     body,
@@ -637,8 +670,9 @@ async function waitForNewBinding(
   }
 }
 
-/** Wait until the state gate refuses this binding's move, which is what an id learned from a
- *  response body does. The id is taught after the response ended, so the refusal arrives late. */
+/** Wait until the state gate refuses this binding's move. The fact that refuses it arrives after
+ *  the row was first read - a learned id, a handle, or a turn that named one - so the refusal has
+ *  to be waited for rather than assumed from the row that created the task. */
 async function waitForMoveRefusal(
   adminPort: number,
   created: LoadBalancerBindingListItem,
@@ -765,8 +799,8 @@ describe("[TRI-09] a move made through the real console", () => {
     const { first, second, live, page } = runtime();
     const conversation = "tri09-stream";
     const question = "the long first question";
-    // These answers carry no response id. An id would teach the binding a `response:` key, which
-    // is what the state gate refuses a later move for; the case after this one shows that.
+    // These answers carry no response id. An id would teach the binding a `response:` lookup key,
+    // which is not a reason to refuse a move; the Responses case after this one shows what is.
     first.emitIds(false);
     second.emitIds(false);
     first.holdFirstFrame(true);
@@ -1017,9 +1051,9 @@ describe("[TRI-09] a move made through the real console", () => {
     ).toEqual([]);
   }, 60_000);
 
-  it("LB09-03 a response id the engine emitted is what a later move is refused for", async () => {
+  it("LB09-03 an id the engine emitted leaves the move open, and naming it closes it", async () => {
     const { first, second, live, page } = runtime();
-    const conversation = "tri09-response-id";
+    const instructions = "tri09-response-id";
     first.emitIds(true);
     second.emitIds(true);
     first.holdFirstFrame(false);
@@ -1027,31 +1061,51 @@ describe("[TRI-09] a move made through the real console", () => {
 
     const before = await readTasks(live.adminPort, undefined);
     const known = new Set(before.items.map(bindingAddress));
-    const answered = await sendChat(
+    const answered = await sendResponses(
       live.proxyPort,
-      chatBody(conversation, "the answer that carries a response id", false),
+      responsesBody(instructions, "the answer that carries a response id"),
     );
     expect(answered.status).toBe(200);
-    expect((JSON.parse(answered.body) as { id?: unknown }).id).toBeTypeOf("string");
+    const emittedId = (JSON.parse(answered.body) as { id?: unknown }).id;
+    expect(emittedId).toBeTypeOf("string");
 
+    // The turn that made this binding carried its input and named nothing, so the id the engine
+    // emitted is only an artefact the client already has: the row still says the task can move.
+    // The case that expected a refusal here read that learned id as a dependency.
     const created = await waitForNewBinding(live.adminPort, known, false);
-    const refused = await waitForMoveRefusal(live.adminPort, created);
-    expect(refused.movable.ok).toBe(false);
-    expect(refused.movable.reasons).toEqual(["response_state_dependency"]);
-    // The refusal is the binding's own. A candidate is never the node the binding already sits
-    // on, and the console offers nothing to pick while the binding itself may not move.
-    expect(refused.movable.destinations.map((item) => item.targetId)).not.toContain(
-      refused.targetId,
+    expect(created.endpointKind).toBe("responses");
+    expect(created.movable.ok).toBe(true);
+    expect(created.movable.reasons).toEqual([]);
+    expect(created.movable.destinations.map((item) => item.targetId)).not.toContain(
+      created.targetId,
     );
 
     await ensureStatusOpen(page);
-    const panel = await openBindingPanel(page, refused.targetId);
-    const row = bindingRow(panel, refused);
+    const panel = await openBindingPanel(page, created.targetId);
+    const row = bindingRow(panel, created);
     await expectPage(row).toHaveCount(1);
+    await expectPage(row.locator(".lb-binding-move-target")).toHaveCount(1);
+    // Every candidate is unmeasured, so nothing is chosen and nothing may be submitted yet.
+    await expectPage(row.locator("[data-lb-binding-move]")).toBeDisabled();
+
+    // The next turn names that id. That is a dependency, and it lands on the same binding: the
+    // learned key is what let the turn find the node that answered the first one.
+    const namedTurn = await sendResponses(
+      live.proxyPort,
+      responsesBody(instructions, "the turn that names the answer", String(emittedId)),
+    );
+    expect(namedTurn.status).toBe(200);
+
+    const refused = await waitForMoveRefusal(live.adminPort, created);
+    expect(refused.bindingId).toBe(created.bindingId);
+    expect(refused.incarnation).toBe(created.incarnation);
+    expect(refused.movable.ok).toBe(false);
+    expect(refused.movable.reasons).toEqual(["response_state_dependency"]);
+    // A refusal to move again moves nothing: the route the request was answered on stands.
+    expect(refused.targetId).toBe(created.targetId);
+
     await waitForMoveReason(row, "addressed through a response id");
     await expectPage(row.locator(".lb-binding-move-target")).toHaveCount(0);
     await expectPage(row.locator("[data-lb-binding-move]")).toBeDisabled();
-    // A refusal to move again moves nothing: the route the request was answered on stands.
-    expect(refused.targetId).toBe(created.targetId);
   }, 60_000);
 });

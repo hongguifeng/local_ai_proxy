@@ -1850,4 +1850,130 @@ describe("[TRI-09] the move the binding list offers", () => {
       "expired",
     );
   });
+
+  /**
+   * A Responses request that carried its input and named no stored state, optionally naming a
+   * response the client is waiting for.
+   */
+  function responsesIdentity(sessionId: string, turn: string, previousResponseId?: string) {
+    return taskIdentity({
+      payload: {
+        model: "Qwen3.8-Flash-Next",
+        instructions: "rules",
+        input: [{ role: "user", content: `${turn}-${sessionId}` }],
+        ...(previousResponseId === undefined ? {} : { previous_response_id: previousResponseId }),
+      },
+      path: "/v1/responses",
+    });
+  }
+
+  /** The same shape pointing at a stored conversation instead of carrying its own history. */
+  function storedConversationIdentity(sessionId: string) {
+    return taskIdentity({
+      payload: {
+        model: "Qwen3.8-Flash-Next",
+        instructions: "rules",
+        input: [{ role: "user", content: `turn-${sessionId}` }],
+        conversation: { id: `conv-${sessionId}` },
+      },
+      path: "/v1/responses",
+    });
+  }
+
+  it("LB-T22 a responses row is answered by what its request named, not by its endpoint", async () => {
+    const balancer = new LoadBalancer("pair-a");
+    const configured = movablePair(["target-a", "target-b"]);
+    balancer.reconfigure(configured);
+    const table = balancer.tableFor("lb-live");
+    if (table === undefined) {
+      throw new Error("The group lb-live must have an affinity table.");
+    }
+    // Three shapes the gate has to tell apart: a task that carried its input and named nothing,
+    // one that names a response the client is waiting for, and one that names a stored
+    // conversation. The first also carries an id the engine emitted, which is what must not
+    // refuse it.
+    const carried = table.bind(responsesIdentity("carried", "first"), "target-a");
+    table.attachResponseIds(carried, ["resp-emitted"]);
+    const responseDependent = table.bind(
+      responsesIdentity("dependent", "second", "resp-named"),
+      "target-a",
+    );
+    const conversationDependent = table.bind(storedConversationIdentity("stored"), "target-a");
+
+    const server = adminServer(source([configured], balancer, undefined));
+    const list = await readTasks(server, MOVABLE_QUERY);
+    expect(list.statusCode).toBe(200);
+    const byId = new Map(list.body.items.map((item) => [item.bindingId, item]));
+
+    const carriedRow = byId.get(carried.id);
+    if (carriedRow === undefined) throw new Error("The self-contained binding must be listed.");
+    expect(carriedRow.endpointKind).toBe("responses");
+    // An id the engine emitted is not a dependency, and nothing else was named: the row can be
+    // moved, and its one candidate carries the eligibility gate's own answer.
+    expect(carriedRow.movable).toEqual({
+      destinations: [{ eligible: true, metricsUnknown: true, reason: null, targetId: "target-b" }],
+      ok: true,
+      reasons: [],
+    });
+
+    const responseRow = byId.get(responseDependent.id);
+    if (responseRow === undefined)
+      throw new Error("The response-dependent binding must be listed.");
+    expect(responseRow.movable.ok).toBe(false);
+    expect(responseRow.movable.reasons).toEqual(["response_state_dependency"]);
+    expect(responseRow.movable.destinations.map((destination) => destination.targetId)).toEqual([
+      "target-b",
+    ]);
+
+    const conversationRow = byId.get(conversationDependent.id);
+    if (conversationRow === undefined) {
+      throw new Error("The conversation-dependent binding must be listed.");
+    }
+    expect(conversationRow.movable.ok).toBe(false);
+    expect(conversationRow.movable.reasons).toEqual(["state_unknown"]);
+
+    // The privacy contract holds over the corrected answer: an exact key or a learned response id
+    // is never a wire field, whatever the state gate decided about it.
+    for (const entry of table.bindingEntries()) {
+      for (const key of entry.exactKeys) {
+        expect(list.payload).not.toContain(key);
+      }
+    }
+    expect(list.payload).not.toContain("resp-named");
+    expect(list.payload).not.toContain("conv-stored");
+
+    // The list reports the write's own decision, so the same three answers come back from the
+    // write: the movable one is applied, the two refused ones are answered 422.
+    const refusedResponse = await postMove(
+      server,
+      moveRequestFrom(list.body, responseRow, "target-b", "key-responses-response"),
+    );
+    expect(refusedResponse.statusCode).toBe(422);
+    expect(answerError(refusedResponse.body).code).toBe("state_not_migratable");
+    expect(answerError(refusedResponse.body).message).toContain("response id");
+
+    const refusedConversation = await postMove(
+      server,
+      moveRequestFrom(list.body, conversationRow, "target-b", "key-responses-conversation"),
+    );
+    expect(refusedConversation.statusCode).toBe(422);
+    expect(answerError(refusedConversation.body).code).toBe("state_not_migratable");
+    expect(answerError(refusedConversation.body).message).toContain(
+      "conversation, thread or session",
+    );
+
+    const accepted = await postMove(
+      server,
+      moveRequestFrom(list.body, carriedRow, "target-b", "key-responses-carried"),
+    );
+    expect(accepted.statusCode).toBe(200);
+    expect(answerState(accepted.body)).toBe("applied");
+    expect(entryOf(balancer, "lb-live", carried.id).targetId).toBe("target-b");
+    // The two refusals wrote nothing, and the learned id is still a lookup key on the node the
+    // move took the task to.
+    expect(entryOf(balancer, "lb-live", responseDependent.id).targetId).toBe("target-a");
+    expect(entryOf(balancer, "lb-live", conversationDependent.id).targetId).toBe("target-a");
+    expect(table.bindingForExactKey("response:resp-emitted")?.id).toBe(carried.id);
+    expect(table.bindingForExactKey("response:resp-emitted")?.targetId).toBe("target-b");
+  });
 });

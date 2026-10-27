@@ -418,6 +418,59 @@ describe("load affinity table", () => {
     expect(table.bindingForExactKey("response:")).toBeUndefined();
   });
 
+  it("LB03-08 records a learned response id apart from one a request named", () => {
+    const table = new LoadAffinityTable();
+    const binding = table.bind(
+      identity(responsesPayload("rules", ["one"]), { "x-claude-code-session-id": ["session-1"] }),
+      "node-a",
+    );
+    // An id the engine produced is a lookup key, not a dependency: it joins `exactKeys` so the
+    // next turn can find the node that answered it, and it stays out of the record only a request
+    // can write.
+    table.attachResponseIds(binding, ["resp-1"]);
+    expect([...binding.exactKeys]).toContain("response:resp-1");
+    expect([...binding.responseDependencies]).toEqual([]);
+
+    // The same id arriving as the request's own `previous_response_id` is a different fact, and
+    // it is recorded when the request is bound to the binding it already hits.
+    const named = identity({
+      ...responsesPayload("rules", ["two"]),
+      previous_response_id: "resp-1",
+    });
+    expect(named.namedResponseKey).toBe("response:resp-1");
+    expect(table.bind(named, "node-a").id).toBe(binding.id);
+    expect([...binding.exactKeys]).toContain("response:resp-1");
+    expect([...binding.responseDependencies]).toEqual(["response:resp-1"]);
+    // The dependency is sticky: a later turn that names nothing does not clear it.
+    table.bind(identity(responsesPayload("rules", ["three"])), "node-a");
+    expect([...binding.responseDependencies]).toEqual(["response:resp-1"]);
+  });
+
+  it("LB03-08 the affinity branch records a dependency without touching the route", () => {
+    const table = new LoadAffinityTable();
+    const binding = table.bind(identity(responsesPayload("rules", ["one"])), "node-a");
+    const named = identity({
+      ...responsesPayload("rules", ["two"]),
+      previous_response_id: "resp-9",
+    });
+
+    // `LoadAffinityTable.lookup()` is a read and `plan()`'s affinity branch never binds, so this
+    // is the one write that branch makes: the dependency the turn named, and nothing else.
+    const before = { targetId: binding.targetId, routingRevision: binding.routingRevision };
+    table.noteRequestDependencies(binding, named);
+
+    expect([...binding.responseDependencies]).toEqual(["response:resp-9"]);
+    expect([...binding.exactKeys]).toEqual([]);
+    expect(binding.targetId).toBe(before.targetId);
+    expect(binding.routingRevision).toBe(before.routingRevision);
+
+    // A reference to a binding the table has given up writes nothing.
+    table.remove(binding);
+    table.noteRequestDependencies(binding, named);
+    expect([...binding.responseDependencies]).toEqual(["response:resp-9"]);
+    expect(table.size).toBe(0);
+  });
+
   it("LB03-07 rebinds after a failover without losing the task", () => {
     const table = new LoadAffinityTable();
     const first = identity({ ...responsesPayload("rules", ["one"]), prompt_cache_key: "cache-1" });

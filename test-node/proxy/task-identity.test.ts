@@ -12,6 +12,7 @@ import {
   hasContinuationEvidence,
   mergeLegacyContextKeys,
   requestContextKeys,
+  requestNamedResponseKey,
   taskIdentity,
   userHashPrefixMatches,
   userMessageHashes,
@@ -70,12 +71,26 @@ describe("task identity projections", () => {
     };
     const headers = { "X-Claude-Code-Session-Id": ["claude-1"] };
 
-    expect(taskIdentity({ payload, headers, path: "/v1/responses" }).exactKeys).toEqual([
+    const identity = taskIdentity({ payload, headers, path: "/v1/responses" });
+    expect(identity.exactKeys).toEqual([
       "response:resp_1",
       "conversation:session-1",
       "prompt_cache:cache-1",
       "claude_session:claude-1",
     ]);
+    // The response key is also carried apart, because it is the one key the request named as a
+    // dependency. The conversation key it shares with `conversationIdFrom` is not the same fact.
+    expect(identity.namedResponseKey).toBe("response:resp_1");
+  });
+
+  it("LB02-02 names only the response a request points at, never one it might learn", () => {
+    expect(requestNamedResponseKey({ previous_response_id: "resp_1" })).toBe("response:resp_1");
+    expect(requestNamedResponseKey({ previous_response_id: "  " })).toBeUndefined();
+    expect(requestNamedResponseKey({ input: "next turn" })).toBeUndefined();
+    expect(requestNamedResponseKey("not a record")).toBeUndefined();
+    expect(
+      taskIdentity({ payload: { model: "qwen-test" }, path: "/v1/responses" }).namedResponseKey,
+    ).toBeUndefined();
   });
 
   it("LB02-02 ignores a blank previous response id and non-string header values", () => {
@@ -83,6 +98,9 @@ describe("task identity projections", () => {
     const headers = { "x-claude-code-session-id": [42] };
 
     expect(taskIdentity({ payload, headers, path: "/v1/responses" }).exactKeys).toEqual([]);
+    expect(
+      taskIdentity({ payload, headers, path: "/v1/responses" }).namedResponseKey,
+    ).toBeUndefined();
   });
 
   it("LB02-03 compares a stable boundary without the first user turn", () => {
