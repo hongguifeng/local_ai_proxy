@@ -68,4 +68,4 @@ npm run regen:ui-baselines
 - [reference.md](./reference.md) — the axis measurements and the drift reproduction.
 - [../ui-baseline-regen/SKILL.md](../ui-baseline-regen/SKILL.md) — regenerating the committed
   statistics captures.
-- [module-design.md](../../../docs/module-design.md) §4.3 — the shared UI state model.
+- [当前产品行为](../../../docs/current/product.md) §6 — the shared UI state model.

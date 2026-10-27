@@ -82,7 +82,7 @@ npm run regen:ui-baselines
 - [reference.md](./reference.md) — the measured incidents behind these rules: inherited
   card rules, collapsed labels, grid track sizing, glyph arrows, the `!important` audit and
   the rejected layer plan.
-- [module-design.md](../../../docs/module-design.md) §4.5, §4.6 and §4.9 — the cleanup, the
+- [视觉基线](../../../docs/current/contracts/ui-visual-baseline.md) — 当前截图和视觉检查，
   layer rejection and the filter-bar ownership record.
 - `test-node/ui/admin-ui-css-cascade.test.ts` and `test-node/ui/admin-ui-css-ownership.test.ts`
   — the executable contract.

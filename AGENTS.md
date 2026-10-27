@@ -1,204 +1,64 @@
-# Project Notes for Coding Agents
+# 面向 AI 的项目规则
 
-This file carries only the rules that must stay in front of you on every task. The long
-how-to — recipes, measurements and incident histories — lives in the project skills listed at
-the end and is read on demand.
+## 任务入口
 
-## Before changing behavior
+开始任何代码任务前，先读 [文档导航](docs/README.md) 和 [当前架构](docs/current/architecture.md)。当前架构说明启动路径、状态归属、模块边界、关闭顺序和验证入口；历史文档不能替代它。
 
-- Read `docs/current-architecture.md` first: startup path, config ownership, module map,
-  shutdown order and verification commands. `docs/module-design.md` sections 2, 3 and 6 describe
-  the pre-v0.3.0 Python baseline and are not current behavior; `docs/current-architecture.md` §8
-  labels every other historical document.
-- The project is active: do not preserve old internal APIs by default. For UI and admin API
-  changes use the simplest current contract unless compatibility is requested, and document
-  every new feature.
-- Release: `npm version <patch|minor|major> --message "chore(release): %s"`, then push the branch
-  and the tag (`git push origin main vX.Y.Z`). Publishing runs only from `v*` tags.
+项目只维护 Node.js 24、TypeScript、Electron 实现。内部模块可以按当前设计调整，不为已经删除的 Python API 保留兼容层。用户配置、`traffic.db`、代理 HTTP 行为、SSE、响应字节、取消和压缩语义属于外部合同；改变它们前必须更新当前文档、相关 ADR 和测试。
 
-## Verification entry points
+## 文档路由
 
-- `npm run check` is the full gate: `format:check` → `lint` → `typecheck` → `check:modules` →
-  `test` → `build`. Run a failing step on its own instead of the whole chain.
-- `npm run check:skills` validates the skills themselves — frontmatter, roster, the AGENTS.md
-  routing index, required sections, local links, and every file and command a skill names.
-- `npm run typecheck` checks `src`, `electron`, `test-node` and `scripts` through `tsconfig.json`
-  (now `noEmit`), while `npm run build` compiles only `src`, `electron` and `scripts` through
-  `tsconfig.build.json`. A type error inside a test file therefore fails `npm run check` but
-  leaves the product compile green: verify unrelated errors against clean source, apply the
-  smallest type-only fix, and disclose it.
-- Every task ends with the portable executable: `npm run package:electron:portable`
-  (= `build` → `rebuild:electron` → `electron-builder -w portable`), then
-  `npm run smoke:delivery`, and `npm run abi:node` to restore the Node ABI afterwards.
-- UI changes require screenshot verification, and a regenerated baseline plus its hash row in
-  `docs/refactoring/ui-visual-baseline.md` is part of the change, never a later cleanup.
-  `ui-baseline-regen` owns the regeneration, the full-size image inspection, the README images
-  and the stray-Chinese check on the English captures.
-- Run Vitest and UI baseline commands from an uppercase drive path (`cd /D/...`); a lowercase
-  `d:` can duplicate the runtime.
-- Reconcile test counts with a precise declaration pattern, never `grep -c "it("`: `emit(`,
-  `await(` and `submit(` all contain that substring, so a coarse scan over-counts (measured 52
-  against Vitest's 50). Use
-  `git grep -cE "^[[:space:]]*(it|test)(\.[a-z]+)?\(" <rev> -- test-node` together with a
-  test-file count; that pair is what proves no case was silently deleted by a lane.
+- 当前行为：`docs/current/`
+- 已作出的架构决定：`docs/decisions/adr/`
+- 已接受或进行中的功能设计：`docs/design/`
+- 当前执行计划：`docs/plans/active/`
+- 故障、迁移和发布操作：`docs/operations/`
+- 验收、基准和实验结果：`docs/reports/`
+- Python 基线和迁移史：`docs/history/`
 
-## Safety boundaries
+新增功能先写设计，再写计划；实现完成后把计划收口，把当前行为写入 `docs/current/`。不要把一次运行结果写成永久合同，也不要在计划里重复维护当前 API 字段表。
 
-- The user runs a portable instance of this app while you work. Treat it as read-only: never
-  stop it to simulate a failure, never write into its config or traffic database, and only kill
-  processes you started. See `real-upstream-acceptance` for the isolation recipe.
-- Native module ABI: packaging copies whichever `better_sqlite3.node` is installed at that
-  moment, so never run `npm rebuild better-sqlite3` between `npm run rebuild:electron` and
-  `electron-builder` — the portable app would ship a Node ABI binary and fail at startup. Once
-  packaging has finished that rebuild is safe and is what Node tests need. Prove which ABI is
-  installed with a real query (`npm run abi:check`): `require("better-sqlite3")` never touches
-  the native binding, so it prints success in either state.
-- Parallel writer lanes need their own git worktree **and** their own `node_modules` copy:
-  managed worktree isolation symlinks the root checkout's `node_modules`, so one lane's
-  `npm run rebuild:electron` flips the shared binary to the Electron ABI and the other lane's
-  Node tests die at startup, and two writers in one checkout also fight over the same working
-  tree. Create the worktrees yourself and pass an explicit `cwd` per child instead of asking for
-  managed isolation; a `robocopy /MT` copy of `node_modules` costs no GPU and leaves each lane
-  free to switch its own ABI. Hand robocopy native `D:\...` paths with `MSYS_NO_PATHCONV=1`:
-  Git Bash rewrites those arguments and robocopy answers with its usage text and copies nothing.
-  `cp -r` works too, but only into a destination that does not exist yet — into an existing one
-  it nests `node_modules/node_modules`, which must be flattened before any script runs.
-- The builtin `worker` agent pins `thinking: high`, which the local lmstudio endpoint rejects
-  (`xhigh`, `medium` and `low` only), so the child dies in about two seconds with HTTP 400. The
-  level is requested as a suffix on the child `model` (`provider/id:xhigh`), and that suffix is
-  honoured only inside a workflow launch — a direct one-child `subagent` call still sends
-  `thinking: high`. `resume` replays the stored contract and cannot repair such a death;
-  relaunch instead.
+## 不可越过的边界
 
-## Judging a long-running command
+- 用户正在运行的便携版实例只读。不要停止它，不要写它的配置或流量数据库；只允许结束自己启动的进程。
+- 测试、临时配置、数据库、日志根和端口必须隔离。真实上游验收使用 `real-upstream-acceptance` skill 的隔离方案。
+- `better-sqlite3` 的 Node ABI 和 Electron ABI 必须串行切换。打包顺序是：`build` → `rebuild:electron` → Electron 打包 → 交付冒烟 → 恢复 Node ABI。
+- 并行写入任务必须使用独立工作树和独立 `node_modules`。不要让两个写入者编辑同一文件族。
+- 不为了让门禁变绿而降低有意义的测试、视觉像素检查、宽度检查、空白行检查或打包检查；先定位证据，再修实现或记录真实限制。
 
-- Do not pipe a long-running command through `head`: closing the pipe early kills the run with
-  SIGPIPE, so a summary that looks complete can hide that a later step never ran at all. Write
-  the output to a file and grep that file.
-- A long-open `bash` call is not proof of a hang. npm's child writes its log only when it exits,
-  so a short log mid-run is normal, and a process filter on the worktree path never matches
-  `npm run build` because npm omits the cwd. Judge by whether a matching process exists (filter
-  by executable and arguments), whether produced artifacts keep advancing in mtime, and whether
-  the child's turn and tool counters are still climbing. A wrong "stuck" verdict is expensive to
-  undo: steering a writer to stop waiting can make it drop a verification it legitimately
-  needed.
-- A harness that prints its final line and then never exits keeps the launcher's `bash` call open
-  forever: a listening fixture server holds the Node event loop. The tell is the log stopping
-  while the fixture port is still `LISTENING` and the application ports are free — the script
-  finished, the process did not. Ending the process that holds the fixture port lets the call
-  return, and the log it already wrote is the evidence. Harnesses must `unref()` server and
-  socket handles or call `process.exit` once the checks are done.
+## 标准验证
 
-## Type and lint contracts
+- 日常门禁：`npm run check`。
+- 技能和文档路由：`npm run check:skills`。
+- 模块依赖：`npm run check:modules`。
+- 便携交付：`npm run package:electron:portable`，随后 `npm run smoke:delivery`，最后 `npm run abi:node`。
+- 文档格式：`npx prettier --ignore-path .gitignore --check <修改的 docs 文件>`。
+- UI 改动还要运行对应浏览器测试、检查全尺寸截图、更新视觉基线登记和英文截图检查；细节由 `ui-baseline-regen` skill 负责。
+- Windows 上运行 Vitest 或 UI 基线命令时从大写盘符路径进入，例如 `cd /D/code/local_ai_proxy`。
 
-- `tsconfig.json` sets `exactOptionalPropertyTypes`, so handing a possibly-undefined value to a
-  `readonly x?: T` parameter fails even when the key is present. Declare such parameters as
-  `readonly x: T | undefined` — required key, explicit undefined.
-- `consistent-type-definitions` and `consistent-indexed-object-style` contradict each other: an
-  object `type` alias trips the first, an `[key: string]: unknown` index signature the second. A
-  project-owned model that must still carry keys it does not declare (history and import
-  fallbacks) is written as an `interface` of the declared fields crossed with
-  `Record<string, unknown>` — an intersection is not an object literal, so neither rule fires and
-  the value stays assignable to `RepositoryRecord`. Settle it with `npm run lint`, never with a
-  disable comment.
-- To build "the complete value minus one member" in a test: `delete value[key]` trips
-  `no-dynamic-delete` and `Object.fromEntries(...) as T` trips `no-unnecessary-type-assertion`,
-  while destructuring with a rest sibling is clean and returns `Omit<T, K>` only when the key is
-  a literal generic — a loop variable typed `keyof T` infers `K` as the whole union and strips
-  every key. Write a loop's holes as explicit conditional spreads, and write the one member the
-  interface still requires unconditionally.
+失败时先单独重跑失败步骤。全量并发测试偶发资源或 teardown 失败时，必须用隔离套件和串行全量结果区分测试问题与产品问题；不能删除测试或放宽断言。
 
-## Data and persistence
+## Skill 路由
 
-- Never read before the first write inside a `db.transaction(...)`: a deferred transaction that
-  reads first takes a WAL read snapshot, and upgrading to a writer after another process advanced
-  the log raises `SQLITE_BUSY_SNAPSHOT`, which `busy_timeout` never retries. The message is the
-  generic `database is locked`, so check the error's `code` before blaming contention; hoist the
-  read above the transaction call so its first statement is a write. This is what kills
-  `serializes concurrent writes from separate processes` in
-  `test-node/persistence/repository.test.ts` — it fails as three of four writer processes dying,
-  not as a slow test.
-- Seeding rows for a migration test has to happen before the migration that moves them:
-  `schema-v3.ts` copies the inline body columns into `body_chunks` and NULLs them, so a record
-  written after v3 has no chunks for `schema-v5.ts` to read and the token backfill quietly stores
-  nothing. To prove a conversion no longer reads live protocol code, `vi.mock` a predicate the
-  live helper depends on — replacing `isPythonTruthy` in `src/proxy/protocol/analysis.ts` does
-  move `responseTokenCounts` — then run the real migration: the helper answer moves, the stored
-  values do not.
-- Bumping the traffic schema version breaks `test-node/persistence/database.test.ts`, which pins
-  `readSchemaVersion` in two places (current schema + backup) and lists expected table names —
-  update both numbers and add the new table to the list. TypeScript also rejects a bare `}` inside
-  a regex literal (TS1508); escape it as `\}`.
+按问题读取对应 `.agents/skills/<name>/SKILL.md`，不要把所有 skill 一次性加载：
 
-## Tools and environment
+- `admin-api-probing` - admin-api-probing 的专项操作手册。
+- `ci-triage` - ci-triage 的专项操作手册。
+- `css-cascade-audit` - css-cascade-audit 的专项操作手册。
+- `design-doc-readability` - design-doc-readability 的专项操作手册。
+- `feature-design-review` - feature-design-review 的专项操作手册。
+- `live-ui-probing` - live-ui-probing 的专项操作手册。
+- `packaging-smoke` - packaging-smoke 的专项操作手册。
+- `proxy-runtime` - proxy-runtime 的专项操作手册。
+- `real-upstream-acceptance` - real-upstream-acceptance 的专项操作手册。
+- `render-internals` - render-internals 的专项操作手册。
+- `safe-deletion` - safe-deletion 的专项操作手册。
+- `static-checks-and-split` - static-checks-and-split 的专项操作手册。
+- `statistics-charts` - statistics-charts 的专项操作手册。
+- `traffic-log-forensics` - traffic-log-forensics 的专项操作手册。
+- `ui-baseline-regen` - ui-baseline-regen 的专项操作手册。
+- `ui-markup-contracts` - ui-markup-contracts 的专项操作手册。
+- `ui-test-quirks` - ui-test-quirks 的专项操作手册。
 
-- The read and write tools resolve a leading `/tmp/...` against the current drive
-  (`D:\tmp\...`), not the shell's `/tmp`, so a log a bash redirection wrote to `/tmp` is
-  invisible to them. Keep scratch scripts and logs under a repo path whenever a tool and bash
-  have to see the same file.
-- `docs/` is listed in `.prettierignore`, so a plain `prettier --write docs/<file>` silently
-  formats nothing, while the `--ignore-path .gitignore` form that `design-doc-readability` uses
-  does format it — and then every table in that file is realigned, because these files were
-  never formatted: a small prose addition rewrites rows nobody touched and the review can no
-  longer see what changed. Edit the prose to match the file's existing style instead of
-  formatting it.
-- Incremental TypeScript builds leave generated files for deleted source files; when removing a
-  generated asset or compiler input, add an explicit cleanup step in the build path and inspect
-  the packaged `app.asar` for stale outputs.
-- The packaged Chromium (Electron 40 ships Chromium 144) has no `:sticky` pseudo-class:
-  `CSS.supports("selector(:sticky)")` is false and `querySelector(":sticky")` throws a
-  `SyntaxError`, so "style only while a sticky element is pinned" is done in JS or made safe in
-  both states.
-- Comparing a refactor against its base revision does not need a second checkout:
-  `git checkout <base> -- <one file>`, measure, `git checkout HEAD -- <same file>`. Same build,
-  same ABI, same machine, and the only variable is that file.
-- Execution history logs: `D:\Portable Program\llm_proxy\logs`.
-
-## Project facts worth knowing before a review
-
-- Admin routes are registered per feature under `src/admin/routes/` and pinned by
-  `test-node/admin/api-contract.test.ts`, which boots the real application; the split, the
-  response schemas and the rule for recounting the table live in `admin-api-probing`. Five of
-  the registrations carry no response schema, so a rename on one of them is invisible to both
-  typechecks and shows up only as `undefined` in the UI.
-- `passWithNoTests` is off, so a Vitest filter that matches nothing exits 1 instead of looking
-  like a pass.
-- "Does this task still have a request open?" is answered by the group summary's
-  `cost.pending_request_count`, not by which event a row carries: `pricing_status = 'pending'`
-  covers exactly the requests the proxy has not finished answering, and opening a log root
-  flips the ones a dead process left behind to `unpriced`, while an abandoned row keeps
-  `request_pending_response` forever (two of them sit in the user's own history). Any "still
-  running" mark built on the event column therefore glows for a request nobody waits for.
-
-## Where the long verification recipes live
-
-The detailed how-to lives in project skills under `.agents/skills/`, which Pi advertises by name
-and description and reads only when the task calls for them. Open the matching SKILL.md before
-working; each one states when it applies, what must hold, the standard commands, how to read the
-result, and links to its reference file and deeper docs.
-
-- `ui-baseline-regen` - committed visual baselines, README images, hashes, drift
-- `css-cascade-audit` - app.css cumulative passes and cascade-neutrality proof
-- `live-ui-probing` - verify on the user's running instance without rebuilding
-- `render-internals` - incremental rebuild, lazy JSON tree, scroll and freeze behavior
-- `ui-markup-contracts` - header grids, reorder handles, pickers, switches
-- `statistics-charts` - statistics page rendering and trend axis scaling
-- `ui-test-quirks` - pinned Playwright and Vitest behavior
-- `static-checks-and-split` - the bundled module graph, tsconfig.ui.json, lint scope
-- `admin-api-probing` - admin routes, the required service set, 404 and 500 causes
-- `proxy-runtime` - reloadPair, decoded-body logging and encoding regressions
-- `traffic-log-forensics` - reading traffic.db without native modules
-- `packaging-smoke` - app.asar inspection, smoke launches, single-instance lock
-- `ci-triage` - Actions REST API triage without gh
-- `real-upstream-acceptance` - proving changes against real traffic
-- `design-doc-readability` - measured readability for design documents
-- `feature-design-review` - evidence, state ownership, lifecycle contracts, experiments and design changes
-- `safe-deletion` - proving a removal is complete
-
-After completing a task, write a brief retrospective into this file **only** when project-level
-experiences or debugging methods worthy of long-term reuse are identified; do not add entries
-when the task is completed smoothly. Before writing, remove outdated details such as specific
-tasks, pages, buttons, or run numbers, verify all facts related to the codebase, and merge and
-deduplicate against existing rules. After modifications, confirm that `git diff AGENTS.md`
-contains only the expected content and run `npx prettier --check AGENTS.md` plus
-`npm run check:skills`.
+Skill 中的命令和链接必须指向当前存在的文件和脚本；改名、删除或移动文档后运行 `npm run check:skills`。
+Skill 中的命令和链接必须指向当前存在的文件和脚本；改名、删除或移动文档后运行 `npm run check:skills`。

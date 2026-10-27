@@ -16,7 +16,7 @@ describe("UI screenshots", () => {
       ),
     );
     const assessment = await readFile(
-      new URL("../../docs/ui-screenshot-assessment.md", import.meta.url),
+      new URL("../../docs/reports/ui-screenshot-assessment.md", import.meta.url),
       "utf8",
     );
     expect(assessment).toContain("No screenshot replacement is required");

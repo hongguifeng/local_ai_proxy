@@ -63,6 +63,6 @@ git stash pop
 
 ## Deeper material
 
-- [current-architecture.md](../../../docs/current-architecture.md) §6 — the dependency
+- [current-architecture.md](../../../docs/current/architecture.md) §6 — the dependency
   direction rules the module checker enforces.
 - `scripts/module-edges.ts` — the executable version of those rules.

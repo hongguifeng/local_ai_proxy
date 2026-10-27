@@ -71,5 +71,5 @@ npm run build
 - [reference.md](./reference.md) — the polling loop, the job-log redirect and the
   terminal-status details.
 - [ci.yml](../../../.github/workflows/ci.yml) — the jobs and steps CI actually runs.
-- [current-architecture.md](../../../docs/current-architecture.md) §7 — the full
+- [current-architecture.md](../../../docs/current/architecture.md) §7 — the full
   verification entry table.

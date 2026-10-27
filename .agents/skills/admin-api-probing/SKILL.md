@@ -83,7 +83,7 @@ npm run lint
 
 - [reference.md](./reference.md) — how the 404/500 split was established and which stub
   assemblies can still produce the not-found handler.
-- [admin-api-contract.md](../../../docs/refactoring/admin-api-contract.md) — the API
+- [admin-api-contract.md](../../../docs/current/contracts/admin-api.md) — the API
   contract decisions.
-- [current-architecture.md](../../../docs/current-architecture.md) §5 — the module map
+- [current-architecture.md](../../../docs/current/architecture.md) §5 — the module map
   and the route registration rule.

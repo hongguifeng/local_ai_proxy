@@ -119,5 +119,5 @@ npm run bundle:ui
 
 - [reference.md](./reference.md) — the measured click chains, node counts, frame gaps and the
   probe recipes that produced these rules.
-- [module-design.md](../../../docs/module-design.md) §4.3, §4.8 — the state and DOM contracts.
+- [当前产品行为](../../../docs/current/product.md) §6 — 浏览器模块和 UI 合同。
 - [../live-ui-probing/SKILL.md](../live-ui-probing/SKILL.md) — probing a running instance.

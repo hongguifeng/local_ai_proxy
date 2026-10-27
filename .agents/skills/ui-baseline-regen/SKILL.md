@@ -2,7 +2,7 @@
 name: ui-baseline-regen
 description: >-
   Regenerate and sync the committed admin UI baselines: npm run regen:ui-baselines captures
-  every page and rewrites the SHA-256 rows in docs/refactoring/ui-visual-baseline.md, a single
+  every page and rewrites the SHA-256 rows in docs/current/contracts/ui-visual-baseline.md, a single
   baseline is re-captured with REGEN_BASELINES=1 and a -t filter, and a passing ratio assertion
   does not prove a baseline is current. Use whenever a UI text, layout or content change may
   move a committed baseline or a README image.
@@ -20,7 +20,7 @@ description: >-
 
 - `npm run regen:ui-baselines` runs the visual suite with `REGEN_BASELINES=1`, writes the ten
   `doc/ui_*.png` captures, and recomputes every SHA-256 row in
-  `docs/refactoring/ui-visual-baseline.md`. Those PNGs are also the README images, so a
+  `docs/current/contracts/ui-visual-baseline.md`. Those PNGs are also the README images, so a
   regeneration is a README change and vice versa.
 - One baseline can be re-captured with
   `REGEN_BASELINES=1 npx vitest run test-node/ui/admin-ui-visual.test.ts -t "<test name>"`
@@ -58,7 +58,7 @@ description: >-
 ```bash
 npm run regen:ui-baselines
 
-# One baseline only; then hand-fill that row in docs/refactoring/ui-visual-baseline.md.
+# One baseline only; then hand-fill that row in docs/current/contracts/ui-visual-baseline.md.
 REGEN_BASELINES=1 npx vitest run test-node/ui/admin-ui-visual.test.ts -t "<test name>"
 
 npm test -- test-node/ui/admin-ui-visual.test.ts
@@ -83,5 +83,5 @@ npx prettier --check .
 - [reference.md](./reference.md) — the measured ratios, the drift investigations and the
   selective-capture history.
 - [../statistics-charts/SKILL.md](../statistics-charts/SKILL.md) — the `ui_stats_*` drift cause.
-- [ui-visual-baseline.md](../../../docs/refactoring/ui-visual-baseline.md) — the committed
+- [ui-visual-baseline.md](../../../docs/current/contracts/ui-visual-baseline.md) — the committed
   capture table this skill keeps in sync.

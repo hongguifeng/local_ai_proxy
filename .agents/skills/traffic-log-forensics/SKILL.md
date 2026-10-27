@@ -98,5 +98,5 @@ LIMIT 3000)` costs milliseconds for a header-only column and well under a second
 
 - [reference.md](./reference.md) — measured scan costs, the body-storage history and the
   pricing-accounting details.
-- [ADR-009](../../../docs/adr/009-chunked-body-storage.md) — why bodies are chunked.
+- [ADR-009](../../../docs/decisions/adr/009-chunked-body-storage.md) — why bodies are chunked.
 - `src/persistence/body-storage.ts` — the codec and the chunk layout this reads.

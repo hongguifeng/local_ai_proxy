@@ -71,8 +71,8 @@ node dist-node/src/main.js --port <admin> --config-file <pairs> --log-root <dir>
 
 - [reference.md](./reference.md) — the before/after reload observation, the harness recipe
   and the byte-identical upstream proof.
-- [ADR-011](../../../docs/adr/011-listener-reuse-on-config-save.md) and
-  [ADR-012](../../../docs/adr/012-decoded-response-body-in-logs.md) — the reload and
+- [ADR-011](../../../docs/decisions/adr/011-listener-reuse-on-config-save.md) and
+  [ADR-012](../../../docs/decisions/adr/012-decoded-response-body-in-logs.md) — the reload and
   response-logging decisions.
-- [current-architecture.md](../../../docs/current-architecture.md) §1 and §4 — the runtime
+- [current-architecture.md](../../../docs/current/architecture.md) §1 and §4 — the runtime
   model and the shutdown order.

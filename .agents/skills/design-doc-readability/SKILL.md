@@ -42,7 +42,7 @@ description: >-
 # marks per 1k chars, heading counts, tables and inline-code spans.
 
 # The doc format entry this project does have; docs/ is excluded from npm run format:check.
-npx prettier --ignore-path .gitignore --check docs/ai-development-optimization-todo.md
+npx prettier --ignore-path .gitignore --check docs/plans/archive/ai-development-optimization.md
 npm test -- test-node/docs
 ```
 
@@ -60,7 +60,7 @@ npm test -- test-node/docs
 - [feature-design-review](../feature-design-review/SKILL.md) — evidence, state ownership,
   lifecycle and API/UI consistency checks before adopting a design.
 - [reference.md](./reference.md) — the measured draft-versus-merged comparison.
-- [ai-development-optimization-todo.md](../../../docs/ai-development-optimization-todo.md)
+- [ai-development-optimization-todo.md](../../../docs/plans/archive/ai-development-optimization.md)
   — the document shape this project uses for its own plan, with completion records.
-- [current-architecture.md](../../../docs/current-architecture.md) §8 — which material is
+- [current-architecture.md](../../../docs/current/architecture.md) §8 — which material is
   current and which is history.

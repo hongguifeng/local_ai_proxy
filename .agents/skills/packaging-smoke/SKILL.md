@@ -90,7 +90,7 @@ npx asar list release/win-unpacked/resources/app.asar
 
 - [reference.md](./reference.md) — asar path semantics, payload entry counts, measured
   startup times, login-item registration and the shell traps around spawning.
-- [current-architecture.md](../../../docs/current-architecture.md) §7 — the delivery entry
+- [current-architecture.md](../../../docs/current/architecture.md) §7 — the delivery entry
   table and the ABI rules.
 - [real-upstream-acceptance.md](../real-upstream-acceptance/SKILL.md) — running a payload
   against real traffic.

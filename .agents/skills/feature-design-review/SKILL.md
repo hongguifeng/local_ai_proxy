@@ -21,7 +21,7 @@ description: >-
 
 ### 先核对现状，再选择方案
 
-- 先读 `docs/current-architecture.md`，记录研究基线、用户问题、成功标准和修改范围。
+- 先读 `docs/current/architecture.md`，记录研究基线、用户问题、成功标准和修改范围。
   历史文档只作线索；关键结论应指向当前文件、符号、读写路径及相关测试。
 - 对“只有”“全部”“不会”“必然”等断言，搜索完整引用和全部写入口，再写结论。
   名称、注释、类型、历史 ADR 或一条正例都不足以单独证明运行行为。
@@ -92,7 +92,7 @@ rg -n 'rebind|allowRebind|targetId' src/proxy test-node/proxy
 
 ```bash
 # 只检查实际修改的设计文档；以下是已有文件的命令示例。
-npx prettier --ignore-path .gitignore --check docs/current-architecture.md
+npx prettier --ignore-path .gitignore --check docs/current/architecture.md
 npm test -- test-node/docs
 # 改动运行时模块边界时才检查模块图。
 npm run check:modules
@@ -119,7 +119,7 @@ Windows 测试从大写盘符运行。方案研究只执行必要验证，并遵
 
 - [reference.md](./reference.md) — 设计步骤、可复用模板、实验前置条件与常见错误反例。
 - [design-doc-readability](../design-doc-readability/SKILL.md) — 文档结构、度量与单一权威入口。
-- [current-architecture.md](../../../docs/current-architecture.md) — 现行架构、配置归属与依赖方向。
+- [current-architecture.md](../../../docs/current/architecture.md) — 现行架构、配置归属与依赖方向。
 - [admin-api-probing](../admin-api-probing/SKILL.md) — 管理 API 接线、schema 与真实应用合同。
 - [proxy-runtime](../proxy-runtime/SKILL.md) — 请求世代、reload、在途对象与日志边界。
 - [real-upstream-acceptance](../real-upstream-acceptance/SKILL.md) — 隔离实例与真实上游验收。

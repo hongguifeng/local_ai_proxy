@@ -86,7 +86,7 @@ npm test -- test-node/ui/admin-ui-dom-contracts.test.ts
 
 - [reference.md](./reference.md) — the bundle-retry measurement, the packaged-delivery proof
   and the strict-type contract details.
-- [module-design.md](../../../docs/module-design.md) §4.4 — the module split and static-check
+- [模块边界](../../../docs/current/contracts/module-boundaries.md) — 当前模块拆分和静态检查
   configuration.
-- [current-architecture.md](../../../docs/current-architecture.md) §5 and §7 — where the UI
+- [current-architecture.md](../../../docs/current/architecture.md) §5 and §7 — where the UI
   source lives and which command verifies it.

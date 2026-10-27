@@ -76,7 +76,7 @@ The opt-in census (`CSS_CENSUS=1`, `CSS_CENSUS_OUT=<path>`) reports which two de
 compete for one element, what decided it, and whether stripping a `!important` would flip
 it. On this sheet the specificity-decided contests tie shell, proxy, price, request
 history, statistics and targets into one connected block, so no layer boundary can be
-drawn between them without changing what the page draws. `docs/module-design.md` §4.6
+drawn between them without changing what the page draws. `docs/current/product.md` §6
 carries the table.
 
 ## Section headers

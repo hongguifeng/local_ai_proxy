@@ -86,5 +86,5 @@ curl -s "http://127.0.0.1:<free>/api/logs?limit=5"
 - [reference.md](./reference.md) — the measurements that produced these rules (empty config,
   load-balancing confound, body-size arithmetic) and the summary-model checks.
 - [../packaging-smoke/SKILL.md](../packaging-smoke/SKILL.md) — isolation and launch mechanics.
-- [ADR-012](../../../docs/adr/012-decoded-response-body-in-logs.md) — what a stored body must
+- [ADR-012](../../../docs/decisions/adr/012-decoded-response-body-in-logs.md) — what a stored body must
   contain.
