@@ -42,6 +42,12 @@ description: >-
   a refresh timer that guards against overlapping requests silently drops a tick while the
   previous fetch is in flight, so wait for that settle signal (the metrics dialog's
   `#metricsRefresh` is disabled while loading) before advancing the clock.
+- When a status poll is what the test waits for, advance exactly one poll interval per expected
+  poll and read the counter after each step: `runFor(2_000)` then
+  `expect.poll(() => counter).toBeGreaterThan(seen)`. One `runFor(4_000)` for two expected polls
+  hides which of them moved the counter. A wait that races a real server answer - a response that
+  may or may not arrive inside a stated window - stays in real time and says so in a comment: the
+  fake clock freezes page timers, not the stub server's reply.
 - Vitest has no `it.setTimeout`: pass the timeout as the third argument of `it()` / `describe()`.
   `UI_TEST_TIMEOUT_MS` in `test-node/ui/admin-ui-fixture.ts` is that value.
 - Lint forbids both `!` and null-stripping `as` casts: keep the type nullable and guard, then
@@ -67,6 +73,15 @@ inset: 0; z-index: 1` with `opacity: 0`, so `check()`/`uncheck()` act on the inp
   pointing page → server → fixture. Stub knobs live inside the fixture module because ESM
   imports are read-only views, so a test-side write goes through a `setX()` call while plain
   reads keep working. Each file registers its own lifecycle hooks.
+- Vitest gives a worker a whole file, so `Duration` in `npx vitest run` tracks the longest file and
+  not the sum of the suite: adding workers moves it by under a second. The load-balancing browser
+  suite is split into `admin-ui-load-balancing-config|status|moves.test.ts` over
+  `admin-ui-lb-harness.ts` for that reason - the harness exports helpers and hooks and no `it()`,
+  so Vitest never collects it as a suite.
+- A Node integration test that reads a counter filled by real timers must wait for that counter
+  instead of trusting that a fixed `sleep` delivered a tick. `expect.poll(() => count, { timeout,
+interval }).toBeGreaterThan(0)` keeps the same predicate; the guess about real time is what goes
+  away.
 
 ## Standard commands
 
