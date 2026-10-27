@@ -131,7 +131,7 @@
 入口：[task-matcher.ts](../src/logging/task-matcher.ts)、[traffic-log-service.ts](../src/logging/traffic-log-service.ts)、[task-store.ts](../src/persistence/task-store.ts)、[repository.ts](../src/persistence/repository.ts)。
 
 - [ ] 先核对 `context_links`、`response_links`、`tasks`、`records` 的现有索引、写入口和查询返回，确认 exact key 到 task 的方向。
-- [ ] 增加只读查询，将 binding exact key 映射为 `high`、`candidate` 或 `none`，不把候选关联升级为唯一身份。
+- [x] 增加只读查询，将 binding exact key 映射为 `high`、`candidate` 或 `none`，候选必须匹配完整边界（含 `first_user`）、物理 target 和活动窗口，不把候选关联升级为唯一身份；混合 `high`/`candidate` 集合的 aggregate confidence 为 `candidate`。
 - [ ] 返回多个 task 时保留完整覆盖范围、歧义和置信度；一个 binding 关联多个 task 时不得挑一个代表项。
 - [ ] 以有界分页和查询上限读取历史，避免在 2 秒 UI 轮询中执行无界 `COUNT(DISTINCT)` 或逐条读取正文。
 - [ ] 让查询使用正确的日志根和 URL/canonical target 口径；不要把 `tasks.target` 的 URL 直接当成 canonical physical key。
@@ -547,15 +547,7 @@
   写入口与返回方向”落成代码：两张链接表都以 key 为 `PRIMARY KEY`（`context_key` / `response_id`），
   查询因此走主键自动索引做 `IN (...)` 批量读，一条语句解决一批 key；
   绑定侧的 `response:<id>` 前缀只在本查询内部剥成日志实际存储的裸 id，日志写入路径与存储格式未改。
-  关联被明确定义为只读且非权威：一个 exact key 可以对应零个、一个或多个历史 task，`high` 只在 exact key
-  确实指向某个 task 且该 task 现存的静态边界（去掉 `first_user` 的边界指纹）仍与绑定记录的边界一致时才给出；
-  有链接但边界已不一致降级为 `candidate`，只有边界相同也是 `candidate`，`link_boundary_mismatch` 与
-  `boundary_candidates` 两种理由把降级和仅边界两种事实分开说。候选永远不等于唯一身份：只要存在
-  `candidate`，`ambiguous` 必为 `true`，多个 `high` 同样 `ambiguous`，`confidence` 仍为 `high` 并保留全部
-  命中，绝不挑一个代表项。返回的 task 先按等级分组（`high` 在前，有链接但边界已变的降级项其次，仅边界
-  相同项最后），组内一律按 `COALESCE(last_seen_at, last_response_at, started_at)` 倒序——SQL 已经这么排，
-  JS 侧用同一口径再排一次保证三组拼接后仍可解释；每项带自己被 exact key 命中的次数，另有 key 计数、
-  链接行数、task 行数与扫描行数四组覆盖计数。
+  关联被明确定义为只读且非权威：一个 exact key 可以对应零个、一个或多个历史 task。`high` 只在 exact key 确实指向某个 task 且该 task 现存的静态边界（去掉 `first_user` 的边界指纹）仍与绑定记录的边界一致时给出；有链接但边界已不一致降级为 `candidate`。只有边界相同的 task 也必须同时匹配绑定的 `first_user` 哈希、当前物理 target（可解析时不得不同）和默认 24 小时、硬上限 7 天的活动窗口，模型与 instructions/system 相同本身不足以成为候选。候选永远不等于唯一身份：只要存在 `candidate`，`ambiguous` 必为 `true`，多个 `high` 同样 `ambiguous`。`confidence` 描述完整关联集合：空集合为 `none`，全是 exact-key `high` 才为 `high`；混合集合即使返回页含有 high 也为 `candidate`，同时保留每个 task 自己的 `level`。返回的 task 先按等级分组（`high` 在前，有链接但边界已变的降级项其次，仅边界相同项最后），组内一律按 `COALESCE(last_seen_at, last_response_at, started_at)` 倒序；每项带自己被 exact key 命中的次数，另有 key 计数、链接行数、task 行数与扫描行数四组覆盖计数。
   `key_without_task` 专门报告“链接行还在、它指的 task 行已经没了”这一类清理或导入后的不一致，
   不会被算成“没有关联”。
 - 有界与只读：一次查询只开一条连接、用完立即关闭，读取不写任何数据（测试直接比对前后各表行数）。

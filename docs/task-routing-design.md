@@ -135,7 +135,12 @@ interface BindingRef {
 关联分三个等级：
 
 1. **精确关联**：binding 的 exact key 在对应日志根的 `context_links` 或 `response_links` 中指向 task。
-2. **候选关联**：边界指纹和有限用户消息哈希与 task 行匹配，但存在同桶多个 binding 时只能标记为候选，并显示歧义。
+2. **候选关联**：必须同时满足完整的历史边界证据：`kind`、`model`、不含用户消息的边界指纹，以及必需的 `first_user` 哈希；还必须落在该 binding 最近一次真实请求（没有请求时为日志最新记录）前后的候选活动窗口内，并且历史 task 的物理 target 必须与当前 target 相同或没有可解析的冲突。只有模型和 instructions/system 相同不足以构成候选。候选永远只能标记为候选，并显示歧义。
+
+候选活动窗口默认是 24 小时，服务端硬上限为 7 天；候选查询保留扫描与截断覆盖信息。精确链接仍可在边界漂移时降级为 `candidate`，但完整候选资格不会绕过 `first_user`、物理 target 或时间窗口检查。
+
+`associations.confidence` 描述整个返回集合：空集合为 `none`；只有 exact-key `high` task 时为 `high`；集合中出现任意 `candidate` 时为 `candidate`，即使返回页同时包含 exact-key task。每个 task 仍保留自己的 `level`，因此聚合等级不会把一个混合集合误报为全是精确关联。
+
 3. **无关联**：只有 binding 或只有历史 task，服务端必须如实返回未知。
 
 列表和迁移的权威对象始终是 binding。历史 task 只提供标签、最近记录和关联置信度，不能把历史推断结果当成唯一迁移目标。一个 binding 关联多个 task 时，界面只显示一个迁移操作，并列出受影响 task 数和关联覆盖范围。
