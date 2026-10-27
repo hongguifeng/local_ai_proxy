@@ -1261,6 +1261,25 @@ label span {
   padding-bottom: 10px;
   border-bottom: 1px solid var(--line);
 }
+/* The task this panel describes, named by its id on the title line: the id is
+   the panel's identity rather than one of the facts it measures, so it rides
+   the head instead of a stat cell and gets the head's full width. A 32 hex
+   character id still runs out of room in a narrow pane, so it clips to an
+   ellipsis with the whole value in its hover text, and one click selects all
+   of it for copying. */
+.pricing-panel-task-id {
+  flex: 0 1 auto;
+  min-width: 0;
+  margin-left: auto;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  overflow-wrap: normal;
+  font-family: ui-monospace, SFMono-Regular, Consolas, monospace;
+  font-size: 12px;
+  color: var(--muted);
+  user-select: all;
+}
 /* The task brief is a free-form paragraph the summary model writes about the
    whole task, so it gets its own card above the fact grid rather than a stat
    cell: the prose wraps, the generate button sits on the title line, and the
@@ -1347,35 +1366,15 @@ label span {
   font-size: 11px;
   color: var(--muted);
 }
-/* Top of the task-detail panel: a full-width target line (the address may be
-   a long URL, so it lives outside the fixed-width card cells), then a grid of
-   small stat cards that reuse the usage-statistics .stat-card look (label /
-   big value / optional sub line). The model card carries the list identity
-   (name plus the date + time range as its sub line), and every value keeps
-   the list's color semantics (amber model/speed, blue counts, teal cost). */
+/* Top of the task-detail panel: a grid of small stat cards that reuse the
+   usage-statistics .stat-card look (label / big value / optional sub line).
+   The model card carries the list identity (name plus the date + time range as
+   its sub line), and every value keeps the list's color semantics (amber
+   model/speed, blue counts, teal cost). The task id is not in this grid: it is
+   the panel's identity and it rides the title line; the target address the task
+   used stays on the list header's third row. */
 .pricing-panel > .task-summary {
   margin-top: 12px;
-}
-.task-summary-target {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: baseline;
-  gap: 2px 8px;
-  font-size: 13px;
-}
-.task-summary-target-label {
-  color: var(--muted);
-  font-size: 11px;
-}
-.task-summary-target-value {
-  min-width: 0;
-  overflow-wrap: anywhere;
-  color: #71828f;
-}
-.task-summary-target-value::before {
-  content: "•";
-  margin-right: 5px;
-  color: #a4b2c0;
 }
 /* The model sits in the first grid cell; its value keeps the log list's
    amber model color and wraps (shrunk by fitTaskSummaryValues) at narrow

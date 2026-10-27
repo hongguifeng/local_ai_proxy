@@ -708,6 +708,16 @@ function taskPricingRenderSignature(input) {
   return JSON.stringify(input);
 }
 
+// Every state of this panel opens with the same head: the title, the id of the
+// task the panel is about, and the close button. The id lives on the title line
+// rather than in a fact cell because it is the panel's identity and not one of
+// the numbers it measures, and a 32-character id needs the head's full width:
+// the fact grid is capped at 760 px and one cell is a quarter of that.
+function pricingPanelHeadHtml(groupId) {
+  const id = groupId || "—";
+  return `<div class="pricing-panel-head"><strong>${escapeHtml(t("taskPricing"))}</strong><span class="pricing-panel-task-id" aria-label="${escapeHtml(t("taskId"))}" title="${escapeHtml(id)}">${escapeHtml(id)}</span><button type="button" data-close-pricing>${escapeHtml(t("close"))}</button></div>`;
+}
+
 export function renderTaskPricingPanel() {
   const panel = $("pricingPanel");
   const detail = $("detail");
@@ -724,12 +734,12 @@ export function renderTaskPricingPanel() {
   // data-null loading guard; otherwise deletion would remain stuck on "Loading".
   if (pricing && pricing.id === active && pricing.error) {
     const deleted = pricing.error === "deleted";
-    panel.innerHTML = `<div class="pricing-panel-head"><strong>${escapeHtml(t("taskPricing"))}</strong><button type="button" data-close-pricing>${escapeHtml(t("close"))}</button></div><p>${escapeHtml(deleted ? t("taskDeleted") : t("pricingUnavailable"))}</p>${deleted ? "" : `<button type="button" data-retry-pricing>${escapeHtml(t("retry"))}</button>`}`;
+    panel.innerHTML = `${pricingPanelHeadHtml(active)}<p>${escapeHtml(deleted ? t("taskDeleted") : t("pricingUnavailable"))}</p>${deleted ? "" : `<button type="button" data-retry-pricing>${escapeHtml(t("retry"))}</button>`}`;
     state.taskPricingRendered = "";
     return;
   }
   if (!pricing || pricing.id !== active || pricing.loading || pricing.data === null) {
-    panel.innerHTML = `<div class="pricing-panel-head"><strong>${escapeHtml(t("taskPricing"))}</strong><button type="button" data-close-pricing>${escapeHtml(t("close"))}</button></div><p>${escapeHtml(t("loading"))}</p>`;
+    panel.innerHTML = `${pricingPanelHeadHtml(active)}<p>${escapeHtml(t("loading"))}</p>`;
     state.taskPricingRendered = "";
     return;
   }
@@ -830,13 +840,13 @@ export function renderTaskPricingPanel() {
       statCard(t("avgDecodeSpeed"), `${decodeSpeed}t/s`, null, decodeSpeedTip, "speed"),
     );
   }
-  // The target address lives in its own full-width line above the cards: it
-  // can be a long URL that a card cell cannot fit without truncating.
-  const targetLine = `<div class="task-summary-target"><span class="task-summary-target-label">${t("target")}</span><span class="task-summary-target-value" title="${escapeHtml(data.target || "")}">${escapeHtml(data.target || "—")}</span></div>`;
   // The cost card shows only the total; the priced/unpriced/pending split is
   // a detail the user asked to keep out of the top card.
   taskStats.push(statCard(t("cost"), formatGroupCost(cost), null, null, "cost"));
-  const summaryCard = `<section class="task-summary">${targetLine}<div class="task-stat-cards">${taskStats.join("")}</div></section>`;
+  // The summary is the card grid alone: the id of the task it describes is
+  // named on the panel title line, and the target address the task used is
+  // already the list header's third row, so neither needs a line of its own.
+  const summaryCard = `<section class="task-summary"><div class="task-stat-cards">${taskStats.join("")}</div></section>`;
   // The task brief is its own card at the very top of the panel, above the
   // fact grid: it is free-form prose, so it does not fit the stat-card shape.
   const briefCard = taskBriefCardHtml(renderInput.groupId, renderInput.brief);
@@ -860,7 +870,7 @@ export function renderTaskPricingPanel() {
   const breakdownSection = data.priced_request_count
     ? `<h3 class="section-cost">${escapeHtml(t("taskCostBreakdown"))}</h3><p class="pricing-note">${escapeHtml(t("taskWholeScope"))}</p>${taskBreakdownTableHtml(data.breakdown, pricingDecimalFromNano(data.cost_nano_cny))}`
     : `<p>${escapeHtml(reasons || t("unpriced"))}</p><p class="pricing-note">${escapeHtml(t("taskWholeScope"))}</p>`;
-  panel.innerHTML = `<div class="pricing-panel-head"><strong>${escapeHtml(t("taskPricing"))}</strong><button type="button" data-close-pricing>${escapeHtml(t("close"))}</button></div>${briefCard}${summaryCard}${breakdownSection}${costChart}${tokenChart}${outputTokenChart}<h3 class="section-groups">${escapeHtml(t("priceGroups"))}</h3>${groups || `<p>${escapeHtml(t("unpriced"))}</p>`}`;
+  panel.innerHTML = `${pricingPanelHeadHtml(active)}${briefCard}${summaryCard}${breakdownSection}${costChart}${tokenChart}${outputTokenChart}<h3 class="section-groups">${escapeHtml(t("priceGroups"))}</h3>${groups || `<p>${escapeHtml(t("unpriced"))}</p>`}`;
   fitTaskSummaryValues(panel);
 }
 function loadTaskTokenSeries(groupId, signal) {

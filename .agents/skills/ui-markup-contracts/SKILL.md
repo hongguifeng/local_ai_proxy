@@ -55,10 +55,17 @@ description: >-
   schema edit because the `PAIRS_*` schemas are `additionalProperties: true`, and fields added
   to a record's `request.model_route` become searchable through the FTS `request_text` sources
   without a schema bump — keep verbose decision detail in an in-memory admin snapshot instead.
-- The task-detail summary header (`.task-summary`, `task-detail.js`) is a stack: target line,
-  then a 2-row × 4-column card grid where the model is the first card and the time bar spans the
-  remaining three cells. `fitTaskSummaryValues` shrinks the model's `strong` 1 px at a time
-  (floor 12 px) until it fits one line, and re-runs on every panel re-render.
+- The task-detail panel head (`.pricing-panel-head`, `task-detail.js`) is one flex row that
+  `pricingPanelHeadHtml` builds and all three panel states (loading, load error, loaded) reuse:
+  title, the task id, the close button. The id is `flex: 0 1 auto` with `min-width: 0`, an
+  ellipsis, `margin-left: auto` and a `title` carrying the whole value, so it takes only the room
+  between the title and the button and still answers for a 32-character id in a narrow pane;
+  `user-select: all` makes one click select all of it for copying.
+- The task-detail summary (`.task-summary`, `task-detail.js`) is the 2-row × 4-column card grid
+  alone: the model is the first card and the time bar spans the remaining three cells. Neither the
+  task id nor the target address has a line of its own in it — the id is on the panel head and the
+  address is the log list's header third row. `fitTaskSummaryValues` shrinks the model's `strong`
+  1 px at a time (floor 12 px) until it fits one line, and re-runs on every panel re-render.
 - The Time range sub-card is a three-column (label | date | time) grid: the label shares the
   start-time row, and both date badges always render — even for same-day ranges. `taskTimeRangeHtml`
   writes them with the distinct classes `task-time-date-start` / `task-time-date-end` plus

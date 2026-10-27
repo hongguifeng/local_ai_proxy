@@ -99,10 +99,13 @@ describe("admin UI history page", { timeout: UI_TEST_TIMEOUT_MS }, () => {
     await page.route("**/api/log-groups/task-one/pricing", async (route) => {
       const response = await route.fetch();
       const data = (await response.json()) as Record<string, unknown>;
-      await route.fulfill({ response, json: { ...data, target: "changed-target" } });
+      await route.fulfill({ response, json: { ...data, active_request_ms: 30_000 } });
     });
     await refresh();
-    await expectPage(panel.locator(".task-summary-target-value")).toHaveText("changed-target");
+    // The card grid shows the changed request total, and the title line keeps
+    // naming the same task by its id across the rebuild.
+    await expectPage(panel.locator(".stat-card.task-stat-time")).toContainText("00:30");
+    await expectPage(panel.locator(".pricing-panel-task-id")).toHaveText("task-one");
     expect(await original.evaluate((node) => node.isConnected)).toBe(false);
     await expectPage(model).toHaveJSProperty("open", true);
     await page.locator("#languageSelect").selectOption("zh");
@@ -711,16 +714,20 @@ describe("admin UI history page", { timeout: UI_TEST_TIMEOUT_MS }, () => {
     await expectPage(panel).toBeVisible();
     await expectPage(panel).toContainText("Task details");
     await expectPage(panel).toContainText("$0.0428");
-    await expectPage(panel).toContainText("fixture-target");
     await expectPage(panel).toContainText("Task time");
     await expectPage(panel).toContainText("00:05");
     await expectPage(panel).toContainText("Request time");
     await expectPage(panel).toContainText("00:25");
-    // The summary opens with the target line, then a card grid whose first
-    // row is the model card plus the time bar; the time range stacks the
-    // start time above the end time and both durations sit in the bar's
-    // second row.
-    await expectPage(panel.locator(".task-summary-target")).toContainText("fixture-target");
+    // The title line names the task by its id, and the summary is the card
+    // grid alone: the id is the panel's identity, not a fact cell, and the
+    // target address the task used is the list header's third row.
+    await expectPage(panel.locator(".pricing-panel-task-id")).toHaveText("task-one");
+    await expectPage(panel.locator(".pricing-panel-task-id")).toHaveAttribute(
+      "aria-label",
+      "Task ID",
+    );
+    await expectPage(panel.locator(".task-summary-target")).toHaveCount(0);
+    await expectPage(panel.locator(".task-summary > .task-stat-cards")).toHaveCount(1);
     await expectPage(panel.locator(".stat-card.task-stat-model")).toContainText("gpt-5");
     await expectPage(panel.locator(".stat-card.task-stat-time .task-time-range")).toContainText(
       "12:00:00",
@@ -862,6 +869,62 @@ describe("admin UI history page", { timeout: UI_TEST_TIMEOUT_MS }, () => {
     await expectPage(requestPricing.locator(".pricing-table tfoot")).not.toContainText("%");
     await pricingButton.click();
     await expectPage(requestPricing).toBeHidden();
+  });
+
+  it("names the task-detail panel by its task id and keeps a clipped id readable and selectable", async () => {
+    await loadAdminPage();
+    const longId = "a3f15c8e9b624d07af15c8e9b624d071";
+    // A real task id is 32 hex characters. The fixture's is eight, so rename
+    // the group this list reports to see what the title line does with a long
+    // one: the id is what the panel asks the server about, not a display field.
+    await page.route("**/api/logs?**", async (route) => {
+      const response = await route.fetch().catch(() => undefined);
+      if (response === undefined) return;
+      const data = (await response.json()) as { groups: Record<string, unknown>[] };
+      data.groups = data.groups.map((group) =>
+        group["id"] === "task-one" ? { ...group, id: longId } : group,
+      );
+      await route.fulfill({ response, json: data }).catch(() => undefined);
+    });
+    await Promise.all([
+      page.waitForResponse((response) => response.url().includes("/api/logs?")),
+      page.locator('[data-tab="logs"]').click(),
+    ]);
+    await expectPage(page.locator(`[data-group-id="${longId}"]`)).toBeVisible();
+    // The stub only answers pricing for task-one, so this task's panel lands on
+    // its load-error state; the title line still names the task the user opened.
+    await Promise.all([
+      page.waitForResponse((response) =>
+        response.url().endsWith(`/api/log-groups/${longId}/pricing`),
+      ),
+      page.locator(`[data-group-id="${longId}"]`).click(),
+    ]);
+    const panel = page.locator("#pricingPanel");
+    await expectPage(panel).toBeVisible();
+    await expectPage(panel).toContainText("Could not load task details");
+    const idLine = panel.locator(".pricing-panel-task-id");
+    await expectPage(idLine).toHaveText(longId);
+    await expectPage(idLine).toHaveAttribute("title", longId);
+    await expectPage(idLine).toHaveAttribute("aria-label", "Task ID");
+    // A user who drags the log splitter wide leaves the detail pane narrow, and
+    // the drag commits exactly this custom property, so setting it reproduces
+    // that layout without a mouse. The id then runs out of room on the title
+    // line and clips to an ellipsis while the hover text keeps the whole value,
+    // and one click selects all of it - which is how a 32-character id gets
+    // copied out.
+    await page.evaluate(() => {
+      const logs = document.getElementById("logs");
+      if (logs instanceof HTMLElement) logs.style.setProperty("--sidebar-w", "1000px");
+    });
+    await expectPage(idLine).toBeVisible();
+    const widths = await idLine.evaluate((element) => ({
+      scrollWidth: element.scrollWidth,
+      clientWidth: element.clientWidth,
+    }));
+    expect(widths.scrollWidth).toBeGreaterThan(widths.clientWidth);
+    await idLine.click();
+    const selected = await page.evaluate(() => String(window.getSelection()));
+    expect(selected).toBe(longId);
   });
 
   it("generates the task brief on demand and keeps it across panel re-opens", async () => {
