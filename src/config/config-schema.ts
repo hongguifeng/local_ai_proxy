@@ -137,7 +137,19 @@ export const targetConfigSchema = z
 export type TargetConfig = z.infer<typeof targetConfigSchema> & PreservedConfigFields;
 
 export const summaryModelConfigSchema = z.object({
-  disable_reasoning: z.boolean().default(true),
+  /**
+   * How much reasoning the summary model is allowed to do. Absent means the request does
+   * not carry `reasoning_effort` at all and the provider decides; a value is sent verbatim,
+   * so any single word a provider accepts is legal - the console's presets are a convenience,
+   * not a whitelist. A word with a space inside it, or an empty one, is refused here rather
+   * than at the upstream, because a value like `medium high` is a typo, not a depth.
+   */
+  reasoning_effort: z
+    .string()
+    .trim()
+    .regex(/^[^\s]+$/)
+    .min(1)
+    .optional(),
   api_type: z.enum(["openai_chat", "openai_responses", "anthropic_messages"]),
   target_url: targetUrlSchema,
   api_key: z.string(),

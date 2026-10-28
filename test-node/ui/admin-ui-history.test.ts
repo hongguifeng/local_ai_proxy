@@ -1919,4 +1919,96 @@ describe("admin UI history page", { timeout: UI_TEST_TIMEOUT_MS }, () => {
     expect(narrow.box.height).toBeLessThanOrEqual(20);
     expect(narrow.box.x).toBeGreaterThanOrEqual(narrow.refreshBox.x + narrow.refreshBox.width - 1);
   });
+
+  it("gives the summary model a reasoning depth picker whose custom row appears only when custom is picked", async () => {
+    await loadAdminPage();
+    await page.locator('[data-tab="logs"]').click();
+    await page.locator("#languageSelect").selectOption("en");
+    await page.locator("#summaryModelSettings").click();
+    await expectPage(page.locator("#summaryModelDialog")).toBeVisible();
+
+    const picker = page.locator("#summaryReasoning");
+    const custom = page.locator("#summaryReasoningCustom");
+    const row = page.locator("#summaryReasoningCustomRow");
+    // The picker's own option list is what the code reads a stored depth against, so this
+    // row is the whole contract: "the provider decides", the six presets and "custom".
+    // `toHaveValues` is not usable here (pinned in `ui-test-quirks`), so the values are read
+    // off the element once.
+    const optionValues = await picker.evaluate((element) =>
+      [...element.querySelectorAll("option")].map((option) => option.value),
+    );
+    expect(optionValues).toEqual([
+      "",
+      "none",
+      "minimal",
+      "low",
+      "medium",
+      "high",
+      "xhigh",
+      "custom",
+    ]);
+    // Nothing is configured here, so the depth is the provider's business: the custom row is
+    // not on the screen at all, not merely unusable.
+    await expectPage(picker).toHaveValue("");
+    await expectPage(row).toBeHidden();
+    await expectPage(custom).toBeHidden();
+
+    await picker.selectOption("custom");
+    await expectPage(row).toBeVisible();
+    await expectPage(custom).toBeVisible();
+    await custom.fill("max");
+    // Leaving "custom" hands the depth back to the preset, takes the row off the screen and
+    // clears what was typed, so a stale custom value cannot decide the next save.
+    await picker.selectOption("medium");
+    await expectPage(row).toBeHidden();
+    await expectPage(custom).toHaveValue("");
+
+    // An empty custom value is refused before anything is sent: the console says why and
+    // the dialog stays open instead of storing a depth that means nothing. The form's own
+    // required fields have to be satisfied first, because a browser that is already
+    // refusing an empty URL or model name never reaches the submit handler at all.
+    await page.locator("#summaryUrl").fill("https://summary.example.com/v1");
+    await page.locator("#summaryModel").fill("summary-model");
+    await picker.selectOption("custom");
+    await page.locator("#summarySave").click();
+    await expectPage(page.locator("#toast")).toContainText(
+      "Write a value when Custom is selected.",
+    );
+    await expectPage(page.locator("#summaryModelDialog")).toBeVisible();
+
+    // Every label this row adds is translated. An untranslated label fails nothing on its
+    // own, so it is checked here rather than left to the English capture.
+    await expectPage(page.locator('[data-i18n="reasoningDepth"]')).toHaveText("Reasoning depth");
+    await expectPage(picker.locator('[data-i18n="reasoningProviderDefault"]')).toHaveText(
+      "Provider default (not sent)",
+    );
+    await expectPage(picker.locator('[data-i18n="reasoningCustomChoice"]')).toHaveText("Custom…");
+    await expectPage(page.locator('[data-i18n="reasoningCustomValue"]')).toHaveText("Custom value");
+  });
+
+  it("brings the custom row back on the screen when the stored depth is one the presets do not name", async () => {
+    await page.route("**/api/settings/summary-model", (route) =>
+      route.fulfill({
+        json: {
+          reasoning_effort: "max",
+          api_type: "openai_chat",
+          target_url: "https://summary.example.com/v1",
+          model: "summary-model",
+          api_key: "",
+          target_headers: [],
+          timeout_ms: 180000,
+        },
+      }),
+    );
+    await loadAdminPage();
+    await page.locator('[data-tab="logs"]').click();
+    await page.locator("#summaryModelSettings").click();
+    await expectPage(page.locator("#summaryModelDialog")).toBeVisible();
+
+    // A depth the presets do not name is the user's own word: it goes back into the box, and
+    // the row has to be on the screen for that word to be readable and editable at all.
+    await expectPage(page.locator("#summaryReasoning")).toHaveValue("custom");
+    await expectPage(page.locator("#summaryReasoningCustomRow")).toBeVisible();
+    await expectPage(page.locator("#summaryReasoningCustom")).toHaveValue("max");
+  });
 });

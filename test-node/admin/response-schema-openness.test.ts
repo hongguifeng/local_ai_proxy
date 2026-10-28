@@ -244,7 +244,6 @@ describe("[AI-08] open payloads through the assembled application", () => {
     root = await mkdtemp(path.join(tmpdir(), "llm-proxy-openness-"));
     const targetUrl = await startSummaryModel();
     const summaryModel: SummaryModelConfig = {
-      disable_reasoning: true,
       api_type: "openai_chat",
       target_url: targetUrl,
       api_key: "fixture-key",

@@ -337,7 +337,6 @@ describe("ProxyManager configuration apply", () => {
 
 function summaryFixture(model: string): SummaryModelConfig {
   return {
-    disable_reasoning: true,
     api_type: "openai_chat",
     target_url: "http://127.0.0.1:1235",
     api_key: `key-for-${model}`,

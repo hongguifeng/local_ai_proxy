@@ -36,7 +36,12 @@ export interface SummaryModelConnectionReport {
 }
 
 const MAX_SUMMARY_RESPONSE_CHARS = 2_000_000;
-const SUMMARY_MAX_TOKENS = 2000;
+// How much room the answer gets. A task brief is no longer capped in how many stages it
+// may carry, so the answer has to be long enough to finish a long timeline: an answer cut
+// off halfway through is refused as unparseable, and an answer that ran out of room before
+// the last stage is not a result the card can show. This is an output ceiling, not a cost
+// or timeout threshold, and it says nothing about when a call should be refused.
+const SUMMARY_MAX_TOKENS = 4000;
 const SUMMARY_TEMPERATURE = 0;
 const CHECK_PROMPT = "ping";
 const CHECK_MAX_TOKENS = 1;
@@ -75,7 +80,7 @@ export class SummaryModelClient implements SummaryModelGenerator {
     const kind = apiKind(config.api_type);
     const target = resolveUpstreamUrl(config.target_url, kind);
     const body = JSON.stringify(
-      withReasoningOff(
+      withReasoningDepth(
         upstreamRequestBody(kind, {
           model: config.model,
           system: prompt.instruction,
@@ -83,7 +88,7 @@ export class SummaryModelClient implements SummaryModelGenerator {
           maxTokens: SUMMARY_MAX_TOKENS,
           temperature: SUMMARY_TEMPERATURE,
         }),
-        config.disable_reasoning,
+        config.reasoning_effort,
       ),
     );
     let response: Response;
@@ -139,7 +144,7 @@ export class SummaryModelClient implements SummaryModelGenerator {
           ...targetHeaderOverrides(config.target_headers),
         },
         body: JSON.stringify(
-          withReasoningOff(
+          withReasoningDepth(
             upstreamRequestBody(kind, {
               model: config.model,
               system: undefined,
@@ -147,7 +152,7 @@ export class SummaryModelClient implements SummaryModelGenerator {
               maxTokens: kind === "anthropic" ? CHECK_MAX_TOKENS : undefined,
               temperature: undefined,
             }),
-            config.disable_reasoning,
+            config.reasoning_effort,
           ),
         ),
         signal: AbortSignal.timeout(config.timeout_ms),
@@ -167,14 +172,16 @@ export class SummaryModelClient implements SummaryModelGenerator {
 }
 
 /**
- * `reasoning_effort` is written last, which is where the project has always written it,
- * and only when the summary configuration asks for reasoning to be turned off.
+ * `reasoning_effort` is written last, which is where the project has always written it. It
+ * is written only when the configuration names a depth: leaving the depth unset means the
+ * provider decides, so the field stays out of the body instead of being sent empty, and a
+ * depth that is set is sent verbatim - this module does not translate, clip or map it.
  */
-function withReasoningOff(
+function withReasoningDepth(
   body: Record<string, unknown>,
-  disableReasoning: boolean,
+  reasoningEffort: string | undefined,
 ): Record<string, unknown> {
-  return { ...body, ...(disableReasoning ? { reasoning_effort: "none" } : {}) };
+  return reasoningEffort === undefined ? body : { ...body, reasoning_effort: reasoningEffort };
 }
 
 /**

@@ -38,7 +38,6 @@ afterEach(async () => {
 const summaryConfig: SummaryModelConfig = {
   api_key: "summary-secret",
   api_type: "openai_chat",
-  disable_reasoning: true,
   model: "summary-model",
   target_headers: [],
   target_url: "https://summary.example.com/v1",

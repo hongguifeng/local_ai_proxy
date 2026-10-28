@@ -1062,6 +1062,43 @@ let hoverPrefetchId = null;
 let hoverPrefetchTimer = null;
 
 /**
+ * The reasoning depth the picker is about to send: a preset, the value typed in the custom
+ * box, or `undefined` when the provider should decide. `JSON.stringify` leaves an undefined
+ * key out of the body, so `undefined` here is the "do not send `reasoning_effort`" shape the
+ * configuration expects, not "nobody knows the depth". `null` is a refusal: the custom box
+ * is selected but holds nothing, and an empty custom value must not be saved.
+ * @returns {string | undefined | null}
+ */
+function summaryReasoningChoice() {
+  const select = requiredTyped("#summaryReasoning", HTMLSelectElement);
+  if (select.value !== "custom") return select.value === "" ? undefined : select.value;
+  const typed = requiredTyped("#summaryReasoningCustom", HTMLInputElement).value.trim();
+  return typed === "" ? null : typed;
+}
+
+/**
+ * Put a stored depth back into the picker. A value that names one of the presets selects
+ * that preset; a value the presets do not name is a custom one, which lands in the text box
+ * and makes that row appear; no value at all is "the provider decides" and leaves the row
+ * hidden. The presets are read from the select itself, so the console's list and this lookup
+ * cannot drift apart.
+ * @param {unknown} stored
+ * @returns {void}
+ */
+function showSummaryReasoning(stored) {
+  const select = requiredTyped("#summaryReasoning", HTMLSelectElement);
+  const custom = requiredTyped("#summaryReasoningCustom", HTMLInputElement);
+  const row = requiredTyped("#summaryReasoningCustomRow", HTMLLabelElement);
+  const value = typeof stored === "string" ? stored.trim() : "";
+  const namesPreset = [...select.options].some(
+    (option) => option.value === value && option.value !== "" && option.value !== "custom",
+  );
+  select.value = value === "" ? "" : namesPreset ? value : "custom";
+  custom.value = select.value === "custom" ? value : "";
+  row.hidden = select.value !== "custom";
+}
+
+/**
  * Attaches every listener the history list owns: the toolbar (refresh, search, export,
  * cleanup, select-all, auto refresh), the delegated list clicks and keyboard activation,
  * the hover/press detail prefetch and the summary dialog. Nothing runs at import time.
@@ -1128,7 +1165,6 @@ export function mountHistory() {
     const current = await api("/api/settings/summary-model").catch(() => null);
     const base = current || {
       api_type: "openai_chat",
-      disable_reasoning: true,
       target_url: "",
       api_key: "",
       model: "",
@@ -1136,8 +1172,7 @@ export function mountHistory() {
       timeout_ms: 180000,
     };
     requiredTyped("#summaryApiType", HTMLSelectElement).value = base.api_type;
-    requiredTyped("#summaryDisableReasoning", HTMLInputElement).checked =
-      base.disable_reasoning !== false;
+    showSummaryReasoning(base.reasoning_effort);
     requiredTyped("#summaryUrl", HTMLInputElement).value = base.target_url;
     requiredTyped("#summaryModel", HTMLInputElement).value = base.model;
     requiredTyped("#summaryKey", HTMLInputElement).value = base.api_key;
@@ -1151,14 +1186,32 @@ export function mountHistory() {
     $("summaryTestResult").textContent = "";
     requiredDialog("summaryModelDialog").showModal();
   });
-  $("summaryModelForm").addEventListener("submit", async (e) => {
+  requiredTyped("#summaryReasoning", HTMLSelectElement).addEventListener("change", () => {
+    const custom = requiredTyped("#summaryReasoningCustom", HTMLInputElement);
+    const row = requiredTyped("#summaryReasoningCustomRow", HTMLLabelElement);
+    const pickingCustom = requiredTyped("#summaryReasoning", HTMLSelectElement).value === "custom";
+    // A preset owns the depth on its own: the custom row only exists for a value the presets
+    // do not name, so it stays hidden until "custom" is picked, and leaving "custom" clears
+    // what was typed instead of letting a stale custom value decide the save.
+    row.hidden = !pickingCustom;
+    if (!pickingCustom) custom.value = "";
+  });
+  requiredTyped("#summaryModelForm", HTMLFormElement).addEventListener("submit", async (e) => {
     e.preventDefault();
+    const reasoning = summaryReasoningChoice();
+    if (reasoning === null) {
+      toast(t("reasoningCustomEmpty"));
+      return;
+    }
     const base = await api("/api/settings/summary-model").catch(() => ({}));
     await api("/api/settings/summary-model", {
       method: "PUT",
       body: JSON.stringify({
         ...base,
-        disable_reasoning: requiredTyped("#summaryDisableReasoning", HTMLInputElement).checked,
+        // `undefined` here is not "the depth is unknown": JSON.stringify leaves an
+        // undefined key out of the body, which is how the picker says "let the provider
+        // decide" - the key is then absent from the stored configuration too.
+        reasoning_effort: reasoning,
         api_type: requiredTyped("#summaryApiType", HTMLSelectElement).value,
         target_url: requiredTyped("#summaryUrl", HTMLInputElement).value,
         model: requiredTyped("#summaryModel", HTMLInputElement).value,
@@ -1253,6 +1306,14 @@ export function mountHistory() {
     showTaskPricing(group.dataset.groupId).catch((e) => toast(e.message));
   });
   requiredTyped("#summaryTest", HTMLButtonElement).addEventListener("click", async () => {
+    const reasoning = summaryReasoningChoice();
+    if (reasoning === null) {
+      const early = $("summaryTestResult");
+      early.hidden = false;
+      early.className = "target-check-result failure";
+      early.textContent = t("reasoningCustomEmpty");
+      return;
+    }
     const result = $("summaryTestResult");
     result.hidden = false;
     result.className = "target-check-result testing";
@@ -1261,7 +1322,7 @@ export function mountHistory() {
       const r = await api("/api/settings/summary-model/test", {
         method: "POST",
         body: JSON.stringify({
-          disable_reasoning: requiredTyped("#summaryDisableReasoning", HTMLInputElement).checked,
+          reasoning_effort: reasoning,
           api_type: requiredTyped("#summaryApiType", HTMLSelectElement).value,
           target_url: requiredTyped("#summaryUrl", HTMLInputElement).value,
           model: requiredTyped("#summaryModel", HTMLInputElement).value,

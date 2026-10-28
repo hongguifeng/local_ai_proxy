@@ -46,6 +46,7 @@ const browserGlobals = {
   HTMLFormElement: "readonly",
   HTMLDialogElement: "readonly",
   HTMLDetailsElement: "readonly",
+  HTMLLabelElement: "readonly",
   KeyboardEvent: "readonly",
   PointerEvent: "readonly",
   ToggleEvent: "readonly",

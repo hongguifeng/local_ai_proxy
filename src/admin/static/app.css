@@ -2622,15 +2622,10 @@ label span {
   color: var(--muted);
 }
 
-.target-check-form label.summary-enabled {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-}
-
-.target-check-form label.summary-enabled input {
-  width: auto;
-  height: auto;
+/* The rule above outranks the UA `[hidden] { display: none }`, so a hidden row of this form
+   has to be written out - the same reason `.lb-picker-pop[hidden]` exists. */
+.target-check-form label[hidden] {
+  display: none;
 }
 
 .target-check-form input {

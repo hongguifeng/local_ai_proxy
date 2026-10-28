@@ -538,11 +538,12 @@ describe("[AI-09] admin service assembly", () => {
       const report = await services.summaryModelService.testConfig(summaryModel("checker"));
       expect(report).toEqual({ ok: true, detail: "HTTP 200: pong" });
       expect(calls).toHaveLength(1);
-      // The same URL, headers and one-word ping a real call would use, built once.
+      // The same URL, headers and one-word ping a real call would use, built once. This
+      // configuration names no reasoning depth, so the field is not in the body at all.
       expect(calls[0]?.url).toBe("https://summary.example.com/v1/chat/completions");
       expect(calls[0]?.headers["authorization"]).toBe("Bearer summary-secret");
       expect(calls[0]?.body).toBe(
-        '{"model":"checker","messages":[{"role":"user","content":"ping"}],"stream":false,"reasoning_effort":"none"}',
+        '{"model":"checker","messages":[{"role":"user","content":"ping"}],"stream":false}',
       );
     } finally {
       vi.unstubAllGlobals();
@@ -553,7 +554,6 @@ describe("[AI-09] admin service assembly", () => {
 /** A summary model with one name changed, for the read-at-call-time test. */
 function summaryModel(model: string): SummaryModelConfig {
   return {
-    disable_reasoning: true,
     api_type: "openai_chat",
     target_url: "https://summary.example.com/v1",
     api_key: "summary-secret",

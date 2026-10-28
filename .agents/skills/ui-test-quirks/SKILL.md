@@ -27,10 +27,19 @@ description: >-
   `#pricingPanel .token-chart svg` resolves to two elements. The same trap applies to tags: the
   breakpoint test selects `header:not(.summary-dialog-head)`, so a new `<dialog>` head must be a
   `<div>`.
+- A `<form>` inside a `<dialog>` runs native constraint validation before `submit`: an empty
+  `required` field means the submit event never fires at all, so a test that waits for a
+  handler-level guard message has to fill the required fields first. The summary-model dialog test
+  fills `#summaryUrl` and `#summaryModel` before it clicks `#summarySave` for exactly this reason
+  (2026-10-28: the empty-custom-value assertion polled an empty `#toast` fourteen times until the
+  required inputs were filled).
 - In the pinned playwright-core, `Request.postData()` / `postDataJSON()` (reached through a page
   `response.request()`) are synchronous — do not `await` them. `expect(locator).toHaveValues([...])`
-  throws a strict-mode violation even for a stable locator, so assert per element with
-  `nth(i)` + `toHaveValue()`. The `APIResponse` from `page.request` has `request()` in its
+  throws a strict-mode violation even for a stable locator, and on a single `<select>` it answers
+  "Not a select element with a multiple attribute" instead of comparing option values, so assert per
+  element with `nth(i)` + `toHaveValue()`, or read the option values once with
+  `locator.evaluate((element) => [...element.querySelectorAll("option")].map((option) => option.value))`
+  when it is the option list that is under test. The `APIResponse` from `page.request` has `request()` in its
   typings but not at runtime, so body assertions go through page `response` events.
 - Timer-driven UI is testable with `page.clock.install()` before `goto` plus
   `page.clock.runFor(ms)`. Installing does not freeze the clock: it keeps following real time, so

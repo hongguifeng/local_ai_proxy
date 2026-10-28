@@ -1239,7 +1239,7 @@ export type AdminStatisticsExportQuery = z.input<typeof statisticsExportQueryDto
  * express, so duplicating those rules here would only split one rule across two places.
  */
 const summaryModelConfigDto = z.object({
-  disable_reasoning: z.boolean(),
+  reasoning_effort: z.string().optional(),
   api_type: z.enum(["openai_chat", "openai_responses", "anthropic_messages"]),
   target_url: z.string(),
   api_key: z.string(),

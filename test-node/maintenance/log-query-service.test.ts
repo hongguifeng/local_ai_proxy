@@ -757,7 +757,6 @@ describe("LogQueryService", () => {
     expect(service.getTaskBrief("brief-task")).toBeUndefined();
 
     const config: SummaryModelConfig = {
-      disable_reasoning: true,
       api_type: "openai_chat",
       target_url: "https://summary.example.com/v1",
       api_key: "key",
@@ -897,7 +896,6 @@ describe("LogQueryService", () => {
 
     const service = new LogQueryService([root]);
     const config: SummaryModelConfig = {
-      disable_reasoning: true,
       api_type: "anthropic_messages",
       target_url: "https://summary.example.com/v1",
       api_key: "key",
@@ -985,7 +983,6 @@ describe("LogQueryService", () => {
     });
     try {
       const brief = await service.generateTaskBrief("cross-brief-task", {
-        disable_reasoning: true,
         api_type: "openai_responses",
         target_url: "https://summary.example.com/v1",
         api_key: "key",
@@ -1153,7 +1150,6 @@ describe("LogQueryService error classification and diagnostics", () => {
   const summaryConfig: SummaryModelConfig = {
     api_key: "summary-secret",
     api_type: "openai_chat",
-    disable_reasoning: true,
     model: "summary-model",
     target_headers: [],
     target_url: "https://summary.example.com/v1",

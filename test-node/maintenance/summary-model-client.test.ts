@@ -49,7 +49,6 @@ afterAll(async () => {
 
 function config(overrides: Partial<SummaryModelConfig> = {}): SummaryModelConfig {
   return {
-    disable_reasoning: true,
     api_type: "openai_chat",
     target_url: "https://summary.example.com/v1",
     api_key: "summary-secret",
@@ -94,8 +93,13 @@ function recordCall(
   });
 }
 
+/** The depth a serialized body carries, read the way every body assertion here reads it. */
+function depthOf(body: string): unknown {
+  return (JSON.parse(body) as Record<string, unknown>)["reasoning_effort"];
+}
+
 describe("SummaryModelClient", () => {
-  it("sends a chat completion with a system turn and reasoning turned off", async () => {
+  it("sends a chat completion with a system turn and no reasoning depth", async () => {
     const calls: RecordedCall[] = [];
     vi.stubGlobal("fetch", (input: URL | RequestInfo, init?: RequestInit) => {
       recordCall(input, init, calls);
@@ -113,7 +117,7 @@ describe("SummaryModelClient", () => {
       expect(call?.signal).toBeInstanceOf(AbortSignal);
       expect(call?.signal?.aborted).toBe(false);
       expect(call?.body).toBe(
-        '{"model":"summary-model","temperature":0,"messages":[{"role":"system","content":"answer in JSON"},{"role":"user","content":"the prepared input"}],"stream":false,"reasoning_effort":"none"}',
+        '{"model":"summary-model","temperature":0,"messages":[{"role":"system","content":"answer in JSON"},{"role":"user","content":"the prepared input"}],"stream":false}',
       );
     } finally {
       vi.unstubAllGlobals();
@@ -136,7 +140,7 @@ describe("SummaryModelClient", () => {
       expect(call?.url).toBe("https://summary.example.com/v1/responses");
       expect(call?.headers["authorization"]).toBe("Bearer summary-secret");
       expect(call?.body).toBe(
-        '{"model":"summary-model","input":"answer in JSON\\n\\nthe prepared input","stream":false,"reasoning_effort":"none"}',
+        '{"model":"summary-model","input":"answer in JSON\\n\\nthe prepared input","stream":false}',
       );
     } finally {
       vi.unstubAllGlobals();
@@ -163,24 +167,54 @@ describe("SummaryModelClient", () => {
       expect(call?.headers["anthropic-version"]).toBe("2023-06-01");
       expect(call?.headers["authorization"]).toBeUndefined();
       expect(call?.body).toBe(
-        '{"model":"summary-model","max_tokens":2000,"system":"answer in JSON","messages":[{"role":"user","content":"the prepared input"}],"stream":false,"reasoning_effort":"none"}',
+        '{"model":"summary-model","max_tokens":4000,"system":"answer in JSON","messages":[{"role":"user","content":"the prepared input"}],"stream":false}',
       );
     } finally {
       vi.unstubAllGlobals();
     }
   });
 
-  it("keeps reasoning on when the configuration does not turn it off", async () => {
+  it("sends the configured depth verbatim, including one the presets do not name", async () => {
+    // The depth is the configuration's own word: nothing here maps it, clips it or
+    // lowercases it, so a preset and a provider-private value travel the same way and the
+    // provider - not this module - decides whether the value is one it accepts.
     const calls: RecordedCall[] = [];
     vi.stubGlobal("fetch", (input: URL | RequestInfo, init?: RequestInit) => {
       recordCall(input, init, calls);
       return Promise.resolve(chatAnswer("a summary"));
     });
     try {
-      await new SummaryModelClient().generate(config({ disable_reasoning: false }), prompt);
-      expect(calls[0]?.body).toBe(
-        '{"model":"summary-model","temperature":0,"messages":[{"role":"system","content":"answer in JSON"},{"role":"user","content":"the prepared input"}],"stream":false}',
+      const client = new SummaryModelClient();
+      await client.generate(config({ reasoning_effort: "xhigh" }), prompt);
+      await client.generate(
+        config({ api_type: "openai_responses", reasoning_effort: "xhigh" }),
+        prompt,
       );
+      await client.generate(
+        config({ api_type: "anthropic_messages", reasoning_effort: "xhigh" }),
+        prompt,
+      );
+      await client.generate(config({ reasoning_effort: "max" }), prompt);
+      expect(calls).toHaveLength(4);
+      expect(calls.map((call) => depthOf(call.body))).toEqual(["xhigh", "xhigh", "xhigh", "max"]);
+      // Written last, where the reasoning field has always been written.
+      expect(calls[0]?.body.endsWith(',"reasoning_effort":"xhigh"}')).toBe(true);
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+
+  it("leaves the depth out of the body when the configuration does not name one", async () => {
+    // "The provider decides" is not a value: the field is absent, not empty. A summary
+    // model that receives `reasoning_effort: ""` answers nothing useful.
+    const calls: RecordedCall[] = [];
+    vi.stubGlobal("fetch", (input: URL | RequestInfo, init?: RequestInit) => {
+      recordCall(input, init, calls);
+      return Promise.resolve(chatAnswer("a summary"));
+    });
+    try {
+      await new SummaryModelClient().generate(config(), prompt);
+      expect(calls[0]?.body).not.toContain("reasoning_effort");
     } finally {
       vi.unstubAllGlobals();
     }
@@ -454,13 +488,11 @@ describe("SummaryModelClient", () => {
       }
       const bodies = calls.map((call) => call.body);
       expect(bodies[0]).toBe(
-        '{"model":"summary-model","messages":[{"role":"user","content":"ping"}],"stream":false,"reasoning_effort":"none"}',
+        '{"model":"summary-model","messages":[{"role":"user","content":"ping"}],"stream":false}',
       );
-      expect(bodies[1]).toBe(
-        '{"model":"summary-model","input":"ping","stream":false,"reasoning_effort":"none"}',
-      );
+      expect(bodies[1]).toBe('{"model":"summary-model","input":"ping","stream":false}');
       expect(bodies[2]).toBe(
-        '{"model":"summary-model","max_tokens":1,"messages":[{"role":"user","content":"ping"}],"stream":false,"reasoning_effort":"none"}',
+        '{"model":"summary-model","max_tokens":1,"messages":[{"role":"user","content":"ping"}],"stream":false}',
       );
       expect(calls.map((call) => call.url)).toEqual([
         "https://summary.example.com/v1/chat/completions",
@@ -470,6 +502,28 @@ describe("SummaryModelClient", () => {
       expect(calls[0]?.headers["authorization"]).toBe("Bearer summary-secret");
       expect(calls[2]?.headers["x-api-key"]).toBe("summary-secret");
       expect(calls[2]?.headers["anthropic-version"]).toBe("2023-06-01");
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+
+  it("checks the connection with the same depth an answer would use", async () => {
+    // The button has to test the request the console will really make, not the cheapest
+    // shape it could make: a depth that the provider rejects shows up here, where the
+    // operator is looking, instead of at the first task brief that needs an answer.
+    const calls: RecordedCall[] = [];
+    vi.stubGlobal("fetch", (input: URL | RequestInfo, init?: RequestInit) => {
+      recordCall(input, init, calls);
+      return Promise.resolve(new Response("", { status: 204 }));
+    });
+    try {
+      const client = new SummaryModelClient();
+      const apiTypes = ["openai_chat", "openai_responses", "anthropic_messages"] as const;
+      for (const apiType of apiTypes) {
+        await client.testConnection(config({ api_type: apiType, reasoning_effort: "medium" }));
+      }
+      expect(calls).toHaveLength(3);
+      expect(calls.map((call) => depthOf(call.body))).toEqual(["medium", "medium", "medium"]);
     } finally {
       vi.unstubAllGlobals();
     }

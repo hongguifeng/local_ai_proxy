@@ -26,9 +26,11 @@ LLM Proxy 是本地 HTTP 代理和 Web 控制台，用于检查 Agent、SDK 或�
 | Target | `id`、`target_url`、headers、字段改写、`log_root`、价格 | 一个上游服务和它的日志/计价设置 |
 | Model mapping | `listen`、`upstream` | 按顺序匹配模型名，可改写上游模型名 |
 | Load balancer group | `model_pattern`、策略、members | 对同一模型的多个 target 做任务粘性和负载选择 |
-| Summary model | provider、model、endpoint 等 | 任务简介生成的控制面配置，不参与代理路由 |
+| Summary model | `api_type`、`target_url`、`model`、`reasoning_effort` | 任务简介生成的控制面配置，不参与代理路由 |
 
 配置保存是整体提交：先校验新配置，再保存并应用运行态；失败时恢复配置和监听器。保持 host/port 的 pair 使用新流水线，旧请求继续完成；改变监听地址、停用或删除 pair 会停止旧监听器。未知的配置键会随所属对象保留，以便打开并保存较旧或较新的配置时不静默丢数据。
+
+总结模型的思考深度只有一个键 `summary_model.reasoning_effort`：不写这个键就是请求里不发 `reasoning_effort`，由上游自己决定；写了就原样发过去，三种协议同一写法，Anthropic Messages 会忽略它。管理端下拉里的六个档位（`none`、`minimal`、`low`、`medium`、`high`、`xhigh`）只是便利，不是白名单，自定义值合法：界面上只有选了“自定义”才出现写自定义值的那一行，选预置时该行不在界面上、已写的值也会被清空；去掉首尾空白后为空、或中间带空白的值在保存阶段就被拒，不会走到上游。“连接测试”按钮用的是同一个深度，测的就是真会发出去的那次请求。退休的 `disable_reasoning` 开关不再被任何代码读取：带着它的旧配置仍通过校验，但下一次保存会把这个键丢掉，它的行为效果也随之变成“由上游决定”。
 
 负载均衡组另有一个自动再均衡模式 `rebalance_mode`：`off`（默认）、`advise`、`auto`。`off` 的组不计算任何自动动作；
 `advise` 的组只在状态 API 与运行日志里给建议，不改绑定；`auto` 在今天与 `advise` 行为相同，并在状态里命名

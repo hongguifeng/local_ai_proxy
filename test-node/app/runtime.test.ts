@@ -494,7 +494,6 @@ describe("createNodeApplication", () => {
     await runtime.application.start();
     const adminPort = runtime.address()?.port;
     const summary = {
-      disable_reasoning: true,
       api_type: "openai_chat",
       target_url: "http://127.0.0.1:1235",
       api_key: "secret",
@@ -703,7 +702,8 @@ function disabledPairFixture(name: string, logRoot = "logs"): Record<string, unk
 
 function summaryModelFixture(): Record<string, unknown> {
   return {
-    disable_reasoning: true,
+    // A named depth is stored and read back as written: the console does not translate it.
+    reasoning_effort: "high",
     api_type: "openai_chat",
     target_url: "http://127.0.0.1:1236",
     api_key: "summary-secret",
