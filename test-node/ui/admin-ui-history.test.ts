@@ -1106,8 +1106,8 @@ describe("admin UI history page", { timeout: UI_TEST_TIMEOUT_MS }, () => {
     ).toEqual([
       "task-brief-step-head",
       "task-brief-step-purpose",
-      "task-brief-step-approach",
       "task-brief-step-result",
+      "task-brief-step-approach",
       "task-brief-step-operation",
       "task-brief-step-evidence",
     ]);
@@ -1120,6 +1120,33 @@ describe("admin UI history page", { timeout: UI_TEST_TIMEOUT_MS }, () => {
       };
     });
     expect(emphasis.methodSize).toBeGreaterThan(emphasis.actionSize);
+    await expectPage(record.locator(".task-brief-step-purpose").first()).toHaveAttribute(
+      "open",
+      "",
+    );
+    await expectPage(record.locator(".task-brief-step-result").first()).not.toHaveAttribute(
+      "open",
+      "",
+    );
+    await expectPage(record.locator(".task-brief-step-approach").first()).not.toHaveAttribute(
+      "open",
+      "",
+    );
+    await record
+      .locator(".task-brief-step")
+      .nth(0)
+      .locator(".task-brief-step-result > summary")
+      .click();
+    await expectPage(record.locator(".task-brief-step-result").first()).toHaveAttribute("open", "");
+    await record
+      .locator(".task-brief-step")
+      .nth(0)
+      .locator(".task-brief-step-approach > summary")
+      .click();
+    await expectPage(record.locator(".task-brief-step-approach").first()).toHaveAttribute(
+      "open",
+      "",
+    );
     await expectPage(record.locator(".task-brief-step-evidence").first()).not.toHaveAttribute(
       "open",
       "",

@@ -1628,7 +1628,7 @@ label span {
 .task-brief-step-approach,
 .task-brief-step-result {
   margin-top: 12px;
-  padding: 10px 12px;
+  padding: 0;
   border: 1px solid #dce8e2;
   border-left: 3px solid #2b8a6e;
   border-radius: 9px;
@@ -1654,9 +1654,52 @@ label span {
   border-left-color: #9a6c2f;
   background: #fffaf0;
 }
+.task-brief-step-purpose > summary,
+.task-brief-step-approach > summary,
+.task-brief-step-result > summary {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  margin: 0;
+  padding: 10px 12px;
+  cursor: pointer;
+  list-style: none;
+}
+.task-brief-step-purpose > summary::-webkit-details-marker,
+.task-brief-step-approach > summary::-webkit-details-marker,
+.task-brief-step-result > summary::-webkit-details-marker {
+  display: none;
+}
+.task-brief-step-purpose > summary::before,
+.task-brief-step-approach > summary::before,
+.task-brief-step-result > summary::before {
+  content: "▸";
+  color: currentColor;
+  font-size: 12px;
+  transition: transform 120ms ease;
+}
+.task-brief-step-purpose[open] > summary::before,
+.task-brief-step-approach[open] > summary::before,
+.task-brief-step-result[open] > summary::before {
+  transform: rotate(90deg);
+}
+.task-brief-step-purpose[open] > summary,
+.task-brief-step-approach[open] > summary,
+.task-brief-step-result[open] > summary {
+  border-bottom: 1px solid currentColor;
+}
+.task-brief-step-purpose[open] > summary {
+  border-bottom-color: #d5e9df;
+}
+.task-brief-step-approach[open] > summary {
+  border-bottom-color: #d8e5eb;
+}
+.task-brief-step-result[open] > summary {
+  border-bottom-color: #e5dfd1;
+}
 .task-brief-step-label {
   display: block;
-  margin-bottom: 5px;
+  margin: 0;
   color: var(--muted);
   font-size: 11px;
   font-weight: 700;
@@ -1674,7 +1717,7 @@ label span {
 }
 .task-brief-step-list {
   margin: 0;
-  padding: 0 0 0 19px;
+  padding: 10px 12px 11px 31px;
 }
 .task-brief-step-list li {
   padding-left: 3px;

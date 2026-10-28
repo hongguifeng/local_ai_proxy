@@ -637,14 +637,14 @@ function briefFieldSeparator() {
   return state.language === "en" ? ": " : "：";
 }
 
-function briefFieldHtml(className, label, value) {
+function briefFieldHtml(className, label, value, collapsed = false) {
   const values = Array.isArray(value) ? value : value ? [String(value)] : [];
   if (values.length === 0) return "";
-  return `<section class="${className}"><div class="task-brief-step-label">${escapeHtml(
+  return `<details class="${className}"${collapsed ? "" : " open"}><summary class="task-brief-step-label">${escapeHtml(
     label,
-  )}</div><ul class="task-brief-step-list">${values
+  )}</summary><ul class="task-brief-step-list">${values
     .map((item) => `<li>${escapeHtml(String(item))}</li>`)
-    .join("")}</ul></section>`;
+    .join("")}</ul></details>`;
 }
 
 /** One stage line: short goal, method and result points lead; the concrete operation stays secondary. */
@@ -695,8 +695,14 @@ function briefStepHtml(step, totalEvents) {
     "task-brief-step-approach",
     t("timelineStepApproach"),
     step.approach,
+    true,
   );
-  const result = briefFieldHtml("task-brief-step-result", t("timelineStepResult"), step.result);
+  const result = briefFieldHtml(
+    "task-brief-step-result",
+    t("timelineStepResult"),
+    step.result,
+    true,
+  );
   const operation = step.operation
     ? `<div class="task-brief-step-operation"><span class="task-brief-step-label">${escapeHtml(
         t("timelineStepOperation"),
@@ -712,7 +718,7 @@ function briefStepHtml(step, totalEvents) {
       )}</span>
       ${briefStepPositionHtml(step, totalEvents)}
     </div>
-    ${purpose}${approach}${result}${operation}
+    ${purpose}${result}${approach}${operation}
     ${
       refs
         ? `<details class="task-brief-step-evidence"><summary>${escapeHtml(t("timelineStepEvidence"))} (${step.evidence.length})</summary><span class="task-brief-step-refs">${refs}</span></details>`
