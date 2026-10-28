@@ -29,11 +29,12 @@ Real-model checks against the user's own config are cheap, because the summary m
 local proxy port, and they are the only way to prove a prompt change extracts what it asks
 for. Two lessons:
 
-- Whatever the model must know has to be inside the input. `prepareSummaryRequest` keeps only
-  `model`/`messages`/`input`/`instructions`, so request headers (client identity) are
-  invisible unless sent alongside — the task brief passes them as a separate `client` block.
-- A fixture that returns only `outcome`/`model_note` proves nothing about undeclared-key
-  survival, because the parser refuses a payload without `segments` before it can answer.
+- Whatever the model must know has to be inside the input. The current shared
+  `prepareTaskTimelineInput` carries numbered events and an allowlisted `client` block;
+  headers outside that allowlist remain invisible to both record and task summaries.
+- A fixture must satisfy the current parser before HTTP serialization can be tested.
+  Record summaries now use the same evidence-checked `steps` contract as task briefs;
+  undeclared model keys are discarded rather than exposed as arbitrary protocol payload.
 
 ## A harness bug once looked like a product failure
 

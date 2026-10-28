@@ -30,7 +30,7 @@
 | TE-04 | 解释目的、思路与结果 | 每个阶段有 `purpose`（动机/目标要点列表）、`approach`（思路/方法要点列表）和 `result`（结果要点列表），并带一个或多个证据编号；无法确定时写“未知”或标为推断。 |
 | TE-05 | 能核对证据           | 证据编号始终指向输入中的事件，工具结果与调用的 `call_id` 关系可见。                                                                                           |
 | TE-06 | 适配现有任务         | Chat Completions 的 `messages` 和 Responses API 的 `input` 都转换为同一事件合同。                                                                             |
-| TE-07 | 不改变历史事实       | 原始请求、响应、记录顺序、单请求智能总结和任务简介的手动触发语义不被改写。                                                                                    |
+| TE-07 | 不改变历史事实       | 原始请求、响应、记录顺序和两种总结的手动触发语义不被改写；单请求总结复用本设计的执行过程合同。                                                                                    |
 | TE-08 | 结果可重复查看       | 生成结果缓存；打开任务明细只读缓存，不调用模型；来源请求变化时显示过期状态并由用户重新生成。                                                                  |
 
 ### v1 非目标
@@ -48,9 +48,9 @@
 | 结论                                                                                | 类别     | 证据                                                                                                                                                                           | 对设计的影响                                                                             |
 | ----------------------------------------------------------------------------------- | -------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ | ---------------------------------------------------------------------------------------- |
 | 任务简介从最新一次已完成请求读取数据，全部请求在途时退化为最新请求                  | 当前事实 | `TrafficRepository.latestTaskRecordId()`；`src/maintenance/summary-generation-service.ts` 的 `#latestRecordOfTask()`                                                           | 保留来源选择和 `source_record_id`，增加来源过期判断。                                    |
-| 当前输入只保留 `model`、`messages`/`input`、`instructions` 等字段，并对内容做截断   | 当前事实 | `src/maintenance/summary-input.ts` 的 `prepareBriefInput()`、`prepareSummaryRequest()`                                                                                         | 将保留规则下沉到事件规范化器，保留角色、类型、工具名、参数、结果、`call_id` 和可见摘要。 |
+| 研究基线输入只保留 `model`、`messages`/`input`、`instructions` 等字段，并对内容做截断   | 当前事实 | 研究基线的旧输入整理器；当前由 `src/maintenance/summary-input.ts` 的 `prepareTaskTimelineInput()` 统一处理请求与任务简介                                                                                         | 将保留规则下沉到事件规范化器，保留角色、类型、工具名、参数、结果、`call_id` 和可见摘要。 |
 | 当前 Responses 请求的事件顺序存在于 `input` 数组，工具调用和结果通过 `call_id` 关联 | 本次实测 | 当前运行便携实例的只读管理 API 取到的一条最新已完成记录：101 个 input item，包含 `reasoning`、`message`、`function_call`、`function_call_output`；并行调用先出现，结果随后返回 | 说明数据足以生成时间线，不需要先改日志采集器；必须把隐含数组位置变成显式编号。           |
-| 当前模型输出合同是 `brief` 加 `facts`，UI 只展示一段文字                            | 当前事实 | `TASK_BRIEF_INSTRUCTION`、`parseTaskBriefContent()`、`taskBriefDto`、`taskBriefCardHtml()`                                                                                     | v1 增加 `timeline`，保留 `text` 作为概览和旧缓存兼容字段。                               |
+| 研究基线模型输出合同是 `brief` 加 `facts`，UI 只展示一段文字                            | 当前事实 | 研究基线的提示词与卡片；当前以 `TASK_BRIEF_INSTRUCTION`、`parseTaskTimelineAnswer()`、`taskBriefDto`、`taskBriefCardHtml()` 为准                                                                                     | v1 增加 `timeline`，保留 `text` 作为概览和旧缓存兼容字段。                               |
 | 当前任务简介缓存与 task 一对一，保存模型、提示词版本、来源 record 和环境事实        | 当前事实 | `task_briefs` schema v12/v13、`GeneratedTextStore.saveBrief()`                                                                                                                 | 继续使用该表，增加结构化时间线和来源指纹字段，不新建任务级数据库。                       |
 | 无显式编号时，模型可能把数组第一项误认成第一步操作                                  | 本次实测 | 受控 Qwen 对照实验 A：第一项是用户目标，模型却将其写成读取配置文件                                                                                                             | 编号必须由服务端生成并在提示词中定义为唯一证据坐标。                                     |
 

@@ -1,20 +1,11 @@
 import { isRecord } from "../shared/index.js";
-import type { HistorySummary } from "./log-query-service.js";
 import type { TimelineEvent, TimelineEventKind } from "./summary-input.js";
 import { TASK_BRIEF_FACT_LIMIT, TASK_BRIEF_FACT_VALUE_LIMIT } from "./summary-prompts.js";
 import { summaryModelFailure } from "./summary-failure.js";
 import { truncateText } from "./text-limit.js";
 
-/**
- * What the summary model answered. This boundary turns the model's raw text into the
- * things the console stores - a record summary, and a task execution timeline with its
- * overview, steps, gaps and environment facts - and refuses what the prompt did not ask
- * for. It never renames, normalizes or drops anything inside a record summary payload:
- * that payload is the model's own JSON, kept verbatim, so keys this project does not name
- * survive the round trip. A task timeline is the opposite: every field is checked against
- * the numbered events the model was sent, because an answer that cites evidence that was
- * never sent is not a timeline the console can show.
- */
+/** Shared answer boundary for record summaries and task briefs; every stage cites
+ * a server-numbered event from the input, and invalid answers never reach storage. */
 
 /** How a timeline step says what it knows. */
 export type TimelineBasis = "observed" | "inferred" | "unknown";
@@ -60,28 +51,6 @@ const TIMELINE_KINDS: readonly TimelineEventKind[] = [
 ];
 
 const TIMELINE_BASES: readonly TimelineBasis[] = ["observed", "inferred", "unknown"];
-
-/**
- * The boundary between the summary model's raw text and the stored summary model. The
- * payload is kept exactly as the model wrote it - nothing is renamed, normalized or dropped -
- * so only the shape the prompt requires is checked here. A fenced block is accepted because
- * models that were told to emit strict JSON still wrap it.
- */
-export function parseSummaryPayload(content: string): HistorySummary {
-  let parsed: unknown;
-  try {
-    parsed = JSON.parse(content);
-  } catch {
-    const match = /```json\s*([\s\S]*?)```/u.exec(content);
-    const jsonText = match?.[1];
-    if (jsonText === undefined)
-      throw summaryModelFailure("The summary model returned text that is not JSON.");
-    parsed = JSON.parse(jsonText);
-  }
-  if (!isRecord(parsed) || !Array.isArray(parsed["segments"]))
-    throw summaryModelFailure("The summary model did not return the expected JSON shape.");
-  return parsed;
-}
 
 /**
  * Read the execution-timeline answer: the overview, the steps, the gaps and the

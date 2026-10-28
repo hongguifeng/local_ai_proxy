@@ -108,10 +108,7 @@ describe("admin UI visual regression", { timeout: UI_TEST_TIMEOUT_MS }, () => {
     await page.setViewportSize({ width: 760, height: 1000 });
     await loadAdminPage();
     await page.locator("#languageSelect").selectOption("zh");
-    await expectPage(page.locator("header:not(.summary-dialog-head)")).toHaveCSS(
-      "flex-direction",
-      "column",
-    );
+    await expectPage(page.locator(".app > header")).toHaveCSS("flex-direction", "column");
     await expectPage(page.locator(".proxy-head").first()).toHaveCSS(
       "grid-template-columns",
       "698px",

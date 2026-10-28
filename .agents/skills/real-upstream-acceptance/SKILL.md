@@ -45,11 +45,11 @@ description: >-
   asserts `[redacted]` without turning it on reads the client's real `authorization` back and
   calls that a leak, while `strip_request_fields` only shapes the forwarded upstream request
   and never what is stored.
-- The summary model only sees `model`/`messages`/`input`/`instructions` (`prepareSummaryRequest`),
-  so client identity has to travel as a separate `client` block. A summary endpoint also
-  rejects any payload without a `segments` array (`parseSummaryPayload` in
-  `src/maintenance/summary-answer.ts`) with `summary_failed` and "did not return the
-  expected JSON shape".
+- Record summaries and task briefs both use `prepareTaskTimelineInput`: the model sees
+  server-numbered `events`, source metadata and a separate allowlisted `client` block.
+  Both endpoints validate `overview`/`steps`/`gaps`/`facts` with `parseTaskTimelineAnswer`
+  in `src/maintenance/summary-answer.ts`; a retired `segments` answer or an out-of-range
+  citation is rejected before storage. Fixtures must answer the current execution contract.
 - The usage-statistics routes answer 400 when `from` and `to` are missing. Copy the query
   shapes from `probeUrl` in `test-node/admin/api-contract.test.ts` instead of inventing them.
 - An unpriced record stores `cost_nano_cny` as NULL on purpose, so the runtime type of a

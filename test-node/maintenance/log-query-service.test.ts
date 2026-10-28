@@ -1158,11 +1158,10 @@ describe("LogQueryService error classification and diagnostics", () => {
       {
         message: {
           content: JSON.stringify({
-            title: "summary",
             overview: "overview",
-            segments: [{ range: "1-2", summary: "done", key_points: [], evidence: [1, 2] }],
-            decisions: [],
-            issues: [],
+            steps: [{ order: 1, evidence: [1], purpose: "p", result: "done", basis: "observed" }],
+            gaps: [],
+            facts: {},
           }),
         },
       },
@@ -1449,23 +1448,19 @@ describe("LogQueryService error classification and diagnostics", () => {
     ]);
   });
 
-  // [AI-07] The summary payload is the model's own JSON: the service stores and returns it
-  // unchanged, and refuses only what the prompt did not ask for.
+  // [AI-07] Request summaries share the checked execution contract with task briefs.
   it("[AI-07] stores and reads back the summary payload unchanged", async () => {
     const root = await mkdtemp(path.join(os.tmpdir(), "llm-proxy-summary-payload-"));
     temporaryDirectories.push(root);
     seedTaskRecord(root, "summary-task", "summary-record");
     const service = new LogQueryService([root]);
     const modelPayload = {
-      title: "Build stages",
       overview: "Six stages; build was the longest.",
-      segments: [
-        { range: "1-6", summary: "install and build", key_points: ["install"], evidence: [1, 6] },
+      steps: [
+        { order: 1, evidence: [1], purpose: ["Build"], result: ["Built"], basis: "observed" },
       ],
-      decisions: ["keep the image"],
-      issues: [],
-      // A key this project never asked for, which has to survive the round trip.
-      model_note: "written by the model",
+      gaps: [],
+      facts: {},
     };
     vi.stubGlobal("fetch", () =>
       Promise.resolve(
@@ -1478,15 +1473,15 @@ describe("LogQueryService error classification and diagnostics", () => {
     );
     try {
       const summary = await service.summarizeRecord("summary-record", summaryConfig);
-      expect(summary).toEqual(modelPayload);
-      expect(service.getSummary("summary-record")).toEqual(modelPayload);
+      expect(summary?.timeline.steps).toEqual(modelPayload.steps);
+      expect(service.getSummary("summary-record")).toEqual(summary);
       const db = new Database(path.join(root, "traffic.db"));
       try {
         const stored = db
           .prepare("SELECT summary_json FROM history_summaries WHERE record_id = 'summary-record'")
           .get() as { summary_json: string } | undefined;
         if (stored === undefined) throw new Error("The summary was not stored.");
-        expect(JSON.parse(stored.summary_json)).toEqual(modelPayload);
+        expect(JSON.parse(stored.summary_json)).toEqual(summary);
       } finally {
         db.close();
       }
@@ -1508,7 +1503,7 @@ describe("LogQueryService error classification and diagnostics", () => {
               {
                 message: {
                   content:
-                    '```json\n{"title":"t","overview":"o","segments":[],"decisions":[],"issues":[]}\n```',
+                    '```json\n{"overview":"o","steps":[{"order":1,"evidence":[1],"purpose":"p","result":"r","basis":"observed"}]}\n```',
                 },
               },
             ],
@@ -1518,8 +1513,8 @@ describe("LogQueryService error classification and diagnostics", () => {
     );
     try {
       const summary = await service.summarizeRecord("summary-record", summaryConfig);
-      expect(summary?.segments).toEqual([]);
-      expect(summary?.title).toBe("t");
+      expect(summary?.timeline.steps).toHaveLength(1);
+      expect(summary?.text).toBe("o");
       expect(service.getSummary("summary-record")).toEqual(summary);
     } finally {
       vi.unstubAllGlobals();

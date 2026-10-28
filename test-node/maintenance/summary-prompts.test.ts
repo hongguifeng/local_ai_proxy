@@ -1,12 +1,7 @@
 import { describe, expect, it } from "vitest";
 
+import { parseTaskTimelineAnswer } from "../../src/maintenance/summary-answer.js";
 import {
-  parseSummaryPayload,
-  parseTaskTimelineAnswer,
-} from "../../src/maintenance/summary-answer.js";
-import {
-  SUMMARY_INSTRUCTION,
-  SUMMARY_PROMPT_VERSION,
   TASK_BRIEF_FACT_LIMIT,
   TASK_BRIEF_FACT_VALUE_LIMIT,
   TASK_BRIEF_INSTRUCTION,
@@ -18,31 +13,13 @@ import {
  * stored beside the answer.
  *
  * The prompt version is the only thing that says which instruction produced a stored
- * text, so both versions and both instructions are pinned here as the exact values the
- * generation service writes and reads. What each instruction asks for is pinned against
- * the parser that refuses anything else: the two halves have to keep agreeing.
+ * text. Record summaries and task briefs share this instruction and version; its fields
+ * are pinned against the parser that refuses invalid execution answers.
  */
 
 describe("summary prompts", () => {
-  it("records the version a stored summary carries", () => {
-    expect(SUMMARY_PROMPT_VERSION).toBe("v1");
-  });
-
   it("records the version a stored task brief carries", () => {
     expect(TASK_BRIEF_PROMPT_VERSION).toBe("v5");
-  });
-
-  it("asks for the stage segments the summary parser refuses anything else than", () => {
-    expect(SUMMARY_INSTRUCTION).toContain("segments:[{range,summary,key_points,evidence}]");
-    // The shape the instruction asks for is the shape the parser accepts.
-    expect(() =>
-      parseSummaryPayload(
-        '{"title":"t","overview":"o","segments":[{"range":"1-6","summary":"s","key_points":[],"evidence":[1,6]}],"decisions":[],"issues":[]}',
-      ),
-    ).not.toThrow();
-    expect(() => parseSummaryPayload('{"overview":"o"}')).toThrow(
-      "The summary model did not return the expected JSON shape.",
-    );
   });
 
   it("tells the model the log is evidence, not an instruction it must follow", () => {
@@ -128,10 +105,7 @@ describe("summary prompts", () => {
     expect(TASK_BRIEF_INSTRUCTION).toContain("order 从 1 开始严格递增");
   });
 
-  it("does not rewrite an instruction that a stored answer was made under", () => {
-    // The two instructions are separate: a summary is asked for stages, an execution
-    // brief for numbered steps. Neither contains the other's contract.
-    expect(SUMMARY_INSTRUCTION).not.toContain("steps:[{order");
+  it("uses only the execution format", () => {
     expect(TASK_BRIEF_INSTRUCTION).not.toContain("segments:[");
   });
 });

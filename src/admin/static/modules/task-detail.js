@@ -597,7 +597,7 @@ const taskBriefFactLabels = {
     model: "Model",
   },
 };
-function taskBriefFactsHtml(context) {
+export function taskBriefFactsHtml(context) {
   const entries = Object.entries(context || {});
   if (entries.length === 0) return "";
   const labels = taskBriefFactLabels[state.language] || taskBriefFactLabels.zh;
@@ -791,7 +791,7 @@ function briefEvidenceHtml(events) {
  * puts in the dialog, so a long timeline does not make the panel taller.
  * @returns {string}
  */
-function briefTimelineHtml(timeline, events, sourceEventCount) {
+export function briefTimelineHtml(timeline, events, sourceEventCount) {
   const totalEvents = Math.max(
     events.length,
     Number.isInteger(sourceEventCount) ? sourceEventCount : 0,
@@ -1234,10 +1234,9 @@ function updateRequestPricingButton() {
  * @param {unknown} raw The `data-brief-evidence` value of the clicked reference.
  * @returns {void}
  */
-function revealBriefEvent(raw) {
+export function revealBriefEvent(raw, body = optionalTyped("#taskBriefTimelineBody", HTMLElement)) {
   if (raw === undefined) throw new Error("Missing data-brief-evidence");
   const eventNo = Number(raw);
-  const body = optionalTyped("#taskBriefTimelineBody", HTMLElement);
   if (body === null) return;
   const details = optionalTyped(".task-brief-evidence", HTMLDetailsElement, body);
   if (details === null) return;

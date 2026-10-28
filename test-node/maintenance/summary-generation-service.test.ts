@@ -9,7 +9,7 @@ import { TrafficRepository } from "../../src/persistence/index.js";
 import { SummaryGenerationService } from "../../src/maintenance/summary-generation-service.js";
 import type { SummaryModelGenerator } from "../../src/maintenance/summary-model-client.js";
 import {
-  SUMMARY_PROMPT_VERSION,
+  TASK_BRIEF_INSTRUCTION,
   TASK_BRIEF_PROMPT_VERSION,
 } from "../../src/maintenance/summary-prompts.js";
 
@@ -44,14 +44,31 @@ const summaryConfig: SummaryModelConfig = {
   timeout_ms: 30_000,
 };
 
-const summaryPayload = {
-  title: "Build stages",
+const summaryAnswer = {
   overview: "Two stages.",
-  segments: [{ range: "1-2", summary: "install and build", key_points: [], evidence: [1, 2] }],
-  decisions: [],
-  issues: [],
-  // A key this project never asked for, which has to survive the round trip.
-  model_note: "written by the model",
+  steps: [
+    {
+      order: 1,
+      evidence: [1],
+      purpose: ["Read the input"],
+      approach: ["Inspect the visible text"],
+      result: ["Input read"],
+      basis: "observed",
+    },
+  ],
+  gaps: [],
+  facts: {},
+};
+const summaryPayload = {
+  text: summaryAnswer.overview,
+  timeline: { overview: summaryAnswer.overview, steps: summaryAnswer.steps, gaps: [] },
+  events: expect.any(Array) as unknown,
+  context: {},
+  source_record_id: expect.any(String) as unknown,
+  source_sequence: expect.any(Number) as unknown,
+  source_event_count: 1,
+  model: "summary-model",
+  generated_at: expect.any(String) as unknown,
 };
 
 const briefAnswer = JSON.stringify({
@@ -91,7 +108,7 @@ const legacyBriefAnswer = JSON.stringify({ brief: "旧版概述。", facts: {} }
 /** A model that records how often it was asked and can be held on its answer. */
 class FakeGenerator implements SummaryModelGenerator {
   readonly calls: { instruction: string; input: string }[] = [];
-  #answer = JSON.stringify(summaryPayload);
+  #answer = JSON.stringify(summaryAnswer);
   #waiting: Promise<void> | undefined;
   #waiter: (() => void) | undefined;
   #held = 0;
@@ -227,6 +244,42 @@ function storedPromptVersion(
 }
 
 describe("SummaryGenerationService", () => {
+  it("summarizes the selected request, rejects invalid evidence and replaces a retired cache only after validation", async () => {
+    const root = await newRoot("record-timeline-contract");
+    seedTaskRecord(root, "task", "selected", 1, "selected turn");
+    seedTaskRecord(root, "task", "newest", 2, "newest turn");
+    const repository = new TrafficRepository(root);
+    repository.saveHistorySummary({
+      recordId: "selected",
+      summaryJson: JSON.stringify({ overview: "legacy", segments: [] }),
+      model: "old",
+      promptVersion: "v1",
+      createdAt: "old",
+      updatedAt: "old",
+    });
+    repository.close();
+    const generator = new FakeGenerator();
+    const service = generationService(() => [root], generator);
+    expect(service.cachedSummary("selected")).toBeUndefined();
+    const generated = await service.summarizeRecord("selected", summaryConfig);
+    expect(generated?.source_record_id).toBe("selected");
+    expect(generated?.source_sequence).toBe(1);
+    expect(generated?.events).toEqual([
+      { event_no: 1, kind: "other", role: "unknown", text: "selected turn" },
+    ]);
+    expect(generator.calls[0]?.instruction).toBe(TASK_BRIEF_INSTRUCTION);
+    expect(generator.calls[0]?.input).toContain("selected turn");
+    expect(generator.calls[0]?.input).not.toContain("newest turn");
+    expect(storedPromptVersion(root, "history_summaries", "record_id", "selected")).toBe(
+      TASK_BRIEF_PROMPT_VERSION,
+    );
+    generator.answering(outOfRangeBriefAnswer);
+    await expect(service.summarizeRecord("selected", summaryConfig)).rejects.toMatchObject({
+      code: "upstream_error",
+    });
+    expect(service.cachedSummary("selected")).toEqual(generated);
+    expect(generator.calls).toHaveLength(2);
+  });
   it("generates a summary, caches it under the record id, and reads it back unchanged", async () => {
     const root = await newRoot("summary-cache");
     seedTaskRecord(root, "summary-task", "summary-record");
@@ -238,15 +291,19 @@ describe("SummaryGenerationService", () => {
     const summary = await service.summarizeRecord("summary-record", summaryConfig);
     expect(summary).toEqual(summaryPayload);
     expect(generator.calls).toHaveLength(1);
-    expect(generator.calls[0]?.instruction).toContain("segments");
+    expect(generator.calls[0]?.instruction).toBe(TASK_BRIEF_INSTRUCTION);
+    expect(JSON.parse(generator.calls[0]?.input ?? "")).toMatchObject({
+      source: { event_count: 1 },
+      events: [{ event_no: 1, text: "seeded turn" }],
+    });
     // What the model is sent is the prepared request text, not a console view of it.
     expect(generator.calls[0]?.input).toContain("seeded turn");
 
     expect(service.cachedSummary("summary-record")).toEqual(summaryPayload);
     expect(storedPromptVersion(root, "history_summaries", "record_id", "summary-record")).toBe(
-      SUMMARY_PROMPT_VERSION,
+      TASK_BRIEF_PROMPT_VERSION,
     );
-    expect(SUMMARY_PROMPT_VERSION).toBe("v1");
+    expect(TASK_BRIEF_PROMPT_VERSION).toBe("v5");
   });
 
   it("overwrites the cached summary when a summary is asked for again", async () => {
@@ -256,15 +313,19 @@ describe("SummaryGenerationService", () => {
     const service = generationService(() => [firstRoot, secondRoot], new FakeGenerator());
     await service.summarizeRecord("summary-record", summaryConfig);
 
-    const changed = { ...summaryPayload, title: "Second answer" };
+    const changed = {
+      ...summaryPayload,
+      text: "Second answer",
+      timeline: { ...summaryPayload.timeline, overview: "Second answer" },
+    };
     const secondGenerator = new FakeGenerator();
-    secondGenerator.answering(JSON.stringify(changed));
+    secondGenerator.answering(JSON.stringify({ ...summaryAnswer, overview: "Second answer" }));
     const secondService = generationService(() => [firstRoot, secondRoot], secondGenerator);
     await secondService.summarizeRecord("summary-record", summaryConfig);
 
     expect(secondService.cachedSummary("summary-record")).toEqual(changed);
     expect(storedPromptVersion(firstRoot, "history_summaries", "record_id", "summary-record")).toBe(
-      SUMMARY_PROMPT_VERSION,
+      TASK_BRIEF_PROMPT_VERSION,
     );
   });
 
@@ -448,7 +509,7 @@ describe("SummaryGenerationService", () => {
       recordId: "second-record",
       summaryJson: JSON.stringify(summaryPayload),
       model: "summary-model",
-      promptVersion: SUMMARY_PROMPT_VERSION,
+      promptVersion: TASK_BRIEF_PROMPT_VERSION,
       createdAt: "2026-07-18T10:00:00.000Z",
       updatedAt: "2026-07-18T10:00:00.000Z",
     });

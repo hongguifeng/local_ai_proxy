@@ -58,7 +58,7 @@
 
 管理路由按功能分布在 `src/admin/routes/`。完整路由表和响应字段以 `test-node/admin/api-contract.test.ts` 及各路由 schema 为准；文档不要自行维护路由数量。
 
-任务简介的规范化与校验都在 `src/maintenance`：`summary-input.ts` 把一条已存请求变成带 `event_no` 的证据事件并配好 `call_id` 的调用/结果关系，`summary-answer.ts` 只接受引用了这些编号的时间线，`summary-generation-service.ts` 负责“先读缓存、按 task 串行、校验通过才写回”。事件编号在送给模型之前就已固定，因此模型拿到的顺序就是日志里的顺序；并行调用不得被说成有因果先后，隐藏的推理也不得被转述。
+单请求智能总结与任务简介共用规范化、提示词、答案校验与浏览器阶段渲染；前者按所选 record 缓存完整执行过程 JSON，后者按 task 保存并比较来源新旧。两者的规范化与校验都在 `src/maintenance`：`summary-input.ts` 把一条已存请求变成带 `event_no` 的证据事件并配好 `call_id` 的调用/结果关系，`summary-answer.ts` 只接受引用了这些编号的时间线，`summary-generation-service.ts` 负责“先读缓存、按 task 串行、校验通过才写回”。事件编号在送给模型之前就已固定，因此模型拿到的顺序就是日志里的顺序；并行调用不得被说成有因果先后，隐藏的推理也不得被转述。
 
 ## 6. 依赖方向
 

@@ -64,7 +64,7 @@ export type TaskBriefRow = TaskBriefRowFields & Record<string, unknown>;
 /** One summary the repository is asked to store. */
 export interface HistorySummaryWrite {
   readonly recordId: string;
-  /** The summary model's own JSON, kept verbatim. */
+  /** The checked execution summary, including its normalized evidence events. */
   readonly summaryJson: string;
   readonly model: string;
   readonly promptVersion: string;
@@ -155,7 +155,7 @@ export class GeneratedTextStore {
   saveSummary(summary: Readonly<HistorySummaryWrite>): void {
     this.#database
       .prepare(
-        "INSERT INTO history_summaries(record_id,status,summary_json,model,prompt_version,created_at,updated_at) VALUES(?,?,?,?,?,?,?) ON CONFLICT(record_id) DO UPDATE SET status='ready',summary_json=excluded.summary_json,model=excluded.model,updated_at=excluded.updated_at",
+        "INSERT INTO history_summaries(record_id,status,summary_json,model,prompt_version,created_at,updated_at) VALUES(?,?,?,?,?,?,?) ON CONFLICT(record_id) DO UPDATE SET status='ready',summary_json=excluded.summary_json,model=excluded.model,prompt_version=excluded.prompt_version,updated_at=excluded.updated_at",
       )
       .run(
         summary.recordId,

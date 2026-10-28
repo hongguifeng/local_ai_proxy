@@ -138,23 +138,18 @@ export interface LogRecordDetail {
   readonly decode_window_ms?: number;
 }
 
-/** The fields the summary prompt asks the model for. */
-export interface HistorySummaryFields {
-  /** The model may omit any of these; the console has a fallback for each. */
-  readonly title?: unknown;
-  readonly overview?: unknown;
-  /** Stage segments; always an array, because `parseSummaryPayload` refuses anything else. */
-  readonly segments?: readonly unknown[];
-  readonly decisions?: unknown;
-  readonly issues?: unknown;
+/** A checked execution summary of one selected request, independent of its task brief. */
+export interface HistorySummary {
+  readonly text: string;
+  readonly timeline: TaskTimeline;
+  readonly events: readonly TimelineEvent[];
+  readonly context: Readonly<Record<string, string>>;
+  readonly source_record_id: string;
+  readonly source_sequence: number | null;
+  readonly source_event_count: number;
+  readonly model: string;
+  readonly generated_at: string;
 }
-
-/**
- * A stored smart summary. The payload is the summary model's own JSON kept verbatim, so
- * keys this model does not name stay readable through the open half; only the fields the
- * prompt asks for are declared. Undefined means no summary exists for that record.
- */
-export type HistorySummary = HistorySummaryFields & Record<string, unknown>;
 
 /**
  * The log-backed views the console reads, plus the summary and brief operations it
@@ -326,7 +321,7 @@ export class LogQueryService {
   }
 
   /**
-   * Generate a record's summary, store it, and hand back the model's own payload. The
+   * Generate a record's checked execution summary and store its evidence. The
    * generation service owns the cache, the concurrency guard, the storage write and the
    * model call; this service answers from the log roots and builds no request itself.
    */

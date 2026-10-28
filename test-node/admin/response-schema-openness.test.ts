@@ -51,12 +51,11 @@ import { emptyBindingListResponse } from "./admin-service-fixtures.js";
 
 /** What the summary model is told to answer, plus a key the prompt never asked for. */
 const summaryPayload = {
-  title: "Build stages",
   overview: "Six stages, build was the longest.",
-  segments: [{ range: "1-6", summary: "Install and build", key_points: [], evidence: [1, 6] }],
-  decisions: ["keep the image"],
-  issues: [],
-  model_note: "kept verbatim",
+  steps: [{ order: 1, evidence: [1], purpose: ["Build"], result: ["Built"], basis: "observed" }],
+  facts: {},
+  gaps: [],
+  model_note: "discarded extra key",
 };
 
 const recordId = "openness-record";
@@ -286,13 +285,14 @@ describe("[AI-08] open payloads through the assembled application", () => {
   const ask = async (route: string, init?: RequestInit) =>
     await fetch(`http://127.0.0.1:${adminPort}${route}`, init);
 
-  it("keeps a key the summary model wrote, through the store and back", async () => {
+  it("stores the checked execution contract and preserves it through HTTP", async () => {
     const generated = await ask(`/api/logs/${recordId}/summary`, { method: "POST" });
     expect(generated.status).toBe(200);
     const generatedBody = await readJson(generated);
-    // The prompt asked for five fields and the model wrote a sixth: it leaves the answer
-    // exactly as it arrived.
-    expect(generatedBody["model_note"]).toBe("kept verbatim");
+    expect(generatedBody["model_note"]).toBeUndefined();
+    expect(generatedBody["timeline"]).toMatchObject({ steps: summaryPayload.steps });
+    expect(generatedBody["source_record_id"]).toBe(recordId);
+    expect(generatedBody["events"]).toEqual(expect.any(Array));
 
     const stored = new TrafficRepository(path.join(root ?? "", "logs"));
     let storedJson: string | undefined;
@@ -306,12 +306,12 @@ describe("[AI-08] open payloads through the assembled application", () => {
     }
     expect(storedJson).toBeDefined();
     expect(JSON.parse(storedJson ?? "")).toEqual(generatedBody);
-    expect(storedJson).toContain('"model_note":"kept verbatim"');
+    expect(storedJson).not.toContain("model_note");
 
     const readBack = await ask(`/api/logs/${recordId}/summary`);
     expect(readBack.status).toBe(200);
     const readBackText = await readBack.text();
-    expect(readBackText).toContain('"model_note":"kept verbatim"');
+    expect(readBackText).toContain("timeline");
     expect(JSON.parse(readBackText)).toEqual(generatedBody);
   });
 
@@ -479,7 +479,7 @@ describe("[AI-08] declared decisions through a running admin server", () => {
   it("keeps an open payload's extra key and drops a closed one's", async () => {
     const summary = await server?.inject({ method: "GET", url: "/api/logs/any/summary" });
     expect(summary?.statusCode).toBe(200);
-    expect(summary?.payload).toContain("kept verbatim");
+    expect(summary?.payload).toContain("timeline");
 
     const detail = await server?.inject({ method: "GET", url: "/api/logs/any" });
     expect(detail?.statusCode).toBe(200);

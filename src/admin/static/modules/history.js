@@ -22,6 +22,9 @@ import { escapeHtml } from "./text.js";
 import { displayTimestampParts } from "./time.js";
 import { formatDecodeSpeed, optionalFiniteNumber, positiveNumber } from "./numbers.js";
 import {
+  briefTimelineHtml,
+  taskBriefFactsHtml,
+  revealBriefEvent,
   closeTaskPricing,
   refreshTaskPricingPanel,
   renderRequestPricing,
@@ -991,36 +994,16 @@ async function loadSummary(id) {
   try {
     const data = await api(`/api/logs/${encodeURIComponent(id)}/summary`);
     if (state.selected !== id) return;
-    renderSummary(data);
     if (data) markLogSummarized(id);
   } catch (error) {
     console.warn("task summary load failed", error);
   }
 }
 function renderSummary(data, options = {}) {
-  if (!data) return;
-  const list = (value) =>
-    Array.isArray(value)
-      ? value
-          .filter(
-            (item) => (typeof item === "string" && item.trim() !== "") || typeof item === "number",
-          )
-          .map((item) => String(item))
-      : [];
-  const segments = Array.isArray(data.segments) ? data.segments : [];
-  const segmentHtml = segments
-    .map((segment) => {
-      const points = list(segment.key_points);
-      const evidence = list(segment.evidence);
-      return `<article class="summary-segment"><div class="summary-segment-head"><strong>${escapeHtml(String(segment.range || t("stage")))}</strong><span>${escapeHtml(String(segment.summary || ""))}</span></div>${points.length ? `<ul>${points.map((point) => `<li>${escapeHtml(point)}</li>`).join("")}</ul>` : ""}${evidence.length ? `<div class="summary-evidence">${escapeHtml(t("evidence"))}${evidence.map((item) => `<code>${escapeHtml(item)}</code>`).join(" ")}</div>` : ""}</article>`;
-    })
-    .join("");
-  const section = (title, values, className) =>
-    values.length
-      ? `<section class="summary-list ${className}"><h4>${title}</h4><ul>${values.map((item) => `<li>${escapeHtml(item)}</li>`).join("")}</ul></section>`
-      : "";
-  $("summaryContent").innerHTML =
-    `<div class="summary-title">${escapeHtml(String(data.title || t("summaryDialogTitle")))}</div><p class="summary-overview">${escapeHtml(String(data.overview || ""))}</p><div class="summary-segments">${segmentHtml}</div>${section(t("decisions"), list(data.decisions), "summary-decisions")}${section(t("issues"), list(data.issues), "summary-issues")}`;
+  if (!data || data.source_record_id !== state.selected) return;
+  const content = $("summaryContent");
+  content.innerHTML = `<p class="task-brief-text">${escapeHtml(data.text)}</p>${taskBriefFactsHtml(data.context)}<p class="task-brief-meta">${escapeHtml(`${data.model} · ${data.generated_at} · #${data.source_record_id}`)}</p>${briefTimelineHtml(data.timeline, data.events, data.source_event_count)}`;
+  content.dataset.recordId = data.source_record_id;
   if (options.open && !requiredDialog("summaryPanel").open)
     requiredDialog("summaryPanel").showModal();
 }
@@ -1108,28 +1091,30 @@ export function mountHistory() {
   requiredTyped("#summarizeRecord", HTMLButtonElement)?.addEventListener("click", async () => {
     const button = requiredTyped("#summarizeRecord", HTMLButtonElement);
     if (!state.selected) {
-      toast("请先选择一条请求");
+      toast(t("selectRequestFirst"));
       return;
     }
     if (button.disabled) return;
+    const recordId = state.selected;
     button.disabled = true;
     button.textContent = "…";
     try {
-      const existing = await api(`/api/logs/${encodeURIComponent(state.selected)}/summary`);
+      const existing = await api(`/api/logs/${encodeURIComponent(recordId)}/summary`);
+      if (state.selected !== recordId) return;
       if (existing) {
         if (requiredDialog("summaryPanel").open) {
           requiredDialog("summaryPanel").close();
           return;
         }
         renderSummary(existing, { open: true });
-        markLogSummarized(state.selected);
+        markLogSummarized(recordId);
         return;
       }
-      const result = await api(`/api/logs/${encodeURIComponent(state.selected)}/summary`, {
+      const result = await api(`/api/logs/${encodeURIComponent(recordId)}/summary`, {
         method: "POST",
       });
       renderSummary(result, { open: true });
-      markLogSummarized(state.selected);
+      markLogSummarized(recordId);
       toast(t("summaryGenerated"));
     } catch (e) {
       if (
@@ -1345,23 +1330,34 @@ export function mountHistory() {
   });
   requiredTyped("#summaryRegenerate", HTMLButtonElement).addEventListener("click", async () => {
     if (!state.selected) return;
+    const recordId = $("summaryContent").dataset.recordId;
+    if (!recordId || recordId !== state.selected) return;
     const button = requiredTyped("#summaryRegenerate", HTMLButtonElement);
     if (button.disabled) return;
     button.disabled = true;
-    button.textContent = "生成中…";
+    button.textContent = t("taskBriefGenerating");
     try {
-      const result = await api(`/api/logs/${encodeURIComponent(state.selected)}/summary`, {
+      const result = await api(`/api/logs/${encodeURIComponent(recordId)}/summary`, {
         method: "POST",
       });
       // Do not force-reopen a dialog the user closed while the request was in flight.
-      renderSummary(result, { open: requiredDialog("summaryPanel").open });
-      toast("智能摘要已重新生成");
+      if (requiredDialog("summaryPanel").open && $("summaryContent").dataset.recordId === recordId)
+        renderSummary(result);
+      toast(t("summaryGenerated"));
     } catch (e) {
-      toast(e.message || "重新生成失败");
+      toast(e.message || t("summaryFailed"));
     } finally {
       button.disabled = false;
-      button.textContent = "重新生成";
+      button.textContent = t("regenerate");
     }
+  });
+  $("summaryContent").addEventListener("click", (event) => {
+    const reference = closestFrom(event.target, "[data-brief-evidence]");
+    if (reference) revealBriefEvent(reference.dataset.briefEvidence, $("summaryContent"));
+  });
+  requiredDialog("summaryPanel").addEventListener("close", () => {
+    $("summaryContent").replaceChildren();
+    delete $("summaryContent").dataset.recordId;
   });
   requiredTyped("#summaryCopy", HTMLButtonElement).addEventListener("click", () =>
     navigator.clipboard.writeText($("summaryContent").textContent || ""),

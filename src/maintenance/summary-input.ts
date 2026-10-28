@@ -12,14 +12,6 @@ import { truncateText } from "./text-limit.js";
  * that is `summary-prompts.ts` - and nothing here reads an answer back.
  */
 
-/**
- * The serialized input for one record summary: the request body reduced to the fields
- * that carry the conversation, as JSON text the model can be given as it stands.
- */
-export function prepareSummaryInput(request: unknown): string {
-  return JSON.stringify(prepareSummaryRequest(request));
-}
-
 /** Request headers that tell which agent or client is driving the task. */
 const BRIEF_CLIENT_HEADERS: readonly string[] = [
   "user-agent",
@@ -56,67 +48,6 @@ function headerHintText(value: unknown): string | undefined {
     }
   }
   return undefined;
-}
-
-function prepareSummaryRequest(request: unknown): unknown {
-  if (!isRecord(request)) return request;
-  const result: Record<string, unknown> = {};
-  for (const key of ["model", "messages", "input", "instructions"]) {
-    if (request[key] !== undefined)
-      result[key] =
-        key === "input"
-          ? summarizeField("messages", request[key])
-          : summarizeField(key, request[key]);
-  }
-  if (result["messages"] === undefined && result["input"] === undefined) {
-    return summarizeValue(request, 0, 4000);
-  }
-  return result;
-}
-
-function summarizeField(key: string, value: unknown): unknown {
-  if (key !== "messages" || !Array.isArray(value)) return summarizeValue(value, 0, 6000);
-  return value.map((message) => {
-    if (!isRecord(message)) return summarizeValue(message, 0, 500);
-    const role = typeof message["role"] === "string" ? message["role"] : "unknown";
-    const item: Record<string, unknown> = { role };
-    // Responses API represents tool interactions as input items rather than
-    // chat messages. Keep their identity and linkage intact; only truncate
-    // potentially huge arguments/results.
-    if (typeof message["type"] === "string") item["type"] = message["type"];
-    for (const key of ["id", "call_id", "tool_call_id", "name"] as const) {
-      if (message[key] !== undefined) item[key] = message[key];
-    }
-    for (const key of ["arguments", "output"] as const) {
-      if (message[key] !== undefined) item[key] = truncateToolPayload(message[key]);
-    }
-    if (typeof message["name"] === "string") item["name"] = message["name"];
-    if (role === "tool") {
-      item["content"] = truncateToolPayload(message["content"]);
-    } else if (message["content"] !== undefined) {
-      item["content"] = summarizeValue(message["content"], 0, 4000);
-    }
-    if (Array.isArray(message["tool_calls"])) {
-      item["tool_calls"] = message["tool_calls"].map((call) => {
-        if (!isRecord(call)) return { type: "tool_call" };
-        const fn = isRecord(call["function"]) ? call["function"] : {};
-        return {
-          id: call["id"],
-          type: call["type"] ?? "function",
-          function: {
-            name: fn["name"] ?? "工具",
-            arguments: truncateToolPayload(fn["arguments"]),
-          },
-        };
-      });
-    }
-    return item;
-  });
-}
-
-function truncateToolPayload(value: unknown): unknown {
-  if (typeof value === "string") return truncateText(value, 2000);
-  return summarizeValue(value, 0, 2000);
 }
 
 /**

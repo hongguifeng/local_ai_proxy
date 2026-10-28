@@ -13,17 +13,11 @@ import {
   parseStoredBriefFacts,
   parseStoredTaskTimeline,
   parseStoredTimelineEvents,
-  parseSummaryPayload,
   parseTaskTimelineAnswer,
   type TaskTimeline,
 } from "./summary-answer.js";
-import { prepareSummaryInput, prepareTaskTimelineInput } from "./summary-input.js";
-import {
-  SUMMARY_INSTRUCTION,
-  SUMMARY_PROMPT_VERSION,
-  TASK_BRIEF_INSTRUCTION,
-  TASK_BRIEF_PROMPT_VERSION,
-} from "./summary-prompts.js";
+import { prepareTaskTimelineInput } from "./summary-input.js";
+import { TASK_BRIEF_INSTRUCTION, TASK_BRIEF_PROMPT_VERSION } from "./summary-prompts.js";
 import { causeOf, errorName, summaryModelFailure } from "./summary-failure.js";
 import type { SummaryModelGenerator } from "./summary-model-client.js";
 
@@ -64,7 +58,7 @@ export class SummaryGenerationService {
   }
 
   /**
-   * Generate a record's summary, store it, and hand back the model's own payload. A
+   * Generate a record's execution summary, validate it and store its evidence. A
    * record no log root holds answers `undefined` so the caller can say "no such record"
    * rather than pretend a summary was made. A second request for a record that is
    * already being generated is refused with a conflict.
@@ -96,8 +90,7 @@ export class SummaryGenerationService {
         const summaryJson = repository.historySummaryJson(recordId);
         if (summaryJson !== undefined) {
           const parsed: unknown = JSON.parse(summaryJson);
-          // Anything that is not an object cannot be a summary; the console shows it as absent.
-          return isRecord(parsed) ? parsed : undefined;
+          return readStoredSummary(parsed, recordId);
         }
       } catch (error) {
         this.#logger.warn("Summary read failed", {
@@ -178,11 +171,23 @@ export class SummaryGenerationService {
     // No record means no such record anywhere: the caller answers 404 rather than
     // pretending a summary was made.
     if (record === undefined) return undefined;
+    const input = prepareTaskTimelineInput(record);
     const content = await this.#generator.generate(config, {
-      instruction: SUMMARY_INSTRUCTION,
-      input: prepareSummaryInput(record.request_body ?? null),
+      instruction: TASK_BRIEF_INSTRUCTION,
+      input: JSON.stringify(input),
     });
-    const summary = parseSummaryPayload(content);
+    const answer = parseTaskTimelineAnswer(content, input.source.event_count);
+    const summary: HistorySummary = {
+      text: answer.overview,
+      timeline: answer.timeline,
+      events: input.events,
+      context: answer.facts,
+      source_record_id: recordId,
+      source_sequence: input.source.request_sequence,
+      source_event_count: input.source.event_count,
+      model: config.model,
+      generated_at: new Date().toISOString(),
+    };
     this.#storeSummary(recordId, summary, config.model);
     return summary;
   }
@@ -286,7 +291,7 @@ export class SummaryGenerationService {
           recordId,
           summaryJson: JSON.stringify(summary),
           model,
-          promptVersion: SUMMARY_PROMPT_VERSION,
+          promptVersion: TASK_BRIEF_PROMPT_VERSION,
           createdAt: new Date().toISOString(),
           updatedAt: new Date().toISOString(),
         });
@@ -384,15 +389,34 @@ function isSourceStale(
   return repository.latestTaskRecordId(taskId) !== row.source_record_id;
 }
 
-/**
- * The one place a `task_briefs` row becomes the brief the console shows. Callers first
- * drop a row whose `brief_text` is empty, which is how a generation that never finished
- * reads back; everything else here is present by construction.
- *
- * A row written before timelines existed has `timeline_json` null: it still shows its
- * paragraph and its facts, with no timeline and no events, and the card tells the user to
- * regenerate to get the steps.
- */
+/** Read only the checked request-execution format; retired segment caches are absent. */
+function readStoredSummary(value: unknown, recordId: string): HistorySummary | undefined {
+  if (
+    !isRecord(value) ||
+    value["source_record_id"] !== recordId ||
+    typeof value["text"] !== "string" ||
+    typeof value["model"] !== "string" ||
+    typeof value["generated_at"] !== "string" ||
+    typeof value["source_event_count"] !== "number"
+  )
+    return undefined;
+  const timeline = parseStoredTaskTimeline(JSON.stringify(value["timeline"]));
+  const events = parseStoredTimelineEvents(JSON.stringify(value["events"]));
+  if (timeline === undefined || events === undefined) return undefined;
+  return {
+    text: value["text"],
+    timeline,
+    events,
+    context: parseStoredBriefFacts(JSON.stringify(value["context"])) ?? {},
+    source_record_id: recordId,
+    source_sequence: typeof value["source_sequence"] === "number" ? value["source_sequence"] : null,
+    source_event_count: value["source_event_count"],
+    model: value["model"],
+    generated_at: value["generated_at"],
+  };
+}
+
+/** Convert a task cache; pre-timeline rows retain their overview and facts. */
 function briefFromRow(row: Readonly<TaskBriefRow>, groupId: string, stale: boolean): TaskBrief {
   const facts = parseStoredBriefFacts(row.context_json);
   const timeline = parseStoredTaskTimeline(row.timeline_json);

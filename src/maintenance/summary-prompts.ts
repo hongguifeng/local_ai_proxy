@@ -5,17 +5,6 @@
  * under a different instruction". Nothing here is renamed or reworded by a caller.
  */
 
-/** Prompt version recorded with every stored record summary. */
-export const SUMMARY_PROMPT_VERSION = "v1";
-
-/**
- * Record-summary prompt: the model is given the prepared input of one request and must
- * answer with stage segments numbered by the message ranges they cover. The shape this
- * instruction asks for is what `parseSummaryPayload` refuses anything else than.
- */
-export const SUMMARY_INSTRUCTION =
-  "请将输入按连续编号区间归纳为阶段摘要，不要逐条复述。严格输出 JSON：{title,overview,segments:[{range,summary,key_points,evidence}],decisions,issues}。每个 segment 的 range 使用如 1-6、7-12 的连续区间，evidence 填引用的消息编号。";
-
 /** Prompt version recorded with every generated task brief; bump when the instruction changes. */
 export const TASK_BRIEF_PROMPT_VERSION = "v5";
 

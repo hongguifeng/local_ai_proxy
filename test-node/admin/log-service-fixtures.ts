@@ -164,15 +164,19 @@ export function taskTimelineEvents(): readonly TimelineEvent[] {
   ];
 }
 
-/** A summary payload: the summary model's own JSON, extra keys included. */
+/** A checked summary with its own request identity. */
 export function historySummary(): HistorySummary {
+  const brief = taskBrief();
   return {
-    title: "Build stages",
-    overview: "Six stages, build was the longest.",
-    segments: [{ range: "1-6", summary: "Install and build", key_points: [], evidence: [1, 6] }],
-    decisions: ["keep the image"],
-    issues: [],
-    model_note: "kept verbatim",
+    text: "Build stages",
+    timeline: brief.timeline ?? { overview: "Build stages", steps: [], gaps: [] },
+    events: brief.events ?? [],
+    context: brief.context ?? {},
+    source_record_id: "record-1",
+    source_sequence: 1,
+    source_event_count: 4,
+    model: "summary-model",
+    generated_at: "2026-07-18T10:00:00.000Z",
   };
 }
 

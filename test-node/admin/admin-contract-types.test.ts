@@ -106,11 +106,11 @@ describe("[AI-07] admin log contract shape", () => {
     expect(detailWithoutPricing).toBeDefined();
   });
 
-  it("[AI-07] keeps keys the summary model added readable", () => {
+  it("[AI-07] exposes the checked execution summary", () => {
     const summary: HistorySummary = historySummary();
     // A declared field reads with a dot; a key the model invented needs brackets.
-    expect(summary.title).toBe("Build stages");
-    expect(summary["model_note"]).toBe("kept verbatim");
+    expect(summary.text).toBe("Build stages");
+    expect(summary.timeline.steps.length).toBeGreaterThan(0);
 
     const service: LogAdminService = {
       ...requiredService(),

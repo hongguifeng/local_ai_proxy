@@ -25,8 +25,8 @@ description: >-
 - When you duplicate an SVG chart for a second metric, give the new chart its own container
   class and share only the inner element classes; otherwise a strict-mode selector such as
   `#pricingPanel .token-chart svg` resolves to two elements. The same trap applies to tags: the
-  breakpoint test selects `header:not(.summary-dialog-head)`, so a new `<dialog>` head must be a
-  `<div>`.
+  breakpoint test selects `.app > header`, so dialog headings cannot accidentally join that
+  assertion; keep shared execution-dialog headings as `<div>` elements to avoid page-header CSS.
 - A `<form>` inside a `<dialog>` runs native constraint validation before `submit`: an empty
   `required` field means the submit event never fires at all, so a test that waits for a
   handler-level guard message has to fill the required fields first. The summary-model dialog test

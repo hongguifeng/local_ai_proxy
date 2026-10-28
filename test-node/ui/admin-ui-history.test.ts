@@ -4,6 +4,8 @@ import { readFile } from "node:fs/promises";
 import {
   TASK_BRIEF_GENERATED_TEXT,
   TASK_BRIEF_TIMELINE_STEPS,
+  TASK_BRIEF_TIMELINE_EVENTS,
+  TASK_BRIEF_GENERATED_FACTS,
   UI_TEST_TIMEOUT_MS,
   deletedLogGroups,
   detailReads,
@@ -39,6 +41,129 @@ afterEach(closeTestPage);
 afterAll(closeStubAdminServer);
 
 describe("admin UI history page", { timeout: UI_TEST_TIMEOUT_MS }, () => {
+  const requestSummary = (id = "record-six", text = "Selected request execution") => ({
+    text,
+    timeline: { overview: text, steps: TASK_BRIEF_TIMELINE_STEPS, gaps: [] },
+    events: TASK_BRIEF_TIMELINE_EVENTS,
+    context: TASK_BRIEF_GENERATED_FACTS,
+    source_record_id: id,
+    source_sequence: 6,
+    source_event_count: 4,
+    model: "summary-model",
+    generated_at: "2026-07-18T12:05:00.000Z",
+  });
+
+  it("shows a selected request with the shared execution dialog and uses the cache on reopen", async () => {
+    let cached = false;
+    let posts = 0;
+    await page.route("**/api/logs/record-six/summary", async (route) => {
+      if (route.request().method() === "POST") {
+        cached = true;
+        posts += 1;
+      }
+      await route.fulfill({ json: cached ? requestSummary() : null });
+    });
+    await openRecordDetail("record-six");
+    await page.locator("#languageSelect").selectOption("en");
+    await page.locator("#summarizeRecord").click();
+    const dialog = page.locator("#summaryPanel");
+    await expectPage(dialog).toBeVisible();
+    await expectPage(dialog).toHaveClass("task-brief-timeline-dialog");
+    await expectPage(dialog.locator(".task-brief-text")).toHaveText("Selected request execution");
+    await expectPage(dialog.locator(".task-brief-flow-head strong")).toHaveText("4 events");
+    await expectPage(dialog.locator(".task-brief-fact")).toHaveCount(4);
+    await page.setViewportSize({ width: 1180, height: 900 });
+    await page.screenshot({ path: "test-results/request-summary-en.png", fullPage: true });
+    const stage = dialog.locator(".task-brief-step").first();
+    const fields = stage.locator(
+      "details.task-brief-step-purpose, details.task-brief-step-result, details.task-brief-step-approach",
+    );
+    expect(
+      await fields.evaluateAll((nodes) =>
+        nodes.map((n) => ({ cls: n.getAttribute("class"), open: n.hasAttribute("open") })),
+      ),
+    ).toEqual([
+      { cls: "task-brief-step-purpose", open: true },
+      { cls: "task-brief-step-result", open: false },
+      { cls: "task-brief-step-approach", open: false },
+    ]);
+    await expectPage(stage.locator(".task-brief-step-operation")).toHaveCount(0);
+    await stage.locator(".task-brief-step-result > summary").click();
+    await expectPage(stage.locator(".task-brief-step-result li")).toBeVisible();
+    await stage.locator(".task-brief-step-evidence > summary").click();
+    await stage.locator("[data-brief-evidence]").first().click();
+    await expectPage(dialog.locator(".task-brief-evidence")).toHaveAttribute("open", "");
+    await expectPage(dialog.locator(".task-brief-event-flash")).toHaveAttribute(
+      "data-event-no",
+      "1",
+    );
+    await page.evaluate(() => {
+      Object.defineProperty(navigator, "clipboard", {
+        configurable: true,
+        value: {
+          writeText: (text: string) => {
+            document.documentElement.dataset["copiedSummary"] = text;
+            return Promise.resolve();
+          },
+        },
+      });
+    });
+    await page.locator("#summaryCopy").click();
+    await expectPage(page.locator("html")).toHaveAttribute(
+      "data-copied-summary",
+      /Selected request execution/u,
+    );
+    await page.locator("#summaryClose").click();
+    await expectPage(dialog).toBeHidden();
+    await expectPage(page.locator("#summaryContent")).toBeEmpty();
+    await page.locator("#summarizeRecord").click();
+    await expectPage(dialog).toBeVisible();
+    expect(posts).toBe(1);
+    await page.locator("#summaryRegenerate").click();
+    await expectPage(page.locator("#summaryRegenerate")).toBeEnabled();
+    expect(posts).toBe(2);
+    await page.locator("#summaryClose").click();
+    await page.locator("#languageSelect").selectOption("zh");
+    await page.locator("#summarizeRecord").click();
+    await expectPage(dialog.locator(".task-brief-timeline-head strong")).toHaveText("智能摘要");
+    await page.setViewportSize({ width: 540, height: 900 });
+    expect(await dialog.evaluate((el) => el.scrollWidth <= el.clientWidth)).toBe(true);
+    await page.screenshot({ path: "test-results/request-summary-zh.png", fullPage: true });
+  });
+
+  it("keeps a delayed generation bound to its request and respects closing during regeneration", async () => {
+    let release: (() => void) | undefined;
+    let posts = 0;
+    let cached = false;
+    await page.route("**/api/logs/*/summary", async (route) => {
+      const id = route.request().url().split("/").at(-2) ?? "";
+      if (route.request().method() === "POST") {
+        posts += 1;
+        await new Promise<void>((resolve) => {
+          release = resolve;
+        });
+        cached = true;
+      }
+      await route.fulfill({ json: cached && id === "record-six" ? requestSummary(id) : null });
+    });
+    await openRecordDetail("record-six");
+    await page.locator("#summarizeRecord").click();
+    await expect.poll(() => posts).toBe(1);
+    await page.locator('[data-log-id="record-five"]').click();
+    release?.();
+    await expectPage(page.locator("#summarizeRecord")).toBeEnabled();
+    await expectPage(page.locator("#summaryPanel")).toBeHidden();
+    await page.locator('[data-log-id="record-six"]').click();
+    await page.locator("#summarizeRecord").click();
+    await expectPage(page.locator("#summaryPanel")).toBeVisible();
+    await page.locator("#summaryRegenerate").click();
+    await expect.poll(() => posts).toBe(2);
+    await page.locator("#summaryClose").click();
+    release?.();
+    await expectPage(page.locator("#summaryRegenerate")).toBeEnabled();
+    await expectPage(page.locator("#summaryPanel")).toBeHidden();
+    await expectPage(page.locator("#summaryContent")).toBeEmpty();
+  });
   it("[AI-21] preserves unchanged section nodes and rebuilds displayed fields and language", async () => {
     await loadAdminPage();
     await page.locator('[data-tab="logs"]').click();

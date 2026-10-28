@@ -866,15 +866,6 @@ const logRecordDetailDto = z.object({
   response_meta: openRecord.optional(),
 });
 
-/** A stored smart summary: the summary model's own JSON, kept verbatim. */
-const historySummaryDto = z.looseObject({
-  title: z.unknown().optional(),
-  overview: z.unknown().optional(),
-  segments: z.array(z.unknown()).optional(),
-  decisions: z.unknown().optional(),
-  issues: z.unknown().optional(),
-});
-
 /** How one timeline step says what it knows: read from the log, inferred, or unknown. */
 const timelineBasisDto = z.enum(["observed", "inferred", "unknown"]);
 
@@ -948,6 +939,16 @@ const taskBriefDto = z.object({
   source_sequence: z.number().int().nullable(),
   source_event_count: z.number().int().nullable(),
   stale: z.boolean(),
+});
+
+/** A selected request uses the same execution contract without task staleness. */
+const historySummaryDto = taskBriefDto.omit({ task_id: true, stale: true }).extend({
+  timeline: taskTimelineDto,
+  events: z.array(timelineEventDto),
+  context: z.record(z.string(), z.string()),
+  source_record_id: z.string(),
+  source_event_count: z.number().int(),
+  model: z.string(),
 });
 
 /** What a cleanup answered: the groups it removed, and how many. */

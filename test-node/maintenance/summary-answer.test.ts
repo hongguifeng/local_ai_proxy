@@ -4,7 +4,6 @@ import {
   parseStoredBriefFacts,
   parseStoredTaskTimeline,
   parseStoredTimelineEvents,
-  parseSummaryPayload,
   parseTaskTimelineAnswer,
 } from "../../src/maintenance/summary-answer.js";
 import { TASK_BRIEF_FACT_LIMIT } from "../../src/maintenance/summary-prompts.js";
@@ -13,11 +12,8 @@ import { ApplicationError } from "../../src/shared/index.js";
 /**
  * [AI-11] The response-parsing boundary: what the summary model answered.
  *
- * A summary payload is the model's own JSON: it is stored and read back as it was
- * written, so the only thing this boundary refuses is the shape the prompt did not ask
- * for. A task timeline is the opposite: every citation is checked against the numbered
- * events the model was actually sent, and a refusal throws away the whole answer so the
- * stored cache stays the one that was already checked.
+ * Both record summaries and task briefs validate every citation against the numbered
+ * input events. Refusing an answer leaves the previously checked cache intact.
  */
 
 function failureOf(run: () => unknown): unknown {
@@ -56,55 +52,16 @@ function validAnswer(): string {
   });
 }
 
-describe("summary answer", () => {
-  it("keeps the model's payload verbatim, including keys this project never named", () => {
-    const modelPayload = {
-      title: "Build stages",
-      overview: "Two stages.",
-      segments: [{ range: "1-6", summary: "install", key_points: [], evidence: [1, 6] }],
-      decisions: ["keep the image"],
-      issues: [],
-      model_note: "written by the model",
-      stage_count: 3,
-    };
-    expect(parseSummaryPayload(JSON.stringify(modelPayload))).toEqual(modelPayload);
+describe("record and task execution answer", () => {
+  it("accepts the shared answer in a JSON fence", () => {
+    expect(
+      parseTaskTimelineAnswer(`\`\`\`json\n${validAnswer()}\n\`\`\``, 4).timeline.steps,
+    ).toHaveLength(2);
   });
-
-  it("accepts a JSON object wrapped in a fence", () => {
-    const parsed = parseSummaryPayload(
-      '```json\n{"title":"t","overview":"o","segments":[],"decisions":[],"issues":[]}\n```',
-    );
-    expect(parsed.segments).toEqual([]);
-    expect(parsed.title).toBe("t");
-  });
-
-  it("refuses an answer that is not JSON", () => {
-    const error = failureOf(() => parseSummaryPayload("plain prose"));
-    expect(error).toMatchObject({
-      name: "ApplicationError",
-      code: "upstream_error",
-      statusCode: 502,
-      expose: true,
-      message: "The summary model returned text that is not JSON.",
-    });
-  });
-
-  it("refuses an answer without stage segments and stores nothing about it", () => {
-    const error = failureOf(() => parseSummaryPayload('{"overview":"x"}'));
-    expect(error).toMatchObject({
-      code: "upstream_error",
-      message: "The summary model did not return the expected JSON shape.",
-    });
-    expect(failureOf(() => parseSummaryPayload('["a","b"]'))).toMatchObject({
-      message: "The summary model did not return the expected JSON shape.",
-    });
-  });
-
-  it("reports a refused answer as an error the console may show", () => {
-    expect(failureOf(() => parseSummaryPayload("nope"))).toBeInstanceOf(ApplicationError);
-    expect(failureOf(() => parseSummaryPayload('{"segments":"not an array"}'))).toBeInstanceOf(
-      ApplicationError,
-    );
+  it("rejects the retired segment format", () => {
+    expect(
+      failureOf(() => parseTaskTimelineAnswer('{"overview":"old","segments":[]}', 4)),
+    ).toBeInstanceOf(ApplicationError);
   });
 });
 
