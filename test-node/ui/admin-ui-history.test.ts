@@ -1050,6 +1050,33 @@ describe("admin UI history page", { timeout: UI_TEST_TIMEOUT_MS }, () => {
     await expectPage(
       record.locator(".task-brief-step").nth(0).locator(".task-brief-step-order"),
     ).toHaveText("1");
+    await expectPage(record.locator(".task-brief-flow")).toBeVisible();
+    await expectPage(record.locator(".task-brief-flow-head")).toContainText("Position in record");
+    await expectPage(record.locator(".task-brief-flow-head strong")).toHaveText("4 events");
+    await expectPage(
+      record.locator(".task-brief-step").nth(0).locator(".task-brief-step-position-range"),
+    ).toHaveText("1–2 / 4");
+    await expectPage(
+      record.locator(".task-brief-step").nth(0).locator(".task-brief-step-position-detail"),
+    ).toHaveText("covers 2 events · 50.0%");
+    await expectPage(
+      record.locator(".task-brief-step").nth(0).locator(".task-brief-step-progress-fill"),
+    ).toHaveAttribute("style", /left:0\.000%;width:50\.000%/u);
+    // The three narrative sections are separate colored blocks; the action remains a small
+    // supporting row and the range rail is part of the stage header.
+    await expectPage(record.locator(".task-brief-step-purpose")).toHaveCount(
+      TASK_BRIEF_TIMELINE_STEPS.length,
+    );
+    await expectPage(record.locator(".task-brief-step-approach")).toHaveCount(
+      TASK_BRIEF_TIMELINE_STEPS.length,
+    );
+    await expectPage(record.locator(".task-brief-step-result")).toHaveCount(
+      TASK_BRIEF_TIMELINE_STEPS.length,
+    );
+    await expectPage(record.locator(".task-brief-step-progress")).toHaveCount(
+      TASK_BRIEF_TIMELINE_STEPS.length,
+    );
+
     await expectPage(
       record.locator(".task-brief-step").nth(0).locator(".task-brief-step-basis"),
     ).toHaveText("observed");

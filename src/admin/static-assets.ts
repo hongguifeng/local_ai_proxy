@@ -6,7 +6,7 @@ import { SUGGESTED_STRIP_REQUEST_FIELDS } from "../config/index.js";
 import type { AdminStaticAssets } from "./admin-contracts.js";
 
 const STRIP_FIELDS_PLACEHOLDER = "__SUGGESTED_STRIP_REQUEST_FIELDS__";
-const WINDOWS_READ_ATTEMPTS = 8;
+const WINDOWS_READ_ATTEMPTS = 80;
 const WINDOWS_READ_DELAY_MS = 25;
 /**
  * The bundle is published by `[System.IO.File]::Replace`, which briefly removes the

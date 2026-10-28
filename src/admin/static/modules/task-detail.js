@@ -648,7 +648,42 @@ function briefFieldHtml(className, label, value) {
 }
 
 /** One stage line: short goal, method and result points lead; the concrete operation stays secondary. */
-function briefStepHtml(step) {
+function briefStepMetrics(step, totalEvents) {
+  const evidence = (step.evidence ?? []).filter((value) => Number.isInteger(value));
+  const start = evidence[0] ?? 1;
+  const end = evidence[evidence.length - 1] ?? start;
+  const total = Math.max(totalEvents, end, 1);
+  const span = Math.max(end - start + 1, 1);
+  const percent = (span / total) * 100;
+  const percentText = percent < 0.1 ? "<0.1" : percent.toFixed(1);
+  const left = ((start - 1) / total) * 100;
+  const width = Math.max((span / total) * 100, 100 / total);
+  return { start, end, total, span, percentText, left, width };
+}
+
+function briefStepPositionHtml(step, totalEvents) {
+  const metrics = briefStepMetrics(step, totalEvents);
+  const range = `${metrics.start}–${metrics.end} / ${metrics.total}`;
+  const detail = `${t("timelineStepPosition")}${briefFieldSeparator()}${range} · ${t("timelineStepCoverage")} ${metrics.span} ${t("timelineEventsCount")} · ${metrics.percentText}%`;
+  return `<div class="task-brief-step-position" title="${escapeHtml(detail)}"><div class="task-brief-step-position-line"><span class="task-brief-step-position-range">${escapeHtml(range)}</span><span class="task-brief-step-position-detail">${escapeHtml(`${t("timelineStepCoverage")} ${metrics.span} ${t("timelineEventsCount")} · ${metrics.percentText}%`)}</span></div><div class="task-brief-step-progress" role="img" aria-label="${escapeHtml(detail)}"><span class="task-brief-step-progress-fill" style="left:${metrics.left.toFixed(3)}%;width:${metrics.width.toFixed(3)}%"></span></div></div>`;
+}
+
+function briefTimelineFlowHtml(steps, totalEvents) {
+  const total = Math.max(
+    totalEvents,
+    ...steps.flatMap((step) => step.evidence ?? []).filter((value) => Number.isInteger(value)),
+    1,
+  );
+  const segments = steps
+    .map((step, index) => {
+      const metrics = briefStepMetrics(step, total);
+      return `<span class="task-brief-flow-segment task-brief-flow-segment-${index % 4}" style="left:${metrics.left.toFixed(3)}%;width:${metrics.width.toFixed(3)}%" title="${escapeHtml(`${t("stage")} ${step.order}: ${metrics.start}–${metrics.end} / ${metrics.total}`)}">${escapeHtml(String(step.order))}</span>`;
+    })
+    .join("");
+  return `<section class="task-brief-flow"><div class="task-brief-flow-head"><span>${escapeHtml(t("timelineFlowTitle"))}</span><strong>${escapeHtml(`${total} ${t("timelineEventsCount")}`)}</strong></div><div class="task-brief-flow-track" role="img" aria-label="${escapeHtml(`${t("timelineFlowTitle")}${briefFieldSeparator()}1–${total}`)}">${segments}</div><div class="task-brief-flow-axis"><span>1</span><span>${escapeHtml(t("timelineFlowMiddle"))}</span><span>${total}</span></div></section>`;
+}
+
+function briefStepHtml(step, totalEvents) {
   const refs = (step.evidence ?? [])
     .map(
       (no) =>
@@ -675,6 +710,7 @@ function briefStepHtml(step) {
       <span class="task-brief-step-basis task-brief-step-basis-${escapeHtml(step.basis ?? "unknown")}">${escapeHtml(
         briefBasisLabel(step.basis),
       )}</span>
+      ${briefStepPositionHtml(step, totalEvents)}
     </div>
     ${purpose}${approach}${result}${operation}
     ${
@@ -714,9 +750,9 @@ function briefEventHtml(event) {
   </li>`;
 }
 
-function briefStepsHtml(timeline) {
+function briefStepsHtml(timeline, totalEvents) {
   return `<ol class="task-brief-steps">${timeline.steps
-    .map((step) => briefStepHtml(step))
+    .map((step) => briefStepHtml(step, totalEvents))
     .join("")}</ol>`;
 }
 
@@ -756,8 +792,19 @@ function briefEvidenceHtml(events) {
  * puts in the dialog, so a long timeline does not make the panel taller.
  * @returns {string}
  */
-function briefTimelineHtml(timeline, events) {
-  return `${briefStepsHtml(timeline)}${briefGapsHtml(timeline.gaps)}${briefEvidenceHtml(events)}`;
+function briefTimelineHtml(timeline, events, sourceEventCount) {
+  const totalEvents = Math.max(
+    events.length,
+    Number.isInteger(sourceEventCount) ? sourceEventCount : 0,
+    ...timeline.steps
+      .flatMap((step) => step.evidence ?? [])
+      .filter((value) => Number.isInteger(value)),
+    1,
+  );
+  return `${briefTimelineFlowHtml(timeline.steps, totalEvents)}${briefStepsHtml(
+    timeline,
+    totalEvents,
+  )}${briefGapsHtml(timeline.gaps)}${briefEvidenceHtml(events)}`;
 }
 
 /** Where the answer came from: the request it describes and how many events it had. */
@@ -1221,6 +1268,7 @@ function openBriefTimeline() {
   requiredTyped("#taskBriefTimelineBody", HTMLElement).innerHTML = briefTimelineHtml(
     timeline,
     data.events ? data.events : [],
+    data.source_event_count,
   );
   requiredDialog("taskBriefTimelineDialog").showModal();
 }
