@@ -55,7 +55,41 @@ const summaryPayload = {
   model_note: "written by the model",
 };
 
-const briefAnswer = '{"brief":"生成中。","facts":{}}';
+const briefAnswer = JSON.stringify({
+  overview: "生成中。",
+  steps: [
+    {
+      order: 1,
+      evidence: [1],
+      operation: "读配置",
+      purpose: "确认路径规则",
+      result: "读到解析规则",
+      basis: "observed",
+    },
+  ],
+  gaps: [],
+  facts: {},
+});
+
+/** A brief answer that cites an event number the server never sent. */
+const outOfRangeBriefAnswer = JSON.stringify({
+  overview: "看起来在改代码。",
+  steps: [
+    {
+      order: 1,
+      evidence: [99],
+      operation: "改代码",
+      purpose: "修 bug",
+      result: "不知道",
+      basis: "inferred",
+    },
+  ],
+  gaps: [],
+  facts: {},
+});
+
+/** The brief answer shape the version before this one asked for. */
+const legacyBriefAnswer = JSON.stringify({ brief: "旧版概述。", facts: {} });
 
 /** A model that records how often it was asked and can be held on its answer. */
 class FakeGenerator implements SummaryModelGenerator {
@@ -531,6 +565,7 @@ describe("SummaryGenerationService", () => {
       task_id: "brief-task",
       sequence: 2,
       event: "request_finished",
+      path: "/v1/responses",
       request_headers: {
         "user-agent": "pi (win32 10.0.26100; x64)",
         "content-type": "text/plain",
@@ -541,7 +576,29 @@ describe("SummaryGenerationService", () => {
 
     const generator = new FakeGenerator();
     generator.answering(
-      JSON.stringify({ brief: "在调试流式转发。", facts: { agent: "pi 0.39", cwd: "d:/code" } }),
+      JSON.stringify({
+        overview: "在调试流式转发。",
+        steps: [
+          {
+            order: 1,
+            evidence: [1],
+            operation: "读配置加载器",
+            purpose: "确认路径规则",
+            result: "发现与测试不一致",
+            basis: "observed",
+          },
+          {
+            order: 2,
+            evidence: [1],
+            operation: "跑测试",
+            purpose: "验证修复",
+            result: "",
+            basis: "unknown",
+          },
+        ],
+        gaps: [{ evidence: [1], description: "日志没有第二次调用的结果。" }],
+        facts: { agent: "pi 0.39", cwd: "d:/code" },
+      }),
     );
     const service = generationService(() => [root], generator);
     expect(service.cachedBrief("brief-task")).toBeUndefined();
@@ -552,19 +609,187 @@ describe("SummaryGenerationService", () => {
       text: "在调试流式转发。",
       model: "summary-model",
       source_record_id: "brief-record-new",
+      source_sequence: 2,
+      source_event_count: 1,
+      stale: false,
       context: { agent: "pi 0.39", cwd: "d:/code" },
+      timeline: {
+        overview: "在调试流式转发。",
+        steps: [
+          {
+            order: 1,
+            evidence: [1],
+            operation: "读配置加载器",
+            purpose: "确认路径规则",
+            result: "发现与测试不一致",
+            basis: "observed",
+          },
+          {
+            order: 2,
+            evidence: [1],
+            operation: "跑测试",
+            purpose: "验证修复",
+            result: "",
+            basis: "unknown",
+          },
+        ],
+        gaps: [{ evidence: [1], description: "日志没有第二次调用的结果。" }],
+      },
     });
     expect(generator.calls).toHaveLength(1);
-    // The newest complete request is what the model sees, with the client hints beside it.
+    // The newest complete request is what the model sees, numbered by the server so the
+    // order is not the model's to decide, with the client hints beside it.
     expect(generator.calls[0]?.input).toContain("newest turn");
     expect(generator.calls[0]?.input).not.toContain("older turn");
+    expect(generator.calls[0]?.input).toContain('"event_no":1');
     expect(generator.calls[0]?.input).toContain("pi (win32 10.0.26100; x64)");
     expect(generator.calls[0]?.input).not.toContain("text/plain");
     expect(service.cachedBrief("brief-task")?.text).toBe("在调试流式转发。");
+    expect(service.cachedBrief("brief-task")?.timeline?.steps.map((step) => step.order)).toEqual([
+      1, 2,
+    ]);
     expect(storedPromptVersion(root, "task_briefs", "task_id", "brief-task")).toBe(
       TASK_BRIEF_PROMPT_VERSION,
     );
-    expect(TASK_BRIEF_PROMPT_VERSION).toBe("v2");
+    expect(TASK_BRIEF_PROMPT_VERSION).toBe("v3");
+  });
+
+  it("stores the source metadata the console needs to explain and date an answer", async () => {
+    const root = await newRoot("brief-source");
+    seedTaskRecord(root, "brief-task", "brief-record");
+    const generator = new FakeGenerator();
+    generator.answering(briefAnswer);
+    const service = generationService(() => [root], generator);
+
+    await service.generateTaskBrief("brief-task", summaryConfig);
+    const db = new Database(path.join(root, "traffic.db"));
+    try {
+      const row = db
+        .prepare(
+          "SELECT timeline_json,source_events_json,source_sequence,source_fingerprint,source_event_count FROM task_briefs WHERE task_id = ?",
+        )
+        .get("brief-task") as Record<string, unknown>;
+      expect(row["source_sequence"]).toBe(1);
+      expect(row["source_event_count"]).toBe(1);
+      expect(String(row["source_fingerprint"]).length).toBeGreaterThan(8);
+      const events = JSON.parse(String(row["source_events_json"])) as Record<string, unknown>[];
+      expect(events[0]?.["event_no"]).toBe(1);
+      expect(JSON.parse(String(row["timeline_json"]))).toMatchObject({ overview: "生成中。" });
+      // The model's raw text is never kept: only the checked structure is.
+      expect(String(row["timeline_json"])).not.toContain("facts");
+    } finally {
+      db.close();
+    }
+    expect(service.cachedBrief("brief-task")?.events?.[0]?.event_no).toBe(1);
+  });
+
+  it("keeps a stale answer readable and re-labels it current only after a regeneration", async () => {
+    const root = await newRoot("brief-stale");
+    seedTaskRecord(root, "brief-task", "brief-record", 1, "first turn");
+    const generator = new FakeGenerator();
+    generator.answering(briefAnswer);
+    const service = generationService(() => [root], generator);
+
+    const generated = await service.generateTaskBrief("brief-task", summaryConfig);
+    expect(generated.stale).toBe(false);
+    expect(service.cachedBrief("brief-task")?.stale).toBe(false);
+
+    // The task keeps running: a newer finished request lands, and the stored answer is
+    // now about the previous one. Reading it does not call the model.
+    const repository = new TrafficRepository(root);
+    repository.upsertRecord({
+      id: "brief-record-next",
+      task_id: "brief-task",
+      sequence: 2,
+      event: "request_finished",
+      method: "POST",
+      path: "/v1/responses",
+      request_body: { model: "gpt-5", input: [{ type: "message", content: "newest turn" }] },
+    });
+    repository.close();
+
+    expect(service.cachedBrief("brief-task")?.stale).toBe(true);
+    expect(service.cachedBrief("brief-task")?.source_record_id).toBe("brief-record");
+    expect(generator.calls).toHaveLength(1);
+
+    const regenerated = await service.generateTaskBrief("brief-task", summaryConfig);
+    expect(regenerated.stale).toBe(false);
+    expect(regenerated.source_record_id).toBe("brief-record-next");
+    expect(service.cachedBrief("brief-task")?.stale).toBe(false);
+    expect(generator.calls).toHaveLength(2);
+  });
+
+  it("marks a brief stale when a request finished while it was being generated", async () => {
+    const root = await newRoot("brief-stale-during");
+    seedTaskRecord(root, "brief-task", "brief-record", 1, "first turn");
+    const generator = new FakeGenerator();
+    generator.answering(briefAnswer);
+    generator.holdNext();
+    const service = generationService(() => [root], generator);
+
+    const started = service.generateTaskBrief("brief-task", summaryConfig);
+    const repository = new TrafficRepository(root);
+    repository.upsertRecord({
+      id: "brief-record-late",
+      task_id: "brief-task",
+      sequence: 2,
+      event: "request_finished",
+      method: "POST",
+      path: "/v1/responses",
+      request_body: { model: "gpt-5", input: [{ type: "message", content: "arrived mid-flight" }] },
+    });
+    repository.close();
+    generator.release();
+
+    const brief = await started;
+    // The answer was made from the request that was newest when generation started, and
+    // is labelled stale the moment it is stored.
+    expect(brief.source_record_id).toBe("brief-record");
+    expect(brief.stale).toBe(true);
+    expect(service.cachedBrief("brief-task")?.stale).toBe(true);
+  });
+
+  it("keeps the checked cache when an answer cites evidence that was never sent", async () => {
+    const root = await newRoot("brief-reject");
+    seedTaskRecord(root, "brief-task", "brief-record");
+    const generator = new FakeGenerator();
+    generator.answering(briefAnswer);
+    const service = generationService(() => [root], generator);
+    const first = await service.generateTaskBrief("brief-task", summaryConfig);
+
+    generator.answering(outOfRangeBriefAnswer);
+    await expect(service.generateTaskBrief("brief-task", summaryConfig)).rejects.toMatchObject({
+      code: "upstream_error",
+      statusCode: 502,
+      message: "The summary model cited an evidence number that was not sent to it.",
+    });
+    // The refused answer is not stored, not even its overview: the cache the user can
+    // still read is the one whose evidence was checked.
+    expect(service.cachedBrief("brief-task")).toEqual(first);
+    expect(service.cachedBrief("brief-task")?.text).toBe("生成中。");
+  });
+
+  it("refuses a prose or old-shape answer as a missing timeline and leaves the cache alone", async () => {
+    const root = await newRoot("brief-legacy-answer");
+    seedTaskRecord(root, "brief-task", "brief-record");
+    const generator = new FakeGenerator();
+    generator.answering(briefAnswer);
+    const service = generationService(() => [root], generator);
+    const first = await service.generateTaskBrief("brief-task", summaryConfig);
+
+    generator.answering(legacyBriefAnswer);
+    await expect(service.generateTaskBrief("brief-task", summaryConfig)).rejects.toMatchObject({
+      code: "upstream_error",
+      statusCode: 502,
+      message: "The summary model did not return the expected JSON shape.",
+    });
+
+    generator.answering("这个任务在调试代理。");
+    await expect(service.generateTaskBrief("brief-task", summaryConfig)).rejects.toMatchObject({
+      code: "upstream_error",
+      message: "The summary model returned text that is not JSON.",
+    });
+    expect(service.cachedBrief("brief-task")).toEqual(first);
   });
 
   it("refuses a second brief for the same task and calls the model only once", async () => {
@@ -611,13 +836,30 @@ describe("SummaryGenerationService", () => {
     const root = await newRoot("brief-empty");
     seedTaskRecord(root, "brief-task", "brief-record");
     const generator = new FakeGenerator();
-    generator.answering('{"brief":"","facts":{}}');
+    generator.answering(
+      '{"overview":"   ","steps":[{"order":1,"evidence":[1],"operation":"a","purpose":"b","result":"c","basis":"observed"}]}',
+    );
     const service = generationService(() => [root], generator);
 
     await expect(service.generateTaskBrief("brief-task", summaryConfig)).rejects.toMatchObject({
       code: "upstream_error",
       statusCode: 502,
-      message: "The summary model returned an empty task brief.",
+      message: "The summary model returned an empty task overview.",
+    });
+    expect(service.cachedBrief("brief-task")).toBeUndefined();
+  });
+
+  it("reports a timeline answer with no steps as a model failure", async () => {
+    const root = await newRoot("brief-no-steps");
+    seedTaskRecord(root, "brief-task", "brief-record");
+    const generator = new FakeGenerator();
+    generator.answering('{"overview":"一段概述。","steps":[]}');
+    const service = generationService(() => [root], generator);
+
+    await expect(service.generateTaskBrief("brief-task", summaryConfig)).rejects.toMatchObject({
+      code: "upstream_error",
+      statusCode: 502,
+      message: "The summary model returned a timeline without any steps.",
     });
     expect(service.cachedBrief("brief-task")).toBeUndefined();
   });
@@ -627,7 +869,9 @@ describe("SummaryGenerationService", () => {
     seedTaskRecord(root, "brief-task", "brief-record");
     const { warnings, logger } = collectWarnings();
     const generator = new FakeGenerator();
-    generator.answering('{"brief":"已完成。","facts":{}}');
+    generator.answering(
+      '{"overview":"已完成。","steps":[{"order":1,"evidence":[1],"operation":"a","purpose":"b","result":"c","basis":"observed"}]}',
+    );
     const service = generationService(() => [root], generator, logger);
     const breaker = new Database(path.join(root, "traffic.db"));
     breaker.exec("DROP TABLE task_briefs");
@@ -658,13 +902,19 @@ describe("SummaryGenerationService", () => {
     const secondRoot = await newRoot("brief-roots-b");
     seedTaskRecord(secondRoot, "cross-task", "cross-record");
     const generator = new FakeGenerator();
-    generator.answering("跨目录的任务简介。");
+    generator.answering(
+      '{"overview":"跨目录的任务简介。","steps":[{"order":1,"evidence":[1],"operation":"a","purpose":"b","result":"c","basis":"observed"}]}',
+    );
     const service = generationService(() => [firstRoot, secondRoot], generator);
 
     expect((await service.generateTaskBrief("cross-task", summaryConfig)).text).toBe(
       "跨目录的任务简介。",
     );
     expect(service.cachedBrief("cross-task")?.text).toBe("跨目录的任务简介。");
+    // The source metadata travels with the row into the owning root, and the non-owning
+    // root holds nothing at all.
+    expect(service.cachedBrief("cross-task")?.source_sequence).toBe(1);
+    expect(service.cachedBrief("cross-task")?.source_event_count).toBe(1);
     const empty = new Database(path.join(firstRoot, "traffic.db"));
     try {
       expect(
@@ -680,7 +930,9 @@ describe("SummaryGenerationService", () => {
     const secondRoot = await newRoot("latest-b");
     const roots: string[] = [firstRoot];
     const generator = new FakeGenerator();
-    generator.answering("简介来自新目录。");
+    generator.answering(
+      '{"overview":"简介来自新目录。","steps":[{"order":1,"evidence":[1],"operation":"a","purpose":"b","result":"c","basis":"observed"}]}',
+    );
     const service = generationService(() => roots, generator);
 
     await expect(service.generateTaskBrief("late-task", summaryConfig)).rejects.toMatchObject({
@@ -716,6 +968,9 @@ describe("SummaryGenerationService", () => {
     } finally {
       db.close();
     }
+    // A row written before timelines existed is still readable: the paragraph and the
+    // facts are there, the timeline and the events are simply absent, and the source
+    // columns say nothing rather than pretending to.
     expect(generationService(() => [root], new FakeGenerator()).cachedBrief("brief-task")).toEqual({
       task_id: "brief-task",
       text: "一段简介",
@@ -723,7 +978,43 @@ describe("SummaryGenerationService", () => {
       model: "m",
       generated_at: "2026-07-18T11:00:00.000Z",
       source_record_id: "brief-record",
+      source_sequence: null,
+      source_event_count: null,
+      stale: false,
     });
+  });
+
+  it("reads a stored timeline and its events back from the columns they were written to", async () => {
+    const root = await newRoot("brief-read-timeline");
+    seedTaskRecord(root, "brief-task", "brief-record");
+    const generator = new FakeGenerator();
+    generator.answering(briefAnswer);
+    const service = generationService(() => [root], generator);
+    const generated = await service.generateTaskBrief("brief-task", summaryConfig);
+
+    // What the console reads back is what it was given: same steps, same events, same
+    // source numbers, and the same stale verdict for the same source.
+    expect(service.cachedBrief("brief-task")).toEqual(generated);
+    expect(service.cachedBrief("brief-task")?.timeline?.steps).toEqual([
+      {
+        order: 1,
+        evidence: [1],
+        operation: "读配置",
+        purpose: "确认路径规则",
+        result: "读到解析规则",
+        basis: "observed",
+      },
+    ]);
+    expect(service.cachedBrief("brief-task")?.events).toEqual([
+      {
+        event_no: 1,
+        kind: "other",
+        role: "unknown",
+        text: "seeded turn",
+      },
+    ]);
+    // An input item that names no role is reported as `other` with the role it actually
+    // carries ("unknown"), not guessed into being the user's message.
   });
 
   it("shows a stored brief with an empty paragraph as absent", async () => {

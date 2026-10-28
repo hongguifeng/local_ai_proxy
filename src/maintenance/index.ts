@@ -15,6 +15,15 @@ export {
   type LogRecordDetail,
   type TaskBrief,
 } from "./log-query-service.js";
+// A stored brief carries its timeline and the evidence events it was checked against, so
+// the types that describe them are part of the same public surface as `TaskBrief` itself.
+export {
+  type TaskTimeline,
+  type TimelineBasis,
+  type TimelineGap,
+  type TimelineStep,
+} from "./summary-answer.js";
+export { type TimelineEvent, type TimelineEventKind } from "./summary-input.js";
 export {
   BindingHistoryService,
   DEFAULT_BINDING_HISTORY_LIMITS,

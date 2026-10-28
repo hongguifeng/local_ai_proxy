@@ -23,6 +23,20 @@ export interface TaskBriefWrite {
   readonly promptVersion: string;
   /** The environment facts the summary model read out of the newest request. */
   readonly contextJson?: string | null | undefined;
+  /** The checked `{overview,steps,gaps}`, never the model's raw text. */
+  readonly timelineJson?: string | null | undefined;
+  /** The server-normalized evidence events the timeline was made from. */
+  readonly sourceEventsJson?: string | null | undefined;
+  /** The `sequence` the source record had inside its task. */
+  readonly sourceSequence?: number | null | undefined;
+  /**
+   * A fingerprint of the normalized input the answer was checked against. It travels with
+   * the row so a source change can be told apart later; the staleness label compares record
+   * ids instead, because re-deriving this fingerprint needs the request body decoded.
+   */
+  readonly sourceFingerprint?: string | null | undefined;
+  /** How many events the normalized input carried. */
+  readonly sourceEventCount?: number | null | undefined;
 }
 
 /** A stored task brief, as the console reads it. */
@@ -34,6 +48,11 @@ export interface TaskBriefRowFields {
   readonly model: string | null;
   readonly prompt_version: string;
   readonly context_json: string | null;
+  readonly timeline_json: string | null;
+  readonly source_events_json: string | null;
+  readonly source_sequence: number | null;
+  readonly source_fingerprint: string | null;
+  readonly source_event_count: number | null;
   readonly created_at: string;
   readonly updated_at: string;
   readonly error_message: string | null;
@@ -77,8 +96,9 @@ export class GeneratedTextStore {
     const now = this.#now();
     this.#database
       .prepare(
-        `INSERT INTO task_briefs(task_id,status,brief_text,source_record_id,model,prompt_version,context_json,created_at,updated_at)
-         VALUES(?,?,?,?,?,?,?,?,?)
+        `INSERT INTO task_briefs(task_id,status,brief_text,source_record_id,model,prompt_version,context_json,
+           timeline_json,source_events_json,source_sequence,source_fingerprint,source_event_count,created_at,updated_at)
+         VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?)
          ON CONFLICT(task_id) DO UPDATE SET
            status='ready',
            brief_text=excluded.brief_text,
@@ -86,6 +106,11 @@ export class GeneratedTextStore {
            model=excluded.model,
            prompt_version=excluded.prompt_version,
            context_json=excluded.context_json,
+           timeline_json=excluded.timeline_json,
+           source_events_json=excluded.source_events_json,
+           source_sequence=excluded.source_sequence,
+           source_fingerprint=excluded.source_fingerprint,
+           source_event_count=excluded.source_event_count,
            updated_at=excluded.updated_at`,
       )
       .run(
@@ -96,6 +121,11 @@ export class GeneratedTextStore {
         brief.model,
         brief.promptVersion,
         brief.contextJson ?? null,
+        brief.timelineJson ?? null,
+        brief.sourceEventsJson ?? null,
+        brief.sourceSequence ?? null,
+        brief.sourceFingerprint ?? null,
+        brief.sourceEventCount ?? null,
         now,
         now,
       );

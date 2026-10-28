@@ -859,21 +859,51 @@ describe("TrafficRepository history summaries", () => {
       briefText: "一段简介。",
       model: "summary-model",
       sourceRecordId: "brief-b",
-      promptVersion: "v2",
+      promptVersion: "v3",
       contextJson: JSON.stringify({ agent: "pi 0.39", cwd: "d:/code/local_ai_proxy" }),
+      timelineJson: JSON.stringify({
+        overview: "一段简介。",
+        steps: [
+          {
+            order: 1,
+            evidence: [1],
+            operation: "读加载器",
+            purpose: "确认路径",
+            result: "发现不一致",
+            basis: "observed",
+          },
+        ],
+        gaps: [],
+      }),
+      sourceEventsJson: JSON.stringify([{ event_no: 1, kind: "user_message", text: "最新一轮" }]),
+      sourceSequence: 2,
+      sourceFingerprint: "abc123def456",
+      sourceEventCount: 1,
     });
     expect(saved.brief_text).toBe("一段简介。");
     expect(repository.getTaskBrief("brief-task")).toMatchObject({
       brief_text: "一段简介。",
       model: "summary-model",
       source_record_id: "brief-b",
-      prompt_version: "v2",
+      prompt_version: "v3",
       status: "ready",
     });
     expect(JSON.parse(String(repository.getTaskBrief("brief-task")?.context_json))).toEqual({
       agent: "pi 0.39",
       cwd: "d:/code/local_ai_proxy",
     });
+    // The timeline, its evidence events and where they came from travel together, so a
+    // later read can show the steps and say how fresh the source was.
+    expect(JSON.parse(String(repository.getTaskBrief("brief-task")?.timeline_json))).toMatchObject({
+      overview: "一段简介。",
+      steps: [{ order: 1, basis: "observed" }],
+    });
+    expect(JSON.parse(String(repository.getTaskBrief("brief-task")?.source_events_json))).toEqual([
+      { event_no: 1, kind: "user_message", text: "最新一轮" },
+    ]);
+    expect(repository.getTaskBrief("brief-task")?.source_sequence).toBe(2);
+    expect(repository.getTaskBrief("brief-task")?.source_fingerprint).toBe("abc123def456");
+    expect(repository.getTaskBrief("brief-task")?.source_event_count).toBe(1);
 
     // Regenerating overwrites the one row instead of adding another, and a
     // brief without facts clears the previous environment instead of keeping it.
@@ -882,14 +912,36 @@ describe("TrafficRepository history summaries", () => {
       briefText: "新的简介。",
       model: "other-model",
       sourceRecordId: "brief-b",
-      promptVersion: "v2",
+      promptVersion: "v3",
       contextJson: null,
+      timelineJson: JSON.stringify({
+        overview: "新的简介。",
+        steps: [
+          {
+            order: 1,
+            evidence: [2],
+            operation: "跑测试",
+            purpose: "",
+            result: "",
+            basis: "unknown",
+          },
+        ],
+        gaps: [],
+      }),
+      sourceEventsJson: null,
+      sourceSequence: 3,
+      sourceFingerprint: "newfingerprint",
+      sourceEventCount: 2,
     });
     expect(repository.database.prepare("SELECT COUNT(*) AS n FROM task_briefs").pluck().get()).toBe(
       1,
     );
     expect(repository.getTaskBrief("brief-task")?.brief_text).toBe("新的简介。");
     expect(repository.getTaskBrief("brief-task")?.context_json).toBeNull();
+    expect(repository.getTaskBrief("brief-task")?.source_sequence).toBe(3);
+    expect(repository.getTaskBrief("brief-task")?.source_event_count).toBe(2);
+    // A write that carries no evidence events does not keep the previous list alive.
+    expect(repository.getTaskBrief("brief-task")?.source_events_json).toBeNull();
 
     // A task whose every request is still in flight still has a newest record.
     repository.upsertTask({ id: "brief-pending-task", model: "gpt-5", request_count: 2 });

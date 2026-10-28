@@ -201,7 +201,7 @@ describe("[AI-13] the frozen v5 token conversion", () => {
     const migrationFiles = (await readdir(migrationDirectory))
       .filter((name) => /^schema-v\d+\.ts$/.test(name))
       .sort();
-    expect(migrationFiles).toHaveLength(13);
+    expect(migrationFiles).toHaveLength(14);
 
     const imports: Record<string, string[]> = {};
     for (const file of migrationFiles) {
@@ -226,6 +226,7 @@ describe("[AI-13] the frozen v5 token conversion", () => {
       "schema-v11.ts": ["./database.js"],
       "schema-v12.ts": ["./database.js"],
       "schema-v13.ts": ["./database.js"],
+      "schema-v14.ts": ["./database.js"],
     });
   });
 });

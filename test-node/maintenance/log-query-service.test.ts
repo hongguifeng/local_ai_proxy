@@ -775,7 +775,7 @@ describe("LogQueryService", () => {
               {
                 message: {
                   content:
-                    '{"brief":"在调试本地代理的流式转发。","facts":{"agent":"pi 0.39 (win32)","cwd":"d:/code/local_ai_proxy","Git Branch":"main","os":"Windows 11 PowerShell","skipped":"","nested":{"a":1}}}',
+                    '{"overview":"在调试本地代理的流式转发。","steps":[{"order":1,"evidence":[1],"operation":"读加载器","purpose":"确认路径规则","result":"发现与测试不一致","basis":"observed"},{"order":2,"evidence":[1],"operation":"跑测试","purpose":"验证修复","result":"","basis":"unknown"}],"gaps":[],"facts":{"agent":"pi 0.39 (win32)","cwd":"d:/code/local_ai_proxy","Git Branch":"main","os":"Windows 11 PowerShell","skipped":"","nested":{"a":1}}}',
                 },
               },
             ],
@@ -791,6 +791,30 @@ describe("LogQueryService", () => {
         text: "在调试本地代理的流式转发。",
         model: "summary-model",
         source_record_id: "brief-record-new",
+        source_sequence: 2,
+        stale: false,
+        timeline: {
+          overview: "在调试本地代理的流式转发。",
+          steps: [
+            {
+              order: 1,
+              evidence: [1],
+              operation: "读加载器",
+              purpose: "确认路径规则",
+              result: "发现与测试不一致",
+              basis: "observed",
+            },
+            {
+              order: 2,
+              evidence: [1],
+              operation: "跑测试",
+              purpose: "验证修复",
+              result: "",
+              basis: "unknown",
+            },
+          ],
+          gaps: [],
+        },
         context: {
           agent: "pi 0.39 (win32)",
           cwd: "d:/code/local_ai_proxy",
@@ -803,6 +827,10 @@ describe("LogQueryService", () => {
       expect(calls[0]?.url).toBe("https://summary.example.com/v1/chat/completions");
       expect(calls[0]?.body).toContain("newest turn");
       expect(calls[0]?.body).not.toContain("still streaming");
+      // The event the model is given is numbered, so the order it describes is the
+      // order the log has rather than one it invents. The prepared input travels inside
+      // the chat body as a string, so its quotes arrive escaped.
+      expect(calls[0]?.body).toContain('event_no\\":1');
       // The identifying request header is sent along so the agent name is
       // evidence instead of a guess, while unrelated headers are left out.
       expect(calls[0]?.body).toContain("pi (win32 10.0.26100; x64)");
@@ -811,6 +839,13 @@ describe("LogQueryService", () => {
         text: "在调试本地代理的流式转发。",
         model: "summary-model",
         source_record_id: "brief-record-new",
+        stale: false,
+        timeline: {
+          steps: [
+            { order: 1, basis: "observed" },
+            { order: 2, basis: "unknown" },
+          ],
+        },
         context: {
           agent: "pi 0.39 (win32)",
           cwd: "d:/code/local_ai_proxy",
@@ -821,16 +856,19 @@ describe("LogQueryService", () => {
       await expect(service.generateTaskBrief("missing-task", config)).rejects.toThrow(
         "Log group not found.",
       );
-      // Facts are stored next to the paragraph so a re-open reads them back.
+      // Facts are stored next to the timeline so a re-open reads both back.
       const storedRepository = new TrafficRepository(root);
       try {
         const stored = storedRepository.getTaskBrief("brief-task");
-        expect(stored?.prompt_version).toBe("v2");
+        expect(stored?.prompt_version).toBe("v3");
         expect(JSON.parse(String(stored?.context_json))).toEqual({
           agent: "pi 0.39 (win32)",
           cwd: "d:/code/local_ai_proxy",
           git_branch: "main",
           os: "Windows 11 PowerShell",
+        });
+        expect(JSON.parse(String(stored?.timeline_json))).toMatchObject({
+          overview: "在调试本地代理的流式转发。",
         });
       } finally {
         storedRepository.close();
@@ -870,7 +908,18 @@ describe("LogQueryService", () => {
     const answer =
       "```json\n" +
       JSON.stringify({
-        brief: "在整理仓库里的测试用例。",
+        overview: "在整理仓库里的测试用例。",
+        steps: [
+          {
+            order: 1,
+            evidence: [1],
+            operation: "读测试文件",
+            purpose: "找出失败原因",
+            result: "定位到两个用例",
+            basis: "observed",
+          },
+        ],
+        gaps: [],
         facts: { cwd: "/home/dev/repo", git_branch: false, too_long: "x".repeat(500), agent: null },
       }) +
       "\n```";
@@ -885,6 +934,7 @@ describe("LogQueryService", () => {
     try {
       const brief = await service.generateTaskBrief("fenced-task", config);
       expect(brief.text).toBe("在整理仓库里的测试用例。");
+      expect(brief.timeline?.steps).toHaveLength(1);
       // Only short string facts survive: booleans, nulls and oversized values
       // are cut down to what the card can actually show.
       expect(brief.context).toEqual({
@@ -924,10 +974,13 @@ describe("LogQueryService", () => {
     vi.stubGlobal("fetch", (input: URL | RequestInfo, init?: RequestInit) => {
       calls.push(fetchBodyText(init?.body));
       return Promise.resolve(
-        new Response(JSON.stringify({ output_text: "跨目录的任务简介。" }), {
-          status: 200,
-          headers: { "content-type": "application/json" },
-        }),
+        new Response(
+          JSON.stringify({
+            output_text:
+              '{"overview":"跨目录的任务简介。","steps":[{"order":1,"evidence":[1],"operation":"读输入","purpose":"了解任务","result":"看到一轮对话","basis":"observed"}]}',
+          }),
+          { status: 200, headers: { "content-type": "application/json" } },
+        ),
       );
     });
     try {
@@ -942,11 +995,17 @@ describe("LogQueryService", () => {
       });
       expect(brief.text).toBe("跨目录的任务简介。");
       expect(calls[0]).toContain("cross root");
-      // A plain-text answer keeps the brief but stores no environment facts.
+      // An answer with no facts stores no environment information, but the timeline and
+      // its source numbers still travel with the row.
       expect(brief.context).toBeUndefined();
+      expect(brief.timeline?.steps[0]?.basis).toBe("observed");
+      expect(brief.source_sequence).toBe(1);
       // The brief is stored in the root that owns the task, not the first root.
       expect(service.getTaskBrief("cross-brief-task")?.text).toBe("跨目录的任务简介。");
       expect(service.getTaskBrief("cross-brief-task")?.context).toBeUndefined();
+      expect(service.getTaskBrief("cross-brief-task")?.timeline?.steps).toEqual(
+        brief.timeline?.steps,
+      );
     } finally {
       vi.unstubAllGlobals();
     }
@@ -1118,7 +1177,14 @@ describe("LogQueryService error classification and diagnostics", () => {
   });
 
   const readyBrief = JSON.stringify({
-    choices: [{ message: { content: '{"brief":"已完成。","facts":{}}' } }],
+    choices: [
+      {
+        message: {
+          content:
+            '{"overview":"已完成。","steps":[{"order":1,"evidence":[1],"operation":"读输入","purpose":"了解任务","result":"看到一轮对话","basis":"observed"}]}',
+        },
+      },
+    ],
   });
 
   function chatResponse(body: string, status = 200): Response {

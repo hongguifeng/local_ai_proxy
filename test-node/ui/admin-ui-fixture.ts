@@ -1,5 +1,11 @@
 import type { ProxyPair, PublicProxyPair } from "../../src/config/index.js";
-import type { LogListItem, TaskBrief } from "../../src/maintenance/index.js";
+import type {
+  LogListItem,
+  TaskBrief,
+  TaskTimeline,
+  TimelineEvent,
+  TimelineStep,
+} from "../../src/maintenance/index.js";
 import type {
   LoadBalancerBindingListItem,
   LoadBalancerBindingListReply,
@@ -29,8 +35,69 @@ export let useSummarizedLogFixture = false;
 
 export let taskBriefFixture: string | null = null;
 
+/**
+ * Whether the stub brief carries a timeline at all. `false` is the state of a cache written
+ * before timelines existed: the overview paragraph is still there, the steps are not.
+ */
+export let taskBriefHasTimeline = true;
+
+/** Whether the stub says the source request moved on since the brief was generated. */
+export let taskBriefIsStale = false;
+
 export const TASK_BRIEF_GENERATED_TEXT =
   "Relaying a multi-turn coding session through the local proxy and debugging its streaming relay.";
+
+/** The steps of the timeline the stub answers with, in the language the page is showing. */
+export const TASK_BRIEF_TIMELINE_STEPS: readonly TimelineStep[] = [
+  {
+    order: 1,
+    evidence: [1, 2],
+    operation: "Read the config loader",
+    purpose: "Confirm how paths resolve",
+    result: "Found a mismatch with the tests",
+    basis: "observed",
+  },
+  {
+    order: 2,
+    evidence: [3, 4],
+    operation: "Run the loader test",
+    purpose: "Check the fix",
+    result: "Relative paths resolve against the log root",
+    basis: "inferred",
+  },
+];
+
+/** The same stages in Chinese, for the Chinese baseline capture. */
+export const TASK_BRIEF_TIMELINE_STEPS_ZH: readonly TimelineStep[] = [
+  {
+    order: 1,
+    evidence: [1, 2],
+    operation: "读配置加载器",
+    purpose: "确认路径怎么解析",
+    result: "发现与测试不一致",
+    basis: "observed",
+  },
+  {
+    order: 2,
+    evidence: [3, 4],
+    operation: "跑加载器测试",
+    purpose: "检查修复",
+    result: "相对路径按日志根解析",
+    basis: "inferred",
+  },
+];
+
+/** What the stub says the log could not answer, in the language the page is showing. */
+export const TASK_BRIEF_GAP = "The log has no result for the second call.";
+
+/** The same hole in Chinese, for the Chinese baseline capture. */
+export const TASK_BRIEF_GAP_ZH = "日志里没有第二次调用的结果。";
+
+/** The stages the stub answers with; the English set is what a browser test expects. */
+export let taskBriefSteps: readonly TimelineStep[] = TASK_BRIEF_TIMELINE_STEPS;
+
+/** The gap the stub answers with; the English sentence is what a browser test expects. */
+export let taskBriefGap = TASK_BRIEF_GAP;
 
 export const TASK_BRIEF_GENERATED_FACTS: Record<string, string> = {
   agent: "pi 0.39 (win32 10.0.26100; x64)",
@@ -41,21 +108,52 @@ export const TASK_BRIEF_GENERATED_FACTS: Record<string, string> = {
 
 export const taskBriefPosts: string[] = [];
 
+/** The evidence events the stub brief cites: a call and its result, paired by `call_id`. */
+export const TASK_BRIEF_TIMELINE_EVENTS: readonly TimelineEvent[] = [
+  { event_no: 1, kind: "user_message", role: "user", text: "Fix the streaming relay." },
+  { event_no: 2, kind: "reasoning_summary", text: "Read the loader first, then run its test." },
+  {
+    event_no: 3,
+    kind: "tool_call",
+    operation_id: "op-3",
+    call_id: "call-1",
+    tool: "read_file",
+    arguments_preview: '{"path":"src/config/loader.ts"}',
+    result_event_no: 4,
+  },
+  {
+    event_no: 4,
+    kind: "tool_result",
+    operation_id: "op-3",
+    call_id: "call-1",
+    call_event_no: 3,
+    result_preview: "Relative paths resolve against the log root.",
+  },
+];
+
 /**
  * The one brief payload the stub answers with. Undefined is the "never generated" state,
  * which is what a task without a stored brief really returns.
  */
 export function taskBriefFixtureValue(groupId: string): TaskBrief | undefined {
-  return taskBriefFixture === null
-    ? undefined
-    : {
-        task_id: groupId,
-        text: taskBriefFixture,
-        context: TASK_BRIEF_GENERATED_FACTS,
-        model: "summary-model",
-        generated_at: "2026-07-18T12:05:00.000+08:00",
-        source_record_id: "record-six",
-      };
+  if (taskBriefFixture === null) return undefined;
+  const timeline: TaskTimeline = {
+    overview: taskBriefFixture,
+    steps: taskBriefSteps,
+    gaps: [{ evidence: [3], description: taskBriefGap }],
+  };
+  return {
+    task_id: groupId,
+    text: taskBriefFixture,
+    ...(taskBriefHasTimeline ? { timeline, events: TASK_BRIEF_TIMELINE_EVENTS } : {}),
+    context: TASK_BRIEF_GENERATED_FACTS,
+    model: "summary-model",
+    generated_at: "2026-07-18T12:05:00.000+08:00",
+    source_record_id: "record-six",
+    source_sequence: 6,
+    source_event_count: TASK_BRIEF_TIMELINE_EVENTS.length,
+    stale: taskBriefIsStale,
+  };
 }
 
 export const deletedLogGroups = new Set<string>();
@@ -1768,6 +1866,10 @@ export function resetFixtureData(): void {
   useLargeGroupLogFixture = false;
   useSummarizedLogFixture = false;
   taskBriefFixture = null;
+  taskBriefHasTimeline = true;
+  taskBriefIsStale = false;
+  taskBriefSteps = TASK_BRIEF_TIMELINE_STEPS;
+  taskBriefGap = TASK_BRIEF_GAP;
   taskBriefPosts.length = 0;
   deletedLogGroups.clear();
   detailReads.clear();
@@ -1848,4 +1950,22 @@ export function setLbBindingVisualRows(value: typeof lbBindingVisualRows): void 
 }
 export function setTaskBriefFixture(value: typeof taskBriefFixture): void {
   taskBriefFixture = value;
+}
+export function setTaskBriefTimeline(value: boolean): void {
+  taskBriefHasTimeline = value;
+}
+export function setTaskBriefStale(value: boolean): void {
+  taskBriefIsStale = value;
+}
+export function setTaskBriefSteps(value: readonly TimelineStep[]): void {
+  taskBriefSteps = value;
+}
+/**
+ * Points the stub's stage and gap copy at one language. The baseline capture is the only
+ * place that shows them at full size, and a Chinese page reading English stages would make
+ * that picture prove less than it should.
+ */
+export function setTaskBriefCopy(language: "zh" | "en"): void {
+  taskBriefSteps = language === "zh" ? TASK_BRIEF_TIMELINE_STEPS_ZH : TASK_BRIEF_TIMELINE_STEPS;
+  taskBriefGap = language === "zh" ? TASK_BRIEF_GAP_ZH : TASK_BRIEF_GAP;
 }

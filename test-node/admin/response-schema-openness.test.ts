@@ -33,6 +33,8 @@ import {
   recordBatch,
   recordDetail,
   taskBrief,
+  taskTimeline,
+  taskTimelineEvents,
 } from "./log-service-fixtures.js";
 import { emptyBindingListResponse } from "./admin-service-fixtures.js";
 
@@ -499,6 +501,13 @@ describe("[AI-08] declared decisions through a running admin server", () => {
     const briefBody = JSON.parse(brief?.payload ?? "") as Record<string, unknown>;
     expect(briefBody["smuggled_brief_field"]).toBeUndefined();
     expect(briefBody["text"]).toBe(taskBrief().text);
+    // The console needs the timeline and the numbered events it cites, not just a paragraph,
+    // so both travel through the closed DTO; the source numbers say what the answer describes.
+    expect(briefBody["timeline"]).toEqual(taskTimeline());
+    expect(briefBody["events"]).toEqual(taskTimelineEvents());
+    expect(briefBody["source_sequence"]).toBe(11);
+    expect(briefBody["source_event_count"]).toBe(4);
+    expect(briefBody["stale"]).toBe(false);
 
     const status = await server?.inject({ method: "GET", url: "/api/load-balancer/status" });
     const statusBody = JSON.parse(status?.payload ?? "") as Record<string, unknown>;

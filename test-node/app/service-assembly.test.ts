@@ -478,7 +478,14 @@ describe("[AI-09] admin service assembly", () => {
       return Promise.resolve(
         new Response(
           JSON.stringify({
-            choices: [{ message: { content: '{"brief":"一段简介。","facts":{}}' } }],
+            choices: [
+              {
+                message: {
+                  content:
+                    '{"overview":"一段简介。","steps":[{"order":1,"evidence":[1],"operation":"读用户输入","purpose":"了解要做什么","result":"看到一轮对话","basis":"observed"}]}',
+                },
+              },
+            ],
           }),
           { status: 200, headers: { "content-type": "application/json" } },
         ),

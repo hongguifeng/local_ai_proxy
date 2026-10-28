@@ -10,6 +10,8 @@ import type {
   LogPendingRecord,
   LogRecordDetail,
   TaskBrief,
+  TaskTimeline,
+  TimelineEvent,
 } from "../../src/maintenance/index.js";
 import type { ModelPriceImportResult } from "../../src/pricing/index.js";
 
@@ -100,11 +102,67 @@ export function taskBrief(groupId = "task-1"): TaskBrief {
   return {
     task_id: groupId,
     text: "Relaying a coding session through the local proxy.",
+    timeline: taskTimeline(),
+    events: taskTimelineEvents(),
     context: { agent: "pi 0.39", cwd: "d:/code/local_ai_proxy" },
     model: "summary-model",
     generated_at: "2026-07-18T12:05:00.000+08:00",
     source_record_id: "record-1",
+    source_sequence: 11,
+    source_event_count: 4,
+    stale: false,
   };
+}
+
+/** The timeline that goes with the task brief fixture. */
+export function taskTimeline(): TaskTimeline {
+  return {
+    overview: "Relaying a coding session through the local proxy.",
+    steps: [
+      {
+        order: 1,
+        evidence: [1, 2],
+        operation: "Read the loader",
+        purpose: "Confirm path resolution",
+        result: "Found a mismatch with the tests",
+        basis: "observed",
+      },
+      {
+        order: 2,
+        evidence: [3],
+        operation: "Ran the test suite",
+        purpose: "Check the relay still works",
+        result: "",
+        basis: "unknown",
+      },
+    ],
+    gaps: [{ evidence: [3], description: "The log has no result for the second call." }],
+  };
+}
+
+/** The evidence events that go with the task brief fixture. */
+export function taskTimelineEvents(): readonly TimelineEvent[] {
+  return [
+    { event_no: 1, kind: "user_message", role: "user", text: "Fix the relay." },
+    { event_no: 2, kind: "reasoning_summary", text: "Check the loader first." },
+    {
+      event_no: 3,
+      kind: "tool_call",
+      operation_id: "op-3",
+      call_id: "call-1",
+      tool: "read",
+      arguments_preview: '{"path":"loader.ts"}',
+      result_event_no: 4,
+    },
+    {
+      event_no: 4,
+      kind: "tool_result",
+      operation_id: "op-3",
+      call_id: "call-1",
+      call_event_no: 3,
+      result_preview: "Relative paths resolve against the log root.",
+    },
+  ];
 }
 
 /** A summary payload: the summary model's own JSON, extra keys included. */

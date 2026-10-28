@@ -15,6 +15,7 @@ import { SCHEMA_V9_MIGRATION } from "./schema-v9.js";
 import { SCHEMA_V11_MIGRATION } from "./schema-v11.js";
 import { SCHEMA_V12_MIGRATION } from "./schema-v12.js";
 import { SCHEMA_V13_MIGRATION } from "./schema-v13.js";
+import { SCHEMA_V14_MIGRATION } from "./schema-v14.js";
 import { SCHEMA_V10_MIGRATION } from "./schema-v10.js";
 
 export const TRAFFIC_DB_NAME = "traffic.db";
@@ -44,6 +45,7 @@ export const DATABASE_MIGRATIONS: readonly DatabaseMigration[] = Object.freeze([
   SCHEMA_V11_MIGRATION,
   SCHEMA_V12_MIGRATION,
   SCHEMA_V13_MIGRATION,
+  SCHEMA_V14_MIGRATION,
 ]);
 
 /** The schema version a fully migrated database reports. */

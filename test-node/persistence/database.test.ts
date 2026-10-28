@@ -179,7 +179,7 @@ describe("connectLogDatabase", () => {
       .prepare("SELECT name, type FROM sqlite_master WHERE name NOT LIKE 'sqlite_%'")
       .all() as { name: string; type: string }[];
     const names = new Set(objects.map(({ name }) => name));
-    expect(readSchemaVersion(database)).toBe(13);
+    expect(readSchemaVersion(database)).toBe(14);
     expect([...names]).toEqual(
       expect.arrayContaining([
         "schema_meta",
@@ -211,10 +211,22 @@ describe("connectLogDatabase", () => {
       expect.objectContaining({ name: "first_byte_ms" }),
     );
     // A fresh database also gets the v13 column that holds the brief's
-    // environment facts, since the migration chain runs in order.
+    // environment facts and the v14 columns that hold its timeline, its evidence
+    // events and where the timeline came from, since the migration chain runs in order.
     expect(
       (database.pragma("table_info(task_briefs)") as { name: string }[]).map(({ name }) => name),
-    ).toEqual(expect.arrayContaining(["brief_text", "prompt_version", "context_json"]));
+    ).toEqual(
+      expect.arrayContaining([
+        "brief_text",
+        "prompt_version",
+        "context_json",
+        "timeline_json",
+        "source_events_json",
+        "source_sequence",
+        "source_fingerprint",
+        "source_event_count",
+      ]),
+    );
 
     database.close();
   });
@@ -262,10 +274,10 @@ describe("connectLogDatabase", () => {
 describe("schema version source", () => {
   // [AI-03] One ordered list defines what "current" means. Pinning the numbers by hand keeps a
   // drifted constant from passing every assertion that is derived from it.
-  it("[AI-03] applies every migration exactly once, in the order 1 through 13", () => {
+  it("[AI-03] applies every migration exactly once, in the order 1 through 14", () => {
     const versions = DATABASE_MIGRATIONS.map(({ version }) => version);
 
-    expect(versions).toEqual([1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13]);
+    expect(versions).toEqual([1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14]);
     expect(new Set(versions).size).toBe(versions.length);
   });
 
@@ -282,7 +294,7 @@ describe("schema version source", () => {
     const backupVersion = readSchemaVersion(backup);
     backup.close();
 
-    expect(CURRENT_SCHEMA_VERSION).toBe(13);
+    expect(CURRENT_SCHEMA_VERSION).toBe(14);
     expect(freshVersion).toBe(CURRENT_SCHEMA_VERSION);
     expect(backupVersion).toBe(CURRENT_SCHEMA_VERSION);
   });
@@ -306,7 +318,7 @@ describe("database backup", () => {
     expect(backup.prepare("SELECT value FROM backup_fixture").pluck().get()).toBe(
       "persisted through WAL",
     );
-    expect(readSchemaVersion(backup)).toBe(13);
+    expect(readSchemaVersion(backup)).toBe(14);
     backup.close();
   });
 

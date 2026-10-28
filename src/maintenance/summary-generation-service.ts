@@ -1,5 +1,6 @@
 import { TrafficRepository, type RecordRow, type TaskBriefRow } from "../persistence/index.js";
 import type { SummaryModelConfig } from "../config/index.js";
+import { stableHash } from "../proxy/protocol/analysis.js";
 import {
   conflict,
   notFound,
@@ -10,10 +11,13 @@ import {
 import type { HistorySummary, TaskBrief } from "./log-query-service.js";
 import {
   parseStoredBriefFacts,
+  parseStoredTaskTimeline,
+  parseStoredTimelineEvents,
   parseSummaryPayload,
-  parseTaskBriefContent,
+  parseTaskTimelineAnswer,
+  type TaskTimeline,
 } from "./summary-answer.js";
-import { prepareBriefInput, prepareSummaryInput } from "./summary-input.js";
+import { prepareSummaryInput, prepareTaskTimelineInput } from "./summary-input.js";
 import {
   SUMMARY_INSTRUCTION,
   SUMMARY_PROMPT_VERSION,
@@ -132,8 +136,10 @@ export class SummaryGenerationService {
   }
 
   /**
-   * The cached task brief: one short paragraph describing what the task is working
-   * on, or undefined when it was never generated.
+   * The cached task brief: the overview, the evidence-backed timeline and the events the
+   * timeline cites, or undefined when none was ever generated. Reading it never asks the
+   * model anything - a stored answer is compared against the task's newest finished request
+   * to say whether the source has moved on since it was written.
    */
   cachedBrief(taskId: string): TaskBrief | undefined {
     for (const root of this.#logRoots()) {
@@ -144,7 +150,7 @@ export class SummaryGenerationService {
         if (row === undefined) continue;
         // An empty brief_text is the "never generated" answer, so the next root is asked.
         if (row.brief_text === null || row.brief_text === "") continue;
-        return briefFromRow(row, taskId);
+        return briefFromRow(row, taskId, isSourceStale(repository, row, taskId));
       } catch (error) {
         this.#logger.warn("Task brief read failed", {
           phase: "task_brief_read",
@@ -185,16 +191,21 @@ export class SummaryGenerationService {
     const recordId = this.#latestRecordOfTask(groupId);
     if (recordId === undefined) throw notFound("Log group not found.");
     const record = this.#findRecord(recordId);
-    // The request part is the compressed newest request; the client part is
-    // only the few request headers that identify which agent is talking, so
-    // the model can name the client instead of guessing from the system prompt.
+    // The row can go away between picking the newest finished request and reading it. A
+    // timeline cannot be made from a source that is no longer there, so this is reported
+    // instead of asking the model to explain an input with no events in it.
+    if (record === undefined)
+      throw summaryModelFailure("The newest request of this task is no longer in the log.");
+    // The events are numbered by this server before the model sees them, so the order the
+    // answer describes is the order the log has. `client` is still only the few request
+    // headers that identify which agent is talking, so a client name stays evidence.
+    const input = prepareTaskTimelineInput(record);
     const content = await this.#generator.generate(config, {
       instruction: TASK_BRIEF_INSTRUCTION,
-      input: prepareBriefInput(record),
+      input: JSON.stringify(input),
     });
-    const { text, facts } = parseTaskBriefContent(content);
-    if (text === "") throw summaryModelFailure("The summary model returned an empty task brief.");
-    return this.#storeBrief(groupId, text, facts, config.model, recordId);
+    const answer = parseTaskTimelineAnswer(content, input.source.event_count);
+    return this.#storeBrief(groupId, answer, input, config.model, recordId);
   }
 
   /** The newest complete request of a task, or undefined when the task is unknown. */
@@ -301,12 +312,17 @@ export class SummaryGenerationService {
 
   #storeBrief(
     groupId: string,
-    text: string,
-    facts: Readonly<Record<string, string>>,
+    answer: {
+      readonly overview: string;
+      readonly timeline: TaskTimeline;
+      readonly facts: Readonly<Record<string, string>>;
+    },
+    input: ReturnType<typeof prepareTaskTimelineInput>,
     model: string,
     sourceRecordId: string,
   ): TaskBrief {
-    const contextJson = Object.keys(facts).length === 0 ? null : JSON.stringify(facts);
+    const contextJson =
+      Object.keys(answer.facts).length === 0 ? null : JSON.stringify(answer.facts);
     let lastError: unknown;
     for (const root of this.#logRoots()) {
       let repository: TrafficRepository | undefined;
@@ -316,17 +332,24 @@ export class SummaryGenerationService {
         // references tasks(id), so writing it elsewhere is a foreign key
         // violation that would leave the brief in the wrong directory.
         if (!repository.hasTask(groupId)) continue;
-        return briefFromRow(
-          repository.saveTaskBrief({
-            taskId: groupId,
-            briefText: text,
-            model,
-            sourceRecordId,
-            promptVersion: TASK_BRIEF_PROMPT_VERSION,
-            contextJson,
-          }),
-          groupId,
-        );
+        const saved = repository.saveTaskBrief({
+          taskId: groupId,
+          briefText: answer.overview,
+          model,
+          sourceRecordId,
+          promptVersion: TASK_BRIEF_PROMPT_VERSION,
+          contextJson,
+          timelineJson: JSON.stringify(answer.timeline),
+          sourceEventsJson: JSON.stringify(input.events),
+          sourceSequence: input.source.request_sequence,
+          // The fingerprint covers the whole prepared input - source block, client hints and
+          // the numbered events - so it describes exactly what the model was shown.
+          sourceFingerprint: stableHash(input, 16),
+          sourceEventCount: input.source.event_count,
+        });
+        // A request that finished while this one was being generated makes the answer stale
+        // as soon as it is stored; the console shows the old timeline and says why.
+        return briefFromRow(saved, groupId, isSourceStale(repository, saved, groupId));
       } catch (error) {
         lastError = error;
         this.#logger.warn("Task brief save failed", {
@@ -348,20 +371,45 @@ export class SummaryGenerationService {
 }
 
 /**
+ * Whether the stored answer still describes the task's newest finished request. The source
+ * record id is the identity that changed when a new request landed, so a brief generated
+ * while the task kept running reads back as stale without any model call being made.
+ */
+function isSourceStale(
+  repository: TrafficRepository,
+  row: Readonly<TaskBriefRow>,
+  taskId: string,
+): boolean {
+  if (row.source_record_id === null) return false;
+  return repository.latestTaskRecordId(taskId) !== row.source_record_id;
+}
+
+/**
  * The one place a `task_briefs` row becomes the brief the console shows. Callers first
  * drop a row whose `brief_text` is empty, which is how a generation that never finished
  * reads back; everything else here is present by construction.
+ *
+ * A row written before timelines existed has `timeline_json` null: it still shows its
+ * paragraph and its facts, with no timeline and no events, and the card tells the user to
+ * regenerate to get the steps.
  */
-function briefFromRow(row: Readonly<TaskBriefRow>, groupId: string): TaskBrief {
+function briefFromRow(row: Readonly<TaskBriefRow>, groupId: string, stale: boolean): TaskBrief {
   const facts = parseStoredBriefFacts(row.context_json);
+  const timeline = parseStoredTaskTimeline(row.timeline_json);
+  const events = parseStoredTimelineEvents(row.source_events_json);
   return {
     task_id: groupId,
     text: row.brief_text ?? "",
+    ...(timeline === undefined ? {} : { timeline }),
+    ...(events === undefined ? {} : { events }),
     ...(facts === undefined ? {} : { context: facts }),
     // An empty model column means the brief was stored without a model name, which is
     // what the card shows as "no model".
     model: row.model === null || row.model === "" ? null : row.model,
     generated_at: row.updated_at,
     source_record_id: row.source_record_id,
+    source_sequence: row.source_sequence,
+    source_event_count: row.source_event_count,
+    stale,
   };
 }

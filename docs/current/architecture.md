@@ -48,7 +48,7 @@
 | `src/config` | 应用配置、代理配置、Zod schema、规范化、原子保存和未知键保留 |
 | `src/proxy` | 监听器、代理管理、请求流水线、目标路由、流、协议分析和负载均衡 |
 | `src/logging` | 请求事件、任务归并、写队列和正文写入协调 |
-| `src/persistence` | SQLite 连接、schema v1–v13、迁移、repository、查询和正文分块 |
+| `src/persistence` | SQLite 连接、schema v1–v14、迁移、repository、查询和正文分块 |
 | `src/maintenance` | 历史查询、统计、导出、清理、压缩和任务简介生成 |
 | `src/pricing` | 用量标准化、模型匹配、金额计算和请求计价 |
 | `src/admin` | Fastify 管理控制面、响应合同、路由和静态资源装配 |
@@ -57,6 +57,8 @@
 | `electron` | 托盘、单实例、自动启动、退出和 Electron 宿主 |
 
 管理路由按功能分布在 `src/admin/routes/`。完整路由表和响应字段以 `test-node/admin/api-contract.test.ts` 及各路由 schema 为准；文档不要自行维护路由数量。
+
+任务简介的规范化与校验都在 `src/maintenance`：`summary-input.ts` 把一条已存请求变成带 `event_no` 的证据事件并配好 `call_id` 的调用/结果关系，`summary-answer.ts` 只接受引用了这些编号的时间线，`summary-generation-service.ts` 负责“先读缓存、按 task 串行、校验通过才写回”。事件编号在送给模型之前就已固定，因此模型拿到的顺序就是日志里的顺序；并行调用不得被说成有因果先后，隐藏的推理也不得被转述。
 
 ## 6. 依赖方向
 

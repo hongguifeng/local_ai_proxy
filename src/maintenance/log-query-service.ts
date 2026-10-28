@@ -19,6 +19,8 @@ import {
 } from "./log-cleanup.js";
 import type { Readable } from "node:stream";
 import type { SummaryModelConfig } from "../config/index.js";
+import type { TaskTimeline } from "./summary-answer.js";
+import type { TimelineEvent } from "./summary-input.js";
 import { SummaryGenerationService } from "./summary-generation-service.js";
 import { SummaryModelClient, type SummaryModelConnectionReport } from "./summary-model-client.js";
 import { UsageStatisticsService } from "./usage-statistics-service.js";
@@ -38,11 +40,21 @@ export interface LogGroupSummary {
 export interface TaskBrief {
   readonly task_id: string;
   readonly text: string;
+  /** The checked overview, steps and gaps; absent for a brief made before timelines. */
+  readonly timeline?: TaskTimeline | undefined;
+  /** The numbered events the timeline cites, so the console can show what each number is. */
+  readonly events?: readonly TimelineEvent[] | undefined;
   /** Environment facts the summary model read out of the newest request. */
-  readonly context?: Readonly<Record<string, string>>;
+  readonly context?: Readonly<Record<string, string>> | undefined;
   readonly model: string | null;
   readonly generated_at: string;
   readonly source_record_id: string | null;
+  /** The `sequence` the source request had inside its task. */
+  readonly source_sequence: number | null;
+  /** How many events the source was normalized into. */
+  readonly source_event_count: number | null;
+  /** Whether the task has produced a newer finished request since this was generated. */
+  readonly stale: boolean;
 }
 
 export interface LogTaskCost {

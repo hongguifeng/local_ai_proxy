@@ -875,14 +875,77 @@ const historySummaryDto = z.looseObject({
   issues: z.unknown().optional(),
 });
 
-/** What the summary model says about the newest request; the fact names are its own. */
+/** How one timeline step says what it knows: read from the log, inferred, or unknown. */
+const timelineBasisDto = z.enum(["observed", "inferred", "unknown"]);
+
+/** One stage of the execution timeline, with the event numbers it is based on. */
+const timelineStepDto = z.object({
+  order: z.number().int(),
+  evidence: z.array(z.number().int()),
+  operation: z.string(),
+  purpose: z.string(),
+  result: z.string(),
+  basis: timelineBasisDto,
+});
+
+/** What the log could not answer, also tied to the events that show the hole. */
+const timelineGapDto = z.object({
+  evidence: z.array(z.number().int()),
+  description: z.string(),
+});
+
+/** The execution timeline: a one-sentence overview and the stages that cite numbered events. */
+const taskTimelineDto = z.object({
+  overview: z.string(),
+  steps: z.array(timelineStepDto),
+  gaps: z.array(timelineGapDto),
+});
+
+/**
+ * One normalized evidence event. The server numbered it and paired the calls with their
+ * results; the previews are the compressed text, never the stored body.
+ */
+const timelineEventDto = z.object({
+  event_no: z.number().int(),
+  kind: z.enum([
+    "user_message",
+    "assistant_message",
+    "system_message",
+    "reasoning_summary",
+    "tool_call",
+    "tool_result",
+    "other",
+    "truncation_marker",
+  ]),
+  role: z.string().optional(),
+  text: z.string().optional(),
+  tool: z.string().optional(),
+  arguments_preview: z.string().optional(),
+  result_preview: z.string().optional(),
+  call_id: z.string().optional(),
+  operation_id: z.string().optional(),
+  call_event_no: z.number().int().optional(),
+  result_event_no: z.number().int().optional(),
+  unpaired: z.boolean().optional(),
+});
+
+/**
+ * What the summary model says about the newest request. The fact names are the model's own,
+ * the timeline is checked against the numbered events, and the events are the server's own
+ * normalization - so every key here is one this project writes.
+ */
 const taskBriefDto = z.object({
   task_id: z.string(),
   text: z.string(),
+  timeline: taskTimelineDto.optional(),
+  events: z.array(timelineEventDto).optional(),
   context: z.record(z.string(), z.string()).optional(),
   model: z.string().nullable(),
   generated_at: z.string(),
   source_record_id: z.string().nullable(),
+  source_sequence: z.number().int().nullable(),
+  source_event_count: z.number().int().nullable(),
+  stale: z.boolean(),
 });
 
 /** What a cleanup answered: the groups it removed, and how many. */

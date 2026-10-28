@@ -27,12 +27,13 @@
 | [模块边界](current/contracts/module-boundaries.md) | TypeScript、barrel、UI bundle 和依赖检查 |
 | [UI 视觉基线](current/contracts/ui-visual-baseline.md) | 截图、哈希和视觉差异规则 |
 | [task 路由设计](design/active/task-routing.md) | 当前仍在收敛的功能设计 |
+| [任务执行过程简介设计](design/accepted/task-execution-summary.md) | 已接受并已实现的任务执行过程简介设计 |
 | [task 路由计划](plans/active/task-routing.md) | 当前执行状态和验收项 |
 
 
 - `current/` 只描述当前代码、当前用户行为和当前仍需遵守的内部合同。它是修改代码的默认入口。
 - `decisions/adr/`：记录 13 项已作出的架构决策。
-- `design/accepted/`：保存[历史摘要](design/accepted/history-summary.md)、[负载均衡](design/accepted/load-balancing.md)、[模型定价](design/accepted/model-token-pricing.md)、[任务简介](design/accepted/task-brief.md)和[使用统计](design/accepted/usage-statistics.md)设计；`design/active/` 目前只有 [task 路由](design/active/task-routing.md)。
+- `design/accepted/`：保存[历史摘要](design/accepted/history-summary.md)、[负载均衡](design/accepted/load-balancing.md)、[模型定价](design/accepted/model-token-pricing.md)、[任务简介](design/accepted/task-brief.md)、[任务执行过程简介](design/accepted/task-execution-summary.md)和[使用统计](design/accepted/usage-statistics.md)设计；`design/active/` 目前只有 [task 路由](design/active/task-routing.md)。
 - `plans/active/`：目前只有 [task 路由执行计划](plans/active/task-routing.md)；完成的计划进入 `plans/archive/`。
 - `operations/` 保存可重复执行的故障处理、迁移和发布操作。
 - `reports/` 保存一次验收、基准或实验的结果。报告中的数字带有测量时点，不自动成为当前规则。

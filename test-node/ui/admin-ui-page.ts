@@ -10,6 +10,7 @@ import {
   lbStatusReads,
   pairs,
   setLbBindingVisualRows,
+  setTaskBriefCopy,
   setTaskBriefFixture,
   statisticsBaselineFixtures,
   UI_TEST_TIMEOUT_MS,
@@ -84,7 +85,9 @@ export async function loadTaskDetailBaseline(language: "zh" | "en"): Promise<voi
     page.locator('[data-tab="logs"]').click(),
   ]);
   await page.locator("#languageSelect").selectOption(language);
-  // The baseline shows a generated brief, in the page's own language.
+  // The baseline shows a generated brief, in the page's own language: its overview, its
+  // stages and its gap all read in the language the capture is taken in.
+  setTaskBriefCopy(language);
   setTaskBriefFixture(
     language === "zh"
       ? "通过多轮对话调试本地代理的流式转发与计价规则。"
