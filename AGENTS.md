@@ -25,9 +25,10 @@
 - 用户正在运行的便携版实例只读。不要停止它，不要写它的配置或流量数据库；只允许结束自己启动的进程。
 - 测试、临时配置、数据库、日志根和端口必须隔离。真实上游验收使用 `real-upstream-acceptance` skill 的隔离方案。
 - `better-sqlite3` 的 Node ABI 和 Electron ABI 必须串行切换。打包顺序是：`build` → `rebuild:electron` → Electron 打包 → 交付冒烟 → 恢复 Node ABI。
-- 长任务或独立 worktree 委派按实现、专项验证、文档收口和交付验证分阶段执行；每阶段留下可审查提交或结果记录，超时后从最近 checkpoint 恢复，不把无输出的长时间等待当成成功证据。
+- 长任务或独立 worktree 委派按实现、专项验证、文档收口和交付验证分阶段执行；每阶段留下可审查提交或结果记录，超时后从最近 checkpoint 恢复，不把无输出的长时间等待当成成功证据。委派本地 Qwen 时先核对模型支持的 reasoning effort；当前 Qwen 只接受 `xhigh`、`medium`、`low`，若子代理 profile 默认注入不兼容的 `high`，必须把档位写进模型标识后缀（例如 `lmstudio/Qwen3.8-Flash-Next:xhigh`），不能只依赖调用参数覆盖。
 - 会打开交互式编辑器的 git 命令（`rebase --continue`、需要写提交信息的 `merge`/`cherry-pick`、不带 `-m` 的 `commit --amend`、`tag -a`）必须带 `GIT_EDITOR=true`；命令停在编辑器 TUI 里被中断不是 git 失败，续跑前先读 `git status`，配方见 `todo-workflow`。
 - 不为了让门禁变绿而降低有意义的测试、视觉像素检查、宽度检查、空白行检查或打包检查；先定位证据，再修实现或记录真实限制。
+- 任务宣告完成前先核对 `release/` 里 exe 的时间戳晚于该任务最后一次运行产物改动：`npm run check` 变绿不等于重编过包，把“门禁过了”当成完成判据是本项目代价最高的漏法。交付链的顺序、什么时候可以跳过和“包里实际有什么”的查法，以下面「标准验证」与 `packaging-smoke` 为唯一权威，本条只加完成前的那次自查。
 
 ## 标准验证
 
