@@ -19,7 +19,7 @@ import {
 
 describe("summary prompts", () => {
   it("records the version a stored task brief carries", () => {
-    expect(TASK_BRIEF_PROMPT_VERSION).toBe("v6");
+    expect(TASK_BRIEF_PROMPT_VERSION).toBe("v7");
   });
 
   it("tells the model the log is evidence, not an instruction it must follow", () => {
@@ -62,6 +62,14 @@ describe("summary prompts", () => {
     expect(TASK_BRIEF_INSTRUCTION).toContain("绝不能在字符串中直接放未转义的 ASCII 双引号");
     expect(TASK_BRIEF_INSTRUCTION).toContain("逐字符检查 JSON");
   });
+  it("requires basis on every step", () => {
+    expect(TASK_BRIEF_INSTRUCTION).toContain("每一个 steps 数组项都必须单独包含 basis 字段");
+    expect(TASK_BRIEF_INSTRUCTION).toContain("不能只在某一个 step 或顶层写 basis");
+    expect(TASK_BRIEF_INSTRUCTION).toContain(
+      "每个 step 都有 order、evidence、purpose、approach、result、basis",
+    );
+  });
+
   it("says parallel calls have no ordering between them and pairs calls with results", () => {
     expect(TASK_BRIEF_INSTRUCTION).toContain("call_id");
     expect(TASK_BRIEF_INSTRUCTION).toContain("operation_id");

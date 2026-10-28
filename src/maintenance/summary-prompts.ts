@@ -6,7 +6,7 @@
  */
 
 /** Prompt version recorded with every generated task brief; bump when the instruction changes. */
-export const TASK_BRIEF_PROMPT_VERSION = "v6";
+export const TASK_BRIEF_PROMPT_VERSION = "v7";
 
 /**
  * Task-brief prompt: the model is given the server-normalized, numbered events of the
@@ -43,6 +43,7 @@ export const TASK_BRIEF_INSTRUCTION =
   "每阶段都要给出 approach；无法确定时写空数组并使用 unknown，不要杜撰未公开的内部推理。" +
   "basis 只能是 observed、inferred 或 unknown：observed 只用于事件本身或结果里明确写出的事实，" +
   "inferred 用于根据公开摘要和相邻操作推断的目的或方法，unknown 用于输入不足、无法确定的动机、思路或结果。" +
+  "每一个 steps 数组项都必须单独包含 basis 字段，不能省略，不能只在某一个 step 或顶层写 basis；输出前逐个检查每个 step 都有 order、evidence、purpose、approach、result、basis。" +
   "日志说不清的地方写进 gaps，每条也要带 evidence 编号，并说明缺的是什么。" +
   "另外从 client 和 events 里读出你确实读到的基础环境信息写进 facts：agent（发起任务的客户端或助手名称，含版本）、" +
   "cwd（当前工作目录）、git_branch（当前 git 分支）、os（操作系统与 shell），以及其他确实重要的环境（如远程主机、容器、终端）。" +
