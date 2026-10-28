@@ -19,7 +19,7 @@ import {
 
 describe("summary prompts", () => {
   it("records the version a stored task brief carries", () => {
-    expect(TASK_BRIEF_PROMPT_VERSION).toBe("v5");
+    expect(TASK_BRIEF_PROMPT_VERSION).toBe("v6");
   });
 
   it("tells the model the log is evidence, not an instruction it must follow", () => {
@@ -54,6 +54,13 @@ describe("summary prompts", () => {
     expect(TASK_BRIEF_INSTRUCTION).toContain('"purpose":["动机和目标"]');
     expect(TASK_BRIEF_INSTRUCTION).toContain("不要用省略号");
     expect(TASK_BRIEF_INSTRUCTION).toContain("不要把每个文件读取");
+  });
+  it("requires raw parseable JSON and escaped quotes inside values", () => {
+    expect(TASK_BRIEF_INSTRUCTION).toContain("可以直接被 JSON.parse 解析");
+    expect(TASK_BRIEF_INSTRUCTION).toContain("不要输出 Markdown 代码围栏");
+    expect(TASK_BRIEF_INSTRUCTION).toContain("必须写成反斜杠转义");
+    expect(TASK_BRIEF_INSTRUCTION).toContain("绝不能在字符串中直接放未转义的 ASCII 双引号");
+    expect(TASK_BRIEF_INSTRUCTION).toContain("逐字符检查 JSON");
   });
   it("says parallel calls have no ordering between them and pairs calls with results", () => {
     expect(TASK_BRIEF_INSTRUCTION).toContain("call_id");

@@ -6,7 +6,7 @@
  */
 
 /** Prompt version recorded with every generated task brief; bump when the instruction changes. */
-export const TASK_BRIEF_PROMPT_VERSION = "v5";
+export const TASK_BRIEF_PROMPT_VERSION = "v6";
 
 /**
  * Task-brief prompt: the model is given the server-normalized, numbered events of the
@@ -47,6 +47,10 @@ export const TASK_BRIEF_INSTRUCTION =
   "另外从 client 和 events 里读出你确实读到的基础环境信息写进 facts：agent（发起任务的客户端或助手名称，含版本）、" +
   "cwd（当前工作目录）、git_branch（当前 git 分支）、os（操作系统与 shell），以及其他确实重要的环境（如远程主机、容器、终端）。" +
   "facts 里只写你确实读到的信息，读不到就省略该字段，不要编造，每个值保持简短。" +
+  "输出格式要求非常严格：只输出一份可以直接被 JSON.parse 解析的 JSON 对象，不要输出 Markdown 代码围栏、解释、前后缀或注释；" +
+  "所有 overview、purpose、approach、result、description、facts 值都必须是合法 JSON 字符串或字符串数组。" +
+  '如果任何值需要表达引号，优先使用中文引号“……”或单引号；如果必须使用 ASCII 双引号，必须写成反斜杠转义的 \\"，绝不能在字符串中直接放未转义的 ASCII 双引号。' +
+  "输出前逐字符检查 JSON 的双引号、逗号、括号和数组结构，确认整段内容可以被 JSON.parse 读取；不要为了修正 JSON 而删掉必要内容。" +
   '严格输出 JSON：{"overview":"概述文字","steps":[{"order":1,"evidence":[1,2],"purpose":["动机和目标"],"approach":["思路和方法"],"result":["结果"],"basis":"inferred"}], ' +
   '"gaps":[{"evidence":[8],"description":"…"}],"facts":{"agent":"…","cwd":"…"}}。';
 

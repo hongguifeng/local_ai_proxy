@@ -303,7 +303,7 @@ describe("SummaryGenerationService", () => {
     expect(storedPromptVersion(root, "history_summaries", "record_id", "summary-record")).toBe(
       TASK_BRIEF_PROMPT_VERSION,
     );
-    expect(TASK_BRIEF_PROMPT_VERSION).toBe("v5");
+    expect(TASK_BRIEF_PROMPT_VERSION).toBe("v6");
   });
 
   it("overwrites the cached summary when a summary is asked for again", async () => {
@@ -710,7 +710,7 @@ describe("SummaryGenerationService", () => {
     expect(storedPromptVersion(root, "task_briefs", "task_id", "brief-task")).toBe(
       TASK_BRIEF_PROMPT_VERSION,
     );
-    expect(TASK_BRIEF_PROMPT_VERSION).toBe("v5");
+    expect(TASK_BRIEF_PROMPT_VERSION).toBe("v6");
   });
 
   it("stores the source metadata the console needs to explain and date an answer", async () => {

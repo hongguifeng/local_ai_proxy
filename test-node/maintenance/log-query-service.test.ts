@@ -857,7 +857,7 @@ describe("LogQueryService", () => {
       const storedRepository = new TrafficRepository(root);
       try {
         const stored = storedRepository.getTaskBrief("brief-task");
-        expect(stored?.prompt_version).toBe("v5");
+        expect(stored?.prompt_version).toBe("v6");
         expect(JSON.parse(String(stored?.context_json))).toEqual({
           agent: "pi 0.39 (win32)",
           cwd: "d:/code/local_ai_proxy",
