@@ -583,6 +583,7 @@ describe("SummaryGenerationService", () => {
             evidence: [1],
             operation: "读配置加载器",
             purpose: "确认路径规则",
+            approach: "先对比实现和测试使用的路径基准。",
             result: "发现与测试不一致",
             basis: "observed",
           },
@@ -620,6 +621,7 @@ describe("SummaryGenerationService", () => {
             evidence: [1],
             operation: "读配置加载器",
             purpose: "确认路径规则",
+            approach: "先对比实现和测试使用的路径基准。",
             result: "发现与测试不一致",
             basis: "observed",
           },
@@ -647,10 +649,13 @@ describe("SummaryGenerationService", () => {
     expect(service.cachedBrief("brief-task")?.timeline?.steps.map((step) => step.order)).toEqual([
       1, 2,
     ]);
+    expect(service.cachedBrief("brief-task")?.timeline?.steps[0]?.approach).toBe(
+      "先对比实现和测试使用的路径基准。",
+    );
     expect(storedPromptVersion(root, "task_briefs", "task_id", "brief-task")).toBe(
       TASK_BRIEF_PROMPT_VERSION,
     );
-    expect(TASK_BRIEF_PROMPT_VERSION).toBe("v3");
+    expect(TASK_BRIEF_PROMPT_VERSION).toBe("v5");
   });
 
   it("stores the source metadata the console needs to explain and date an answer", async () => {

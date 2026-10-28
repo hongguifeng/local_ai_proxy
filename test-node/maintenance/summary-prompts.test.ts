@@ -29,7 +29,7 @@ describe("summary prompts", () => {
   });
 
   it("records the version a stored task brief carries", () => {
-    expect(TASK_BRIEF_PROMPT_VERSION).toBe("v3");
+    expect(TASK_BRIEF_PROMPT_VERSION).toBe("v5");
   });
 
   it("asks for the stage segments the summary parser refuses anything else than", () => {
@@ -70,6 +70,14 @@ describe("summary prompts", () => {
     ).toThrow("The summary model returned step 1 without evidence.");
   });
 
+  it("asks the model to group routine operations and explain the method before the result", () => {
+    expect(TASK_BRIEF_INSTRUCTION).toContain("合并成一个有意义的阶段");
+    expect(TASK_BRIEF_INSTRUCTION).toContain("approach");
+    expect(TASK_BRIEF_INSTRUCTION).toContain("短列表");
+    expect(TASK_BRIEF_INSTRUCTION).toContain('"purpose":["动机和目标"]');
+    expect(TASK_BRIEF_INSTRUCTION).toContain("不要用省略号");
+    expect(TASK_BRIEF_INSTRUCTION).toContain("不要把每个文件读取");
+  });
   it("says parallel calls have no ordering between them and pairs calls with results", () => {
     expect(TASK_BRIEF_INSTRUCTION).toContain("call_id");
     expect(TASK_BRIEF_INSTRUCTION).toContain("operation_id");

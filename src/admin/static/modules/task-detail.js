@@ -637,10 +637,17 @@ function briefFieldSeparator() {
   return state.language === "en" ? ": " : "：";
 }
 
-/**
- * One stage line: its number, how the claim is grounded, what happened, and the evidence
- * numbers that jump to the matching event in the area below.
- */
+function briefFieldHtml(className, label, value) {
+  const values = Array.isArray(value) ? value : value ? [String(value)] : [];
+  if (values.length === 0) return "";
+  return `<section class="${className}"><div class="task-brief-step-label">${escapeHtml(
+    label,
+  )}</div><ul class="task-brief-step-list">${values
+    .map((item) => `<li>${escapeHtml(String(item))}</li>`)
+    .join("")}</ul></section>`;
+}
+
+/** One stage line: short goal, method and result points lead; the concrete operation stays secondary. */
 function briefStepHtml(step) {
   const refs = (step.evidence ?? [])
     .map(
@@ -648,15 +655,19 @@ function briefStepHtml(step) {
         `<button type="button" class="task-brief-evidence-ref" data-brief-evidence="${no}">${no}</button>`,
     )
     .join("");
-  const purpose = step.purpose
-    ? `<div class="task-brief-step-purpose">${escapeHtml(
-        `${t("timelineStepPurpose")}${briefFieldSeparator()}${step.purpose}`,
-      )}</div>`
-    : "";
-  const result = step.result
-    ? `<div class="task-brief-step-result">${escapeHtml(
-        `${t("timelineStepResult")}${briefFieldSeparator()}${step.result}`,
-      )}</div>`
+  const purpose = briefFieldHtml("task-brief-step-purpose", t("timelineStepPurpose"), step.purpose);
+  const approach = briefFieldHtml(
+    "task-brief-step-approach",
+    t("timelineStepApproach"),
+    step.approach,
+  );
+  const result = briefFieldHtml("task-brief-step-result", t("timelineStepResult"), step.result);
+  const operation = step.operation
+    ? `<div class="task-brief-step-operation"><span class="task-brief-step-label">${escapeHtml(
+        t("timelineStepOperation"),
+      )}</span><span class="task-brief-step-operation-text">${escapeHtml(
+        `${briefFieldSeparator()}${step.operation}`,
+      )}</span></div>`
     : "";
   return `<li class="task-brief-step">
     <div class="task-brief-step-head">
@@ -664,10 +675,13 @@ function briefStepHtml(step) {
       <span class="task-brief-step-basis task-brief-step-basis-${escapeHtml(step.basis ?? "unknown")}">${escapeHtml(
         briefBasisLabel(step.basis),
       )}</span>
-      ${refs ? `<span class="task-brief-step-refs">${refs}</span>` : ""}
     </div>
-    <div class="task-brief-step-operation">${escapeHtml(step.operation ?? "")}</div>
-    ${purpose}${result}
+    ${purpose}${approach}${result}${operation}
+    ${
+      refs
+        ? `<details class="task-brief-step-evidence"><summary>${escapeHtml(t("timelineStepEvidence"))} (${step.evidence.length})</summary><span class="task-brief-step-refs">${refs}</span></details>`
+        : ""
+    }
   </li>`;
 }
 

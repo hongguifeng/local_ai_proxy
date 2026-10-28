@@ -7,11 +7,7 @@ import {
   parseSummaryPayload,
   parseTaskTimelineAnswer,
 } from "../../src/maintenance/summary-answer.js";
-import {
-  TASK_BRIEF_FACT_LIMIT,
-  TASK_BRIEF_TEXT_LIMIT,
-  TASK_TIMELINE_TEXT_LIMIT,
-} from "../../src/maintenance/summary-prompts.js";
+import { TASK_BRIEF_FACT_LIMIT } from "../../src/maintenance/summary-prompts.js";
 import { ApplicationError } from "../../src/shared/index.js";
 
 /**
@@ -43,6 +39,7 @@ function validAnswer(): string {
         evidence: [1, 2],
         operation: "Read the loader",
         purpose: "Confirm path resolution",
+        approach: "Compare the loader's path base with the test setup.",
         result: "Found a mismatch",
         basis: "observed",
       },
@@ -51,6 +48,7 @@ function validAnswer(): string {
         evidence: [3, 4],
         operation: "Ran the test",
         purpose: "Check the fix",
+        approach: "Use the focused test to verify the path rule.",
         result: "Tests pass",
         basis: "inferred",
       },
@@ -118,6 +116,9 @@ describe("task timeline answer", () => {
     expect(parsed.overview).toBe("Debugging the loader, then checking it.");
     expect(parsed.timeline.steps.map((step) => step.order)).toEqual([1, 2]);
     expect(parsed.timeline.steps[0]?.evidence).toEqual([1, 2]);
+    expect(parsed.timeline.steps[0]?.approach).toBe(
+      "Compare the loader's path base with the test setup.",
+    );
     expect(parsed.timeline.steps[1]?.basis).toBe("inferred");
     expect(parsed.timeline.gaps).toEqual([
       { evidence: [4], description: "The log does not say what happened next." },
@@ -125,6 +126,68 @@ describe("task timeline answer", () => {
     expect(parsed.facts).toEqual({ agent: "pi 0.39", git_branch: "main" });
     // The stored timeline carries the same overview the card shows as its paragraph.
     expect(parsed.timeline.overview).toBe(parsed.overview);
+  });
+
+  it("keeps structured point lists for the stage's main fields", () => {
+    const parsed = parseTaskTimelineAnswer(
+      JSON.stringify({
+        overview: "o",
+        steps: [
+          {
+            order: 1,
+            evidence: [1],
+            operation: "inspect and test",
+            purpose: ["定位失败原因", "确定验证目标"],
+            approach: ["先比较两处路径基准", "再运行针对性测试"],
+            result: ["发现实现与测试假设不一致"],
+            basis: "inferred",
+          },
+        ],
+      }),
+      1,
+    );
+    expect(parsed.timeline.steps[0]).toMatchObject({
+      purpose: ["定位失败原因", "确定验证目标"],
+      approach: ["先比较两处路径基准", "再运行针对性测试"],
+      result: ["发现实现与测试假设不一致"],
+    });
+  });
+  it("keeps the method through parsing and cache readback without inventing it for old answers", () => {
+    const answer = parseTaskTimelineAnswer(validAnswer(), 4);
+    expect(parseStoredTaskTimeline(JSON.stringify(answer.timeline))).toEqual(answer.timeline);
+    const oldAnswer = JSON.parse(validAnswer()) as { steps: Record<string, unknown>[] };
+    oldAnswer.steps = oldAnswer.steps.map((step) =>
+      Object.fromEntries(Object.entries(step).filter(([key]) => key !== "approach")),
+    );
+    const legacy = parseTaskTimelineAnswer(JSON.stringify(oldAnswer), 4);
+    expect(legacy.timeline.steps[0]).not.toHaveProperty("approach");
+    expect(parseStoredTaskTimeline(JSON.stringify(legacy.timeline))?.steps[0]).not.toHaveProperty(
+      "approach",
+    );
+  });
+
+  it("checks a supplied method and allows an unknown method to stay empty", () => {
+    for (const approach of [42, "   "]) {
+      const step = {
+        order: 1,
+        evidence: [1],
+        operation: "Read the loader",
+        purpose: "Check the path rule",
+        approach,
+        result: "Found a mismatch",
+        basis: "observed",
+      };
+      expect(() =>
+        parseTaskTimelineAnswer(JSON.stringify({ overview: "o", steps: [step] }), 1),
+      ).toThrow(/approach/u);
+      if (typeof approach === "string") {
+        const parsed = parseTaskTimelineAnswer(
+          JSON.stringify({ overview: "o", steps: [{ ...step, basis: "unknown" }] }),
+          1,
+        );
+        expect(parsed.timeline.steps[0]).not.toHaveProperty("approach");
+      }
+    }
   });
 
   it("accepts a timeline wrapped in a json fence", () => {
@@ -418,16 +481,15 @@ describe("task timeline answer", () => {
     expect(parseTaskTimelineAnswer(answer, 1).overview).toBe("第一段。 第二段。");
   });
 
-  it("keeps an overview to the length the card can show", () => {
+  it("keeps a long overview whole without adding an ellipsis", () => {
+    const overview = "a".repeat(4_100);
     const answer = JSON.stringify({
-      overview: "a".repeat(TASK_BRIEF_TEXT_LIMIT + 10),
+      overview,
       steps: [
         { order: 1, evidence: [1], operation: "a", purpose: "b", result: "c", basis: "observed" },
       ],
     });
-    expect(parseTaskTimelineAnswer(answer, 1).overview).toBe(
-      `${"a".repeat(TASK_BRIEF_TEXT_LIMIT)}…`,
-    );
+    expect(parseTaskTimelineAnswer(answer, 1).overview).toBe(overview);
   });
 
   it("refuses an empty overview", () => {
@@ -442,23 +504,22 @@ describe("task timeline answer", () => {
     });
   });
 
-  it("keeps step text to the length the card has room for", () => {
+  it("keeps long timeline fields whole without adding an ellipsis", () => {
+    const operation = "d".repeat(340);
     const answer = JSON.stringify({
       overview: "o",
       steps: [
         {
           order: 1,
           evidence: [1],
-          operation: "d".repeat(TASK_TIMELINE_TEXT_LIMIT + 40),
+          operation,
           purpose: "p",
           result: "r",
           basis: "observed",
         },
       ],
     });
-    expect(parseTaskTimelineAnswer(answer, 1).timeline.steps[0]?.operation).toBe(
-      `${"d".repeat(TASK_TIMELINE_TEXT_LIMIT)}…`,
-    );
+    expect(parseTaskTimelineAnswer(answer, 1).timeline.steps[0]?.operation).toBe(operation);
   });
 
   it("keeps a long timeline whole: nothing is dropped for being long", () => {

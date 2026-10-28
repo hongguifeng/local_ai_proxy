@@ -878,13 +878,16 @@ const historySummaryDto = z.looseObject({
 /** How one timeline step says what it knows: read from the log, inferred, or unknown. */
 const timelineBasisDto = z.enum(["observed", "inferred", "unknown"]);
 
+const timelineTextDto = z.union([z.string(), z.array(z.string())]);
+
 /** One stage of the execution timeline, with the event numbers it is based on. */
 const timelineStepDto = z.object({
   order: z.number().int(),
   evidence: z.array(z.number().int()),
   operation: z.string(),
-  purpose: z.string(),
-  result: z.string(),
+  purpose: timelineTextDto,
+  approach: timelineTextDto.optional(),
+  result: timelineTextDto,
   basis: timelineBasisDto,
 });
 

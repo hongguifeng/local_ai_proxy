@@ -1,12 +1,7 @@
 import { isRecord } from "../shared/index.js";
 import type { HistorySummary } from "./log-query-service.js";
 import type { TimelineEvent, TimelineEventKind } from "./summary-input.js";
-import {
-  TASK_BRIEF_FACT_LIMIT,
-  TASK_BRIEF_FACT_VALUE_LIMIT,
-  TASK_BRIEF_TEXT_LIMIT,
-  TASK_TIMELINE_TEXT_LIMIT,
-} from "./summary-prompts.js";
+import { TASK_BRIEF_FACT_LIMIT, TASK_BRIEF_FACT_VALUE_LIMIT } from "./summary-prompts.js";
 import { summaryModelFailure } from "./summary-failure.js";
 import { truncateText } from "./text-limit.js";
 
@@ -24,13 +19,20 @@ import { truncateText } from "./text-limit.js";
 /** How a timeline step says what it knows. */
 export type TimelineBasis = "observed" | "inferred" | "unknown";
 
+/** One or more short points used for a readable stage field. */
+export type TimelineText = string | readonly string[];
+
 /** One stage of the execution timeline, citing the events it is based on. */
 export interface TimelineStep {
   readonly order: number;
   readonly evidence: readonly number[];
+  /** A short description of the concrete action, kept secondary to the reasoning. */
   readonly operation: string;
-  readonly purpose: string;
-  readonly result: string;
+  /** The stage's motivation and target; retained as `purpose` for stored-cache compatibility. */
+  readonly purpose: TimelineText;
+  /** The visible plan or method that connected the target to the action. */
+  readonly approach?: TimelineText;
+  readonly result: TimelineText;
   readonly basis: TimelineBasis;
 }
 
@@ -154,11 +156,16 @@ function readSteps(value: unknown, eventCount: number): readonly TimelineStep[] 
     const operation = requiredTextField(item["operation"], `step ${order}`, "operation");
     if (steps.length === 0 && order !== 1)
       throw summaryModelFailure("The summary model returned a timeline whose first step is not 1.");
+    const approach =
+      item["approach"] === undefined
+        ? []
+        : optionalStepField(item["approach"], `step ${order}`, "approach", basis);
     steps.push({
       order,
       evidence: readEvidence(item["evidence"], eventCount, `step ${order}`),
       operation,
       purpose: optionalStepField(item["purpose"], `step ${order}`, "purpose", basis),
+      ...(hasTimelineText(approach) ? { approach } : {}),
       result: optionalStepField(item["result"], `step ${order}`, "result", basis),
       basis,
     });
@@ -233,7 +240,7 @@ function requiredTextField(value: unknown, what: string, field: string): string 
     throw summaryModelFailure(
       `The summary model wrote the ${field} of ${what} as something other than text.`,
     );
-  const text = truncateText(value.trim(), TASK_TIMELINE_TEXT_LIMIT);
+  const text = value.trim();
   if (text === "")
     throw summaryModelFailure(
       `The summary model returned ${what} without ${indefinite(field)} ${field}.`,
@@ -242,40 +249,79 @@ function requiredTextField(value: unknown, what: string, field: string): string 
 }
 
 /**
- * A step's purpose and result. `basis: unknown` is the model saying the log does not tell
- * it, so such a step may leave either field empty instead of making one up; any other step
- * has to say what it was for and what came of it. An empty string here is a stored "the log
- * does not say", and the UI renders no line for it.
+ * A step's purpose, approach and result. New answers use short text lists so the UI can keep
+ * each point on its own line. A string remains accepted for answers made by the older prompt.
  */
 function optionalStepField(
   value: unknown,
   what: string,
   field: string,
   basis: TimelineBasis,
-): string {
-  if (value === undefined || value === null || value === "") {
+): TimelineText {
+  if (typeof value === "string" && value.trim() === "") {
     if (basis === "unknown") return "";
     throw summaryModelFailure(
       `The summary model returned ${what} without ${indefinite(field)} ${field}.`,
     );
   }
-  if (typeof value !== "string")
+  if (value === undefined || value === null) {
+    if (basis === "unknown") return "";
     throw summaryModelFailure(
-      `The summary model wrote the ${field} of ${what} as something other than text.`,
+      `The summary model returned ${what} without ${indefinite(field)} ${field}.`,
     );
-  const text = truncateText(value.trim(), TASK_TIMELINE_TEXT_LIMIT);
-  if (text === "" && basis !== "unknown")
+  }
+  if (Array.isArray(value) && value.length === 0) {
+    if (basis === "unknown") return [];
+    throw summaryModelFailure(
+      `The summary model returned ${what} without ${indefinite(field)} ${field}.`,
+    );
+  }
+  const text = readTimelineText(value, what, field);
+  if (!hasTimelineText(text) && basis !== "unknown")
     throw summaryModelFailure(
       `The summary model returned ${what} without ${indefinite(field)} ${field}.`,
     );
   return text;
 }
 
+function readTimelineText(value: unknown, what: string, field: string): TimelineText {
+  if (typeof value === "string") {
+    const text = value.trim();
+    if (text === "")
+      throw summaryModelFailure(
+        `The summary model wrote the ${field} of ${what} with an empty text value.`,
+      );
+    return text;
+  }
+  if (!Array.isArray(value))
+    throw summaryModelFailure(
+      `The summary model wrote the ${field} of ${what} as something other than text or a list of text.`,
+    );
+  const result: string[] = [];
+  for (const item of value) {
+    if (typeof item !== "string")
+      throw summaryModelFailure(
+        `The summary model wrote the ${field} of ${what} as a list containing something other than text.`,
+      );
+    const text = item.trim();
+    if (text === "")
+      throw summaryModelFailure(
+        `The summary model wrote the ${field} of ${what} with an empty list item.`,
+      );
+    result.push(text);
+  }
+  return result;
+}
+
+function hasTimelineText(value: TimelineText): boolean {
+  return Array.isArray(value) ? value.length > 0 : value !== "";
+}
+
 function textField(value: unknown, what: string): string {
   if (value === undefined || value === null) return "";
   if (typeof value !== "string")
     throw summaryModelFailure(`The summary model wrote ${what} as something other than text.`);
-  return truncateText(value.trim(), TASK_TIMELINE_TEXT_LIMIT);
+  return value.trim();
 }
 
 /**
@@ -302,8 +348,13 @@ export function parseStoredTaskTimeline(value: unknown): TaskTimeline | undefine
       order: numberOrZero(item["order"]),
       evidence: item["evidence"].filter(isInteger).map((item) => item as number),
       operation: textOrEmpty(item["operation"]),
-      purpose: textOrEmpty(item["purpose"]),
-      result: textOrEmpty(item["result"]),
+      purpose: storedTimelineText(item["purpose"]),
+      // Answers generated before the list contract used strings; keep those cached strings
+      // readable while new answers keep their point lists.
+      ...(hasTimelineText(storedTimelineText(item["approach"]))
+        ? { approach: storedTimelineText(item["approach"]) }
+        : {}),
+      result: storedTimelineText(item["result"]),
       basis: basis as TimelineBasis,
     });
   }
@@ -410,7 +461,7 @@ function briefParagraph(content: string): string {
     .replace(/[\r\n\t]+/gu, " ")
     .replace(/\s{2,}/gu, " ")
     .trim();
-  return text.length > TASK_BRIEF_TEXT_LIMIT ? `${text.slice(0, TASK_BRIEF_TEXT_LIMIT)}…` : text;
+  return text;
 }
 
 /** Keep only short string facts, with normalized keys and a bounded count. */
@@ -437,6 +488,15 @@ function isInteger(value: unknown): boolean {
 
 function numberOrZero(value: unknown): number {
   return isInteger(value) ? (value as number) : 0;
+}
+
+function storedTimelineText(value: unknown): TimelineText {
+  if (typeof value === "string") return value.trim();
+  if (!Array.isArray(value)) return "";
+  return value
+    .filter((item): item is string => typeof item === "string")
+    .map((item) => item.trim())
+    .filter(Boolean);
 }
 
 function textOrEmpty(value: unknown): string {

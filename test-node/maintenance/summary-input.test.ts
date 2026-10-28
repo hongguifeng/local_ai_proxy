@@ -425,6 +425,30 @@ describe("timeline event normalization", () => {
     expect(chat[1]?.text).toBe("Checked the loader, then the tests.");
   });
 
+  it("keeps plaintext reasoning content when Responses leaves summary empty", () => {
+    const events = eventsOf(
+      record({
+        request_body: {
+          input: [
+            {
+              type: "reasoning",
+              summary: [],
+              content: [{ type: "reasoning_text", text: "先检查配置，再验证测试。" }],
+              encrypted_content: { opaque: "SECRET-ENCRYPTED-THINKING" },
+            },
+          ],
+        },
+      }),
+    );
+    expect(events).toEqual([
+      {
+        event_no: 1,
+        kind: "reasoning_summary",
+        text: "先检查配置，再验证测试。",
+      },
+    ]);
+    expect(JSON.stringify(events)).not.toContain("SECRET-ENCRYPTED-THINKING");
+  });
   it("says a reasoning item has no published summary rather than reading its hidden content", () => {
     const events = eventsOf(
       record({

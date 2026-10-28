@@ -1058,13 +1058,46 @@ describe("admin UI history page", { timeout: UI_TEST_TIMEOUT_MS }, () => {
     ).toHaveText("inferred");
     await expectPage(
       record.locator(".task-brief-step").nth(0).locator(".task-brief-step-operation"),
-    ).toHaveText("Read the config loader");
+    ).toContainText("Action");
+    await expectPage(
+      record.locator(".task-brief-step").nth(0).locator(".task-brief-step-operation"),
+    ).toContainText("Read the config loader");
     await expectPage(
       record.locator(".task-brief-step").nth(0).locator(".task-brief-step-purpose"),
     ).toContainText("Confirm how paths resolve");
     await expectPage(
+      record.locator(".task-brief-step").nth(0).locator(".task-brief-step-approach"),
+    ).toContainText("Compare the loader's path base with the test setup before changing code.");
+    await expectPage(
       record.locator(".task-brief-step").nth(0).locator(".task-brief-step-result"),
     ).toContainText("Found a mismatch with the tests");
+    const firstStage = record.locator(".task-brief-step").nth(0);
+    expect(
+      await firstStage.evaluate((element) =>
+        Array.from(element.children).map((child) => child.className),
+      ),
+    ).toEqual([
+      "task-brief-step-head",
+      "task-brief-step-purpose",
+      "task-brief-step-approach",
+      "task-brief-step-result",
+      "task-brief-step-operation",
+      "task-brief-step-evidence",
+    ]);
+    const emphasis = await firstStage.evaluate((element) => {
+      const method = element.querySelector(".task-brief-step-approach");
+      const action = element.querySelector(".task-brief-step-operation");
+      return {
+        methodSize: method ? parseFloat(getComputedStyle(method).fontSize) : 0,
+        actionSize: action ? parseFloat(getComputedStyle(action).fontSize) : 0,
+      };
+    });
+    expect(emphasis.methodSize).toBeGreaterThan(emphasis.actionSize);
+    await expectPage(record.locator(".task-brief-step-evidence").first()).not.toHaveAttribute(
+      "open",
+      "",
+    );
+    await expectPage(record.locator(".task-brief-step-refs").first()).toBeHidden();
     // A stage that cites evidence shows the numbers the server handed out, not ones the
     // model made up.
     await expectPage(
@@ -1083,6 +1116,11 @@ describe("admin UI history page", { timeout: UI_TEST_TIMEOUT_MS }, () => {
 
     // Clicking a stage's number opens the event list and lands on that event, inside the same
     // window: the number is the one the server assigned, so this is a lookup.
+    await record
+      .locator(".task-brief-step")
+      .nth(1)
+      .locator(".task-brief-step-evidence summary")
+      .click();
     await record.locator(".task-brief-step").nth(1).locator('[data-brief-evidence="3"]').click();
     await expectPage(record.locator(".task-brief-evidence")).toHaveAttribute("open", "");
     await expectPage(record.locator('.task-brief-event[data-event-no="3"]')).toBeVisible();

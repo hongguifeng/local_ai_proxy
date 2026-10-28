@@ -488,7 +488,7 @@ function pushResponsesItem(
   });
 }
 
-/** The published summary of a Responses reasoning item, or nothing when there is none. */
+/** The published or plaintext-visible summary of a Responses reasoning item, or nothing when there is none. */
 function visibleReasoningSummary(
   item: Record<string, unknown>,
   report: CompressionReport,
@@ -502,8 +502,11 @@ function visibleReasoningSummary(
       else if (isRecord(part) && typeof part["text"] === "string")
         parts.push(cutText(part["text"], report));
     }
-    return parts.length === 0 ? undefined : parts.join("\n");
+    if (parts.length > 0) return parts.join("\n");
   }
+  // Some Responses records publish plaintext reasoning in `content` while leaving the
+  // optional `summary` array empty. It is still visible evidence in the stored request,
+  // so keep it; only the opaque encrypted field below remains excluded.
   if (Array.isArray(item["content"])) {
     const parts: string[] = [];
     for (const part of item["content"]) {
