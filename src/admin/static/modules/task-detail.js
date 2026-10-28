@@ -1,4 +1,4 @@
-import { optionalTyped } from "./dom.js";
+import { optionalTyped, requiredDialog, requiredTyped } from "./dom.js";
 // LLM Proxy admin UI -- task detail panel: pricing summary, breakdown table, trend charts, task brief.
 // ES module: imports the shared bootstrap (./core.js), the display helpers and the chart
 // geometry; the history list opens this panel and refreshes it.
@@ -610,18 +610,175 @@ function taskBriefFactsHtml(context) {
     )
     .join("")}</div>`;
 }
+/** How one step says what it knows: read from the log, inferred, or not known. */
+function briefBasisLabel(basis) {
+  if (basis === "observed") return t("timelineBasisObserved");
+  if (basis === "inferred") return t("timelineBasisInferred");
+  return t("timelineBasisUnknown");
+}
+
+/** What kind of log entry an evidence event is. */
+function briefEventKindLabel(kind) {
+  const keys = {
+    user_message: "timelineEventKindUserMessage",
+    assistant_message: "timelineEventKindAssistantMessage",
+    system_message: "timelineEventKindSystemMessage",
+    reasoning_summary: "timelineEventKindReasoningSummary",
+    tool_call: "timelineEventKindToolCall",
+    tool_result: "timelineEventKindToolResult",
+    truncation_marker: "timelineEventKindTruncationMarker",
+    other: "timelineEventKindOther",
+  };
+  return t(keys[kind] ?? "timelineEventKindOther");
+}
+
+/** The punctuation a field label uses: Chinese writes a full-width colon, English does not. */
+function briefFieldSeparator() {
+  return state.language === "en" ? ": " : "：";
+}
+
+/**
+ * One stage line: its number, how the claim is grounded, what happened, and the evidence
+ * numbers that jump to the matching event in the area below.
+ */
+function briefStepHtml(step) {
+  const refs = (step.evidence ?? [])
+    .map(
+      (no) =>
+        `<button type="button" class="task-brief-evidence-ref" data-brief-evidence="${no}">${no}</button>`,
+    )
+    .join("");
+  const purpose = step.purpose
+    ? `<div class="task-brief-step-purpose">${escapeHtml(
+        `${t("timelineStepPurpose")}${briefFieldSeparator()}${step.purpose}`,
+      )}</div>`
+    : "";
+  const result = step.result
+    ? `<div class="task-brief-step-result">${escapeHtml(
+        `${t("timelineStepResult")}${briefFieldSeparator()}${step.result}`,
+      )}</div>`
+    : "";
+  return `<li class="task-brief-step">
+    <div class="task-brief-step-head">
+      <span class="task-brief-step-order">${step.order}</span>
+      <span class="task-brief-step-basis task-brief-step-basis-${escapeHtml(step.basis ?? "unknown")}">${escapeHtml(
+        briefBasisLabel(step.basis),
+      )}</span>
+      ${refs ? `<span class="task-brief-step-refs">${refs}</span>` : ""}
+    </div>
+    <div class="task-brief-step-operation">${escapeHtml(step.operation ?? "")}</div>
+    ${purpose}${result}
+  </li>`;
+}
+
+/** One numbered line in the collapsible evidence area. */
+function briefEventHtml(event) {
+  const preview =
+    event.kind === "tool_call"
+      ? `${escapeHtml(event.tool ?? "")}(${escapeHtml(event.arguments_preview ?? "")})`
+      : event.kind === "tool_result"
+        ? escapeHtml(event.result_preview ?? "")
+        : escapeHtml(event.text ?? "");
+  const call =
+    event.call_id === undefined
+      ? ""
+      : ` <span class="task-brief-event-call">${escapeHtml(event.call_id)}</span>`;
+  const unpaired =
+    event.unpaired === true
+      ? ` <span class="task-brief-event-unpaired">${escapeHtml(t("timelineUnpaired"))}</span>`
+      : "";
+  return `<li class="task-brief-event" data-event-no="${event.event_no}">
+    <span class="task-brief-event-no">${event.event_no}</span>
+    <span class="task-brief-event-kind">${escapeHtml(briefEventKindLabel(event.kind))}</span>
+    ${
+      event.role && event.role !== "unknown"
+        ? `<span class="task-brief-event-role">${escapeHtml(event.role)}</span>`
+        : ""
+    }
+    ${call}${unpaired}
+    <pre class="task-brief-event-text">${preview}</pre>
+  </li>`;
+}
+
+function briefStepsHtml(timeline) {
+  return `<ol class="task-brief-steps">${timeline.steps
+    .map((step) => briefStepHtml(step))
+    .join("")}</ol>`;
+}
+
+function briefGapsHtml(gaps) {
+  if (!gaps || gaps.length === 0) return "";
+  return `<div class="task-brief-gaps"><strong>${escapeHtml(
+    t("timelineGapsTitle"),
+  )}</strong><ul>${gaps
+    .map(
+      (gap) =>
+        `<li>${
+          gap.evidence && gap.evidence.length > 0
+            ? `<span class="task-brief-gap-refs">${gap.evidence
+                .map(
+                  (no) =>
+                    `<button type="button" class="task-brief-evidence-ref" data-brief-evidence="${no}">${no}</button>`,
+                )
+                .join("")}</span>`
+            : ""
+        }${escapeHtml(gap.description)}</li>`,
+    )
+    .join("")}</ul></div>`;
+}
+
+function briefEvidenceHtml(events) {
+  if (!events || events.length === 0) return "";
+  return `<details class="task-brief-evidence"><summary>${escapeHtml(
+    t("timelineEvidenceToggle"),
+  )}</summary><ol class="task-brief-event-list">${events
+    .map((event) => briefEventHtml(event))
+    .join("")}</ol></details>`;
+}
+
+/**
+ * The whole execution record: the stages, what the log could not answer, and the numbered
+ * events those two cite. The card keeps only the overview; this is what its 执行过程 button
+ * puts in the dialog, so a long timeline does not make the panel taller.
+ * @returns {string}
+ */
+function briefTimelineHtml(timeline, events) {
+  return `${briefStepsHtml(timeline)}${briefGapsHtml(timeline.gaps)}${briefEvidenceHtml(events)}`;
+}
+
+/** Where the answer came from: the request it describes and how many events it had. */
+function briefSourceHtml(data) {
+  const parts = [
+    data.source_record_id ? `#${String(data.source_record_id)}` : "",
+    data.source_event_count === null || data.source_event_count === undefined
+      ? ""
+      : `${String(data.source_event_count)} ${t("timelineEventsCount")}`,
+  ].filter((item) => item !== "");
+  return parts.join(" · ");
+}
+
 function taskBriefCardHtml(groupId, taskBrief = state.taskBrief) {
   const brief = taskBrief && taskBrief.id === groupId ? taskBrief : null;
   const data = brief ? brief.data : null;
   const text = data ? String(data.text || "") : "";
+  const timeline = data && data.timeline ? data.timeline : null;
   const facts = data ? taskBriefFactsHtml(data.context) : "";
+  const stale =
+    data && data.stale
+      ? `<span class="task-brief-stale" data-brief-stale>${escapeHtml(t("briefStale"))}</span>`
+      : "";
   const meta = data
     ? `<p class="task-brief-meta">${[
+        stale,
         data.model ? escapeHtml(String(data.model)) : "",
         data.generated_at ? escapeHtml(formatBriefTime(String(data.generated_at))) : "",
+        escapeHtml(briefSourceHtml(data)),
       ]
         .filter((item) => item !== "")
         .join(" · ")}</p>`
+    : "";
+  const timelineButton = timeline
+    ? `<button type="button" data-brief-timeline>${escapeHtml(t("taskBriefTimeline"))}</button>`
     : "";
   const button =
     brief && brief.loading
@@ -635,11 +792,19 @@ function taskBriefCardHtml(groupId, taskBrief = state.taskBrief) {
       : brief && brief.error
         ? `<p class="task-brief-error">${escapeHtml(`${t("taskBriefFailed")}: ${brief.error}`)}</p>`
         : text
-          ? `${facts}<p class="task-brief-text">${escapeHtml(text)}</p>${meta}`
+          ? // A brief with a timeline keeps only its overview in this card: the stages, what
+            // the log could not answer and the events themselves are the execution record, and
+            // the 执行过程 button opens that record in a window of its own so the panel keeps
+            // its height. A brief written before timelines existed has only its paragraph.
+            timeline
+            ? `<p class="task-brief-text">${escapeHtml(
+                timeline.overview || text,
+              )}</p>${facts}${meta}`
+            : `${facts}<p class="task-brief-text">${escapeHtml(text)}</p>${meta}`
           : `<p class="task-brief-empty">${escapeHtml(t("taskBriefNone"))}</p>`;
   return `<section class="task-brief"><div class="task-brief-head"><strong>${escapeHtml(
     t("taskBrief"),
-  )}</strong>${button}</div>${body}</section>`;
+  )}</strong><span class="task-brief-head-actions">${timelineButton}${button}</span></div>${body}</section>`;
 }
 function formatBriefTime(value) {
   const date = new Date(value);
@@ -1002,10 +1167,58 @@ function updateRequestPricingButton() {
  * groups, close, re-try, regenerate brief) and the request-pricing toggle.
  * @returns {void}
  */
+/**
+ * Opens the event list and highlights the event a stage cites, inside the window that now
+ * carries the execution record. The number on a stage is the one this server assigned before
+ * the model saw anything, so this is a lookup, not a guess about what the model meant.
+ * @param {unknown} raw The `data-brief-evidence` value of the clicked reference.
+ * @returns {void}
+ */
+function revealBriefEvent(raw) {
+  if (raw === undefined) throw new Error("Missing data-brief-evidence");
+  const eventNo = Number(raw);
+  const body = optionalTyped("#taskBriefTimelineBody", HTMLElement);
+  if (body === null) return;
+  const details = optionalTyped(".task-brief-evidence", HTMLDetailsElement, body);
+  if (details === null) return;
+  details.open = true;
+  const target = optionalTyped(`.task-brief-event[data-event-no="${eventNo}"]`, HTMLElement, body);
+  if (target === null) return;
+  target.classList.remove("task-brief-event-flash");
+  // Re-starting the highlight needs a reflow between taking the class off and putting it
+  // back on; without it, clicking the same number twice does nothing the second time.
+  void target.offsetWidth;
+  target.classList.add("task-brief-event-flash");
+  target.scrollIntoView({ block: "nearest" });
+}
+
+/**
+ * Fill and open the window that carries the execution record. The content is written when the
+ * button is clicked rather than kept in step with every panel render: the dialog is modal, so
+ * nothing can change the brief while it is open, and the card underneath only shows the
+ * overview.
+ * @returns {void}
+ */
+function openBriefTimeline() {
+  const brief = state.taskBrief;
+  const data = brief && brief.id === state.activeTaskPricing ? brief.data : null;
+  const timeline = data && data.timeline ? data.timeline : null;
+  if (!timeline || data === null) return;
+  requiredTyped("#taskBriefTimelineBody", HTMLElement).innerHTML = briefTimelineHtml(
+    timeline,
+    data.events ? data.events : [],
+  );
+  requiredDialog("taskBriefTimelineDialog").showModal();
+}
+
 export function mountTaskDetail() {
   $("pricingPanel").addEventListener("click", (event) => {
     if (closestFrom(event.target, "[data-generate-brief]")) {
       regenerateTaskBrief().catch((e) => toast(e.message));
+      return;
+    }
+    if (closestFrom(event.target, "[data-brief-timeline]")) {
+      openBriefTimeline();
       return;
     }
     const summary = closestFrom(event.target, "summary");
@@ -1037,6 +1250,18 @@ export function mountTaskDetail() {
       state.requestPricingOpen = !state.requestPricingOpen;
       renderRequestPricing();
     }),
+  );
+  // The record window is not inside the pricing panel, so it answers its own clicks: a stage's
+  // number is a lookup into the event list that sits beside it in the same window.
+  requiredTyped("#taskBriefTimelineBody", HTMLElement).addEventListener("click", (event) => {
+    const reference = closestFrom(event.target, "[data-brief-evidence]");
+    if (reference === null) return;
+    revealBriefEvent(reference.dataset.briefEvidence);
+  });
+  // The execution record closes with its own button; Escape is the browser's own behavior for
+  // a modal dialog, so it needs nothing here.
+  requiredTyped("#taskBriefTimelineClose", HTMLButtonElement).addEventListener("click", () =>
+    requiredDialog("taskBriefTimelineDialog").close(),
   );
 }
 

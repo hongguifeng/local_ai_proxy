@@ -80,6 +80,15 @@ npm run regen:ui-baselines
   panel keeps its content across a tab switch, so later states still carry its head). That is an
   intended change, not drift: record it with its evidence instead of bending the rule so the
   counts match.
+- A control inside a closed `<dialog>` is in the DOM of every state the walk visits, so an
+  intended change there reports one line per sampled value in every state, not one line total.
+  Naming those elements by their `tag#id.class` ancestor path rather than by index also works,
+  because the two runs share the DOM. Measured 2026-10-28: adding
+  `.target-check-form label[hidden] { display: none }` failed the oracle with 30 lines, and the
+  path diff showed exactly three elements moved — the hidden row (`grid -> none`), its `span`
+  (`block -> inline`) and its `input` (`block -> inline-block`). The two children moved only
+  because a grid parent blockifies its children, so hiding the parent un-blockifies them; the
+  change was confined to the row that was being redesigned, which is the evidence to record.
 - An all-zero result must be falsified with a change that is guaranteed visible before it
   is believed: `*{letter-spacing:4px !important}` has to move something.
 - `admin-ui-css-ownership.test.ts` fails on a rule written outside the block, a property

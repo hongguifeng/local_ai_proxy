@@ -1313,6 +1313,14 @@ label span {
   font-size: 11px;
   padding: 3px 9px;
 }
+/* The title line can hold two controls now: the record window's button and the generate
+   button, both pushed to the right end with a small gap between them. */
+.task-brief-head-actions {
+  margin-left: auto;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
 /* The environment facts the summary model read out of the newest request
    (client, working directory, git branch, OS, ...) sit above the paragraph as
    compact pills: a muted label plus a monospace value that wraps, so a long
@@ -1372,6 +1380,261 @@ label span {
   margin: 8px 0 0;
   font-size: 11px;
   color: var(--muted);
+}
+/* The brief is an overview plus the stages that cite numbered events, not one paragraph.
+   A stage is a block with its number, how the claim is grounded, what happened, and the
+   evidence numbers that jump to the event area below; the events themselves stay collapsed
+   because they are the evidence, not the reading. */
+.task-brief-steps {
+  margin: 10px 0 0;
+  padding: 0;
+  list-style: none;
+}
+.task-brief-step {
+  padding: 6px 0 6px 10px;
+  border-left: 2px solid var(--line);
+}
+.task-brief-step + .task-brief-step {
+  margin-top: 4px;
+}
+.task-brief-step-head {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+.task-brief-step-order {
+  flex: none;
+  min-width: 18px;
+  padding: 1px 5px;
+  border-radius: 9px;
+  background: var(--button);
+  color: var(--ink);
+  font:
+    600 11px/16px ui-monospace,
+    SFMono-Regular,
+    Consolas,
+    monospace;
+  text-align: center;
+}
+.task-brief-step-basis {
+  flex: none;
+  padding: 1px 7px;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  font-size: 11px;
+  line-height: 16px;
+}
+.task-brief-step-basis-observed {
+  border-color: var(--accent);
+  background: var(--accent-soft);
+  color: var(--accent);
+}
+.task-brief-step-basis-inferred {
+  background: var(--control);
+  color: var(--muted);
+}
+.task-brief-step-basis-unknown {
+  border-style: dashed;
+  background: var(--control);
+  color: var(--muted);
+}
+.task-brief-step-refs {
+  display: inline-flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  min-width: 0;
+}
+.task-brief-evidence-ref {
+  min-width: 18px;
+  padding: 1px 5px;
+  border: 1px solid var(--line);
+  border-radius: 9px;
+  background: var(--control);
+  color: var(--muted);
+  font:
+    600 11px/16px ui-monospace,
+    SFMono-Regular,
+    Consolas,
+    monospace;
+  cursor: pointer;
+}
+.task-brief-evidence-ref:hover {
+  border-color: var(--accent);
+  color: var(--accent);
+}
+.task-brief-step-operation {
+  margin-top: 3px;
+  font-size: 13px;
+  line-height: 1.6;
+  color: #1f2937;
+  white-space: normal;
+  overflow-wrap: anywhere;
+}
+.task-brief-step-purpose,
+.task-brief-step-result {
+  margin-top: 2px;
+  font-size: 12px;
+  line-height: 1.5;
+  color: var(--muted);
+  white-space: normal;
+  overflow-wrap: anywhere;
+}
+.task-brief-gaps {
+  margin-top: 10px;
+  padding: 8px 10px;
+  border: 1px dashed var(--line);
+  border-radius: 8px;
+  background: var(--control);
+}
+.task-brief-gaps strong {
+  font-size: 12px;
+  color: var(--muted);
+}
+.task-brief-gaps ul {
+  margin: 6px 0 0;
+  padding: 0 0 0 18px;
+}
+.task-brief-gaps li {
+  font-size: 12px;
+  line-height: 1.6;
+  color: #1f2937;
+  overflow-wrap: anywhere;
+}
+.task-brief-gap-refs {
+  display: inline-flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  margin-right: 4px;
+}
+.task-brief-evidence {
+  margin-top: 10px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: #ffffff;
+}
+.task-brief-evidence > summary {
+  padding: 6px 10px;
+  font-size: 12px;
+  color: var(--muted);
+  cursor: pointer;
+}
+.task-brief-event-list {
+  margin: 0;
+  padding: 6px 10px 10px;
+  border-top: 1px solid var(--line);
+  list-style: none;
+}
+.task-brief-event + .task-brief-event {
+  margin-top: 6px;
+}
+.task-brief-event {
+  padding: 4px 6px;
+  border-radius: 6px;
+}
+.task-brief-event > span {
+  display: inline-block;
+  margin: 0 4px 0 0;
+  font-size: 11px;
+  line-height: 16px;
+}
+.task-brief-event-no {
+  color: var(--ink);
+  font-family: ui-monospace, SFMono-Regular, Consolas, monospace;
+  font-weight: 600;
+}
+.task-brief-event-kind {
+  color: var(--muted);
+}
+.task-brief-event-role {
+  color: var(--muted);
+  font-style: italic;
+}
+.task-brief-event-call {
+  color: #1f2937;
+  font-family: ui-monospace, SFMono-Regular, Consolas, monospace;
+}
+.task-brief-event-unpaired {
+  color: var(--danger);
+}
+.task-brief-event-text {
+  margin: 2px 0 0;
+  font:
+    12px/1.6 ui-monospace,
+    SFMono-Regular,
+    Consolas,
+    monospace;
+  color: #1f2937;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+.task-brief-event-flash {
+  animation: brief-event-flash 1.6s ease-out 1;
+}
+@keyframes brief-event-flash {
+  from {
+    background: var(--accent-soft);
+  }
+  to {
+    background: transparent;
+  }
+}
+.task-brief-stale {
+  padding: 1px 7px;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  background: var(--control);
+  color: var(--muted);
+}
+/* The execution record opens in a window of its own: the card keeps only the overview so the
+   panel does not grow with the number of stages, and a long record scrolls inside here. Same
+   shape as the metrics dialog - a head that stays put above a body that scrolls. The flex
+   layout is written for the open state only, so the UA rule for closed dialogs keeps
+   applying (the same reason `.metrics-dialog[open]` exists). */
+.task-brief-timeline-dialog {
+  width: min(820px, calc(100vw - 48px));
+  max-width: calc(100vw - 32px);
+  max-height: calc(100vh - 48px);
+  padding: 14px 16px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: var(--panel);
+  color: var(--ink);
+  box-shadow: 0 20px 50px rgba(23, 32, 42, 0.18);
+  overflow: hidden;
+}
+.task-brief-timeline-dialog[open] {
+  display: flex;
+  flex-direction: column;
+}
+.task-brief-timeline-dialog::backdrop {
+  background: rgba(23, 32, 42, 0.35);
+}
+.task-brief-timeline-dialog > section {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  box-sizing: border-box;
+}
+.task-brief-timeline-head {
+  flex: none;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding-bottom: 8px;
+  border-bottom: 1px solid var(--line);
+}
+.task-brief-timeline-head strong {
+  font-size: 13px;
+  color: #111827;
+}
+.task-brief-timeline-body {
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
 }
 /* Top of the task-detail panel: a grid of small stat cards that reuse the
    usage-statistics .stat-card look (label / big value / optional sub line).

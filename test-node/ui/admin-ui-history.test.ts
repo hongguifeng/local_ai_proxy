@@ -3,11 +3,15 @@ import { expect as expectPage } from "@playwright/test";
 import { readFile } from "node:fs/promises";
 import {
   TASK_BRIEF_GENERATED_TEXT,
+  TASK_BRIEF_TIMELINE_STEPS,
   UI_TEST_TIMEOUT_MS,
   deletedLogGroups,
   detailReads,
   groupLogQueries,
   logQueries,
+  setTaskBriefFixture,
+  setTaskBriefStale,
+  setTaskBriefTimeline,
   setUseLargeGroupLogFixture,
   setUseLargeLogFixture,
   setUseLargeLogRequestCount,
@@ -987,6 +991,9 @@ describe("admin UI history page", { timeout: UI_TEST_TIMEOUT_MS }, () => {
     // an enabled button, and no POST went out.
     await expectPage(brief.locator(".task-brief-empty")).toBeVisible();
     await expectPage(brief.locator("[data-generate-brief]")).toHaveText("Generate brief");
+    // No record, no window: the button that opens one is not offered until there is a
+    // timeline to put in it.
+    await expectPage(brief.locator("[data-brief-timeline]")).toHaveCount(0);
     expect(taskBriefPosts).toEqual([]);
 
     await Promise.all([
@@ -1016,6 +1023,80 @@ describe("admin UI history page", { timeout: UI_TEST_TIMEOUT_MS }, () => {
     // The button becomes a regenerate affordance and the card credits the model.
     await expectPage(brief.locator("[data-generate-brief]")).toHaveText("Regenerate");
     await expectPage(brief.locator(".task-brief-meta")).toContainText("summary-model");
+    // The card keeps only the overview: the stages, the gaps and the events are the execution
+    // record, and none of it is on the screen until the card's own button opens it. The card
+    // still says which request the answer describes and how many events it had.
+    await expectPage(brief.locator(".task-brief-step")).toHaveCount(0);
+    await expectPage(brief.locator(".task-brief-gaps")).toHaveCount(0);
+    await expectPage(brief.locator(".task-brief-evidence")).toHaveCount(0);
+    await expectPage(brief.locator(".task-brief-meta")).toContainText("#record-six");
+    await expectPage(brief.locator(".task-brief-meta")).toContainText("4 events");
+    await expectPage(brief.locator("[data-brief-stale]")).toBeHidden();
+    await expectPage(page.locator("#taskBriefTimelineDialog")).toBeHidden();
+    await expectPage(brief.locator("[data-brief-timeline]")).toHaveText("Execution timeline");
+
+    // The button opens that record in a window of its own: the stages in the order the server
+    // numbered them, each labelled with how its claim is grounded.
+    await brief.locator("[data-brief-timeline]").click();
+    const dialog = page.locator("#taskBriefTimelineDialog");
+    const record = dialog.locator("#taskBriefTimelineBody");
+    await expectPage(dialog).toBeVisible();
+    await expectPage(dialog.locator(".task-brief-timeline-head strong")).toHaveText(
+      "Execution timeline",
+    );
+    await expectPage(record.locator(".task-brief-step")).toHaveCount(
+      TASK_BRIEF_TIMELINE_STEPS.length,
+    );
+    await expectPage(
+      record.locator(".task-brief-step").nth(0).locator(".task-brief-step-order"),
+    ).toHaveText("1");
+    await expectPage(
+      record.locator(".task-brief-step").nth(0).locator(".task-brief-step-basis"),
+    ).toHaveText("observed");
+    await expectPage(
+      record.locator(".task-brief-step").nth(1).locator(".task-brief-step-basis"),
+    ).toHaveText("inferred");
+    await expectPage(
+      record.locator(".task-brief-step").nth(0).locator(".task-brief-step-operation"),
+    ).toHaveText("Read the config loader");
+    await expectPage(
+      record.locator(".task-brief-step").nth(0).locator(".task-brief-step-purpose"),
+    ).toContainText("Confirm how paths resolve");
+    await expectPage(
+      record.locator(".task-brief-step").nth(0).locator(".task-brief-step-result"),
+    ).toContainText("Found a mismatch with the tests");
+    // A stage that cites evidence shows the numbers the server handed out, not ones the
+    // model made up.
+    await expectPage(
+      record.locator(".task-brief-step").nth(0).locator(".task-brief-evidence-ref"),
+    ).toHaveCount(2);
+    // What the log could not answer is said separately, with the events that show the hole.
+    await expectPage(record.locator(".task-brief-gaps")).toBeVisible();
+    await expectPage(record.locator(".task-brief-gaps li")).toContainText(
+      "The log has no result for the second call.",
+    );
+    await expectPage(record.locator(".task-brief-gap-refs .task-brief-evidence-ref")).toHaveText(
+      "3",
+    );
+    // The events are the evidence, not the reading, so they start collapsed in here too.
+    await expectPage(record.locator(".task-brief-evidence")).not.toHaveAttribute("open", "");
+
+    // Clicking a stage's number opens the event list and lands on that event, inside the same
+    // window: the number is the one the server assigned, so this is a lookup.
+    await record.locator(".task-brief-step").nth(1).locator('[data-brief-evidence="3"]').click();
+    await expectPage(record.locator(".task-brief-evidence")).toHaveAttribute("open", "");
+    await expectPage(record.locator('.task-brief-event[data-event-no="3"]')).toBeVisible();
+    await expectPage(record.locator('.task-brief-event[data-event-no="4"]')).toBeVisible();
+    await expectPage(
+      record.locator('.task-brief-event[data-event-no="3"] .task-brief-event-call'),
+    ).toHaveText("call-1");
+    await expectPage(
+      record.locator('.task-brief-event[data-event-no="4"] .task-brief-event-call'),
+    ).toHaveText("call-1");
+    // The window closes on its own button and leaves the card showing the overview.
+    await dialog.locator("#taskBriefTimelineClose").click();
+    await expectPage(dialog).toBeHidden();
+    await expectPage(brief.locator(".task-brief-text")).toHaveText(TASK_BRIEF_GENERATED_TEXT);
     // The brief card sits above the fact grid, so it is the first block under
     // the panel title.
     const tops = await panel.evaluate((root) =>
@@ -1036,7 +1117,77 @@ describe("admin UI history page", { timeout: UI_TEST_TIMEOUT_MS }, () => {
       page.locator('[data-group-id="task-one"]').click(),
     ]);
     await expectPage(panel.locator(".task-brief-text")).toHaveText(TASK_BRIEF_GENERATED_TEXT);
+    // Re-opening reads the stored answer back: the card shows the overview only, and the
+    // window stays off the screen until its button is clicked again.
+    await expectPage(panel.locator(".task-brief-step")).toHaveCount(0);
+    await expectPage(page.locator("#taskBriefTimelineDialog")).toBeHidden();
+    await expectPage(panel.locator("[data-brief-timeline]")).toBeVisible();
     expect(taskBriefPosts).toEqual(["task-one"]);
+  });
+
+  it("shows a brief stored before timelines existed as its paragraph alone", async () => {
+    // A cache row written by the old generation has the overview and the facts but no
+    // steps and no events; the card must not invent either of them.
+    setTaskBriefTimeline(false);
+    setTaskBriefFixture("A paragraph written before timelines existed.");
+    await loadAdminPage();
+    await Promise.all([
+      page.waitForResponse((response) => response.url().includes("/api/logs?")),
+      page.locator('[data-tab="logs"]').click(),
+    ]);
+    await page.locator("#languageSelect").selectOption("en");
+    await Promise.all([
+      page.waitForResponse((response) =>
+        response.url().endsWith("/api/log-groups/task-one/pricing"),
+      ),
+      page.waitForResponse((response) => response.url().endsWith("/api/log-groups/task-one/brief")),
+      page.locator('[data-group-id="task-one"]').click(),
+    ]);
+    const brief = page.locator("#pricingPanel .task-brief");
+    await expectPage(brief.locator(".task-brief-text")).toHaveText(
+      "A paragraph written before timelines existed.",
+    );
+    await expectPage(brief.locator(".task-brief-fact")).toHaveCount(4);
+    await expectPage(brief.locator(".task-brief-steps")).toHaveCount(0);
+    await expectPage(brief.locator(".task-brief-evidence")).toHaveCount(0);
+    await expectPage(brief.locator(".task-brief-gaps")).toHaveCount(0);
+    // A paragraph with no record behind it gets no window to open.
+    await expectPage(brief.locator("[data-brief-timeline]")).toHaveCount(0);
+    // Reading a stored brief never calls the model, whatever shape it was stored in.
+    expect(taskBriefPosts).toEqual([]);
+  });
+
+  it("labels a brief whose source request has moved on", async () => {
+    setTaskBriefStale(true);
+    setTaskBriefFixture("An answer the newest request has gone past.");
+    await loadAdminPage();
+    await Promise.all([
+      page.waitForResponse((response) => response.url().includes("/api/logs?")),
+      page.locator('[data-tab="logs"]').click(),
+    ]);
+    await page.locator("#languageSelect").selectOption("en");
+    await Promise.all([
+      page.waitForResponse((response) =>
+        response.url().endsWith("/api/log-groups/task-one/pricing"),
+      ),
+      page.waitForResponse((response) => response.url().endsWith("/api/log-groups/task-one/brief")),
+      page.locator('[data-group-id="task-one"]').click(),
+    ]);
+    const brief = page.locator("#pricingPanel .task-brief");
+    await expectPage(brief.locator("[data-brief-stale]")).toBeVisible();
+    await expectPage(brief.locator(".task-brief-meta")).toContainText("Older answer");
+    // A stale answer is still readable and still carries its stages; only its label changes.
+    // The card shows none of those stages now, so the check goes through its window.
+    await expectPage(brief.locator(".task-brief-step")).toHaveCount(0);
+    await brief.locator("[data-brief-timeline]").click();
+    await expectPage(page.locator("#taskBriefTimelineDialog")).toBeVisible();
+    await expectPage(
+      page.locator("#taskBriefTimelineBody").locator(".task-brief-step"),
+    ).toHaveCount(TASK_BRIEF_TIMELINE_STEPS.length);
+    // The "older answer" mark belongs to the card, not to the window: the window holds the
+    // same record whether or not the source has moved on.
+    await expectPage(brief.locator("[data-brief-stale]")).toBeVisible();
+    expect(taskBriefPosts).toEqual([]);
   });
 
   it("opens the task detail panel on a header click and toggles the list on the caret button", async () => {
