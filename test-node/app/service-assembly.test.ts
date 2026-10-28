@@ -482,7 +482,7 @@ describe("[AI-09] admin service assembly", () => {
               {
                 message: {
                   content:
-                    '{"overview":"一段简介。","steps":[{"order":1,"evidence":[1],"operation":"读用户输入","purpose":"了解要做什么","result":"看到一轮对话","basis":"observed"}]}',
+                    '{"overview":"一段简介。","steps":[{"order":1,"evidence":[1],"purpose":"了解要做什么","result":"看到一轮对话","basis":"observed"}]}',
                 },
               },
             ],

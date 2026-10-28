@@ -703,13 +703,6 @@ function briefStepHtml(step, totalEvents) {
     step.result,
     true,
   );
-  const operation = step.operation
-    ? `<div class="task-brief-step-operation"><span class="task-brief-step-label">${escapeHtml(
-        t("timelineStepOperation"),
-      )}</span><span class="task-brief-step-operation-text">${escapeHtml(
-        `${briefFieldSeparator()}${step.operation}`,
-      )}</span></div>`
-    : "";
   return `<li class="task-brief-step">
     <div class="task-brief-step-head">
       <span class="task-brief-step-order">${step.order}</span>
@@ -718,7 +711,7 @@ function briefStepHtml(step, totalEvents) {
       )}</span>
       ${briefStepPositionHtml(step, totalEvents)}
     </div>
-    ${purpose}${result}${approach}${operation}
+    ${purpose}${result}${approach}
     ${
       refs
         ? `<details class="task-brief-step-evidence"><summary>${escapeHtml(t("timelineStepEvidence"))} (${step.evidence.length})</summary><span class="task-brief-step-refs">${refs}</span></details>`

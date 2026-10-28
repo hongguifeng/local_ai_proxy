@@ -52,7 +52,6 @@ export const TASK_BRIEF_TIMELINE_STEPS: readonly TimelineStep[] = [
   {
     order: 1,
     evidence: [1, 2],
-    operation: "Read the config loader",
     purpose: ["Confirm how paths resolve"],
     approach: ["Compare the loader's path base with the test setup before changing code."],
     result: ["Found a mismatch with the tests"],
@@ -61,7 +60,6 @@ export const TASK_BRIEF_TIMELINE_STEPS: readonly TimelineStep[] = [
   {
     order: 2,
     evidence: [3, 4],
-    operation: "Run the loader test",
     purpose: ["Check the fix"],
     approach: ["Use the focused test to verify the path rule after the change."],
     result: ["Relative paths resolve against the log root"],
@@ -74,7 +72,6 @@ export const TASK_BRIEF_TIMELINE_STEPS_ZH: readonly TimelineStep[] = [
   {
     order: 1,
     evidence: [1, 2],
-    operation: "读配置加载器",
     purpose: ["确认路径怎么解析"],
     approach: ["先对比加载器和测试使用的路径基准，再决定是否修改代码。"],
     result: ["发现与测试不一致"],
@@ -83,7 +80,6 @@ export const TASK_BRIEF_TIMELINE_STEPS_ZH: readonly TimelineStep[] = [
   {
     order: 2,
     evidence: [3, 4],
-    operation: "跑加载器测试",
     purpose: ["检查修复"],
     approach: ["修改后运行针对性测试，验证路径规则是否成立。"],
     result: ["相对路径按日志根解析"],

@@ -26,8 +26,6 @@ export type TimelineText = string | readonly string[];
 export interface TimelineStep {
   readonly order: number;
   readonly evidence: readonly number[];
-  /** A short description of the concrete action, kept secondary to the reasoning. */
-  readonly operation: string;
   /** The stage's motivation and target; retained as `purpose` for stored-cache compatibility. */
   readonly purpose: TimelineText;
   /** The visible plan or method that connected the target to the action. */
@@ -153,17 +151,15 @@ function readSteps(value: unknown, eventCount: number): readonly TimelineStep[] 
     previousOrder = order;
 
     const basis = readBasis(item["basis"], order);
-    const operation = requiredTextField(item["operation"], `step ${order}`, "operation");
-    if (steps.length === 0 && order !== 1)
-      throw summaryModelFailure("The summary model returned a timeline whose first step is not 1.");
     const approach =
       item["approach"] === undefined
         ? []
         : optionalStepField(item["approach"], `step ${order}`, "approach", basis);
+    if (steps.length === 0 && order !== 1)
+      throw summaryModelFailure("The summary model returned a timeline whose first step is not 1.");
     steps.push({
       order,
       evidence: readEvidence(item["evidence"], eventCount, `step ${order}`),
-      operation,
       purpose: optionalStepField(item["purpose"], `step ${order}`, "purpose", basis),
       ...(hasTimelineText(approach) ? { approach } : {}),
       result: optionalStepField(item["result"], `step ${order}`, "result", basis),
@@ -228,24 +224,6 @@ function readBasis(value: unknown, order: number): TimelineBasis {
 /** How English puts "a" or "an" in front of one of these field names. */
 function indefinite(field: string): string {
   return /^[aeiou]/i.test(field) ? "an" : "a";
-}
-
-/** A field the answer has to fill in: an empty one is not an answer about anything. */
-function requiredTextField(value: unknown, what: string, field: string): string {
-  if (value === undefined || value === null)
-    throw summaryModelFailure(
-      `The summary model returned ${what} without ${indefinite(field)} ${field}.`,
-    );
-  if (typeof value !== "string")
-    throw summaryModelFailure(
-      `The summary model wrote the ${field} of ${what} as something other than text.`,
-    );
-  const text = value.trim();
-  if (text === "")
-    throw summaryModelFailure(
-      `The summary model returned ${what} without ${indefinite(field)} ${field}.`,
-    );
-  return text;
 }
 
 /**
@@ -347,7 +325,6 @@ export function parseStoredTaskTimeline(value: unknown): TaskTimeline | undefine
     steps.push({
       order: numberOrZero(item["order"]),
       evidence: item["evidence"].filter(isInteger).map((item) => item as number),
-      operation: textOrEmpty(item["operation"]),
       purpose: storedTimelineText(item["purpose"]),
       // Answers generated before the list contract used strings; keep those cached strings
       // readable while new answers keep their point lists.

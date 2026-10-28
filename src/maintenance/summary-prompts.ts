@@ -48,10 +48,9 @@ export const TASK_BRIEF_INSTRUCTION =
   "每个列表尽量写 1 到 3 个要点，每个要点只表达一个意思，不要在一个要点里串联长操作清单，也不要用省略号或半句表示省略。" +
   "只根据公开 reasoning_summary、reasoning_text、assistant 消息和相邻证据解释方法，方法需要推断时标 inferred。" +
   "approach 不要写成‘读取 A，编辑 B，再运行 C’的操作顺序；每个要点说明一个判断或方法。" +
-  "operation 只用一句短语概括具体操作，不要堆文件名、命令和参数。" +
   "忽略没有改变判断的路径写错、临时脚本报错、搜索重试、替换次数与中间测试失败；若失败促成了方案转变，归纳原因和转变即可。" +
   "解释性文字跟随用户任务目标的语言，不要因为工具输出是英文就改用英文。" +
-  "purpose、approach、result 是主要内容，operation 是辅助细节；不要用 operation 代替思路。" +
+  "purpose、result、approach 是主要内容；不要把工具调用清单当成思路，也不要补写日志没有公开的内容。" +
   "每阶段都要给出 approach；无法确定时写空数组并使用 unknown，不要杜撰未公开的内部推理。" +
   "basis 只能是 observed、inferred 或 unknown：observed 只用于事件本身或结果里明确写出的事实，" +
   "inferred 用于根据公开摘要和相邻操作推断的目的或方法，unknown 用于输入不足、无法确定的动机、思路或结果。" +
@@ -59,7 +58,7 @@ export const TASK_BRIEF_INSTRUCTION =
   "另外从 client 和 events 里读出你确实读到的基础环境信息写进 facts：agent（发起任务的客户端或助手名称，含版本）、" +
   "cwd（当前工作目录）、git_branch（当前 git 分支）、os（操作系统与 shell），以及其他确实重要的环境（如远程主机、容器、终端）。" +
   "facts 里只写你确实读到的信息，读不到就省略该字段，不要编造，每个值保持简短。" +
-  '严格输出 JSON：{"overview":"概述文字","steps":[{"order":1,"evidence":[1,2],"purpose":["动机和目标"],"approach":["思路和方法"],"result":["结果"],"operation":"简短操作","basis":"inferred"}], ' +
+  '严格输出 JSON：{"overview":"概述文字","steps":[{"order":1,"evidence":[1,2],"purpose":["动机和目标"],"approach":["思路和方法"],"result":["结果"],"basis":"inferred"}], ' +
   '"gaps":[{"evidence":[8],"description":"…"}],"facts":{"agent":"…","cwd":"…"}}。';
 
 /** How many environment facts a brief may carry: the card has room for six. */

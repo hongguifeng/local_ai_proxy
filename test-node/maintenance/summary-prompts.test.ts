@@ -58,13 +58,13 @@ describe("summary prompts", () => {
     // refused, and a step with no evidence is refused.
     expect(() =>
       parseTaskTimelineAnswer(
-        '{"overview":"o","steps":[{"order":1,"evidence":[9],"operation":"a","purpose":"b","result":"c","basis":"observed"}]}',
+        '{"overview":"o","steps":[{"order":1,"evidence":[9],"purpose":"b","result":"c","basis":"observed"}]}',
         4,
       ),
     ).toThrow("The summary model cited an evidence number that was not sent to it.");
     expect(() =>
       parseTaskTimelineAnswer(
-        '{"overview":"o","steps":[{"order":1,"operation":"a","purpose":"b","result":"c","basis":"observed"}]}',
+        '{"overview":"o","steps":[{"order":1,"purpose":"b","result":"c","basis":"observed"}]}',
         4,
       ),
     ).toThrow("The summary model returned step 1 without evidence.");
@@ -96,7 +96,7 @@ describe("summary prompts", () => {
     expect(TASK_BRIEF_INSTRUCTION).toContain("unknown");
     expect(() =>
       parseTaskTimelineAnswer(
-        '{"overview":"o","steps":[{"order":1,"evidence":[1],"operation":"a","purpose":"b","result":"c","basis":"certain"}]}',
+        '{"overview":"o","steps":[{"order":1,"evidence":[1],"purpose":"b","result":"c","basis":"certain"}]}',
         1,
       ),
     ).toThrow(/not observed, inferred or unknown/u);
@@ -112,7 +112,7 @@ describe("summary prompts", () => {
     expect(TASK_BRIEF_INSTRUCTION).toContain("git_branch");
     expect(TASK_BRIEF_INSTRUCTION).toContain("os");
     const accepted = parseTaskTimelineAnswer(
-      '{"overview":"一段概述。","steps":[{"order":1,"evidence":[1],"operation":"读配置","purpose":"确认路径","result":"发现不一致","basis":"observed"}],"gaps":[],"facts":{"agent":"pi","cwd":"d:/code","git_branch":"main","os":"Windows"}}',
+      '{"overview":"一段概述。","steps":[{"order":1,"evidence":[1],"purpose":"确认路径","result":"发现不一致","basis":"observed"}],"gaps":[],"facts":{"agent":"pi","cwd":"d:/code","git_branch":"main","os":"Windows"}}',
       1,
     );
     expect(accepted.overview).toBe("一段概述。");

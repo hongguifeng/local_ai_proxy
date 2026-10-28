@@ -37,7 +37,6 @@ function validAnswer(): string {
       {
         order: 1,
         evidence: [1, 2],
-        operation: "Read the loader",
         purpose: "Confirm path resolution",
         approach: "Compare the loader's path base with the test setup.",
         result: "Found a mismatch",
@@ -46,7 +45,6 @@ function validAnswer(): string {
       {
         order: 2,
         evidence: [3, 4],
-        operation: "Ran the test",
         purpose: "Check the fix",
         approach: "Use the focused test to verify the path rule.",
         result: "Tests pass",
@@ -136,7 +134,6 @@ describe("task timeline answer", () => {
           {
             order: 1,
             evidence: [1],
-            operation: "inspect and test",
             purpose: ["定位失败原因", "确定验证目标"],
             approach: ["先比较两处路径基准", "再运行针对性测试"],
             result: ["发现实现与测试假设不一致"],
@@ -171,7 +168,6 @@ describe("task timeline answer", () => {
       const step = {
         order: 1,
         evidence: [1],
-        operation: "Read the loader",
         purpose: "Check the path rule",
         approach,
         result: "Found a mismatch",
@@ -198,9 +194,7 @@ describe("task timeline answer", () => {
   it("accepts an answer with no gaps and reports none", () => {
     const withoutGaps = JSON.stringify({
       overview: "o",
-      steps: [
-        { order: 1, evidence: [1], operation: "a", purpose: "b", result: "c", basis: "unknown" },
-      ],
+      steps: [{ order: 1, evidence: [1], purpose: "b", result: "c", basis: "unknown" }],
     });
     expect(parseTaskTimelineAnswer(withoutGaps, 1).timeline.gaps).toEqual([]);
   });
@@ -212,7 +206,6 @@ describe("task timeline answer", () => {
         {
           order: 1,
           evidence: [7, 2, 7, 5],
-          operation: "a",
           purpose: "b",
           result: "c",
           basis: "observed",
@@ -257,9 +250,7 @@ describe("task timeline answer", () => {
   it("refuses evidence that was never sent", () => {
     const outside = JSON.stringify({
       overview: "o",
-      steps: [
-        { order: 1, evidence: [5], operation: "a", purpose: "b", result: "c", basis: "observed" },
-      ],
+      steps: [{ order: 1, evidence: [5], purpose: "b", result: "c", basis: "observed" }],
     });
     expect(failureOf(() => parseTaskTimelineAnswer(outside, 4))).toMatchObject({
       code: "upstream_error",
@@ -267,9 +258,7 @@ describe("task timeline answer", () => {
     });
     const zero = JSON.stringify({
       overview: "o",
-      steps: [
-        { order: 1, evidence: [0], operation: "a", purpose: "b", result: "c", basis: "observed" },
-      ],
+      steps: [{ order: 1, evidence: [0], purpose: "b", result: "c", basis: "observed" }],
     });
     expect(failureOf(() => parseTaskTimelineAnswer(zero, 4))).toMatchObject({
       message: "The summary model cited an evidence number that was not sent to it.",
@@ -280,7 +269,6 @@ describe("task timeline answer", () => {
         {
           order: 1,
           evidence: ["1"],
-          operation: "a",
           purpose: "b",
           result: "c",
           basis: "observed",
@@ -295,16 +283,14 @@ describe("task timeline answer", () => {
   it("refuses a step with no evidence", () => {
     const answer = JSON.stringify({
       overview: "o",
-      steps: [
-        { order: 1, evidence: [], operation: "a", purpose: "b", result: "c", basis: "observed" },
-      ],
+      steps: [{ order: 1, evidence: [], purpose: "b", result: "c", basis: "observed" }],
     });
     expect(failureOf(() => parseTaskTimelineAnswer(answer, 4))).toMatchObject({
       message: "The summary model returned step 1 without evidence.",
     });
     const missing = JSON.stringify({
       overview: "o",
-      steps: [{ order: 1, operation: "a", purpose: "b", result: "c", basis: "observed" }],
+      steps: [{ order: 1, purpose: "b", result: "c", basis: "observed" }],
     });
     expect(failureOf(() => parseTaskTimelineAnswer(missing, 4))).toMatchObject({
       message: "The summary model returned step 1 without evidence.",
@@ -314,9 +300,7 @@ describe("task timeline answer", () => {
   it("refuses a step order that does not start at one or increase", () => {
     const firstNotOne = JSON.stringify({
       overview: "o",
-      steps: [
-        { order: 2, evidence: [1], operation: "a", purpose: "b", result: "c", basis: "observed" },
-      ],
+      steps: [{ order: 2, evidence: [1], purpose: "b", result: "c", basis: "observed" }],
     });
     expect(failureOf(() => parseTaskTimelineAnswer(firstNotOne, 4))).toMatchObject({
       message: "The summary model returned a timeline whose first step is not 1.",
@@ -324,8 +308,8 @@ describe("task timeline answer", () => {
     const duplicate = JSON.stringify({
       overview: "o",
       steps: [
-        { order: 1, evidence: [1], operation: "a", purpose: "b", result: "c", basis: "observed" },
-        { order: 1, evidence: [1], operation: "a", purpose: "b", result: "c", basis: "observed" },
+        { order: 1, evidence: [1], purpose: "b", result: "c", basis: "observed" },
+        { order: 1, evidence: [1], purpose: "b", result: "c", basis: "observed" },
       ],
     });
     expect(failureOf(() => parseTaskTimelineAnswer(duplicate, 4))).toMatchObject({
@@ -337,7 +321,6 @@ describe("task timeline answer", () => {
         {
           order: "1",
           evidence: [1],
-          operation: "a",
           purpose: "b",
           result: "c",
           basis: "observed",
@@ -354,7 +337,6 @@ describe("task timeline answer", () => {
       const step: Record<string, unknown> = {
         order: 1,
         evidence: [1],
-        operation: "a",
         purpose: "b",
         result: "c",
         basis: "observed",
@@ -379,7 +361,6 @@ describe("task timeline answer", () => {
       const step: Record<string, unknown> = {
         order: 1,
         evidence: [1],
-        operation: "a",
         purpose: "b",
         result: "c",
         basis: "unknown",
@@ -396,9 +377,7 @@ describe("task timeline answer", () => {
     // log says it, so it has to say what it was for and what came of it.
     const observedBlank = JSON.stringify({
       overview: "o",
-      steps: [
-        { order: 1, evidence: [1], operation: "a", purpose: "b", result: "  ", basis: "observed" },
-      ],
+      steps: [{ order: 1, evidence: [1], purpose: "b", result: "  ", basis: "observed" }],
     });
     expect(failureOf(() => parseTaskTimelineAnswer(observedBlank, 1))).toMatchObject({
       message: "The summary model returned step 1 without a result.",
@@ -412,7 +391,6 @@ describe("task timeline answer", () => {
         {
           order: 1,
           evidence: [1],
-          operation: "a",
           purpose: "b",
           result: "c",
           basis: "certain",
@@ -426,24 +404,24 @@ describe("task timeline answer", () => {
     });
   });
 
-  it("refuses a step that names no operation", () => {
+  it("accepts a step without the removed operation field", () => {
     const answer = JSON.stringify({
       overview: "o",
-      steps: [
-        { order: 1, evidence: [1], operation: "  ", purpose: "b", result: "c", basis: "observed" },
-      ],
+      steps: [{ order: 1, evidence: [1], purpose: "b", result: "c", basis: "observed" }],
     });
-    expect(failureOf(() => parseTaskTimelineAnswer(answer, 4))).toMatchObject({
-      message: "The summary model returned step 1 without an operation.",
+    expect(parseTaskTimelineAnswer(answer, 4).timeline.steps[0]).toMatchObject({
+      order: 1,
+      evidence: [1],
+      purpose: "b",
+      result: "c",
+      basis: "observed",
     });
   });
 
   it("refuses a gap that cites nothing or cites the wrong number", () => {
     const noEvidence = JSON.stringify({
       overview: "o",
-      steps: [
-        { order: 1, evidence: [1], operation: "a", purpose: "b", result: "c", basis: "observed" },
-      ],
+      steps: [{ order: 1, evidence: [1], purpose: "b", result: "c", basis: "observed" }],
       gaps: [{ evidence: [], description: "x" }],
     });
     expect(failureOf(() => parseTaskTimelineAnswer(noEvidence, 4))).toMatchObject({
@@ -451,9 +429,7 @@ describe("task timeline answer", () => {
     });
     const outOfRange = JSON.stringify({
       overview: "o",
-      steps: [
-        { order: 1, evidence: [1], operation: "a", purpose: "b", result: "c", basis: "observed" },
-      ],
+      steps: [{ order: 1, evidence: [1], purpose: "b", result: "c", basis: "observed" }],
       gaps: [{ evidence: [9], description: "x" }],
     });
     expect(failureOf(() => parseTaskTimelineAnswer(outOfRange, 4))).toMatchObject({
@@ -464,9 +440,7 @@ describe("task timeline answer", () => {
   it("keeps an overview the model still wrapped in a JSON object or in quotes", () => {
     const answer = JSON.stringify({
       overview: "  一句话概述  ",
-      steps: [
-        { order: 1, evidence: [1], operation: "a", purpose: "b", result: "c", basis: "observed" },
-      ],
+      steps: [{ order: 1, evidence: [1], purpose: "b", result: "c", basis: "observed" }],
     });
     expect(parseTaskTimelineAnswer(answer, 1).overview).toBe("一句话概述");
   });
@@ -474,9 +448,7 @@ describe("task timeline answer", () => {
   it("folds a multi-line overview into one paragraph", () => {
     const answer = JSON.stringify({
       overview: "第一段。\n第二段。",
-      steps: [
-        { order: 1, evidence: [1], operation: "a", purpose: "b", result: "c", basis: "observed" },
-      ],
+      steps: [{ order: 1, evidence: [1], purpose: "b", result: "c", basis: "observed" }],
     });
     expect(parseTaskTimelineAnswer(answer, 1).overview).toBe("第一段。 第二段。");
   });
@@ -485,9 +457,7 @@ describe("task timeline answer", () => {
     const overview = "a".repeat(4_100);
     const answer = JSON.stringify({
       overview,
-      steps: [
-        { order: 1, evidence: [1], operation: "a", purpose: "b", result: "c", basis: "observed" },
-      ],
+      steps: [{ order: 1, evidence: [1], purpose: "b", result: "c", basis: "observed" }],
     });
     expect(parseTaskTimelineAnswer(answer, 1).overview).toBe(overview);
   });
@@ -495,9 +465,7 @@ describe("task timeline answer", () => {
   it("refuses an empty overview", () => {
     const answer = JSON.stringify({
       overview: "   ",
-      steps: [
-        { order: 1, evidence: [1], operation: "a", purpose: "b", result: "c", basis: "observed" },
-      ],
+      steps: [{ order: 1, evidence: [1], purpose: "b", result: "c", basis: "observed" }],
     });
     expect(failureOf(() => parseTaskTimelineAnswer(answer, 1))).toMatchObject({
       message: "The summary model returned an empty task overview.",
@@ -505,21 +473,20 @@ describe("task timeline answer", () => {
   });
 
   it("keeps long timeline fields whole without adding an ellipsis", () => {
-    const operation = "d".repeat(340);
+    const purpose = "d".repeat(340);
     const answer = JSON.stringify({
       overview: "o",
       steps: [
         {
           order: 1,
           evidence: [1],
-          operation,
-          purpose: "p",
+          purpose,
           result: "r",
           basis: "observed",
         },
       ],
     });
-    expect(parseTaskTimelineAnswer(answer, 1).timeline.steps[0]?.operation).toBe(operation);
+    expect(parseTaskTimelineAnswer(answer, 1).timeline.steps[0]?.purpose).toBe(purpose);
   });
 
   it("keeps a long timeline whole: nothing is dropped for being long", () => {
@@ -532,7 +499,6 @@ describe("task timeline answer", () => {
       steps: Array.from({ length: 40 }, (_unused, index) => ({
         order: index + 1,
         evidence: Array.from({ length: 25 }, (_number, number) => number + 1),
-        operation: "a",
         purpose: "b",
         result: "c",
         basis: "observed",
@@ -557,7 +523,6 @@ describe("task timeline answer", () => {
         {
           order: 1,
           evidence: [2, 3],
-          operation: "a",
           purpose: "b",
           result: "c",
           basis: "inferred",
@@ -571,7 +536,6 @@ describe("task timeline answer", () => {
         {
           order: 1,
           evidence: [2, 3],
-          operation: "a",
           purpose: "b",
           result: "c",
           basis: "inferred",

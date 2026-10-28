@@ -122,7 +122,6 @@ export function taskTimeline(): TaskTimeline {
       {
         order: 1,
         evidence: [1, 2],
-        operation: "Read the loader",
         purpose: ["Confirm path resolution"],
         approach: ["Compare the loader and test setup before changing the path rule."],
         result: ["Found a mismatch with the tests"],
@@ -131,7 +130,6 @@ export function taskTimeline(): TaskTimeline {
       {
         order: 2,
         evidence: [3],
-        operation: "Ran the test suite",
         purpose: ["Check the relay still works"],
         result: [],
         basis: "unknown",

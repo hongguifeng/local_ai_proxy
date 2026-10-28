@@ -60,7 +60,6 @@ const briefAnswer = JSON.stringify({
     {
       order: 1,
       evidence: [1],
-      operation: "读配置",
       purpose: "确认路径规则",
       result: "读到解析规则",
       basis: "observed",
@@ -77,7 +76,6 @@ const outOfRangeBriefAnswer = JSON.stringify({
     {
       order: 1,
       evidence: [99],
-      operation: "改代码",
       purpose: "修 bug",
       result: "不知道",
       basis: "inferred",
@@ -581,7 +579,6 @@ describe("SummaryGenerationService", () => {
           {
             order: 1,
             evidence: [1],
-            operation: "读配置加载器",
             purpose: "确认路径规则",
             approach: "先对比实现和测试使用的路径基准。",
             result: "发现与测试不一致",
@@ -590,7 +587,6 @@ describe("SummaryGenerationService", () => {
           {
             order: 2,
             evidence: [1],
-            operation: "跑测试",
             purpose: "验证修复",
             result: "",
             basis: "unknown",
@@ -619,7 +615,6 @@ describe("SummaryGenerationService", () => {
           {
             order: 1,
             evidence: [1],
-            operation: "读配置加载器",
             purpose: "确认路径规则",
             approach: "先对比实现和测试使用的路径基准。",
             result: "发现与测试不一致",
@@ -628,7 +623,6 @@ describe("SummaryGenerationService", () => {
           {
             order: 2,
             evidence: [1],
-            operation: "跑测试",
             purpose: "验证修复",
             result: "",
             basis: "unknown",
@@ -841,7 +835,7 @@ describe("SummaryGenerationService", () => {
     seedTaskRecord(root, "brief-task", "brief-record");
     const generator = new FakeGenerator();
     generator.answering(
-      '{"overview":"   ","steps":[{"order":1,"evidence":[1],"operation":"a","purpose":"b","result":"c","basis":"observed"}]}',
+      '{"overview":"   ","steps":[{"order":1,"evidence":[1],"purpose":"b","result":"c","basis":"observed"}]}',
     );
     const service = generationService(() => [root], generator);
 
@@ -874,7 +868,7 @@ describe("SummaryGenerationService", () => {
     const { warnings, logger } = collectWarnings();
     const generator = new FakeGenerator();
     generator.answering(
-      '{"overview":"已完成。","steps":[{"order":1,"evidence":[1],"operation":"a","purpose":"b","result":"c","basis":"observed"}]}',
+      '{"overview":"已完成。","steps":[{"order":1,"evidence":[1],"purpose":"b","result":"c","basis":"observed"}]}',
     );
     const service = generationService(() => [root], generator, logger);
     const breaker = new Database(path.join(root, "traffic.db"));
@@ -907,7 +901,7 @@ describe("SummaryGenerationService", () => {
     seedTaskRecord(secondRoot, "cross-task", "cross-record");
     const generator = new FakeGenerator();
     generator.answering(
-      '{"overview":"跨目录的任务简介。","steps":[{"order":1,"evidence":[1],"operation":"a","purpose":"b","result":"c","basis":"observed"}]}',
+      '{"overview":"跨目录的任务简介。","steps":[{"order":1,"evidence":[1],"purpose":"b","result":"c","basis":"observed"}]}',
     );
     const service = generationService(() => [firstRoot, secondRoot], generator);
 
@@ -935,7 +929,7 @@ describe("SummaryGenerationService", () => {
     const roots: string[] = [firstRoot];
     const generator = new FakeGenerator();
     generator.answering(
-      '{"overview":"简介来自新目录。","steps":[{"order":1,"evidence":[1],"operation":"a","purpose":"b","result":"c","basis":"observed"}]}',
+      '{"overview":"简介来自新目录。","steps":[{"order":1,"evidence":[1],"purpose":"b","result":"c","basis":"observed"}]}',
     );
     const service = generationService(() => roots, generator);
 
@@ -1003,7 +997,6 @@ describe("SummaryGenerationService", () => {
       {
         order: 1,
         evidence: [1],
-        operation: "读配置",
         purpose: "确认路径规则",
         result: "读到解析规则",
         basis: "observed",

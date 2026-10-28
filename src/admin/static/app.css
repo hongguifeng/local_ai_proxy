@@ -1605,25 +1605,6 @@ label span {
   border-color: var(--accent);
   color: var(--accent);
 }
-.task-brief-step-operation {
-  display: flex;
-  align-items: baseline;
-  flex-wrap: wrap;
-  gap: 4px;
-  margin-top: 12px;
-  padding: 8px 10px;
-  border: 1px solid #e1e8ef;
-  border-radius: 8px;
-  background: #f8fafc;
-  font-size: 11px;
-  line-height: 1.45;
-  color: var(--muted);
-  white-space: normal;
-  overflow-wrap: anywhere;
-}
-.task-brief-step-operation-text {
-  color: var(--muted);
-}
 .task-brief-step-purpose,
 .task-brief-step-approach,
 .task-brief-step-result {
@@ -1657,11 +1638,26 @@ label span {
 .task-brief-step-purpose > summary,
 .task-brief-step-approach > summary,
 .task-brief-step-result > summary {
+  padding: 6px 12px;
+  cursor: pointer;
+  list-style: none;
+}
+.task-brief-step-approach:not([open]),
+.task-brief-step-result:not([open]) {
+  margin-top: 8px;
+}
+.task-brief-step-approach:not([open]) > summary,
+.task-brief-step-result:not([open]) > summary {
+  padding-top: 5px;
+  padding-bottom: 5px;
+}
+.task-brief-step-purpose > summary,
+.task-brief-step-approach > summary,
+.task-brief-step-result > summary {
   display: flex;
   align-items: center;
   gap: 7px;
   margin: 0;
-  padding: 10px 12px;
   cursor: pointer;
   list-style: none;
 }

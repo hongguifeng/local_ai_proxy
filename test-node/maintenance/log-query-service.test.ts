@@ -774,7 +774,7 @@ describe("LogQueryService", () => {
               {
                 message: {
                   content:
-                    '{"overview":"在调试本地代理的流式转发。","steps":[{"order":1,"evidence":[1],"operation":"读加载器","purpose":"确认路径规则","result":"发现与测试不一致","basis":"observed"},{"order":2,"evidence":[1],"operation":"跑测试","purpose":"验证修复","result":"","basis":"unknown"}],"gaps":[],"facts":{"agent":"pi 0.39 (win32)","cwd":"d:/code/local_ai_proxy","Git Branch":"main","os":"Windows 11 PowerShell","skipped":"","nested":{"a":1}}}',
+                    '{"overview":"在调试本地代理的流式转发。","steps":[{"order":1,"evidence":[1],"purpose":"确认路径规则","result":"发现与测试不一致","basis":"observed"},{"order":2,"evidence":[1],"purpose":"验证修复","result":"","basis":"unknown"}],"gaps":[],"facts":{"agent":"pi 0.39 (win32)","cwd":"d:/code/local_ai_proxy","Git Branch":"main","os":"Windows 11 PowerShell","skipped":"","nested":{"a":1}}}',
                 },
               },
             ],
@@ -798,7 +798,6 @@ describe("LogQueryService", () => {
             {
               order: 1,
               evidence: [1],
-              operation: "读加载器",
               purpose: "确认路径规则",
               result: "发现与测试不一致",
               basis: "observed",
@@ -806,7 +805,6 @@ describe("LogQueryService", () => {
             {
               order: 2,
               evidence: [1],
-              operation: "跑测试",
               purpose: "验证修复",
               result: "",
               basis: "unknown",
@@ -911,7 +909,6 @@ describe("LogQueryService", () => {
           {
             order: 1,
             evidence: [1],
-            operation: "读测试文件",
             purpose: "找出失败原因",
             result: "定位到两个用例",
             basis: "observed",
@@ -975,7 +972,7 @@ describe("LogQueryService", () => {
         new Response(
           JSON.stringify({
             output_text:
-              '{"overview":"跨目录的任务简介。","steps":[{"order":1,"evidence":[1],"operation":"读输入","purpose":"了解任务","result":"看到一轮对话","basis":"observed"}]}',
+              '{"overview":"跨目录的任务简介。","steps":[{"order":1,"evidence":[1],"purpose":"了解任务","result":"看到一轮对话","basis":"observed"}]}',
           }),
           { status: 200, headers: { "content-type": "application/json" } },
         ),
@@ -1177,7 +1174,7 @@ describe("LogQueryService error classification and diagnostics", () => {
       {
         message: {
           content:
-            '{"overview":"已完成。","steps":[{"order":1,"evidence":[1],"operation":"读输入","purpose":"了解任务","result":"看到一轮对话","basis":"observed"}]}',
+            '{"overview":"已完成。","steps":[{"order":1,"evidence":[1],"purpose":"了解任务","result":"看到一轮对话","basis":"observed"}]}',
         },
       },
     ],

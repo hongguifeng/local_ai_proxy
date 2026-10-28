@@ -1084,12 +1084,6 @@ describe("admin UI history page", { timeout: UI_TEST_TIMEOUT_MS }, () => {
       record.locator(".task-brief-step").nth(1).locator(".task-brief-step-basis"),
     ).toHaveText("inferred");
     await expectPage(
-      record.locator(".task-brief-step").nth(0).locator(".task-brief-step-operation"),
-    ).toContainText("Action");
-    await expectPage(
-      record.locator(".task-brief-step").nth(0).locator(".task-brief-step-operation"),
-    ).toContainText("Read the config loader");
-    await expectPage(
       record.locator(".task-brief-step").nth(0).locator(".task-brief-step-purpose"),
     ).toContainText("Confirm how paths resolve");
     await expectPage(
@@ -1108,18 +1102,22 @@ describe("admin UI history page", { timeout: UI_TEST_TIMEOUT_MS }, () => {
       "task-brief-step-purpose",
       "task-brief-step-result",
       "task-brief-step-approach",
-      "task-brief-step-operation",
       "task-brief-step-evidence",
     ]);
+    // The result and approach headers are compact while closed; the content appears only after
+    // the user expands that section. The former auxiliary action row is absent.
     const emphasis = await firstStage.evaluate((element) => {
-      const method = element.querySelector(".task-brief-step-approach");
-      const action = element.querySelector(".task-brief-step-operation");
+      const result = element.querySelector(".task-brief-step-result");
+      const approach = element.querySelector(".task-brief-step-approach");
       return {
-        methodSize: method ? parseFloat(getComputedStyle(method).fontSize) : 0,
-        actionSize: action ? parseFloat(getComputedStyle(action).fontSize) : 0,
+        resultCollapsed: result instanceof HTMLDetailsElement && !result.open,
+        approachCollapsed: approach instanceof HTMLDetailsElement && !approach.open,
       };
     });
-    expect(emphasis.methodSize).toBeGreaterThan(emphasis.actionSize);
+    expect(emphasis).toEqual({
+      resultCollapsed: true,
+      approachCollapsed: true,
+    });
     await expectPage(record.locator(".task-brief-step-purpose").first()).toHaveAttribute(
       "open",
       "",

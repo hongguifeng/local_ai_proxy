@@ -884,7 +884,6 @@ const timelineTextDto = z.union([z.string(), z.array(z.string())]);
 const timelineStepDto = z.object({
   order: z.number().int(),
   evidence: z.array(z.number().int()),
-  operation: z.string(),
   purpose: timelineTextDto,
   approach: timelineTextDto.optional(),
   result: timelineTextDto,
