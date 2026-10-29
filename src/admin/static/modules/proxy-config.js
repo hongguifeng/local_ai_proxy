@@ -331,37 +331,82 @@ export function createProxyConfig({
       pointerId: event.pointerId,
       startX: event.clientX,
       startY: event.clientY,
-      stacked: targetsRowIsStacked(row),
       started: false,
     };
   }
-  function nearestTargetCard(row, dragged, x, y) {
-    /** @type {HTMLElement | null} */
-    let nearest = null;
-    let bestDistance = Infinity;
-    for (const card of qsaOn(row, ".target-card")) {
-      if (card === dragged) continue;
-      const rect = card.getBoundingClientRect();
-      const distance = Math.hypot(
-        Math.max(rect.left - x, 0, x - rect.right),
-        Math.max(rect.top - y, 0, y - rect.bottom),
-      );
-      if (distance < bestDistance) {
-        bestDistance = distance;
-        nearest = card;
+  /**
+   * The row divided into one slot per card, so the drop follows the pointer.
+   *
+   * A slot covers its card's own left and right edges extended to the midpoint of the gap
+   * on either side, and the whole height of the grid row the card sits in. Every point of
+   * the viewport therefore falls inside exactly one slot: a gap between cards belongs to the
+   * nearer card, cards of different heights share the band of their row, and a wrapped grid
+   * or a single-column stack is the same rule instead of a separate axis test. A slot carries
+   * the DOM position of its card, which is where the dragged card has to move to.
+   * @param {HTMLElement} row
+   * @returns {{ cards: HTMLElement[], slots: { index: number; left: number; right: number; top: number; bottom: number }[] }}
+   */
+  function targetSlotsInRow(row) {
+    const cards = qsaOn(row, ".target-card");
+    const rects = cards.map((card) => card.getBoundingClientRect());
+    // Cards placed in the same grid row overlap vertically, cards in consecutive rows never
+    // do, so overlapping rectangles group into the row bands the slots are built from.
+    const placed = rects
+      .map((rect, index) => ({ rect, index }))
+      .sort((a, b) => a.rect.top - b.rect.top || a.rect.left - b.rect.left);
+    /** @type {{ top: number; bottom: number; indexes: number[] }[]} */
+    const bands = [];
+    for (const item of placed) {
+      const band = bands[bands.length - 1];
+      if (band && item.rect.top < band.bottom - 1 && band.top < item.rect.bottom - 1) {
+        band.indexes.push(item.index);
+        band.bottom = Math.max(band.bottom, item.rect.bottom);
+      } else {
+        bands.push({ top: item.rect.top, bottom: item.rect.bottom, indexes: [item.index] });
       }
     }
-    return nearest;
+    /** @type {{ index: number; left: number; right: number; top: number; bottom: number }[]} */
+    const slots = [];
+    bands.forEach((band, bandIndex) => {
+      // The columns of a band run left to right, which is the order the slots are cut in.
+      band.indexes.sort((a, b) => rects[a].left - rects[b].left);
+      // The boundary between two bands is the middle of the row gap, so a pointer sitting in
+      // that gap already belongs to the nearer row.
+      const bandTop = bandIndex === 0 ? -Infinity : (bands[bandIndex - 1].bottom + band.top) / 2;
+      const bandBottom =
+        bandIndex + 1 === bands.length ? Infinity : (band.bottom + bands[bandIndex + 1].top) / 2;
+      band.indexes.forEach((cardIndex, columnIndex) => {
+        const leftEdge =
+          columnIndex === 0
+            ? -Infinity
+            : (rects[band.indexes[columnIndex - 1]].right + rects[cardIndex].left) / 2;
+        const rightEdge =
+          columnIndex + 1 === band.indexes.length
+            ? Infinity
+            : (rects[cardIndex].right + rects[band.indexes[columnIndex + 1]].left) / 2;
+        slots.push({
+          index: cardIndex,
+          left: leftEdge,
+          right: rightEdge,
+          top: bandTop,
+          bottom: bandBottom,
+        });
+      });
+    });
+    return { cards, slots };
   }
-  // A row of cards can be a horizontal grid or a single-column stack (narrow screens);
-  // the drop side follows the axis the cards are actually arranged on.
-  function targetsRowIsStacked(row) {
-    const rects = qsaOn(row, ".target-card").map((card) => card.getBoundingClientRect());
-    return !rects.some((rect, index) =>
-      rects
-        .slice(index + 1)
-        .some((other) => rect.bottom > other.top + 1 && other.bottom > rect.top + 1),
-    );
+  /**
+   * The slot under the pointer.
+   * @param {{ index: number; left: number; right: number; top: number; bottom: number }[]} slots
+   * @param {number} x
+   * @param {number} y
+   * @returns {number} the card index of that slot, or -1 when the row holds no card
+   */
+  function slotIndexAtPointer(slots, x, y) {
+    for (const slot of slots) {
+      if (x < slot.right && y < slot.bottom && x >= slot.left && y >= slot.top) return slot.index;
+    }
+    return -1;
   }
   function autoScrollDuringTargetDrag(dragging, y) {
     const scroller = dragging.scroller;
@@ -375,20 +420,16 @@ export function createProxyConfig({
     }
   }
   function moveTargetCardToPointer(dragging, x, y) {
-    const { card, row } = dragging;
-    const nearest = nearestTargetCard(row, card, x, y);
-    if (!nearest) return;
-    const rect = nearest.getBoundingClientRect();
-    const after = dragging.stacked
-      ? y > rect.top + rect.height / 2
-      : y > rect.bottom || (y >= rect.top && x > rect.left + rect.width / 2);
-    if (after) {
-      if (card.previousElementSibling === nearest) return;
-      row.insertBefore(card, nearest.nextElementSibling);
-    } else {
-      if (card.nextElementSibling === nearest) return;
-      row.insertBefore(card, nearest);
-    }
+    const { cards, slots } = targetSlotsInRow(dragging.row);
+    const slotIndex = slotIndexAtPointer(slots, x, y);
+    const currentIndex = cards.indexOf(dragging.card);
+    if (slotIndex < 0 || slotIndex === currentIndex) return;
+    // Putting the card at the slot's index moves it into that card's place, and every card
+    // between the two slots shifts one place along. The pointer stays over the slot the card
+    // now occupies, so the card keeps up with it instead of lagging behind a midpoint.
+    const others = cards.filter((card) => card !== dragging.card);
+    const anchor = slotIndex >= others.length ? null : others[slotIndex];
+    dragging.row.insertBefore(dragging.card, anchor);
   }
   function moveTargetDrag(event) {
     const dragging = targetDrag;

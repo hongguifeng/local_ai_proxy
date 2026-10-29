@@ -43,9 +43,15 @@ description: >-
 - Target-card reordering (the `⠿` handle in `.target-title`, `proxy-config.js`) uses pointer
   events, not the HTML5 drag API: `pointerdown` runs `collectPairs()` and then moves the card
   nodes in the DOM live, and the drop maps DOM order back to `state.pairs` through each card's
-  `data-target-index`. Never call `collectPairs()` after the nodes moved, and make the drop side
-  follow the layout axis — grid rows compare the pointer against the x midpoint, a single-column
-  stack against the y midpoint.
+  `data-target-index`. Never call `collectPairs()` after the nodes moved. The drop follows one
+  rule for every layout: `targetSlotsInRow` divides the row into one slot per card - the card's
+  own left and right edges extended to the midpoint of the gap on either side, over the full
+  height of the grid row it sits in - and the card is moved to the DOM position of the slot under
+  the pointer. That is what makes a gap between cards, cards of different heights, a wrapped grid
+  and a narrow single-column stack share one answer, and a pointer inside the dragged card's own
+  slot moves nothing. While a drag is live the scroll view carries `overflow-anchor: none`:
+  Chromium compensates content that moves above the scroll position, which would carry the card
+  off the pointer and flip the order back on every other move.
 - The `.target-head` name input is a default-sized `<input>` (fixed ~95 px client width), so a
   longer name clips instead of reflowing and renaming a target never moves its neighbours.
 - Config round trips erase UI state: `zod`'s `z.object()` strips unknown keys, so anything the
@@ -111,6 +117,9 @@ npm run bundle:ui
 - A control that "did nothing" usually lost the cascade or never matched a selector; a control
   that moved the wrong neighbour usually means a second shrinkable flex child.
 - A field that keeps the old value after a "successful" row click is the focusable-row bug.
+- A card that lands in a row other than the one the pointer is over, or that flips back on every
+  other move, means the drop was decided from a neighbour's midpoint or from the "nearest card"
+  instead of from the slot the pointer is in.
 - When a block comes out wider than its container, do not guess which child is at fault: walk the
   ancestor chain and print each element's `getBoundingClientRect().width` beside its `scrollWidth`
   and computed `min-width`. The first ancestor whose width equals the block's is the one carrying

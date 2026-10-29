@@ -190,7 +190,7 @@ main {
   margin-bottom: 12px;
 }
 .proxy-grid {
-  /* SECTION: proxy targets (16 rules) */
+  /* SECTION: proxy targets (17 rules) */
   display: grid;
   grid-template-columns: minmax(0, 1fr);
   gap: 12px;
@@ -283,6 +283,12 @@ main {
 body.drag-target-active {
   cursor: grabbing;
   user-select: none;
+}
+/* The drag reflows the row inside the scroll view, which moves content above the scroll
+   position. The browser would compensate that by scrolling, carrying the card out from
+   under the pointer, so during a drag the view keeps the scroll exactly where the user left it. */
+body.drag-target-active .proxy-view {
+  overflow-anchor: none;
 }
 .model-prices {
   /* SECTION: price catalog (43 rules) */

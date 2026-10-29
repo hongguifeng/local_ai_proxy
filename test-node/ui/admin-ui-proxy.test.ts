@@ -1,5 +1,5 @@
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it } from "vitest";
-import { expect as expectPage } from "@playwright/test";
+import { expect as expectPage, type Locator } from "@playwright/test";
 import {
   FIXTURE_METRIC_FAMILY_COUNT,
   NON_VLLM_FIXTURE_TEXT,
@@ -22,12 +22,144 @@ import {
   resetStubAdminServer,
   startStubAdminServer,
 } from "./admin-ui-server.js";
-import { loadAdminPage, requiredBox } from "./admin-ui-page.js";
+import { loadAdminPage, requiredBox, scrollTop, setScrollTop } from "./admin-ui-page.js";
 
 beforeAll(startStubAdminServer);
 beforeEach(resetStubAdminServer);
 afterEach(closeTestPage);
 afterAll(closeStubAdminServer);
+
+/** The names a prepared set of target cards carries, in the order the page has them. */
+const TARGET_CARD_NAMES = ["A", "B", "C", "D", "E"] as const;
+
+/** One target card as the page lays it out: the name it holds and the box it occupies. */
+interface TargetCardSlot {
+  readonly name: string;
+  readonly left: number;
+  readonly top: number;
+  readonly right: number;
+  readonly bottom: number;
+}
+
+/**
+ * Reads the target cards of one proxy pair in the order the page holds them.
+ *
+ * A drag places a card at the slot the pointer is over, so an assertion about where it
+ * landed needs the slot geometry rather than a screenshot: the names show the order the
+ * cards ended in, the boxes show whether a card really sits in the slot the pointer was
+ * left in.
+ */
+async function readTargetCardSlots(proxyCard: Locator): Promise<readonly TargetCardSlot[]> {
+  return proxyCard.locator(".target-card").evaluateAll((cards) =>
+    cards.map((card) => {
+      const rect = card.getBoundingClientRect();
+      const name = card.querySelector<HTMLInputElement>('[data-target-field="name"]');
+      return {
+        name: name?.value ?? "",
+        left: rect.left,
+        top: rect.top,
+        right: rect.right,
+        bottom: rect.bottom,
+      };
+    }),
+  );
+}
+
+/** The order the target cards are in, spelled out by the names they carry. */
+function slotNames(slots: readonly TargetCardSlot[]): readonly string[] {
+  return slots.map((slot) => slot.name);
+}
+
+/** One slot by position, so a test can name the place it drags to. */
+function slotAt(slots: readonly TargetCardSlot[], index: number): TargetCardSlot {
+  const slot = slots[index];
+  if (!slot) {
+    throw new Error(`Target card ${index} missing from ${slotNames(slots).join(", ")}`);
+  }
+  return slot;
+}
+
+/** The card that carries `name` after a drop. */
+function cardNamed(slots: readonly TargetCardSlot[], name: string): TargetCardSlot {
+  const card = slots.find((slot) => slot.name === name);
+  if (!card) {
+    throw new Error(`No target card named ${name}; the page has ${slotNames(slots).join(", ")}`);
+  }
+  return card;
+}
+
+/** The middle of a slot, which is where a test drops a card. */
+function slotCentre(slot: TargetCardSlot): { readonly x: number; readonly y: number } {
+  return { x: (slot.left + slot.right) / 2, y: (slot.top + slot.bottom) / 2 };
+}
+
+/** Proves the card took the slot `expected` occupies: the same column and the same row. */
+function expectCardInSlot(
+  slots: readonly TargetCardSlot[],
+  name: string,
+  expected: TargetCardSlot,
+): void {
+  const landed = cardNamed(slots, name);
+  expect(Math.abs(landed.left - expected.left)).toBeLessThanOrEqual(1);
+  expect(Math.abs(landed.top - expected.top)).toBeLessThanOrEqual(1);
+}
+
+/** Proves the card ended up under the point the pointer was released at. */
+function expectPointerInsideCard(slot: TargetCardSlot, x: number, y: number): void {
+  expect(x).toBeGreaterThanOrEqual(slot.left);
+  expect(x).toBeLessThan(slot.right);
+  expect(y).toBeGreaterThanOrEqual(slot.top);
+  expect(y).toBeLessThan(slot.bottom);
+}
+
+/**
+ * Names every target card of a pair, in the order the page holds them.
+ *
+ * Naming also resets an order between drags: the next drag collects the form, so the card
+ * sitting in slot N becomes target N again in the state the drop is committed against.
+ */
+async function nameTargetCards(proxyCard: Locator, names: readonly string[]): Promise<void> {
+  for (const [index, name] of names.entries()) {
+    await proxyCard
+      .locator(".target-card")
+      .nth(index)
+      .locator('[data-target-field="name"]')
+      .fill(name);
+  }
+}
+
+/**
+ * Adds targets until the pair holds `total` cards, names them, and puts the scroll view
+ * back at the top so the slots measured are the slots the drag will see.
+ */
+async function prepareTargetCards(
+  proxyCard: Locator,
+  total: number,
+): Promise<readonly TargetCardSlot[]> {
+  while ((await proxyCard.locator(".target-card").count()) < total) {
+    await proxyCard.locator("[data-add-target]").click();
+  }
+  await expectPage(proxyCard.locator(".target-card")).toHaveCount(total);
+  await nameTargetCards(proxyCard, TARGET_CARD_NAMES.slice(0, total));
+  await setScrollTop(page.locator(".proxy-view"), 0);
+  return readTargetCardSlots(proxyCard);
+}
+
+/** Presses the grip of the card at `fromIndex`, moves to the point, and releases there. */
+async function dragTargetHandleTo(
+  proxyCard: Locator,
+  fromIndex: number,
+  x: number,
+  y: number,
+): Promise<void> {
+  const handle = await requiredBox(
+    proxyCard.locator(".target-card").nth(fromIndex).locator("[data-drag-target]"),
+  );
+  await page.mouse.move(handle.x + handle.width / 2, handle.y + handle.height / 2);
+  await page.mouse.down();
+  await page.mouse.move(x, y, { steps: 8 });
+  await page.mouse.up();
+}
 
 describe("admin UI proxy page", { timeout: UI_TEST_TIMEOUT_MS }, () => {
   it("loads and renders configured proxy pairs", async () => {
@@ -137,6 +269,279 @@ describe("admin UI proxy page", { timeout: UI_TEST_TIMEOUT_MS }, () => {
     await expectPage(names.nth(0)).toHaveValue("Fixture Target");
     await expectPage(names.nth(1)).toHaveValue("Target");
   });
+
+  it("drops a dragged target card on the slot the pointer is over", async () => {
+    await page.setViewportSize({ width: 1280, height: 900 });
+    await loadAdminPage();
+    const proxyCard = page.locator('.proxy-card[data-index="0"]');
+    // This width fits three cards in a row, so the fourth one starts a second row.
+    const slots = await prepareTargetCards(proxyCard, 4);
+    expect(slotNames(slots)).toEqual(["A", "B", "C", "D"]);
+
+    // A card dragged into the second row belongs in that row: it takes the slot under the
+    // pointer rather than the last free slot of the row it came from.
+    const secondRow = slotAt(slots, 3);
+    const dropped = slotCentre(secondRow);
+    await dragTargetHandleTo(proxyCard, 0, dropped.x, dropped.y);
+    await expectPage(proxyCard.locator(".target-card.is-dragging")).toHaveCount(0);
+    const afterRow = await readTargetCardSlots(proxyCard);
+    expect(slotNames(afterRow)).toEqual(["B", "C", "D", "A"]);
+    expectCardInSlot(afterRow, "A", secondRow);
+    expectPointerInsideCard(cardNamed(afterRow, "A"), dropped.x, dropped.y);
+
+    // The same point from the other direction: the last card takes the first card's slot.
+    await nameTargetCards(proxyCard, ["A", "B", "C", "D"]);
+    const first = slotAt(await readTargetCardSlots(proxyCard), 0);
+    const backToStart = slotCentre(first);
+    await dragTargetHandleTo(proxyCard, 3, backToStart.x, backToStart.y);
+    const afterBack = await readTargetCardSlots(proxyCard);
+    expect(slotNames(afterBack)).toEqual(["D", "A", "B", "C"]);
+    expectCardInSlot(afterBack, "D", first);
+    expectPointerInsideCard(cardNamed(afterBack, "D"), backToStart.x, backToStart.y);
+
+    // The order the cards ended in is the order the configuration is saved in.
+    await Promise.all([
+      page.waitForResponse(
+        (response) =>
+          response.url().endsWith("/api/pairs") && response.request().method() === "PUT",
+      ),
+      page.locator("#saveProxies").click(),
+    ]);
+    expect(pairs[0]?.targets.map((target) => target.name)).toEqual(["D", "A", "B", "C"]);
+  }, 20_000);
+
+  it("decides a drop in the gap between two cards by which card is nearer", async () => {
+    await page.setViewportSize({ width: 1280, height: 900 });
+    await loadAdminPage();
+    const proxyCard = page.locator('.proxy-card[data-index="0"]');
+    const slots = await prepareTargetCards(proxyCard, 4);
+    const second = slotAt(slots, 1);
+    const third = slotAt(slots, 2);
+    const rowY = (second.top + second.bottom) / 2;
+
+    // The gap between two cards is split at its middle, so a point 2 px off an edge belongs
+    // to the card it is nearer to.
+    const nearSecond = second.right + 2;
+    await dragTargetHandleTo(proxyCard, 0, nearSecond, rowY);
+    const nearerSecond = await readTargetCardSlots(proxyCard);
+    expect(slotNames(nearerSecond)).toEqual(["B", "A", "C", "D"]);
+    expectCardInSlot(nearerSecond, "A", second);
+    // The card that was in that slot steps into the one the dragged card vacated.
+    expectCardInSlot(nearerSecond, "B", slotAt(slots, 0));
+
+    await nameTargetCards(proxyCard, ["A", "B", "C", "D"]);
+    const nearThird = third.left - 2;
+    await dragTargetHandleTo(proxyCard, 0, nearThird, rowY);
+    const nearerThird = await readTargetCardSlots(proxyCard);
+    expect(slotNames(nearerThird)).toEqual(["B", "C", "A", "D"]);
+    expectCardInSlot(nearerThird, "A", third);
+    expectCardInSlot(nearerThird, "B", slotAt(slots, 0));
+  }, 20_000);
+
+  it("keeps cards of different heights inside the row they are dropped into", async () => {
+    // Tall enough that the whole of the first row, including the band the opened card
+    // makes, is inside the viewport: the drop point is then reachable without auto-scroll.
+    await page.setViewportSize({ width: 1000, height: 1200 });
+    await loadAdminPage();
+    const proxyCard = page.locator('.proxy-card[data-index="0"]');
+    // This width fits two cards per row, so the third and fourth start a second row.
+    await prepareTargetCards(proxyCard, 4);
+
+    // Opening the first card's extra settings makes its row taller than its neighbour.
+    await proxyCard.locator(".target-card").first().locator("[data-toggle-target-options]").click();
+    await setScrollTop(page.locator(".proxy-view"), 0);
+    const slots = await readTargetCardSlots(proxyCard);
+    const tall = slotAt(slots, 0);
+    const short = slotAt(slots, 1);
+    const belowRow = slotAt(slots, 2);
+    expect(short.bottom).toBeLessThan(tall.bottom);
+    expect(belowRow.top).toBeGreaterThan(tall.bottom);
+
+    // A point below the short card's own bottom but still inside the band its row has
+    // because of the tall card: the card dropped there belongs to the short card's slot.
+    const bandPoint = tall.bottom - 20;
+    expect(bandPoint).toBeGreaterThan(short.bottom);
+    const dropX = (short.left + short.right) / 2;
+    await dragTargetHandleTo(proxyCard, 2, dropX, bandPoint);
+    const after = await readTargetCardSlots(proxyCard);
+    expect(slotNames(after)).toEqual(["A", "C", "B", "D"]);
+    expectCardInSlot(after, "C", short);
+    expectCardInSlot(after, "B", belowRow);
+    // It joined the row it was dropped into rather than staying under it.
+    expect(Math.abs(cardNamed(after, "C").top - cardNamed(after, "A").top)).toBeLessThanOrEqual(1);
+  }, 20_000);
+
+  it("follows the pointer down a single-column stack on a narrow screen", async () => {
+    // Tall enough that the whole stack is visible and no auto-scroll interferes.
+    await page.setViewportSize({ width: 500, height: 1500 });
+    await loadAdminPage();
+    const proxyCard = page.locator('.proxy-card[data-index="0"]');
+    const slots = await prepareTargetCards(proxyCard, 3);
+
+    const third = slotAt(slots, 2);
+    const dropped = slotCentre(third);
+    await dragTargetHandleTo(proxyCard, 0, dropped.x, dropped.y);
+    const after = await readTargetCardSlots(proxyCard);
+    expect(slotNames(after)).toEqual(["B", "C", "A"]);
+    expectCardInSlot(after, "A", third);
+    expectPointerInsideCard(cardNamed(after, "A"), dropped.x, dropped.y);
+
+    // The column is one slot wide, so where the pointer is horizontally changes nothing.
+    await nameTargetCards(proxyCard, ["A", "B", "C"]);
+    const reset = await readTargetCardSlots(proxyCard);
+    const first = slotAt(reset, 0);
+    await dragTargetHandleTo(proxyCard, 2, first.left + 5, first.top + 20);
+    const againstEdge = await readTargetCardSlots(proxyCard);
+    expect(slotNames(againstEdge)).toEqual(["C", "A", "B"]);
+    expectCardInSlot(againstEdge, "C", first);
+
+    // The gap between two cards of the stack is split the same way as a horizontal gap.
+    await nameTargetCards(proxyCard, ["A", "B", "C"]);
+    const again = await readTargetCardSlots(proxyCard);
+    const second = slotAt(again, 1);
+    await dragTargetHandleTo(proxyCard, 0, dropped.x, second.top - 7);
+    expect(slotNames(await readTargetCardSlots(proxyCard))).toEqual(["A", "B", "C"]);
+    await nameTargetCards(proxyCard, ["A", "B", "C"]);
+    await dragTargetHandleTo(proxyCard, 0, dropped.x, second.top - 3);
+    const nearerSecond = await readTargetCardSlots(proxyCard);
+    expect(slotNames(nearerSecond)).toEqual(["B", "A", "C"]);
+    expectCardInSlot(nearerSecond, "A", second);
+  }, 20_000);
+
+  it("keeps the order while the pointer stays inside the card it is dragging", async () => {
+    await page.setViewportSize({ width: 1280, height: 900 });
+    await loadAdminPage();
+    const proxyCard = page.locator('.proxy-card[data-index="0"]');
+    const slots = await prepareTargetCards(proxyCard, 3);
+    const own = slotAt(slots, 0);
+    const handle = await requiredBox(
+      proxyCard.locator(".target-card").first().locator("[data-drag-target]"),
+    );
+    await page.mouse.move(handle.x + handle.width / 2, handle.y + handle.height / 2);
+    await page.mouse.down();
+    // Walk the pointer across the card's own box, over its inputs and into its far corner.
+    // Passing over the card it is dragging keeps the card where it is.
+    await page.mouse.move(own.left + 60, own.top + 90, { steps: 5 });
+    await page.mouse.move(own.right - 1, own.bottom - 1, { steps: 10 });
+    await expectPage(proxyCard.locator(".target-card.is-dragging")).toHaveCount(1);
+    expect(slotNames(await readTargetCardSlots(proxyCard))).toEqual(["A", "B", "C"]);
+    await page.mouse.up();
+    expect(slotNames(await readTargetCardSlots(proxyCard))).toEqual(["A", "B", "C"]);
+    await expectPage(proxyCard.locator(".target-card.is-dragging")).toHaveCount(0);
+
+    // The grip stays the only drag surface: a press on an input takes the pointer as usual,
+    // moves nothing, and leaves a later grip drag working.
+    const nameBox = await requiredBox(
+      proxyCard.locator(".target-card").nth(1).locator('[data-target-field="name"]'),
+    );
+    await page.mouse.move(nameBox.x + nameBox.width / 2, nameBox.y + nameBox.height / 2);
+    await page.mouse.down();
+    await expectPage(
+      proxyCard.locator(".target-card").nth(1).locator('[data-target-field="name"]'),
+    ).toBeFocused();
+    await page.mouse.move(nameBox.x + 200, nameBox.y + 40, { steps: 6 });
+    await page.mouse.up();
+    expect(slotNames(await readTargetCardSlots(proxyCard))).toEqual(["A", "B", "C"]);
+    await expectPage(proxyCard.locator(".target-card.is-dragging")).toHaveCount(0);
+
+    const third = slotAt(await readTargetCardSlots(proxyCard), 2);
+    const dropped = slotCentre(third);
+    await dragTargetHandleTo(proxyCard, 0, dropped.x, dropped.y);
+    const after = await readTargetCardSlots(proxyCard);
+    expect(slotNames(after)).toEqual(["B", "C", "A"]);
+    expectCardInSlot(after, "A", third);
+    expectPointerInsideCard(cardNamed(after, "A"), dropped.x, dropped.y);
+  }, 20_000);
+
+  it("holds the scroll of the proxy view while a card is dragged in it", async () => {
+    await page.setViewportSize({ width: 500, height: 900 });
+    await loadAdminPage();
+    const proxyCard = page.locator('.proxy-card[data-index="0"]');
+    // Five cards in a single column make the view scrollable.
+    await prepareTargetCards(proxyCard, 5);
+    const view = page.locator(".proxy-view");
+    const scrolls = await view.evaluate((element) => {
+      const scrollHeight: unknown = Reflect.get(element, "scrollHeight");
+      const clientHeight: unknown = Reflect.get(element, "clientHeight");
+      return (
+        typeof scrollHeight === "number" &&
+        typeof clientHeight === "number" &&
+        scrollHeight > clientHeight
+      );
+    });
+    expect(scrolls).toBe(true);
+    const scrolledTo = await setScrollTop(view, 400);
+    expect(scrolledTo).toBe(400);
+
+    const viewBox = await requiredBox(view);
+    const autoScrollEdge = viewBox.y + viewBox.height - 48;
+    const slots = await readTargetCardSlots(proxyCard);
+    const second = slotAt(slots, 1);
+    const third = slotAt(slots, 2);
+    expect(second.top).toBeGreaterThanOrEqual(viewBox.y);
+
+    // Drop inside the next card's own box, short of the edge that starts auto-scroll.
+    const dropY = third.top + 3;
+    expect(dropY).toBeGreaterThan((second.bottom + third.top) / 2);
+    expect(dropY).toBeLessThan(autoScrollEdge);
+    const dropX = (third.left + third.right) / 2;
+    await dragTargetHandleTo(proxyCard, 1, dropX, dropY);
+    const after = await readTargetCardSlots(proxyCard);
+    expect(slotNames(after)).toEqual(["A", "C", "B", "D", "E"]);
+    expectCardInSlot(after, "B", third);
+    expectPointerInsideCard(cardNamed(after, "B"), dropX, dropY);
+    // The drop moved a card past the top of the scroll view. Letting the browser compensate
+    // that by scrolling would carry the card out from under the pointer, so the view keeps
+    // the scroll position the user left it at.
+    expect(await scrollTop(view)).toBe(scrolledTo);
+
+    // Driving the pointer to the view's bottom edge scrolls it, and the card keeps
+    // following the slots as the content moves under the pointer.
+    const scrolledBefore = await scrollTop(view);
+    const followingHandle = await requiredBox(
+      proxyCard.locator(".target-card").nth(1).locator("[data-drag-target]"),
+    );
+    const edgeY = autoScrollEdge + 20;
+    const followingX = (second.left + second.right) / 2;
+    await page.mouse.move(
+      followingHandle.x + followingHandle.width / 2,
+      followingHandle.y + followingHandle.height / 2,
+    );
+    await page.mouse.down();
+    await page.mouse.move(followingX, edgeY, { steps: 30 });
+    await page.mouse.up();
+    expect(await scrollTop(view)).toBeGreaterThan(scrolledBefore);
+    const moved = await readTargetCardSlots(proxyCard);
+    const slotUnderPointer = moved.findIndex((slot) => edgeY >= slot.top && edgeY < slot.bottom);
+    expect(slotUnderPointer).toBeGreaterThan(1);
+    expect(moved.findIndex((slot) => slot.name === "C")).toBe(slotUnderPointer);
+  }, 30_000);
+
+  it("keeps the scroll where the user left it when a drop moves content above it", async () => {
+    await page.setViewportSize({ width: 500, height: 900 });
+    await loadAdminPage();
+    const proxyCard = page.locator('.proxy-card[data-index="0"]');
+    // Three cards in a column, scrolled so the third one hangs below the bottom edge.
+    await prepareTargetCards(proxyCard, 3);
+    const view = page.locator(".proxy-view");
+    const scrolledTo = await setScrollTop(view, 381);
+    expect(scrolledTo).toBe(381);
+    const viewBox = await requiredBox(view);
+    const slots = await readTargetCardSlots(proxyCard);
+    const first = slotAt(slots, 0);
+    expect(slotAt(slots, 2).bottom).toBeGreaterThan(viewBox.y + viewBox.height);
+
+    const dropped = slotCentre(first);
+    await dragTargetHandleTo(proxyCard, 2, dropped.x, dropped.y);
+    const after = await readTargetCardSlots(proxyCard);
+    expect(slotNames(after)).toEqual(["C", "A", "B"]);
+    expectCardInSlot(after, "C", first);
+    expectPointerInsideCard(cardNamed(after, "C"), dropped.x, dropped.y);
+    // The card left the bottom of the view for a place above its top. A browser compensates
+    // content that moves above the scroll position by scrolling, which would carry the card
+    // out from under the pointer and flip the order back, so the drag holds the scroll still.
+    expect(await scrollTop(view)).toBe(scrolledTo);
+  }, 30_000);
 
   it("keeps the selected default target enabled", async () => {
     await loadAdminPage();
