@@ -30,6 +30,33 @@ what costs seconds, because the tree is tens of thousands of `<details>` nodes. 
 record that was still pending used to be re-parsed on every auto-refresh tick, which froze the
 page — that is where `state.jsonPaneHtml` and the lazy tree came from.
 
+## In-flight refresh of a multi-megabyte record
+
+Measured with a ~6 MB request (2500 messages × 2 KB + 1.5 MB blob) and a 300 KB → 3 MB growing
+response, applied through `window.__adminUiTest.applySelectedLogDetail`:
+
+- The first refresh tick after the pane had never been fully laid out forced a one-time full
+  layout from inside `collectJsonPaneViewState` — it ran on every `preserveView` render and read
+  every string body's scroll offset, closed bodies included. That single read chain measured a
+  3.7–3.8 s freeze (3849 ms rAF gap, one 3.8 s long task). On a page whose layout was already
+  warm the same code measured 180–460 ms gaps per tick — so the freeze was layout-state
+  dependent, which is why it was not reproducible on demand.
+- The fix keys `state.jsonPaneHtml` on the render input (raw value + tree/wrap/format modes +
+  language + measured width) and skips the whole build and parse when it is unchanged; the view
+  state is collected only on a real replacement and only reads scroll offsets of _open_ string
+  bodies. A re-selection passes `force`, which rebuilds even for a byte-identical payload —
+  without it, re-clicking the selected record kept every expansion the user had made, because
+  the unchanged-input fast path skipped the reset.
+- After the fix: refresh ticks cost 8–35 ms with zero rAF gaps over 40 ms and zero long tasks
+  (the request pane's DOM is not touched at all); a one-level expand of all 2500 lazy nodes
+  fills with at most one ~73 ms frame gap (an earlier session of the old code measured five to
+  ten gaps of 115–124 ms each, plus one layout per node from a whole-subtree measurement walk —
+  the probe now stops at the filled node's direct children); re-selection rebuilds in
+  100–115 ms and the re-asserted node is lazy and closed again.
+- The regression tests budget frame gaps and long tasks instead of absolute apply times, and
+  pin the re-selection reset on node identity, because the old code's freeze depended on layout
+  state and would not fail deterministically on every machine.
+
 ## Lazy fills and layout
 
 - The residual lag on the _second_ expand click is layout, not JS: every fill re-lays-out the

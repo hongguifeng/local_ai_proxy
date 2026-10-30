@@ -35,9 +35,19 @@ description: >-
   `finally`), and that wait dies the moment the row's `bindingId + incarnation` stops being the
   one the list reports. Prove it by marking the element and asserting the mark survives on the
   node a later poll finds, never by `toBeFocused`.
-- The JSON panes cache their last markup in `state.jsonPaneHtml`: building the tree string is
-  cheap, assigning it is what costs the user time, because the tree is tens of thousands of
-  `<details>` nodes.
+- The JSON panes cache their last markup in `state.jsonPaneHtml`, keyed on the render input:
+  the raw value, every view mode (tree, wrap, formatted strings), the language, and the
+  measured content width. An unchanged input skips the build _and_ the parse, so an in-flight
+  refresh of a multi-megabyte record whose payload did not move costs nothing but the
+  comparison; `force` (a re-selection) always rebuilds, which is how re-clicking the selected
+  record resets the view to its initial state. The comparison is an exact `JSON.stringify` of
+  the raw value: a cheaper fingerprint that skips a real change fails as "the response never
+  finishes", while re-parsing an unchanged body was the measured 3-4 s freeze. A view state is
+  collected only on a real replacement, because the collection forces layout; and it reads a
+  string body's scroll offsets only while that body is open, because reading a closed body
+  forces a layout of the (possibly multi-megabyte) text inside it. The pane scroll and every
+  node's open state are attribute-only reads and are always restored, including re-enqueueing
+  every open lazy node in the fresh DOM.
 - Above `lazyJsonEntryLimit` the tree renders lazily: a node that starts collapsed is emitted
   with `data-json-lazy="1"` and an empty `.json-children`, and its children are built when the
   pane's capture-phase `toggle` listener fires. Every path that opens a node programmatically
@@ -49,7 +59,10 @@ description: >-
 - `materializeJsonNode` reads `jsonLineWidthCache` instead of measuring `clientWidth` after
   mutating the tree: that read forces a synchronous re-layout of the whole pane. The cache is
   kept fresh by a `ResizeObserver` and the render path, and the toggle listener's button
-  refreshes coalesce through `schedulePaneButtonsUpdate`.
+  refreshes coalesce through `schedulePaneButtonsUpdate`. Its line-width probe walk stops at
+  the node's direct children, never the whole subtree: a deeper string is probed when its own
+  node is filled, and a whole-subtree walk forced one measurement layout per node across the
+  entire fill.
 - `.json-row` carries `content-visibility: auto` plus a `contain-intrinsic-size` hint that
   `countJsonLinesWalk` estimates from the subtree's current open state and `jsonRowHtml` bakes
   into the row. `materializeJsonNode` must refresh the parent row's hint after filling.
