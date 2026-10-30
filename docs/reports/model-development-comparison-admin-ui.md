@@ -132,6 +132,12 @@ Flash 方案在主 worktree 的最终结果为：
 - portable exe 时间戳晚于本次 bundle 产物；
 - 主 worktree 干净。
 
+### 后续修复：切换记录时重置 JSON 视图
+
+交付复核发现，Flash 方案虽然已进入 bundle，但 `selectLog()` 传入的 `resetView` 没有继续传给请求和响应 JSON pane。结果是切换历史记录时，reconcile 会复用上一条记录的树和展开状态；在大 JSON 上还会把旧树与新数据做同步，造成额外的切换工作。主 worktree 以 `685ff5f` 修复了透传，并新增测试确认旧节点已从 DOM 移除、新记录的深层节点恢复折叠。
+
+修复后的 `npm run check` 结果为 152 个测试文件通过、1 个跳过；1640 个测试通过、2 个跳过；历史相关测试为 47/47。修复后的 portable 交付链、payload 和 wrapper 冒烟、`app.asar` 内容检查以及 Node ABI 恢复均通过。此次补充只记录当前交付修复和验证结果，不改变前面受控 A/B 基准的范围。
+
 ## 综合表现对比
 
 | 维度         | `qwen3.8-27b`                                                | `Qwen3.8-Flash-Next`                                              |
