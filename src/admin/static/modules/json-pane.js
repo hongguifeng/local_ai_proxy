@@ -421,52 +421,81 @@ export function applyPaneChrome() {
   updateMetaButton("response");
   updateResponseTiming();
 }
-/** Fills the children of a node that the lazy first render left empty. */
+/** Fills a lazy node in bounded child-row chunks. */
+const jsonMaterializeStates = new WeakMap();
+const jsonMaterializeChunkSize = 96;
 function materializeJsonNode(el, detail) {
-  if (detail.dataset.jsonLazy !== "1" || detail.dataset.jsonLazyDone === "1") return;
+  if (detail.dataset.jsonLazy !== "1" || detail.dataset.jsonLazyDone === "1") return true;
   const key = el.dataset.jsonPaneKey;
-  if (key !== "request" && key !== "response") return;
-  const raw = key === "response" ? state.raw.response : state.raw.request;
-  const path = JSON.parse(detail.dataset.jsonNodePath || "[]");
-  const value = resolveJsonPathValue(raw, path);
-  const depth = Number(detail.dataset.jsonDepth) || 0;
-  // The cached width keeps this off the layout: reading clientWidth after the
-  // tree was mutated forces a synchronous re-layout of the whole pane.
-  const lineWidth = jsonLineWidthCache[key] || 0;
-  // The strings this node is about to render need line-width probes; measuring
-  // the whole subtree in one batch keeps the fill off the per-string fallback,
-  // which would force a layout for every string in it.
-  if (state.formatStrings[key] && lineWidth > 0) {
-    prepareJsonMeasurements(value, lineWidth, Infinity, String(path[path.length - 1] ?? ""), depth);
+  if (key !== "request" && key !== "response") return true;
+  let progress = jsonMaterializeStates.get(detail);
+  if (progress === undefined) {
+    const raw = key === "response" ? state.raw.response : state.raw.request;
+    const path = JSON.parse(detail.dataset.jsonNodePath || "[]");
+    const value = resolveJsonPathValue(raw, path);
+    if (value === null || typeof value !== "object") return true;
+    const depth = Number(detail.dataset.jsonDepth) || 0;
+    const lineWidth = jsonLineWidthCache[key] || 0;
+    const renderState = {
+      formatMode: state.formatStrings[key] === true,
+      lineWidth,
+      wrap: state.wrap[key] === true,
+      lazy: true,
+    };
+    let children = qsOn(detail, ":scope > .json-children");
+    if (children === null) {
+      detail.insertAdjacentHTML("beforeend", '<div class="json-children"></div>');
+      children = qsOn(detail, ":scope > .json-children");
+    }
+    if (children === null) return true;
+    progress = {
+      value,
+      path,
+      depth,
+      renderState,
+      entries: jsonChildEntries(value),
+      nextIndex: 0,
+      children,
+    };
+    jsonMaterializeStates.set(detail, progress);
+    detail.dataset.jsonMaterializing = "1";
   }
-  // The tree is lazy - that is why this node was empty - but a filled node always
-  // carries its children, so only a node the fill leaves closed stays lazy.
-  const renderState = {
-    formatMode: state.formatStrings[key] === true,
-    lineWidth: lineWidth,
-    wrap: state.wrap[key] === true,
-    lazy: true,
-  };
-  const html = jsonChildrenMarkup(value, depth, path, renderState);
-  const filledLines = jsonLineCount(value, renderState);
-  let children = qsOn(detail, ":scope > .json-children");
-  if (children !== null) {
-    children.innerHTML = html;
-  } else {
-    detail.insertAdjacentHTML("beforeend", `<div class="json-children">${html}</div>`);
-    children = qsOn(detail, ":scope > .json-children");
+  const end = Math.min(progress.nextIndex + jsonMaterializeChunkSize, progress.entries.length);
+  const chunk = progress.entries.slice(progress.nextIndex, end);
+  if (progress.renderState.formatMode && progress.renderState.lineWidth > 0) {
+    for (const [childKey, childValue] of chunk) {
+      prepareJsonMeasurements(
+        childValue,
+        progress.renderState.lineWidth,
+        Infinity,
+        String(childKey),
+        progress.depth + 1,
+      );
+    }
   }
+  if (chunk.length > 0) {
+    progress.children.insertAdjacentHTML(
+      "beforeend",
+      jsonChildEntriesMarkup(chunk, progress.depth, progress.path, progress.renderState),
+    );
+    recordJsonRenderedEntries(progress.children, chunk, progress.path);
+    jsonRowWindowInvalidate(key);
+  }
+  progress.nextIndex = end;
+  const complete = end >= progress.entries.length;
+  const parentRow = closestOn(progress.children.parentElement, ".json-row");
+  if (parentRow) {
+    const estimatedLines =
+      complete && progress.entries.length <= 500
+        ? jsonLineCount(progress.value, progress.renderState)
+        : Math.max(2, progress.nextIndex * 18 + 36);
+    parentRow.style.containIntrinsicSize = `auto ${estimatedLines * 18}px`;
+  }
+  if (!complete) return false;
   detail.dataset.jsonLazyDone = "1";
-  // The rows just filled are what the next refresh compares against; without this
-  // record the pane would rebuild them as if nothing was known about them.
-  if (children !== null) recordJsonRenderedRows(children, value, path);
-  jsonRowWindowInvalidate(key);
-  // The parent row rendered as a single collapsed line until now; refresh its
-  // size hint so the scrollbar accounts for the children that were just added.
-  const parentRow = closestOn(children?.parentElement, ".json-row");
-  if (parentRow && !parentRow.classList.contains("json-pane-root")) {
-    parentRow.style.containIntrinsicSize = `auto ${filledLines * 18}px`;
-  }
+  delete detail.dataset.jsonMaterializing;
+  jsonMaterializeStates.delete(detail);
+  return true;
 }
 // Materializing every node of a freshly opened level in one synchronous pass
 // blocks the main thread for hundreds of milliseconds on multi-megabyte bodies,
@@ -479,11 +508,15 @@ const jsonMaterializeQueue = [];
 const jsonMaterializeBudgetMs = 12;
 let jsonMaterializeRunning = false;
 function enqueueJsonMaterialize(el, detail) {
-  if (detail.dataset.jsonLazy !== "1" || detail.dataset.jsonLazyDone === "1") return;
+  if (
+    detail.dataset.jsonLazy !== "1" ||
+    detail.dataset.jsonLazyDone === "1" ||
+    detail.dataset.jsonMaterializing === "1"
+  ) {
+    return;
+  }
   jsonMaterializeQueue.push({ el, detail });
-  // Kick from a task, never synchronously: the click handler must return
-  // first so the browser can paint, and each batch's layout lands on a frame
-  // boundary instead of blocking the click.
+  // Kick from a task so the click handler returns before materialization starts.
   if (!jsonMaterializeRunning) setTimeout(drainJsonMaterializeQueue, 0);
 }
 function drainJsonMaterializeQueue() {
@@ -494,10 +527,10 @@ function drainJsonMaterializeQueue() {
     while (jsonMaterializeQueue.length) {
       const item = jsonMaterializeQueue.shift();
       if (!item.detail.isConnected) continue;
-      // Fill first, open second: the node appears already populated, and the
-      // browser never lays out a level twice (empty, then filled).
-      materializeJsonNode(item.el, item.detail);
+      const complete = materializeJsonNode(item.el, item.detail);
+      // Fill first, open second. An incomplete node is queued for another task.
       item.detail.open = true;
+      if (!complete) jsonMaterializeQueue.push(item);
       if (performance.now() - start >= jsonMaterializeBudgetMs) break;
     }
   } finally {
@@ -717,9 +750,9 @@ function jsonSummaryMarkup(value, key, depth, path, renderState) {
   if (type === "undefined") return `${keyHtml}<span class="json-null">undefined</span>`;
   return `${keyHtml}<span class="json-null">null</span>`;
 }
-/** The rows for a node's children, in the order the pane shows them. */
-function jsonChildrenMarkup(value, depth, path, renderState) {
-  return jsonChildEntries(value)
+/** The rows for a subset of a node's children, in their source order. */
+function jsonChildEntriesMarkup(entries, depth, path, renderState) {
+  return entries
     .map(([childKey, childValue]) => {
       const key = jsonChildKey(childKey);
       return jsonRowMarkup(
@@ -733,6 +766,10 @@ function jsonChildrenMarkup(value, depth, path, renderState) {
       );
     })
     .join("");
+}
+/** The rows for a node's children, in the order the pane shows them. */
+function jsonChildrenMarkup(value, depth, path, renderState) {
+  return jsonChildEntriesMarkup(jsonChildEntries(value), depth, path, renderState);
 }
 /**
  * The markup of one node. A leaf's summary line is its whole markup; a container gets the
@@ -814,18 +851,10 @@ function jsonRowIndex(rows) {
   }
   return index;
 }
-/**
- * Records what every rendered row was built from, so the next refresh compares raw values
- * instead of rebuilding markup. Only containers that already carry children are walked:
- * a node the lazy render left empty has nothing below it to record.
- * @param {HTMLElement} container
- * @param {unknown} value
- * @param {readonly string[]} path
- * @returns {void}
- */
-function recordJsonRenderedRows(container, value, path) {
+/** Records the rows for a subset of a node's children. */
+function recordJsonRenderedEntries(container, entries, path) {
   const index = jsonRowIndex(jsonChildRows(container));
-  for (const [key, child] of jsonChildEntries(value)) {
+  for (const [key, child] of entries) {
     const childKey = jsonChildKey(key);
     const row = index.get(childKey);
     if (row === undefined) continue;
@@ -842,6 +871,9 @@ function recordJsonRenderedRows(container, value, path) {
     }
     recordJsonRenderedRows(children, child, childNodePath(path, childKey));
   }
+}
+function recordJsonRenderedRows(container, value, path) {
+  recordJsonRenderedEntries(container, jsonChildEntries(value), path);
 }
 /**
  * Creates a row the pane has never rendered, in the state a first paint would have given it.

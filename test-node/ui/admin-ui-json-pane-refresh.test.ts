@@ -38,6 +38,26 @@ interface PaintTimings {
   frameMs: number;
 }
 
+interface ScrolledFrameResult {
+  maxFrameGap: number;
+  connected: boolean;
+  done: string;
+  childRows: number;
+}
+
+interface ArrayFrameResult {
+  maxFrameGap: number;
+  open: boolean;
+}
+
+interface ScrolledExpandResult extends ScrolledFrameResult {
+  clickMs: number;
+}
+
+interface ArrayExpandResult extends ArrayFrameResult {
+  clickMs: number;
+}
+
 async function count(locator: Locator): Promise<number> {
   return locator.count();
 }
@@ -257,6 +277,131 @@ describe("admin UI large JSON pane refresh", { timeout: UI_TEST_TIMEOUT_MS }, ()
     expect(await count(page.locator("#requestJson .json-row"))).toBe(
       messageCount + 4 + plainMessageChildren,
     );
+  });
+
+  it("keeps a scrolled lazy-node expand responsive", async () => {
+    await loadAdminPage();
+    await page.locator('[data-tab="logs"]').click();
+    await openRecordDetail("record-two");
+    await page.locator("#autoRefreshLogs").uncheck();
+    await page.evaluate(`
+      const body = {
+        model: "gpt-5",
+        messages: Array.from({length: 180}, (_, messageIndex) => {
+          const message = {role: "user", content: "message " + messageIndex};
+          for (let key = 0; key < 400; key++) message["k" + messageIndex + "_" + key] = "v" + key;
+          return message;
+        }),
+      };
+      window.__adminUiTest.applySelectedLogDetail({request: body, response: null}, {resetView: true});
+    `);
+    const pane = page.locator("#requestJson");
+    await expectPage(pane.locator('[data-json-lazy="1"]')).toHaveCount(180);
+    const lazy = pane.locator('[data-json-lazy="1"]').nth(90);
+    await lazy.scrollIntoViewIfNeeded();
+    await page.waitForTimeout(100);
+    const result = await page.evaluate<ScrolledExpandResult>(() => {
+      const el = document.querySelector<HTMLElement>("#requestJson");
+      if (!el) throw new Error("Expected request JSON pane");
+      const details = Array.from(
+        el.querySelectorAll<HTMLDetailsElement>('details[data-json-lazy="1"]'),
+      );
+      const paneRect = el.getBoundingClientRect();
+      const detail = details.find((candidate) => {
+        const rect = candidate.getBoundingClientRect();
+        return rect.top >= paneRect.top && rect.bottom <= paneRect.bottom;
+      });
+      if (!detail) throw new Error("Expected a visible lazy JSON node");
+      const summary = detail.querySelector<HTMLElement>(":scope > summary");
+      if (!summary) throw new Error("Expected a lazy JSON summary");
+      const resultPromise = new Promise<ScrolledFrameResult>((resolve) => {
+        let last = performance.now();
+        let maxFrameGap = 0;
+        let frames = 0;
+        const watch = (timestamp: number) => {
+          maxFrameGap = Math.max(maxFrameGap, timestamp - last);
+          last = timestamp;
+          frames += 1;
+          if (frames >= 30) {
+            resolve({
+              maxFrameGap,
+              connected: detail.isConnected,
+              done: detail.dataset["jsonLazyDone"] ?? "",
+              childRows: detail.querySelectorAll(":scope > .json-children > .json-row").length,
+            });
+            return;
+          }
+          requestAnimationFrame(watch);
+        };
+        requestAnimationFrame(watch);
+      });
+      const clickStart = performance.now();
+      summary.click();
+      const clickMs = performance.now() - clickStart;
+      return resultPromise.then((frameResult) => ({ clickMs, ...frameResult }));
+    });
+    expect(result.clickMs).toBeLessThan(20);
+    expect(result.maxFrameGap).toBeLessThan(100);
+    expect(result.connected).toBe(true);
+    expect(result.done).toBe("1");
+    expect(result.childRows).toBe(402);
+  });
+
+  it("keeps reopening a large rendered array responsive", async () => {
+    await loadAdminPage();
+    await page.locator('[data-tab="logs"]').click();
+    await openRecordDetail("record-two");
+    await page.locator("#autoRefreshLogs").uncheck();
+    await page.evaluate(`
+      const body = {
+        model: "gpt-5",
+        messages: Array.from({length: 2500}, (_, index) => ({role: "user", content: "message " + index})),
+      };
+      window.__adminUiTest.applySelectedLogDetail({request: body, response: null}, {resetView: true});
+    `);
+    const pane = page.locator("#requestJson");
+    const messages = pane.locator('details[data-json-depth="1"]').filter({ hasText: '"messages"' });
+    await expectPage(messages).toHaveCount(1);
+    await expectPage(messages).toHaveJSProperty("open", true);
+    await messages.locator(":scope > summary").click();
+    await expectPage(messages).toHaveJSProperty("open", false);
+    await pane.evaluate((el) => {
+      el.scrollTop = 1000;
+      el.dispatchEvent(new Event("scroll"));
+    });
+    const result = await page.evaluate<ArrayExpandResult>(() => {
+      const details = Array.from(
+        document.querySelectorAll<HTMLDetailsElement>('#requestJson details[data-json-depth="1"]'),
+      );
+      const detail = details.find((candidate) =>
+        candidate
+          .querySelector<HTMLElement>(":scope > summary")
+          ?.textContent.includes('"messages"'),
+      );
+      if (!detail) throw new Error("Expected messages detail");
+      const summary = detail.querySelector<HTMLElement>(":scope > summary");
+      if (!summary) throw new Error("Expected messages summary");
+      const resultPromise = new Promise<ArrayFrameResult>((resolve) => {
+        let last = performance.now();
+        let maxFrameGap = 0;
+        let frames = 0;
+        const watch = (timestamp: number) => {
+          maxFrameGap = Math.max(maxFrameGap, timestamp - last);
+          last = timestamp;
+          frames += 1;
+          if (frames >= 30) resolve({ maxFrameGap, open: detail.open });
+          else requestAnimationFrame(watch);
+        };
+        requestAnimationFrame(watch);
+      });
+      const clickStart = performance.now();
+      summary.click();
+      const clickMs = performance.now() - clickStart;
+      return resultPromise.then((frameResult) => ({ clickMs, ...frameResult }));
+    });
+    expect(result.clickMs).toBeLessThan(20);
+    expect(result.maxFrameGap).toBeLessThan(100);
+    expect(result.open).toBe(true);
   });
 
   it("shows keys that arrive in a new order without rebuilding the rows they carry", async () => {

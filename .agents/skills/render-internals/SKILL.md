@@ -59,12 +59,14 @@ description: >-
   (notably `restoreJsonPaneViewState` assigning `detail.open`, and the expand-one-level
   button) must materialize as well.
 - Lazy fills go through the time-budgeted `jsonMaterializeQueue`: each node is filled _before_
-  it opens, and the drain is kicked from `setTimeout(0)`, never synchronously. Non-lazy trees
-  must still open nodes directly in the click handler, because the queue skips unmarked nodes.
-  A fill must also record the rows it produced (`recordJsonRenderedRows`), or the next refresh
-  cannot tell them from rows it never rendered and tears the subtree the user just opened down.
-  A fill that throws has to leave the queue runnable: the drain is wrapped in `try/finally` so
-  one bad node cannot strand every node behind it.
+  it opens, and the drain is kicked from `setTimeout(0)`, never synchronously. A single node
+  with many children is itself split into 96-row chunks, so the node queue budget cannot hide
+  one large `innerHTML` assignment. Every path that opens a node programmatically (notably
+  `restoreJsonPaneViewState` assigning `detail.open`, and the expand-one-level button) must
+  materialize as well. A fill must also record the rows it produced (`recordJsonRenderedRows`),
+  or the next refresh cannot tell them from rows it never rendered and tears the subtree the
+  user just opened down. A fill that throws has to leave the queue runnable: the drain is wrapped
+  in `try/finally` so one bad node cannot strand every node behind it.
 - `materializeJsonNode` reads `jsonLineWidthCache` instead of measuring `clientWidth` after
   mutating the tree: that read forces a synchronous re-layout of the whole pane. The cache is
   kept fresh by a `ResizeObserver` and the render path, and the toggle listener's button
