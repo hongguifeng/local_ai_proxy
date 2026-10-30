@@ -360,17 +360,9 @@ function materializeJsonNode(el, detail) {
   const lineWidth = jsonLineWidthCache[key] || 0;
   // The strings this node is about to render need line-width probes; measuring
   // the whole subtree in one batch keeps the fill off the per-string fallback,
-  // which would force a layout for every string in it. Only the direct
-  // children render now: deeper descendants sit behind their own lazy node and
-  // are probed when that node is filled, so the walk stops one level down.
+  // which would force a layout for every string in it.
   if (state.formatStrings[key] && lineWidth > 0) {
-    prepareJsonMeasurements(
-      value,
-      lineWidth,
-      depth + 1,
-      String(path[path.length - 1] ?? ""),
-      depth,
-    );
+    prepareJsonMeasurements(value, lineWidth, Infinity, String(path[path.length - 1] ?? ""), depth);
   }
   const entries = Array.isArray(value)
     ? value.map((item, index) => [index, item])
@@ -466,14 +458,13 @@ function jsonNodePathAttr(path) {
 function collectJsonPaneViewState(el) {
   const nodeState = new Map();
   detailsOn(el, "details[data-json-node-path]").forEach((detail) => {
-    const isStringBody = detail.classList.contains("json-str-detail");
+    const body = detail.classList.contains("json-str-detail")
+      ? qsOn(detail, ".json-str-body")
+      : null;
     nodeState.set(detail.dataset.jsonNodePath, {
       open: detail.open,
-      // A string body that is closed carries no scroll position, and reading
-      // its offset would force a layout of that (possibly multi-megabyte)
-      // text. Only an open body can be scrolled, so only open bodies are read.
-      scrollTop: isStringBody && detail.open ? qsOn(detail, ".json-str-body")?.scrollTop || 0 : 0,
-      scrollLeft: isStringBody && detail.open ? qsOn(detail, ".json-str-body")?.scrollLeft || 0 : 0,
+      scrollTop: body?.scrollTop || 0,
+      scrollLeft: body?.scrollLeft || 0,
     });
   });
   return { scrollTop: el.scrollTop, scrollLeft: el.scrollLeft, nodeState };
@@ -488,10 +479,6 @@ function restoreJsonPaneViewState(el, viewState) {
     if (!detail.classList.contains("json-str-detail")) return;
     const body = qsOn(detail, ".json-str-body");
     if (!body) return;
-    // A closed body has no scroll position to restore, and writing into one
-    // only costs the write: skip it. Open bodies get their offset back after
-    // the replacement, so a refresh never loses the position inside a string.
-    if (!detail.open && saved.scrollTop === 0 && saved.scrollLeft === 0) return;
     body.scrollTop = saved.scrollTop;
     body.scrollLeft = saved.scrollLeft;
   });
@@ -726,33 +713,22 @@ function jsonText(value) {
 }
 const jsonLineWidthCache = {};
 const jsonPaneRenderInputs = new Map();
-/**
- * Renders one JSON pane from `state.raw[key]`.
- *
- * @param {string} key
- * @param {{ preserveView?: boolean, force?: boolean }} [options]
- *   `preserveView` keeps the pane scroll and every node's open state across a DOM
- *   replacement. `force` replaces the DOM even when the input is unchanged, which
- *   is how a re-selection resets the view back to its initial state.
- * @returns {void}
- */
 export function renderJsonPane(key, options = {}) {
   const el = $(key + "Json");
   // Cache the content width while the DOM is still clean: reading it later,
   // after the tree was mutated, forces a synchronous re-layout.
   jsonLineWidthCache[key] = el.clientWidth > 24 ? el.clientWidth - 24 : 0;
+  const viewState = options.preserveView ? collectJsonPaneViewState(el) : null;
   el.classList.toggle("wrap", state.wrap[key]);
   el.classList.toggle("nowrap", !state.wrap[key]);
-  // The cache input is the raw value plus every view mode and the current
-  // measured content width. Raw/mode changes replace markup; unchanged input
-  // preserves DOM nodes, expansion state, and pane scroll. Intrinsic text
-  // measurements survive width changes; fit decisions use the new width. A
-  // replaced or materialized tree invalidates the flat row cache so viewport
-  // pre-realization sees current rows.
+  // The cache input is the raw value plus view modes and the current measured
+  // content width. Raw/mode changes replace markup; unchanged input preserves
+  // DOM nodes, expansion state, and pane scroll. Intrinsic text measurements
+  // survive width changes; fit decisions use the new width. A replaced or
+  // materialized tree invalidates the flat row cache so viewport pre-realization sees current rows.
   const input = JSON.stringify([
     state.raw[key],
     state.tree[key],
-    state.wrap[key],
     state.formatStrings[key],
     state.language,
     jsonLineWidthCache[key],
@@ -760,49 +736,37 @@ export function renderJsonPane(key, options = {}) {
   const inputChanged = jsonPaneRenderInputs.get(key) !== input;
   jsonPaneRenderInputs.set(key, input);
   const rendered = state.jsonPaneHtml[key];
-  // Building the markup and, more, parsing it is what costs: a several-
-  // hundred-kilobyte body is tens of thousands of nodes, and an automatic
-  // refresh re-runs this while a request is in flight. An unchanged input is a
-  // pure function of what was last rendered, so the build is skipped entirely
-  // and the existing DOM (nodes, open state, scroll, realized rows) stays put.
-  // `force` (a re-selection) always rebuilds so the view reset is real.
-  const replace = inputChanged || Boolean(options.force);
+  // Parsing the tree is what costs: a several-hundred-kilobyte request body is
+  // tens of thousands of nodes. Building the markup is cheap, so a refresh that
+  // produced the same markup keeps the existing DOM instead of re-parsing it.
   if (state.tree[key]) {
     el.dataset.jsonPaneKey = key;
     const lineWidth = jsonLineWidthCache[key] || 0;
-    if (replace) {
-      if (state.formatStrings[key])
-        prepareJsonMeasurements(state.raw[key], lineWidth, defaultJsonExpandedDepth);
-      const html = jsonRowHtml(
-        state.raw[key],
-        "",
-        state.formatStrings[key],
-        0,
-        [],
-        lineWidth,
-        jsonEntryCount(state.raw[key], lazyJsonEntryLimit) > lazyJsonEntryLimit,
-        defaultJsonExpandedDepth,
-        true,
-      );
-      if (html !== rendered) state.jsonPaneHtml[key] = html;
-      // Only the replacement pays for the view-state walk: collecting it forces
-      // layout, so a refresh that keeps the DOM must not pay it at all.
-      const viewState = options.preserveView ? collectJsonPaneViewState(el) : null;
-      el.innerHTML = state.jsonPaneHtml[key];
+    if (state.formatStrings[key])
+      prepareJsonMeasurements(state.raw[key], lineWidth, defaultJsonExpandedDepth);
+    const html = jsonRowHtml(
+      state.raw[key],
+      "",
+      state.formatStrings[key],
+      0,
+      [],
+      lineWidth,
+      jsonEntryCount(state.raw[key], lazyJsonEntryLimit) > lazyJsonEntryLimit,
+      defaultJsonExpandedDepth,
+      true,
+    );
+    if (inputChanged || html !== rendered) {
+      state.jsonPaneHtml[key] = html;
+      el.innerHTML = html;
       jsonRowWindowInvalidate(key);
       restoreJsonPaneViewState(el, viewState);
     }
   } else {
-    // Text mode has no nodes to preserve, but the same rule applies: an
-    // unchanged input never rewrites the pane, and `force` re-writes it so a
-    // re-selection resets the view.
-    if (replace) {
-      const text = jsonText(state.raw[key]);
-      if (options.force || text !== rendered) {
-        state.jsonPaneHtml[key] = text;
-        el.textContent = text;
-        jsonRowWindowInvalidate(key);
-      }
+    const text = jsonText(state.raw[key]);
+    if (inputChanged || text !== rendered) {
+      state.jsonPaneHtml[key] = text;
+      el.textContent = text;
+      jsonRowWindowInvalidate(key);
     }
   }
   updateExpandButton(key);

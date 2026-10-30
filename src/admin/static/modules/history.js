@@ -882,17 +882,8 @@ export function applySelectedLogDetail(data, options = {}) {
   renderMetaPane("response");
   renderRequestPricing();
   updateResponseTiming();
-  // `force` on a re-selection: the same record clicked again resets the view to
-  // its initial state, so the panes must re-render even when the payload is
-  // byte-identical to what is on screen.
-  renderJsonPane("request", {
-    preserveView: !options.resetView,
-    force: Boolean(options.resetView),
-  });
-  renderJsonPane("response", {
-    preserveView: !options.resetView,
-    force: Boolean(options.resetView),
-  });
+  renderJsonPane("request", { preserveView: !options.resetView });
+  renderJsonPane("response", { preserveView: !options.resetView });
 }
 // The detail request is most of the time between clicking a row and seeing its
 // JSON: for a multi-megabyte body the response alone is ~50 ms, while the tree
