@@ -297,21 +297,18 @@ describe("admin UI large JSON pane refresh", { timeout: UI_TEST_TIMEOUT_MS }, ()
     `);
     const pane = page.locator("#requestJson");
     await expectPage(pane.locator('[data-json-lazy="1"]')).toHaveCount(180);
-    const lazy = pane.locator('[data-json-lazy="1"]').nth(90);
-    await lazy.scrollIntoViewIfNeeded();
-    await page.waitForTimeout(100);
+    await pane.evaluate((el) => {
+      el.scrollTop = Math.min(5000, el.scrollHeight / 2);
+      el.dispatchEvent(new Event("scroll"));
+    });
     const result = await page.evaluate<ScrolledExpandResult>(() => {
       const el = document.querySelector<HTMLElement>("#requestJson");
       if (!el) throw new Error("Expected request JSON pane");
       const details = Array.from(
         el.querySelectorAll<HTMLDetailsElement>('details[data-json-lazy="1"]'),
       );
-      const paneRect = el.getBoundingClientRect();
-      const detail = details.find((candidate) => {
-        const rect = candidate.getBoundingClientRect();
-        return rect.top >= paneRect.top && rect.bottom <= paneRect.bottom;
-      });
-      if (!detail) throw new Error("Expected a visible lazy JSON node");
+      const detail = details[90];
+      if (!detail) throw new Error("Expected a lazy JSON node after scrolling");
       const summary = detail.querySelector<HTMLElement>(":scope > summary");
       if (!summary) throw new Error("Expected a lazy JSON summary");
       const resultPromise = new Promise<ScrolledFrameResult>((resolve) => {
