@@ -1892,6 +1892,33 @@ describe("admin UI history page", { timeout: UI_TEST_TIMEOUT_MS }, () => {
     await autoRefresh.uncheck();
   });
 
+  it("resets JSON expansion when switching to another history record", async () => {
+    await openRecordDetail("record-two");
+    const requestJson = page.locator("#requestJson");
+    const deepNodes = requestJson.locator('details[data-json-depth="2"]');
+    await expectPage(deepNodes).toHaveCount(1);
+    await expectPage(deepNodes.first()).toHaveJSProperty("open", false);
+
+    // Expand a deeper node in the first record and keep its identity so the test
+    // proves the next record receives a fresh tree rather than a reconciled one.
+    await deepNodes.first().locator(":scope > summary").click();
+    await expectPage(deepNodes.first()).toHaveJSProperty("open", true);
+    const oldNode = await deepNodes.first().elementHandle();
+
+    await page.locator('[data-log-id="record-one"]').click();
+    await expectPage(page.locator('[data-log-id="record-one"]')).toHaveClass(/active/);
+    await expectPage(requestJson.locator('details[data-json-depth="2"]')).toHaveCount(1);
+    await expectPage(requestJson.locator('details[data-json-depth="2"]').first()).toHaveJSProperty(
+      "open",
+      false,
+    );
+    expect(await oldNode.evaluate((node) => node.isConnected)).toBe(false);
+    await expectPage(requestJson.locator('details[data-json-depth="1"]').first()).toHaveJSProperty(
+      "open",
+      true,
+    );
+  });
+
   it("expands nested JSON trees one level at a time", async () => {
     await openRecordDetail("record-two");
     const details = page.locator("#requestJson details[data-json-node-path]:not(.json-str-detail)");

@@ -882,8 +882,14 @@ export function applySelectedLogDetail(data, options = {}) {
   renderMetaPane("response");
   renderRequestPricing();
   updateResponseTiming();
-  renderJsonPane("request", { preserveView: !options.resetView });
-  renderJsonPane("response", { preserveView: !options.resetView });
+  renderJsonPane("request", {
+    preserveView: !options.resetView,
+    resetView: Boolean(options.resetView),
+  });
+  renderJsonPane("response", {
+    preserveView: !options.resetView,
+    resetView: Boolean(options.resetView),
+  });
 }
 // The detail request is most of the time between clicking a row and seeing its
 // JSON: for a multi-megabyte body the response alone is ~50 ms, while the tree
