@@ -2,7 +2,8 @@
 name: render-internals
 description: >-
   How the admin UI rebuilds itself: renderLogs sections keyed by logGroupRenderSignature,
-  task-detail panel skipping, jsonPaneHtml caching, the lazy JSON tree with
+  task-detail panel skipping, JSON pane row reconciliation against remembered raw values, the
+  lazy JSON tree with
   jsonMaterializeQueue, content-visibility with contain-intrinsic-size, the row-window rAF
   watcher, scroll anchoring and sticky header geometry, refresh pagination and the language
   panel registry. Use when a state change never shows up, the page freezes, scrolling
@@ -35,9 +36,23 @@ description: >-
   `finally`), and that wait dies the moment the row's `bindingId + incarnation` stops being the
   one the list reports. Prove it by marking the element and asserting the mark survives on the
   node a later poll finds, never by `toBeFocused`.
-- The JSON panes cache their last markup in `state.jsonPaneHtml`: building the tree string is
-  cheap, assigning it is what costs the user time, because the tree is tens of thousands of
-  `<details>` nodes.
+- The JSON pane reconciles the tree it already rendered instead of reassigning markup. Every
+  rendered row remembers the raw value it was built from (`jsonRenderedRows`, seeded by
+  `seedJsonRenderedRows`), and a refresh compares those raw values with `sameJsonValue` - which
+  counts object key order as part of the value. So an identical body changes no DOM at all, and
+  a body whose one leaf changed touches only that row. `state.jsonPaneHtml` now holds only the
+  plain-text render: assigning the whole tree string is what used to cost the user time, because
+  the tree is tens of thousands of `<details>` nodes.
+- A refresh may reconcile only while the pane's _view_ state is unchanged. `jsonPaneSignature`
+  covers language, tree mode, format mode, measured line width, wrap and lazy; any of those
+  changed, another record selected, or `resetView` forces a rebuild, because line fitting and
+  default expansion are recomputed and a width change cannot be reconciled. A row whose shape
+  changed (leaf ↔ container, formatted string text) is replaced; a node that only gained or lost
+  descendants keeps its own `<details>`, its child rows are matched by `data-json-child-key`, and
+  a row that is merely in the wrong position is moved, never rebuilt.
+- A reconcile must not resurrect a row it replaced, so `syncJsonRow` reports the element that now
+  stands where the row was. Following the old, now-detached element re-inserts it and the pane
+  shows the same key twice.
 - Above `lazyJsonEntryLimit` the tree renders lazily: a node that starts collapsed is emitted
   with `data-json-lazy="1"` and an empty `.json-children`, and its children are built when the
   pane's capture-phase `toggle` listener fires. Every path that opens a node programmatically
@@ -46,12 +61,16 @@ description: >-
 - Lazy fills go through the time-budgeted `jsonMaterializeQueue`: each node is filled _before_
   it opens, and the drain is kicked from `setTimeout(0)`, never synchronously. Non-lazy trees
   must still open nodes directly in the click handler, because the queue skips unmarked nodes.
+  A fill must also record the rows it produced (`recordJsonRenderedRows`), or the next refresh
+  cannot tell them from rows it never rendered and tears the subtree the user just opened down.
+  A fill that throws has to leave the queue runnable: the drain is wrapped in `try/finally` so
+  one bad node cannot strand every node behind it.
 - `materializeJsonNode` reads `jsonLineWidthCache` instead of measuring `clientWidth` after
   mutating the tree: that read forces a synchronous re-layout of the whole pane. The cache is
   kept fresh by a `ResizeObserver` and the render path, and the toggle listener's button
   refreshes coalesce through `schedulePaneButtonsUpdate`.
 - `.json-row` carries `content-visibility: auto` plus a `contain-intrinsic-size` hint that
-  `countJsonLinesWalk` estimates from the subtree's current open state and `jsonRowHtml` bakes
+  `countJsonLinesWalk` estimates from the subtree's current open state and `jsonRowMarkup` bakes
   into the row. `materializeJsonNode` must refresh the parent row's hint after filling.
 - Rows around the viewport are pre-realized by `updateJsonRowWindow` and a per-pane,
   scroll-armed `requestAnimationFrame` watcher. The walker moves by index through the cached
@@ -106,9 +125,15 @@ npm run bundle:ui
 - A mark that never appears means the state driving it is not in the render signature. When you
   delete one of two areas that state the same fact, the surviving area's signature has to gain
   that state in the same change.
-- Freezes are proven with a `PerformanceObserver(["longtask"])` plus an rAF-gap probe (gaps
-  over 100 ms) and `scrollHeight` against a no-content-visibility baseline; CDP
-  `Performance.getMetrics` `LayoutCount` deltas separate layout churn from script cost.
+- Freezes are proven with an rAF-gap probe (gaps over 100 ms) and `scrollHeight` against a
+  no-content-visibility baseline; CDP `Performance.getMetrics` `LayoutCount` deltas separate
+  layout churn from script cost. A `PerformanceObserver(["longtask"])` probe on this page came
+  back `{longtask: [], event: []}`, so longtask entries are not evidence here.
+- A refresh's work is proven by counting DOM nodes - a `MutationObserver` on the pane tallying
+  added and removed nodes - and by timing the synchronous apply against the next animation
+  frame. `test-node/ui/admin-ui-json-pane-refresh.test.ts` pins that an identical body changes
+  nothing, that one changed leaf touches one row, that bytes appended while a request is pending
+  reach the pane, and that keys arriving in a new order show in that order.
 - Responsiveness is proven by timing inside the click handler (sub-millisecond target) and by
   polling `data-json-lazy-done` for drain settle — interval timestamps mislead because timers
   are clamped while the main thread is busy.

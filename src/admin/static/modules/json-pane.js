@@ -54,6 +54,80 @@ function jsonEntryCount(value, limit) {
   }
   return count;
 }
+/** The `[key, child]` pairs a node renders, in the order the pane shows them. */
+function jsonChildEntries(value) {
+  return Array.isArray(value)
+    ? value.map((item, index) => [index, item])
+    : Object.entries(value === null ? {} : value || {});
+}
+/** The child key as the pane renders and indexes it. */
+function jsonChildKey(key) {
+  return String(key);
+}
+/** The node path of `childKey` inside `path`. */
+function childNodePath(path, childKey) {
+  return path.concat([childKey]);
+}
+/**
+ * What a container's summary line depends on: its bracket type and how many children it
+ * has. A refresh that changes only descendants keeps this equal, so an open node's summary
+ * keeps its DOM instead of being rewritten on the way down to the value that changed.
+ * @param {unknown} value
+ * @returns {string | null}
+ */
+function jsonSummarySignature(value) {
+  if (value === null || typeof value !== "object") return null;
+  return Array.isArray(value) ? `[${value.length}` : `{${Object.keys(value).length}`;
+}
+/**
+ * The brackets a container's summary shows. Two values with the same brackets share the key
+ * prefix and the bracket text of the summary line, so only the child count inside it can
+ * differ and only that text node has to change.
+ * @param {unknown} value
+ * @returns {string}
+ */
+function jsonSummaryShape(value) {
+  if (value === null || typeof value !== "object") return "";
+  return Array.isArray(value) ? "[" : "{";
+}
+/**
+ * Structural identity of two raw JSON values.
+ *
+ * The pane rebuilds only the nodes this reports as different, so an unchanged subtree
+ * keeps its DOM and its already-materialized children. Numbers compare with `===`, which
+ * folds `-0` into `0` exactly as `JSON.stringify` does; `NaN` is folded by `Object.is`,
+ * which is what the serialized text shows as well.
+ * @param {unknown} left
+ * @param {unknown} right
+ * @returns {boolean}
+ */
+function sameJsonValue(left, right) {
+  if (Object.is(left, right)) return true;
+  if (left !== left && right !== right) return true;
+  if (typeof left === "number" && typeof right === "number") return left === right;
+  if (left === null || right === null || typeof left !== "object" || typeof right !== "object") {
+    return false;
+  }
+  if (Array.isArray(left) !== Array.isArray(right)) return false;
+  if (Array.isArray(left) && Array.isArray(right)) {
+    if (left.length !== right.length) return false;
+    for (let index = 0; index < left.length; index++) {
+      if (!sameJsonValue(left[index], right[index])) return false;
+    }
+    return true;
+  }
+  const leftKeys = Object.keys(left);
+  const rightKeys = Object.keys(right);
+  if (leftKeys.length !== rightKeys.length) return false;
+  // The pane shows object keys in the order they arrived, so key order is part of what counts
+  // as the same value: keys that swapped places are a change the rows have to move for.
+  for (let index = 0; index < leftKeys.length; index++) {
+    const key = leftKeys[index];
+    if (rightKeys[index] !== key || !Object.hasOwn(right, key)) return false;
+    if (!sameJsonValue(left[key], right[key])) return false;
+  }
+  return true;
+}
 function resolveJsonPathValue(raw, path) {
   let current = raw;
   for (const key of path) {
@@ -351,6 +425,7 @@ export function applyPaneChrome() {
 function materializeJsonNode(el, detail) {
   if (detail.dataset.jsonLazy !== "1" || detail.dataset.jsonLazyDone === "1") return;
   const key = el.dataset.jsonPaneKey;
+  if (key !== "request" && key !== "response") return;
   const raw = key === "response" ? state.raw.response : state.raw.request;
   const path = JSON.parse(detail.dataset.jsonNodePath || "[]");
   const value = resolveJsonPathValue(raw, path);
@@ -364,36 +439,27 @@ function materializeJsonNode(el, detail) {
   if (state.formatStrings[key] && lineWidth > 0) {
     prepareJsonMeasurements(value, lineWidth, Infinity, String(path[path.length - 1] ?? ""), depth);
   }
-  const entries = Array.isArray(value)
-    ? value.map((item, index) => [index, item])
-    : Object.entries(value || {});
-  const openCount = Number(detail.dataset.jsonDepth) || 0;
-  const html = entries
-    .map(([childKey, childValue]) =>
-      jsonRowHtml(
-        childValue,
-        String(childKey),
-        state.formatStrings[key],
-        depth + 1,
-        path.concat([childKey]),
-        lineWidth,
-        true,
-        openCount,
-        false,
-      ),
-    )
-    .join("");
-  const filledLines = jsonLineCount(
-    value,
-    state.formatStrings[key],
-    lineWidth,
-    openCount,
-    state.wrap[key] === true,
-  );
-  const children = qsOn(detail, ":scope > .json-children");
-  if (children) children.innerHTML = html;
-  else detail.insertAdjacentHTML("beforeend", `<div class="json-children">${html}</div>`);
+  // The tree is lazy - that is why this node was empty - but a filled node always
+  // carries its children, so only a node the fill leaves closed stays lazy.
+  const renderState = {
+    formatMode: state.formatStrings[key] === true,
+    lineWidth: lineWidth,
+    wrap: state.wrap[key] === true,
+    lazy: true,
+  };
+  const html = jsonChildrenMarkup(value, depth, path, renderState);
+  const filledLines = jsonLineCount(value, renderState);
+  let children = qsOn(detail, ":scope > .json-children");
+  if (children !== null) {
+    children.innerHTML = html;
+  } else {
+    detail.insertAdjacentHTML("beforeend", `<div class="json-children">${html}</div>`);
+    children = qsOn(detail, ":scope > .json-children");
+  }
   detail.dataset.jsonLazyDone = "1";
+  // The rows just filled are what the next refresh compares against; without this
+  // record the pane would rebuild them as if nothing was known about them.
+  if (children !== null) recordJsonRenderedRows(children, value, path);
   jsonRowWindowInvalidate(key);
   // The parent row rendered as a single collapsed line until now; refresh its
   // size hint so the scrollbar accounts for the children that were just added.
@@ -424,17 +490,23 @@ function drainJsonMaterializeQueue() {
   if (jsonMaterializeRunning) return;
   jsonMaterializeRunning = true;
   const start = performance.now();
-  while (jsonMaterializeQueue.length) {
-    const item = jsonMaterializeQueue.shift();
-    if (!item.detail.isConnected) continue;
-    // Fill first, open second: the node appears already populated, and the
-    // browser never lays out a level twice (empty, then filled).
-    materializeJsonNode(item.el, item.detail);
-    item.detail.open = true;
-    if (performance.now() - start >= jsonMaterializeBudgetMs) break;
+  try {
+    while (jsonMaterializeQueue.length) {
+      const item = jsonMaterializeQueue.shift();
+      if (!item.detail.isConnected) continue;
+      // Fill first, open second: the node appears already populated, and the
+      // browser never lays out a level twice (empty, then filled).
+      materializeJsonNode(item.el, item.detail);
+      item.detail.open = true;
+      if (performance.now() - start >= jsonMaterializeBudgetMs) break;
+    }
+  } finally {
+    // A fill that throws must not leave the flag set: every later enqueue would
+    // then return here without doing anything, and the pane would stay showing an
+    // empty subtree for the rest of the session.
+    jsonMaterializeRunning = false;
+    if (jsonMaterializeQueue.length) setTimeout(drainJsonMaterializeQueue, 0);
   }
-  jsonMaterializeRunning = false;
-  if (jsonMaterializeQueue.length) setTimeout(drainJsonMaterializeQueue, 0);
 }
 // Opening a batch of lazy nodes fires one toggle event per node; updating the
 // pane buttons on every event re-scans the whole tree hundreds of times. One
@@ -490,25 +562,63 @@ function restoreJsonPaneViewState(el, viewState) {
 // counts the lines the subtree renders *in its current open state*: collapsed
 // nodes and collapsed strings count as the single summary line they show.
 const jsonLineCache = new WeakMap();
-function jsonLineCount(value, formatMode, lineWidth, openCount, wrap) {
+/**
+ * The view modes and the measured content width a render works from.
+ *
+ * They are read once per render so a rebuild never queries the DOM again: reading
+ * `clientWidth` after the tree was mutated forces a synchronous re-layout of the whole
+ * pane, and a per-string measurement fallback would force one layout for every string in
+ * the subtree.
+ * @typedef {{formatMode: boolean, lineWidth: number, wrap: boolean, lazy: boolean}} JsonRenderState
+ */
+
+/**
+ * The size hint an offscreen row needs, in lines. `content-visibility` in app.css lets a
+ * row skip layout and paint while it is offscreen, and the browser only knows its height
+ * from this hint until it realizes the row.
+ * @param {unknown} value
+ * @param {JsonRenderState} renderState
+ * @returns {number}
+ */
+function jsonLineCount(value, renderState) {
   if (value === null || typeof value !== "object") {
     // WeakMap only accepts objects, so primitives are never cached; counting
     // them is trivial anyway.
-    return countJsonLinesWalk(value, formatMode, lineWidth, 0, false, wrap);
+    return countJsonLinesWalk(
+      value,
+      renderState.formatMode,
+      renderState.lineWidth,
+      0,
+      false,
+      renderState.wrap,
+    );
   }
+  const cacheKey = `${renderState.formatMode ? 1 : 0}:${renderState.lineWidth}:${renderState.wrap ? 1 : 0}`;
   const cache = jsonLineCache.get(value);
   if (cache) {
-    const hit = cache.get(`${formatMode ? 1 : 0}:${lineWidth}:${openCount}:${wrap ? 1 : 0}`);
+    const hit = cache.get(cacheKey);
     if (hit !== undefined) return hit;
-    const lines = countJsonLinesWalk(value, formatMode, lineWidth, 0, true, wrap);
-    cache.set(`${formatMode ? 1 : 0}:${lineWidth}:${openCount}:${wrap ? 1 : 0}`, lines);
+    const lines = countJsonLinesWalk(
+      value,
+      renderState.formatMode,
+      renderState.lineWidth,
+      0,
+      true,
+      renderState.wrap,
+    );
+    cache.set(cacheKey, lines);
     return lines;
   }
-  const lines = countJsonLinesWalk(value, formatMode, lineWidth, 0, true, wrap);
+  const lines = countJsonLinesWalk(
+    value,
+    renderState.formatMode,
+    renderState.lineWidth,
+    0,
+    true,
+    renderState.wrap,
+  );
   jsonLineCache.set(value, new Map());
-  jsonLineCache
-    .get(value)
-    .set(`${formatMode ? 1 : 0}:${lineWidth}:${openCount}:${wrap ? 1 : 0}`, lines);
+  jsonLineCache.get(value).set(cacheKey, lines);
   return lines;
 }
 function countJsonLinesWalk(value, formatMode, lineWidth, depth, open, wrap) {
@@ -538,75 +648,57 @@ function countJsonLinesWalk(value, formatMode, lineWidth, depth, open, wrap) {
     lines += countJsonLinesWalk(child, formatMode, lineWidth, depth + 1, open, wrap);
   return lines;
 }
-function jsonRowHtml(value, key, formatMode, depth, path, lineWidth, lazy, openCount, isRoot) {
-  const content = renderJsonValue(
-    value,
-    key,
-    isRoot,
-    formatMode,
-    depth,
-    path,
-    lineWidth,
-    lazy,
-    openCount,
-  );
-  if (isRoot) return `<div class="json-row">${content}</div>`;
-  const lines = jsonLineCount(value, formatMode, lineWidth, openCount, state.wrap[key] === true);
-  return `<div class="json-row" style="contain-intrinsic-size: auto ${lines * 18}px">${content}</div>`;
+/**
+ * The three pieces a node renders in: the line its `<summary>` shows, the rows of its
+ * children, and the closing bracket line.
+ *
+ * They are separate because a refresh rewrites only the piece that changed. A node whose
+ * descendants changed but whose own summary did not keeps the summary the user is looking
+ * at, and a node whose whole subtree is unchanged keeps all of its DOM.
+ */
+
+/** Whether a value renders as a node with children instead of as a single line. */
+function jsonHasChildren(value) {
+  return value !== null && typeof value === "object";
 }
-function renderJsonValue(
-  value,
-  key = "",
-  root = false,
-  formatMode = false,
-  depth = 0,
-  path = [],
-  lineWidth = 0,
-  lazy = false,
-  openCount = defaultJsonExpandedDepth,
-) {
-  const type = jsonType(value);
+/** The bracket pair a container shows in its summary and in its closing line. */
+function jsonBrackets(value) {
+  return Array.isArray(value) ? ["[", "]"] : ["{", "}"];
+}
+/** The closing bracket line rendered after a container's children. */
+function jsonEndMarkup(value) {
+  return jsonBrackets(value)[1];
+}
+/**
+ * The line a node shows in its `<summary>`: the key, the value's shape, and for a container
+ * how many children it has. A formatted string is the only summary that can cost a layout,
+ * because deciding whether it fits on one line needs a measured width.
+ * @param {unknown} value
+ * @param {string} key
+ * @param {number} depth
+ * @param {readonly string[]} path
+ * @param {JsonRenderState} renderState
+ * @returns {string}
+ */
+function jsonSummaryMarkup(value, key, depth, path, renderState) {
   const keyHtml =
     key === "" ? "" : `<span class="json-key">${escapeHtml(JSON.stringify(key))}</span>: `;
-  if (type === "array" || type === "object") {
-    const entries =
-      type === "array" ? value.map((item, index) => [index, item]) : Object.entries(value);
-    const start = type === "array" ? "[" : "{";
-    const end = type === "array" ? "]" : "}";
-    const summary = `${keyHtml}${start}<span class="json-muted">${entries.length ? ` ${entries.length} ${t("items")} ` : ""}</span>${end}`;
-    // A node that starts collapsed in a lazy tree renders its children only
-    // when the user opens it, so the first paint pays for the visible levels.
-    const open = depth < defaultJsonExpandedDepth;
-    const childrenHtml =
-      lazy && !open
-        ? `<div class="json-children"></div>`
-        : `<div class="json-children">${entries
-            .map(([childKey, childValue]) =>
-              jsonRowHtml(
-                childValue,
-                String(childKey),
-                formatMode,
-                depth + 1,
-                path.concat([childKey]),
-                lineWidth,
-                lazy,
-                openCount,
-                false,
-              ),
-            )
-            .join("")}</div>`;
-    const openAttr = open ? " open" : "";
-    const lazyAttr = lazy && !open ? ' data-json-lazy="1"' : "";
-    return `<details${openAttr} class="json-node${root ? " root" : ""}" data-json-depth="${depth}" style="--json-sticky-depth: ${depth}" data-json-node-path="${jsonNodePathAttr(path)}"${lazyAttr}><summary>${summary}</summary>${childrenHtml}<div class="json-muted">${end}</div></details>`;
+  if (jsonHasChildren(value)) {
+    const [start, end] = jsonBrackets(value);
+    const count = jsonChildEntries(value).length;
+    return `${keyHtml}${start}<span class="json-muted">${count ? ` ${count} ${t("items")} ` : ""}</span>${end}`;
   }
-  if (type === "string") {
+  if (jsonType(value) === "string") {
     const plain = `${keyHtml}<span class="json-string">${escapeHtml(JSON.stringify(value))}</span>`;
-    if (!formatMode) return plain;
+    if (!renderState.formatMode) return plain;
+    const text = String(value);
     const displayValue = formatString(value);
     const hasNewline = displayValue.indexOf(String.fromCharCode(10)) !== -1;
-    const shouldFormat = hasNewline || value.indexOf("\\") !== -1 || value.indexOf('"') !== -1;
+    const shouldFormat = hasNewline || text.indexOf("\\") !== -1 || text.indexOf('"') !== -1;
     const tooWide =
-      !hasNewline && lineWidth > 0 && !jsonTextFitsOnLine(displayValue, key, depth, lineWidth);
+      !hasNewline &&
+      renderState.lineWidth > 0 &&
+      !jsonTextFitsOnLine(displayValue, key, depth, renderState.lineWidth);
     if (hasNewline || tooWide) {
       const summaryRaw = displayValue.substring(0, 150);
       const summarySingleLine = escapeHtml(summaryRaw.replace(/\r\n/g, "↵").replace(/\n/g, "↵"));
@@ -617,12 +709,312 @@ function renderJsonValue(
     if (!shouldFormat) return plain;
     return `${keyHtml}<span class="json-string format-mode">${escapeHtml(displayValue)}</span>`;
   }
+  const type = jsonType(value);
   if (type === "number")
     return `${keyHtml}<span class="json-number">${escapeHtml(String(value))}</span>`;
   if (type === "boolean")
     return `${keyHtml}<span class="json-boolean">${escapeHtml(String(value))}</span>`;
   if (type === "undefined") return `${keyHtml}<span class="json-null">undefined</span>`;
   return `${keyHtml}<span class="json-null">null</span>`;
+}
+/** The rows for a node's children, in the order the pane shows them. */
+function jsonChildrenMarkup(value, depth, path, renderState) {
+  return jsonChildEntries(value)
+    .map(([childKey, childValue]) => {
+      const key = jsonChildKey(childKey);
+      return jsonRowMarkup(
+        childValue,
+        key,
+        depth + 1,
+        childNodePath(path, key),
+        renderState,
+        depth + 1 < defaultJsonExpandedDepth,
+        false,
+      );
+    })
+    .join("");
+}
+/**
+ * The markup of one node. A leaf's summary line is its whole markup; a container gets the
+ * `<details>` the pane drives. `renderState.lazy` leaves the children of a node that starts
+ * closed to be built when the user opens it, so the first paint pays for the visible levels.
+ * @param {unknown} value
+ * @param {string} key
+ * @param {number} depth
+ * @param {readonly string[]} path
+ * @param {JsonRenderState} renderState
+ * @param {boolean} open
+ * @param {boolean} root
+ * @returns {string}
+ */
+function jsonNodeMarkup(value, key, depth, path, renderState, open, root) {
+  const summary = jsonSummaryMarkup(value, key, depth, path, renderState);
+  if (!jsonHasChildren(value)) return summary;
+  const end = jsonEndMarkup(value);
+  const childrenHtml =
+    renderState.lazy && !open
+      ? `<div class="json-children"></div>`
+      : `<div class="json-children">${jsonChildrenMarkup(value, depth, path, renderState)}</div>`;
+  const openAttr = open ? " open" : "";
+  const lazyAttr = renderState.lazy && !open ? ' data-json-lazy="1"' : "";
+  return `<details${openAttr} class="json-node${root ? " root" : ""}" data-json-depth="${depth}" style="--json-sticky-depth: ${depth}" data-json-node-path="${jsonNodePathAttr(path)}"${lazyAttr}><summary>${summary}</summary>${childrenHtml}<div class="json-muted">${end}</div></details>`;
+}
+/**
+ * The markup for one rendered row: the node itself, the `contain-intrinsic-size` hint the
+ * browser needs while the row is offscreen, and the child key the next refresh matches it
+ * against.
+ * @param {unknown} value
+ * @param {string} key
+ * @param {number} depth
+ * @param {readonly string[]} path
+ * @param {JsonRenderState} renderState
+ * @param {boolean} open
+ * @param {boolean} isRoot
+ * @returns {string}
+ */
+function jsonRowMarkup(value, key, depth, path, renderState, open, isRoot) {
+  const content = jsonNodeMarkup(value, key, depth, path, renderState, open, isRoot);
+  if (isRoot) return `<div class="json-row json-pane-root">${content}</div>`;
+  const lines = jsonLineCount(value, renderState);
+  return `<div class="json-row" data-json-child-key="${escapeHtml(key)}" style="contain-intrinsic-size: auto ${lines * 18}px">${content}</div>`;
+}
+/** Builds one element from a markup string, the way the log list does it. */
+function jsonElementFromMarkup(markup) {
+  const template = document.createElement("template");
+  template.innerHTML = markup;
+  const element = template.content.firstElementChild;
+  if (element === null) throw new Error("JSON row markup must contain an element");
+  if (!(element instanceof HTMLElement)) throw new Error("JSON row markup is not an element");
+  return element;
+}
+/**
+ * What each rendered row was built from.
+ *
+ * The pane compares this raw value with the new one instead of rebuilding markup, which is
+ * what keeps an unchanged subtree untouched: its DOM nodes, its already-materialized
+ * children and the user's expansion inside it all survive a refresh.
+ */
+const jsonRenderedRows = new WeakMap();
+/** The view modes the pane's current DOM was built from; a change forces a whole rebuild. */
+const jsonPaneSignatures = new Map();
+/** @param {HTMLElement} row @param {unknown} raw @returns {void} */
+function rememberJsonRow(row, raw) {
+  jsonRenderedRows.set(row, { raw, summary: jsonSummarySignature(raw) });
+}
+/** @param {HTMLElement} container @returns {HTMLElement[]} */
+function jsonChildRows(container) {
+  return qsaOn(container, ":scope > .json-row");
+}
+/** @param {HTMLElement[]} rows @returns {Map<string, HTMLElement>} */
+function jsonRowIndex(rows) {
+  const index = new Map();
+  for (const row of rows) {
+    const key = row.dataset.jsonChildKey;
+    if (key !== undefined) index.set(key, row);
+  }
+  return index;
+}
+/**
+ * Records what every rendered row was built from, so the next refresh compares raw values
+ * instead of rebuilding markup. Only containers that already carry children are walked:
+ * a node the lazy render left empty has nothing below it to record.
+ * @param {HTMLElement} container
+ * @param {unknown} value
+ * @param {readonly string[]} path
+ * @returns {void}
+ */
+function recordJsonRenderedRows(container, value, path) {
+  const index = jsonRowIndex(jsonChildRows(container));
+  for (const [key, child] of jsonChildEntries(value)) {
+    const childKey = jsonChildKey(key);
+    const row = index.get(childKey);
+    if (row === undefined) continue;
+    rememberJsonRow(row, child);
+    const details = detailsOn(row, ":scope > details")[0] ?? null;
+    const children = details === null ? null : qsOn(details, ":scope > .json-children");
+    if (
+      children === null ||
+      children.firstElementChild === null ||
+      child === null ||
+      typeof child !== "object"
+    ) {
+      continue;
+    }
+    recordJsonRenderedRows(children, child, childNodePath(path, childKey));
+  }
+}
+/**
+ * Creates a row the pane has never rendered, in the state a first paint would have given it.
+ * @param {unknown} value
+ * @param {string} key
+ * @param {readonly string[]} path
+ * @param {number} depth
+ * @param {JsonRenderState} renderState
+ * @returns {HTMLElement}
+ */
+function createJsonRow(value, key, path, depth, renderState) {
+  const open = depth < defaultJsonExpandedDepth;
+  const row = jsonElementFromMarkup(
+    jsonRowMarkup(value, key, depth, path, renderState, open, false),
+  );
+  rememberJsonRow(row, value);
+  return row;
+}
+/**
+ * Brings one live row in step with a new raw value, touching only what differs.
+ *
+ * A node whose raw value is structurally identical does no work at all, which is what makes
+ * a refresh of an unchanged body free. A node that changed keeps its own `<details>`: the
+ * summary line is rewritten and its children are reconciled, so a large subtree whose one
+ * leaf changed is not rebuilt. Only a row whose shape changed - a leaf that became a node,
+ * a node that became a leaf, or a formatted string whose text changed - is replaced.
+ * @param {HTMLElement} el
+ * @param {HTMLElement} row
+ * @param {unknown} value
+ * @param {string} key
+ * @param {readonly string[]} path
+ * @param {number} depth
+ * @param {JsonRenderState} renderState
+ * @returns {JsonSyncedRow}
+ */
+function syncJsonRow(el, row, value, key, path, depth, renderState) {
+  const remembered = jsonRenderedRows.get(row);
+  if (remembered !== undefined && sameJsonValue(remembered.raw, value)) {
+    return { row, changed: false };
+  }
+  const details = detailsOn(row, ":scope > details")[0] ?? null;
+  const structure =
+    details !== null &&
+    details.classList.contains("json-node") &&
+    value !== null &&
+    typeof value === "object";
+  if (!structure) {
+    const fresh = jsonElementFromMarkup(
+      jsonRowMarkup(value, key, depth, path, renderState, false, false),
+    );
+    rememberJsonRow(fresh, value);
+    row.replaceWith(fresh);
+    return { row: fresh, changed: true };
+  }
+  const open = details.open || depth < defaultJsonExpandedDepth;
+  const lazy = renderState.lazy && !open;
+  // Only the descendants changed: the summary line is what it was, so the node the user is
+  // looking at keeps its own DOM instead of churning on the way down to what changed. When
+  // the count of children changed, the count text alone is rewritten.
+  if (remembered === undefined || remembered.summary !== jsonSummarySignature(value)) {
+    const summary = qsOn(details, ":scope > summary");
+    if (summary !== null) {
+      const count = qsOn(summary, ":scope > .json-muted");
+      const childCount = jsonHasChildren(value) ? jsonChildEntries(value).length : 0;
+      if (
+        count !== null &&
+        childCount > 0 &&
+        remembered !== undefined &&
+        jsonSummaryShape(remembered.raw) === jsonSummaryShape(value) &&
+        jsonSummaryShape(value) !== ""
+      ) {
+        count.textContent = ` ${childCount} ${t("items")} `;
+      } else {
+        summary.innerHTML = jsonSummaryMarkup(value, key, depth, path, renderState);
+      }
+    }
+  }
+  details.dataset.jsonDepth = String(depth);
+  details.dataset.jsonNodePath = JSON.stringify(path);
+  details.style.setProperty("--json-sticky-depth", String(depth));
+  if (lazy) details.setAttribute("data-json-lazy", "1");
+  else details.removeAttribute("data-json-lazy");
+  const wasOpen = details.open;
+  details.open = open;
+  if (open && details.dataset.jsonLazy === "1" && !wasOpen) {
+    enqueueJsonMaterialize(el, details);
+  }
+  row.style.containIntrinsicSize = `auto ${jsonLineCount(value, renderState) * 18}px`;
+  rememberJsonRow(row, value);
+  if (lazy) return { row, changed: true };
+  const children = qsOn(details, ":scope > .json-children");
+  if (children === null) return { row, changed: true };
+  return { row, changed: syncJsonChildren(el, children, path, depth, value, renderState) };
+}
+/**
+ * What a reconciled row left behind: the element that now stands where the row was, and
+ * whether the DOM changed. The element is reported because a row whose shape changed is
+ * replaced, and what follows it has to be lined up against the row that is in the document
+ * rather than the one that was taken out of it.
+ * @typedef {{row: HTMLElement, changed: boolean}} JsonSyncedRow
+ */
+/**
+ * Whether `row` already comes after `previous` in this container. The scan stops at the row,
+ * so the common case - the order did not change - costs one sibling step per row.
+ * @param {HTMLElement} row
+ * @param {HTMLElement} previous
+ * @returns {boolean}
+ */
+function jsonRowFollows(row, previous) {
+  for (let node = previous.nextElementSibling; node !== null; node = node.nextElementSibling) {
+    if (node === row) return true;
+  }
+  return false;
+}
+/**
+ * Brings a live node's children in step with a new raw value.
+ *
+ * Rows whose key disappeared are removed, rows that are already in the right place are left
+ * alone, and a row that is only in the wrong place is moved - never rebuilt. Newly created
+ * rows are inserted after the previous sibling, so the DOM order follows the entry order
+ * without moving every row that was already correct.
+ * @param {HTMLElement} el
+ * @param {HTMLElement} container
+ * @param {readonly string[]} parentPath
+ * @param {number} parentDepth
+ * @param {unknown} value
+ * @param {JsonRenderState} renderState
+ * @returns {boolean}
+ */
+function syncJsonChildren(el, container, parentPath, parentDepth, value, renderState) {
+  const entries = jsonChildEntries(value);
+  const index = jsonRowIndex(jsonChildRows(container));
+  const wanted = new Set(entries.map(([key]) => jsonChildKey(key)));
+  let changed = false;
+  for (const [key, row] of index) {
+    if (wanted.has(key)) continue;
+    row.remove();
+    changed = true;
+  }
+  let previous = null;
+  for (const [key, child] of entries) {
+    const childKey = jsonChildKey(key);
+    const childPath = childNodePath(parentPath, childKey);
+    const existing = index.get(childKey);
+    if (existing !== undefined) {
+      const placed = syncJsonRow(
+        el,
+        existing,
+        child,
+        childKey,
+        childPath,
+        parentDepth + 1,
+        renderState,
+      );
+      if (placed.changed) changed = true;
+      // A key that arrived in a different position has to show in that position too, so a
+      // row that ended up behind a later entry is moved back in front of it.
+      if (previous !== null && !jsonRowFollows(placed.row, previous)) {
+        container.insertBefore(placed.row, previous.nextElementSibling);
+        changed = true;
+      }
+      previous = placed.row;
+      continue;
+    }
+    const created = createJsonRow(child, childKey, childPath, parentDepth + 1, renderState);
+    container.insertBefore(
+      created,
+      previous === null ? container.firstElementChild : previous.nextElementSibling,
+    );
+    previous = created;
+    changed = true;
+  }
+  return changed;
 }
 let jsonMeasureBox = null;
 let jsonMeasureResults = new Map();
@@ -712,63 +1104,116 @@ function jsonText(value) {
   return text === undefined ? "undefined" : text;
 }
 const jsonLineWidthCache = {};
-const jsonPaneRenderInputs = new Map();
+/**
+ * The render state of one pane: the view modes it is showing and whether the body is big
+ * enough to render lazily.
+ * @param {string} key
+ * @returns {JsonRenderState}
+ */
+function jsonRenderState(key) {
+  return {
+    formatMode: state.formatStrings[key] === true,
+    lineWidth: jsonLineWidthCache[key] || 0,
+    wrap: state.wrap[key] === true,
+    lazy: jsonEntryCount(state.raw[key], lazyJsonEntryLimit) > lazyJsonEntryLimit,
+  };
+}
+/**
+ * The signature the pane's current DOM was built from.
+ *
+ * Everything in it changes the markup of every node, so a change means a whole rebuild.
+ * The raw value is deliberately absent: that one is reconciled node by node, which is the
+ * whole point of keeping the rendered rows.
+ * @param {string} key
+ * @param {JsonRenderState} renderState
+ * @returns {string}
+ */
+function jsonPaneSignature(key, renderState) {
+  return JSON.stringify([
+    state.language,
+    state.tree[key],
+    renderState.formatMode,
+    renderState.lineWidth,
+    renderState.wrap,
+    renderState.lazy,
+  ]);
+}
+/**
+ * Records what a freshly built tree was rendered from, so the next refresh reconciles it
+ * instead of replacing it.
+ * @param {HTMLElement} el
+ * @param {unknown} raw
+ * @returns {void}
+ */
+function seedJsonRenderedRows(el, raw) {
+  const rootRow = qsOn(el, ":scope > .json-row");
+  if (rootRow === null) return;
+  rememberJsonRow(rootRow, raw);
+  const details = detailsOn(rootRow, ":scope > details")[0] ?? null;
+  const children = details === null ? null : qsOn(details, ":scope > .json-children");
+  if (children !== null && raw !== null && typeof raw === "object") {
+    recordJsonRenderedRows(children, raw, []);
+  }
+}
 export function renderJsonPane(key, options = {}) {
   const el = $(key + "Json");
   // Cache the content width while the DOM is still clean: reading it later,
   // after the tree was mutated, forces a synchronous re-layout.
   jsonLineWidthCache[key] = el.clientWidth > 24 ? el.clientWidth - 24 : 0;
-  const viewState = options.preserveView ? collectJsonPaneViewState(el) : null;
   el.classList.toggle("wrap", state.wrap[key]);
   el.classList.toggle("nowrap", !state.wrap[key]);
-  // The cache input is the raw value plus view modes and the current measured
-  // content width. Raw/mode changes replace markup; unchanged input preserves
-  // DOM nodes, expansion state, and pane scroll. Intrinsic text measurements
-  // survive width changes; fit decisions use the new width. A replaced or
-  // materialized tree invalidates the flat row cache so viewport pre-realization sees current rows.
-  const input = JSON.stringify([
-    state.raw[key],
-    state.tree[key],
-    state.formatStrings[key],
-    state.language,
-    jsonLineWidthCache[key],
-  ]);
-  const inputChanged = jsonPaneRenderInputs.get(key) !== input;
-  jsonPaneRenderInputs.set(key, input);
-  const rendered = state.jsonPaneHtml[key];
-  // Parsing the tree is what costs: a several-hundred-kilobyte request body is
-  // tens of thousands of nodes. Building the markup is cheap, so a refresh that
-  // produced the same markup keeps the existing DOM instead of re-parsing it.
-  if (state.tree[key]) {
-    el.dataset.jsonPaneKey = key;
-    const lineWidth = jsonLineWidthCache[key] || 0;
-    if (state.formatStrings[key])
-      prepareJsonMeasurements(state.raw[key], lineWidth, defaultJsonExpandedDepth);
-    const html = jsonRowHtml(
-      state.raw[key],
-      "",
-      state.formatStrings[key],
-      0,
-      [],
-      lineWidth,
-      jsonEntryCount(state.raw[key], lazyJsonEntryLimit) > lazyJsonEntryLimit,
-      defaultJsonExpandedDepth,
-      true,
-    );
-    if (inputChanged || html !== rendered) {
-      state.jsonPaneHtml[key] = html;
-      el.innerHTML = html;
-      jsonRowWindowInvalidate(key);
-      restoreJsonPaneViewState(el, viewState);
-    }
-  } else {
+  if (!state.tree[key]) {
+    // The plain-text view has no nodes to reconcile: it is one serialized string.
+    jsonPaneSignatures.delete(key);
     const text = jsonText(state.raw[key]);
-    if (inputChanged || text !== rendered) {
+    if (text !== state.jsonPaneHtml[key]) {
       state.jsonPaneHtml[key] = text;
       el.textContent = text;
       jsonRowWindowInvalidate(key);
     }
+    updateExpandButton(key);
+    updatePaneButtons(key);
+    return;
   }
+  el.dataset.jsonPaneKey = key;
+  const renderState = jsonRenderState(key);
+  if (renderState.formatMode) {
+    prepareJsonMeasurements(state.raw[key], renderState.lineWidth, defaultJsonExpandedDepth);
+  }
+  const signature = jsonPaneSignature(key, renderState);
+  const rootRow = qsOn(el, ":scope > .json-row");
+  // The pane may only reconcile what it already rendered for this record. A view-mode
+  // change, a language switch, a width change or a newly selected record rebuilds the tree.
+  const canReconcile =
+    options.resetView !== true &&
+    jsonPaneSignatures.get(key) === signature &&
+    rootRow !== null &&
+    el.dataset.jsonPaneKey === key;
+  jsonPaneSignatures.set(key, signature);
+  if (canReconcile) {
+    // Nothing is assigned into the pane and no scroll offset is written, so the pane keeps
+    // its scroll position and every row the user had expanded, and an unchanged body costs
+    // one comparison at the root.
+    const synced = syncJsonRow(el, rootRow, state.raw[key], "", [], 0, renderState);
+    if (!synced.changed) return;
+    jsonRowWindowInvalidate(key);
+    updateExpandButton(key);
+    updatePaneButtons(key);
+    return;
+  }
+  const viewState = options.preserveView ? collectJsonPaneViewState(el) : null;
+  el.innerHTML = jsonRowMarkup(
+    state.raw[key],
+    "",
+    0,
+    [],
+    renderState,
+    0 < defaultJsonExpandedDepth,
+    true,
+  );
+  jsonRowWindowInvalidate(key);
+  seedJsonRenderedRows(el, state.raw[key]);
+  restoreJsonPaneViewState(el, viewState);
   updateExpandButton(key);
   updatePaneButtons(key);
 }
@@ -776,12 +1221,15 @@ export function renderJsonPane(key, options = {}) {
 function hasMetadata(value) {
   return Boolean(value && typeof value === "object" && Object.keys(value).length);
 }
+const metaRenderState = { formatMode: true, lineWidth: 0, wrap: false, lazy: false };
 export function renderMetaPane(key) {
   const el = $(key + "Meta");
   const available = hasMetadata(state.meta[key]);
   const open = available && state.metaOpen[key];
   el.hidden = !open;
-  el.innerHTML = open ? renderJsonValue(state.meta[key], "", true, true, 0) : "";
+  el.innerHTML = open
+    ? jsonNodeMarkup(state.meta[key], "", 0, [], metaRenderState, true, true)
+    : "";
   updateMetaButton(key);
 }
 export function updateResponseTiming() {

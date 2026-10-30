@@ -247,8 +247,9 @@ describe("admin UI history page", { timeout: UI_TEST_TIMEOUT_MS }, () => {
     await page.locator("#autoRefreshLogs").uncheck();
     await page.evaluate(`
       const stringLength = Math.floor(document.getElementById('requestJson').clientWidth / 9);
-      window.__ai21Apply = (text) => {
+      window.__ai21Apply = (text, changedIndex) => {
         const children = Object.fromEntries(Array.from({length: 1600}, (_, i) => ['key' + i, text.padEnd(stringLength, 'x')]));
+        if (changedIndex !== undefined) children['key' + changedIndex] = 'changed-' + text;
         window.__adminUiTest.applySelectedLogDetail(
           {request: {branch: {leaf: children}}, response: null}, {resetView: false});
       };
@@ -294,24 +295,64 @@ describe("admin UI history page", { timeout: UI_TEST_TIMEOUT_MS }, () => {
     ).toBe(0);
     expect(await page.evaluate("window.__ai21LateMeasurements")).toEqual([]);
     await page.evaluate("window.__ai21RestoreOffsets()");
+    // Counts DOM nodes the pane adds or removes, which is what separates a pane that
+    // reconciles from a pane that replaces its whole tree.
+    await page.evaluate(`
+      window.__ai21Mutations = 0;
+      const observer = new MutationObserver((records) => {
+        for (const record of records)
+          window.__ai21Mutations += record.addedNodes.length + record.removedNodes.length;
+      });
+      observer.observe(document.getElementById('requestJson'), {childList: true, subtree: true});
+    `);
     const filled = await lazy.elementHandle();
+    /** The state of the node the user opened, read from that element itself. */
+    const materializedState = () =>
+      filled.evaluate<{ connected: boolean; open: boolean }>((node) => {
+        // The handle is the <details> node the test opened.
+        const details = node as HTMLDetailsElement;
+        return { connected: details.isConnected, open: details.open };
+      });
+    await setScrollTop(page.locator("#requestJson"), 240);
+    const rowsBefore = await page.locator("#requestJson .json-row").count();
+    // An identical body must leave the DOM alone: the filled node, the rows inside it and
+    // the user's expansion and scroll are exactly what a refresh has to keep.
+    await page.evaluate("window.__ai21Mutations = 0");
     await page.evaluate(`window.__ai21Apply('first-value')`);
-    expect(await filled.evaluate((node) => node.isConnected)).toBe(true);
-    await expectPage(lazy).toHaveJSProperty("open", true);
-    // Only a hidden leaf changes: initial lazy markup is otherwise byte-identical.
+    expect(await materializedState()).toEqual({ connected: true, open: true });
+    expect(await page.evaluate("window.__ai21Mutations")).toBe(0);
+    expect(await page.locator("#requestJson .json-row").count()).toBe(rowsBefore);
+    expect(await scrollTop(page.locator("#requestJson"))).toBe(240);
+    // One child key changes inside an otherwise identical body: only that row is touched,
+    // so the work is proportional to the change and not to the size of the tree.
+    await page.evaluate("window.__ai21Mutations = 0");
+    await page.evaluate(`window.__ai21Apply('first-value', 7)`);
+    await expectPage(page.locator("#requestJson")).toContainText("changed-first-value");
+    await expectPage(page.locator("#requestJson")).not.toContainText("second-value");
+    expect(await page.evaluate("window.__ai21Mutations")).toBeLessThanOrEqual(2);
+    expect(await materializedState()).toEqual({ connected: true, open: true });
+    expect(await page.locator("#requestJson .json-row").count()).toBe(rowsBefore);
+    expect(await scrollTop(page.locator("#requestJson"))).toBe(240);
+    // Every value changes: the rows are rewritten in place, so the materialized node keeps
+    // its DOM identity while the pane still shows the new content completely.
+    await page.evaluate("window.__ai21Mutations = 0");
     await page.evaluate(`window.__ai21Apply('second-value')`);
     await expectPage(page.locator("#requestJson")).toContainText("second-value");
     await expectPage(page.locator("#requestJson")).not.toContainText("first-value");
-    expect(await filled.evaluate((node) => node.isConnected)).toBe(false);
-    await expectPage(page.locator("#requestJson [data-json-lazy]").first()).toHaveJSProperty(
-      "open",
-      true,
-    );
+    expect(await materializedState()).toEqual({ connected: true, open: true });
+    expect(await page.locator("#requestJson .json-row").count()).toBe(rowsBefore);
+    await page.evaluate(`
+      window.__ai21NoLazyLeft = !document.querySelector('#requestJson [data-json-lazy]');
+    `);
+    // The materialized node stays open, so it no longer carries the lazy marker: its
+    // children are in the DOM and a later refresh reconciles them like any other open node.
+    expect(await page.evaluate("window.__ai21NoLazyLeft")).toBe(true);
     await page.evaluate(`delete document.getElementById('requestJson').clientWidth`);
-    const beforeResize = await lazy.elementHandle();
     await page.evaluate(`document.getElementById('requestJson').style.width = '100px'`);
     await page.evaluate(`window.__ai21Apply('second-value')`);
-    expect(await beforeResize.evaluate((node) => node.isConnected)).toBe(false);
+    // A pane whose measured width changed cannot be reconciled: the line-width fit decisions
+    // are recomputed, which means the whole tree is rebuilt.
+    expect(await filled.evaluate((node) => node.isConnected)).toBe(false);
     await expectPage(page.locator("#requestJson .json-str-detail").first()).toBeAttached();
     await expectPage(page.locator("#requestJson [data-json-lazy]").first()).toHaveJSProperty(
       "open",

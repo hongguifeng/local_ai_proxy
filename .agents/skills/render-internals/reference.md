@@ -30,6 +30,17 @@ what costs seconds, because the tree is tens of thousands of `<details>` nodes. 
 record that was still pending used to be re-parsed on every auto-refresh tick, which froze the
 page — that is where `state.jsonPaneHtml` and the lazy tree came from.
 
+A later probe on a ~1 MB body (100 messages × 300 keys, ~1,067,838 flat characters, ~30,403
+nodes) found the cost was not the parse or the assign: `JSON.stringify` flat, pretty and re-parse
+each took 2-3 ms, and the pane element was assigned a handful of times per apply. What grew with
+every tick was the line-count walk — `jsonLineCount` calls went 150 → 31,759 and
+`countJsonLinesWalk` visits 60,898 → 394,307 — with `jsonEntryCount` and the view-state walk
+re-running on the same apply. The same probe applied a body that carried a new key and found it
+absent from the pane afterwards, with the scroll back at 0: caching the tree string by render
+inputs could hold a body that had already changed. The pane now reconciles rows it already
+rendered, so that walk runs for what changed instead of for the whole tree, and applying the
+same body twice leaves the DOM untouched.
+
 ## Lazy fills and layout
 
 - The residual lag on the _second_ expand click is layout, not JS: every fill re-lays-out the
