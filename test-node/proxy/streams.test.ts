@@ -132,6 +132,105 @@ describe("compactSseValue Responses function calls", () => {
       },
     ]);
   });
+
+  it("keeps the function name that only the output item snapshots carry", () => {
+    const text = [
+      'data: {"type":"response.output_item.added","output_index":0,"item":{"id":"fc_1","type":"function_call","status":"in_progress","arguments":"","call_id":"call_1","name":"exec_command"}}',
+      'data: {"type":"response.function_call_arguments.delta","item_id":"fc_1","output_index":0,"delta":"{\\"cmd\\":"}',
+      'data: {"type":"response.function_call_arguments.delta","item_id":"fc_1","output_index":0,"delta":"\\"ls\\"}"}',
+      'data: {"type":"response.function_call_arguments.done","item_id":"fc_1","output_index":0,"arguments":"{\\"cmd\\":\\"ls\\"}"}',
+      'data: {"type":"response.output_item.done","output_index":0,"item":{"id":"fc_1","type":"function_call","status":"completed","arguments":"{\\"cmd\\":\\"ls\\"}","call_id":"call_1","name":"exec_command"}}',
+    ].join("\n\n");
+
+    expect(compactSseValue(text)?.stream_summary["response_tool_calls"]).toEqual([
+      {
+        arguments: '{"cmd":"ls"}',
+        arguments_json: { cmd: "ls" },
+        item_id: "fc_1",
+        call_id: "call_1",
+        output_index: 0,
+        name: "exec_command",
+      },
+    ]);
+  });
+
+  it("recovers the name from the completed response output", () => {
+    const text = [
+      'data: {"type":"response.function_call_arguments.done","item_id":"fc_2","output_index":0,"arguments":"{\\"value\\":3}"}',
+      'data: {"type":"response.completed","response":{"status":"completed","output":[{"id":"fc_2","type":"function_call","status":"completed","arguments":"{\\"value\\":3}","call_id":"call_2","name":"read_file"}]}}',
+    ].join("\n\n");
+
+    expect(compactSseValue(text)?.stream_summary["response_tool_calls"]).toEqual([
+      {
+        arguments: '{"value":3}',
+        arguments_json: { value: 3 },
+        item_id: "fc_2",
+        call_id: "call_2",
+        output_index: 0,
+        name: "read_file",
+      },
+    ]);
+  });
+
+  it("merges an index-keyed entry with a later snapshot that carries the item ID", () => {
+    const text = [
+      'data: {"type":"response.function_call_arguments.delta","output_index":0,"delta":"{\\"value\\":4}"}',
+      'data: {"type":"response.output_item.done","output_index":0,"item":{"id":"fc_4","type":"function_call","arguments":"{\\"value\\":4}","call_id":"call_4","name":"write_file"}}',
+    ].join("\n\n");
+
+    expect(compactSseValue(text)?.stream_summary["response_tool_calls"]).toEqual([
+      {
+        arguments: '{"value":4}',
+        arguments_json: { value: 4 },
+        item_id: "fc_4",
+        call_id: "call_4",
+        output_index: 0,
+        name: "write_file",
+      },
+    ]);
+  });
+});
+
+describe("compactSseValue Responses custom tool calls", () => {
+  it("merges freeform input deltas with the name from the output item snapshot", () => {
+    const text = [
+      'data: {"type":"response.output_item.added","output_index":0,"item":{"id":"ctc_1","type":"custom_tool_call","status":"in_progress","call_id":"call_1","input":"","name":"exec"}}',
+      'data: {"type":"response.custom_tool_call_input.delta","item_id":"ctc_1","output_index":0,"delta":"const r"}',
+      'data: {"type":"response.custom_tool_call_input.delta","item_id":"ctc_1","output_index":0,"delta":" = 1;"}',
+      'data: {"type":"response.custom_tool_call_input.done","item_id":"ctc_1","output_index":0,"input":"const r = 1;"}',
+      'data: {"type":"response.output_item.done","output_index":0,"item":{"id":"ctc_1","type":"custom_tool_call","status":"completed","call_id":"call_1","input":"const r = 1;","name":"exec"}}',
+    ].join("\n\n");
+
+    const summary = compactSseValue(text)?.stream_summary;
+    expect(summary?.["response_custom_tool_calls"]).toEqual([
+      {
+        input: "const r = 1;",
+        item_id: "ctc_1",
+        call_id: "call_1",
+        output_index: 0,
+        name: "exec",
+      },
+    ]);
+    // Freeform input is not JSON arguments, so it never enters the other section.
+    expect(summary?.["response_tool_calls"]).toBeUndefined();
+  });
+
+  it("recovers the custom tool name from the completed response output", () => {
+    const text = [
+      'data: {"type":"response.custom_tool_call_input.done","item_id":"ctc_2","output_index":1,"input":"*** Begin Patch"}',
+      'data: {"type":"response.completed","response":{"status":"completed","output":[{"id":"rs_1","type":"reasoning"},{"id":"ctc_2","type":"custom_tool_call","status":"completed","call_id":"call_2","input":"*** Begin Patch","name":"apply_patch"}]}}',
+    ].join("\n\n");
+
+    expect(compactSseValue(text)?.stream_summary["response_custom_tool_calls"]).toEqual([
+      {
+        input: "*** Begin Patch",
+        item_id: "ctc_2",
+        call_id: "call_2",
+        output_index: 1,
+        name: "apply_patch",
+      },
+    ]);
+  });
 });
 
 describe("compactSseValue Responses web search", () => {
@@ -419,6 +518,20 @@ describe("IncrementalSseAccumulator", () => {
     expect(accumulator.hasSeenTextToken()).toBe(true);
   });
 
+  it("treats custom tool call input as the first token when no text is present", () => {
+    const accumulator = new IncrementalSseAccumulator();
+    accumulator.addChunk('data: {"type":"response.created","response":{"id":"resp_1"}}\n\n');
+    expect(accumulator.hasSeenTextToken()).toBe(false);
+    accumulator.addChunk(
+      `data: ${JSON.stringify({
+        type: "response.custom_tool_call_input.delta",
+        item_id: "ctc_1",
+        delta: "const",
+      })}\n\n`,
+    );
+    expect(accumulator.hasSeenTextToken()).toBe(true);
+  });
+
   it("does not report the first token for tool-call-only chat streams", () => {
     const accumulator = new IncrementalSseAccumulator();
     const data = JSON.stringify({
@@ -438,6 +551,7 @@ describe("IncrementalSseAccumulator", () => {
     { choices: [{ delta: { tool_calls: [{ function: { arguments: "{}" } }] } }] },
     { type: "content_block_delta", delta: { type: "input_json_delta", partial_json: "{}" } },
     { type: "response.function_call_arguments.delta", delta: "{}" },
+    { type: "response.custom_tool_call_input.delta", delta: "const" },
     { choices: [{ delta: { reasoning_content: "thinking" } }] },
   ])("counts generated payloads independently of bookkeeping: %j", (event) => {
     const accumulator = new IncrementalSseAccumulator();

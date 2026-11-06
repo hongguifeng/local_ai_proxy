@@ -43,6 +43,23 @@ description: >-
   resolves is still empty.
 - `first_token_ms` and `decode_window_ms` are sampled only for SSE responses; a buffered
   non-stream request legitimately has neither.
+- A Responses tool call is split across event families:
+  `response.function_call_arguments.delta|done` carry only `item_id`, `output_index` and the
+  argument text, while the function `name` and `call_id` travel on
+  `response.output_item.added|done` (and on the final `response.output` array). Reading only
+  the argument events stores `response_tool_calls: [{ arguments, item_id, output_index }]` —
+  arguments with no name. Merge the item snapshot into the same entry by item ID, and keep
+  the fallback for a gateway that emits anonymous index-keyed deltas, or one call shows up as
+  two entries (name only, arguments only). Records captured before unknown-event trimming
+  still carry `unknown_response_events`, so this is checkable offline: the
+  `response_tool_calls[].item_id` equals the `item.id` of the matching
+  `response.output_item.added`, which carries `name` and `call_id`. `custom_tool_call` items
+  are a second family with their own events (`response.custom_tool_call_input.delta|done`,
+  freeform `input` instead of JSON `arguments`); they merge the same way into
+  `response_custom_tool_calls`, where `arguments_json` is deliberately absent because the
+  payload is code, not JSON. Their input bytes also count as generated payload for
+  `hasSeenTextToken` and `generatedEvents`, so a response whose only output is a custom tool
+  call still gets a decode window.
 - A target's `session_header` is planned **once per request**, before the first upstream
   attempt, and the same entry is applied to a failover retry in `upstreamRequestHeaders`.
   Recomputing it after the model rewrite would change the derived value (the derivation
