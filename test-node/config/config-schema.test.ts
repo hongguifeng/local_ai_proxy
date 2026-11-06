@@ -80,6 +80,7 @@ describe("targetConfigSchema", () => {
       target_headers: ["X-Test: yes"],
       strip_request_fields: "temperature",
       inject_request_fields: '{"stream":true}',
+      session_header: "x-opencode-session",
       log_root: "logs",
       redact_logs: true,
       model_mappings: [{ listen: "local", upstream: "remote" }],
@@ -116,6 +117,51 @@ describe("targetConfigSchema", () => {
       model_mappings: [],
     });
     expect(target.model_prices).toEqual([]);
+  });
+
+  it("accepts a session header name and defaults it to off", () => {
+    const base = {
+      id: "target-1",
+      name: "Target",
+      enabled: true,
+      target_url: "https://provider.example/v1",
+      target_api_key: "",
+      target_headers: [],
+      strip_request_fields: "",
+      inject_request_fields: "",
+      log_root: "logs",
+      redact_logs: false,
+      model_mappings: [],
+    };
+    expect(
+      targetConfigSchema.parse({ ...base, session_header: " x-opencode-session " }),
+    ).toMatchObject({ session_header: "x-opencode-session" });
+    expect(targetConfigSchema.parse(base)).toMatchObject({ session_header: "" });
+  });
+
+  it.each([
+    ["a space inside", "x-opencode session"],
+    ["a colon", "x-opencode-session: value"],
+    ["a hop-by-hop header", "connection"],
+    ["a transport-owned header", "Content-Length"],
+    ["an over-long name", "x".repeat(65)],
+  ])("rejects %s as a session header name", (_name, sessionHeader) => {
+    expect(() =>
+      targetConfigSchema.parse({
+        id: "target-1",
+        name: "Target",
+        enabled: true,
+        target_url: "https://provider.example/v1",
+        target_api_key: "",
+        target_headers: [],
+        strip_request_fields: "",
+        inject_request_fields: "",
+        session_header: sessionHeader,
+        log_root: "logs",
+        redact_logs: false,
+        model_mappings: [],
+      }),
+    ).toThrow();
   });
 
   it("rejects duplicate price patterns within one target", () => {

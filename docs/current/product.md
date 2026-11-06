@@ -23,7 +23,7 @@ LLM Proxy 是本地 HTTP 代理和 Web 控制台，用于检查 Agent、SDK 或�
 | 对象                | 关键字段                                                | 行为                                         |
 | ------------------- | ------------------------------------------------------- | -------------------------------------------- |
 | Pair                | `id`、`name`、`enabled`、`listen_host`、`listen_port`   | 一个本地监听器和一组上游目标                 |
-| Target              | `id`、`target_url`、headers、字段改写、`log_root`、价格 | 一个上游服务和它的日志/计价设置              |
+| Target              | `id`、`target_url`、headers、字段改写、`session_header`、`log_root`、价格 | 一个上游服务和它的日志/计价设置              |
 | Model mapping       | `listen`、`upstream`                                    | 按顺序匹配模型名，可改写上游模型名           |
 | Load balancer group | `model_pattern`、策略、members                          | 对同一模型的多个 target 做任务粘性和负载选择 |
 | Summary model       | `api_type`、`target_url`、`model`、`reasoning_effort`   | 任务简介生成的控制面配置，不参与代理路由     |
@@ -57,6 +57,10 @@ LLM Proxy 是本地 HTTP 代理和 Web 控制台，用于检查 Agent、SDK 或�
 - 日志写入失败只进入运行诊断，不把已经成功完成的上游响应改成失败。
 
 这些边界的详细依据见 [代理运行 ADR-005](../decisions/adr/005-client-abort-behavior.md)、[ADR-012](../decisions/adr/012-decoded-response-body-in-logs.md) 和 `proxy-runtime` skill。
+
+### 会话头补齐
+
+有的上游把会话标识当硬性合同：请求里没有任何会话头就拒（OpenCode Go 返回 400 `MissingSessionID`），而客户端的压缩、摘要这类辅助请求不一定带。目标字段 `session_header` 就是为此存在的开关：写上一个 Header 名（例如 `x-opencode-session`）就启用，留空即关闭。启用后代理只在转发集合里没有这个头时才补，取值顺序是：客户端已有的同名头（或 `target_headers` 里显式写的同名头）不动；否则把客户端自己的会话头（`session_id`、`x-session-affinity`、`x-claude-code-session-id`，按此顺序）复制过去；都没有才按 `model`、边界指纹和首条用户文本的前 4 KB 派生 `proxy-<24 位十六进制>`，同一会话的连续请求与后续压缩请求因此落在同一个路由桶里，重启后也不变。派生 id 与主对话的会话 id 不是同一个值，所以一次压缩请求会换一次桶；会话被压缩替换历史后派生值也会跟着变，这两点都是一次性的缓存未命中，不是缺陷。补了哪个头记在记录的 `added_upstream_headers` 里，只记名字不记值。完整语义见[上游会话头补齐设计](../design/accepted/session-header-injection.md)与 [ADR-016](../decisions/adr/016-upstream-session-header-injection.md)。
 
 ## 4. 历史与统计
 

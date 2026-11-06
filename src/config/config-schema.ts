@@ -19,6 +19,47 @@ const injectRequestFieldsSchema = z.string().refine(isJsonObjectText, {
   message: "inject request fields must be an empty string or JSON object",
 });
 
+/** An HTTP field name: the RFC 9110 token characters, nothing else. */
+const HEADER_NAME_PATTERN = /^[A-Za-z0-9!#$%&'*+.^_`|~-]+$/;
+
+/**
+ * Names the transport decides and this layer must never invent: the hop-by-hop set of
+ * `src/proxy/headers.ts` plus the two request headers the proxy rewrites itself. A session
+ * header that names one of these would either be stripped on the way out or conflict with the
+ * framing, so it is refused at save time instead of being silently ignored at forward time.
+ */
+const RESERVED_HEADER_NAMES: ReadonlySet<string> = new Set([
+  "connection",
+  "content-length",
+  "host",
+  "keep-alive",
+  "proxy-authenticate",
+  "proxy-authorization",
+  "te",
+  "trailer",
+  "transfer-encoding",
+  "upgrade",
+]);
+
+/**
+ * The header a target guarantees on every forwarded request, or empty for no guarantee.
+ * Only the name is configurable: the value is either copied from the client's own session
+ * header or derived from the request, because a fixed value would put every conversation in
+ * one routing bucket. See ADR-016.
+ */
+const sessionHeaderSchema = z
+  .string()
+  .trim()
+  .max(64, "session header name must be at most 64 characters")
+  .refine(
+    (value) => value === "" || HEADER_NAME_PATTERN.test(value),
+    "session header name must be an HTTP field name without spaces or colons",
+  )
+  .refine(
+    (value) => !RESERVED_HEADER_NAMES.has(value.toLowerCase()),
+    "session header name cannot be a hop-by-hop or transport-owned header",
+  );
+
 export const modelMappingSchema = z.object({
   listen: z.string().trim().min(1, "listen model is required"),
   upstream: z.string().trim().min(1, "upstream model is required"),
@@ -115,6 +156,7 @@ export const targetConfigSchema = z
     target_headers: z.array(headerOverrideSchema),
     strip_request_fields: z.string(),
     inject_request_fields: injectRequestFieldsSchema,
+    session_header: sessionHeaderSchema.default(""),
     log_root: z.string(),
     redact_logs: z.boolean(),
     model_mappings: z.array(modelMappingSchema),

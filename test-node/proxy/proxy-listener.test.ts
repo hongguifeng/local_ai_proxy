@@ -900,6 +900,78 @@ describe("ProxyListener", () => {
     await closeServer(upstream);
   });
 
+  it("adds no session header when the target names none", async () => {
+    const fixture = await sessionHeaderFixture(undefined);
+    expect(
+      (
+        await requestText(fixture.port, "/v1/chat/completions", {
+          method: "POST",
+          body: JSON.stringify({
+            model: "test-model",
+            messages: [{ role: "user", content: "hi" }],
+          }),
+        })
+      ).status,
+    ).toBe(200);
+    expect(fixture.received[0]).not.toHaveProperty("x-opencode-session");
+    expect(finishedRequestField(fixture.records, "added_upstream_headers")).toBeUndefined();
+    await fixture.close();
+  });
+
+  it("copies the client's own session header into the configured name", async () => {
+    const fixture = await sessionHeaderFixture("x-opencode-session");
+    await requestText(fixture.port, "/v1/chat/completions", {
+      method: "POST",
+      body: JSON.stringify({ model: "test-model", messages: [{ role: "user", content: "hi" }] }),
+      headers: { session_id: "client-session" },
+    });
+    expect(fixture.received[0]?.["x-opencode-session"]).toBe("client-session");
+    // The client's own header is still there: the proxy added evidence, not a replacement.
+    expect(fixture.received[0]?.["session_id"]).toBe("client-session");
+    expect(finishedRequestField(fixture.records, "added_upstream_headers")).toEqual([
+      "x-opencode-session",
+    ]);
+    await fixture.close();
+  });
+
+  it("derives one stable session id for compaction requests that carry none", async () => {
+    const fixture = await sessionHeaderFixture("x-opencode-session");
+    const transcript = "[User]: 深入分析 binder\n".repeat(600);
+    const body = (extra: string): string =>
+      JSON.stringify({
+        model: "test-model",
+        input: [
+          { role: "developer", content: "You are a context summarization assistant." },
+          {
+            role: "user",
+            content: [{ type: "input_text", text: `<conversation>\n${transcript}${extra}` }],
+          },
+        ],
+        stream: true,
+      });
+    await requestText(fixture.port, "/v1/responses", { method: "POST", body: body("") });
+    await requestText(fixture.port, "/v1/responses", {
+      method: "POST",
+      body: body("[User]: 继续\n[Assistant]: ..."),
+    });
+    const values = fixture.received.map((headers) => headers["x-opencode-session"]);
+    expect(values[0]).toMatch(/^proxy-[0-9a-f]{24}$/u);
+    expect(values[1]).toBe(values[0]);
+    await fixture.close();
+  });
+
+  it("keeps a session header the client already sent under the configured name", async () => {
+    const fixture = await sessionHeaderFixture("x-opencode-session");
+    await requestText(fixture.port, "/v1/chat/completions", {
+      method: "POST",
+      body: JSON.stringify({ model: "test-model", messages: [{ role: "user", content: "hi" }] }),
+      headers: { "x-opencode-session": "client-owned" },
+    });
+    expect(fixture.received[0]?.["x-opencode-session"]).toBe("client-owned");
+    expect(finishedRequestField(fixture.records, "added_upstream_headers")).toBeUndefined();
+    await fixture.close();
+  });
+
   it("returns 502 for TLS validation and DNS failures", async () => {
     const fixtureRoot = path.join(process.cwd(), "fixtures", "parity", "tls");
     const tlsUpstream = https.createServer(
@@ -1967,6 +2039,78 @@ async function releaseAfterDelivery(
     gzip.write(event);
   }
   gzip.end();
+}
+
+/**
+ * One pipeline whose single target names (or does not name) a session header, plus the headers
+ * the fixture upstream received and the events the pipeline wrote.
+ */
+async function sessionHeaderFixture(sessionHeader: string | undefined): Promise<{
+  readonly port: number;
+  readonly received: http.IncomingHttpHeaders[];
+  readonly records: Readonly<Record<string, unknown>>[];
+  close(): Promise<void>;
+}> {
+  const received: http.IncomingHttpHeaders[] = [];
+  const records: Readonly<Record<string, unknown>>[] = [];
+  const upstream = http.createServer((request, response) => {
+    received.push(request.headers);
+    request.on("end", () => response.end("ok"));
+    request.resume();
+  });
+  const upstreamPort = await listenServer(upstream);
+  const trafficLog: TrafficLogWriter = {
+    write(record) {
+      records.push(record);
+      return Promise.resolve();
+    },
+    update() {
+      return Promise.resolve();
+    },
+  };
+  const pipeline = new ProxyRequestPipeline({
+    targets: [
+      {
+        enabled: true,
+        id: "session-target",
+        modelMappings: [],
+        name: "Session target",
+        sessionHeader,
+        targetScheme: "http",
+        targetHost: "127.0.0.1",
+        targetPort: upstreamPort,
+        targetBasePath: "",
+        trafficLog,
+      },
+    ],
+  });
+  const listener = new ProxyListener({
+    host: "127.0.0.1",
+    port: 0,
+    onRequest: (request, response, context) => pipeline.handle(request, response, context),
+  });
+  const address = await listener.start();
+  return {
+    port: address.port,
+    received,
+    records,
+    async close() {
+      await listener.close();
+      await closeServer(upstream);
+    },
+  };
+}
+
+/** One field of the finished request block, as the log wrote it. */
+function finishedRequestField(
+  records: readonly Readonly<Record<string, unknown>>[],
+  field: string,
+): unknown {
+  const finished = records.find((record) => record["event"] === "request_finished");
+  const request = finished?.["request"];
+  return typeof request === "object" && request !== null
+    ? (request as Record<string, unknown>)[field]
+    : undefined;
 }
 
 function requestText(

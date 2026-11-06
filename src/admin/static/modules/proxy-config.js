@@ -79,6 +79,7 @@ export function createProxyConfig({
     target_headers: [],
     strip_request_fields: "",
     inject_request_fields: "",
+    session_header: "",
     log_root: "logs",
     redact_logs: false,
     model_mappings: [],
@@ -177,6 +178,7 @@ export function createProxyConfig({
         <label><span>${escapeHtml(t("upstreamHeaders"))}</span><textarea data-target-field="target_headers">${escapeHtml((target.target_headers || []).join("\n"))}</textarea></label>
         <label><span>${escapeHtml(t("stripFields"))}</span><textarea data-target-field="strip_request_fields" placeholder="${escapeHtml(suggestedStripRequestFields)}">${escapeHtml(target.strip_request_fields ?? "")}</textarea></label>
         <label><span>${escapeHtml(t("injectFields"))}</span><textarea data-target-field="inject_request_fields" placeholder='{"metadata":{"source":"proxy"}}'>${escapeHtml(target.inject_request_fields ?? "")}</textarea></label>
+        <label><span>${escapeHtml(t("sessionHeader"))}</span><input data-target-field="session_header" value="${escapeHtml(target.session_header ?? "")}" placeholder="x-opencode-session"></label>
       </div>
     </section>`;
   }

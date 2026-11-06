@@ -37,6 +37,7 @@ import {
   type ResponseLogPayload,
 } from "./response-log-capture.js";
 import { endpointKind, responseIdsFromBody } from "./protocol/analysis.js";
+import { planSessionHeader, type SessionHeaderPlan } from "./session-header.js";
 import { requestModelFromBody, rewriteRequestModel, selectTargetByModel } from "./routing.js";
 import type { BindingUsageObservation } from "./binding-activity.js";
 import type { LoadBalancer, LoadBalancerReservation, LoadSample } from "./load-balancer.js";
@@ -73,6 +74,8 @@ export interface ProxyPipelineTarget {
   readonly rejectUnauthorized?: boolean;
   readonly injectRequestFields?: Readonly<Record<string, unknown>>;
   readonly stripRequestFields?: ReadonlySet<string>;
+  /** Header the target guarantees upstream; absent or empty disables the guarantee. */
+  readonly sessionHeader?: string | undefined;
   readonly targetScheme: "http" | "https";
   readonly targetHost: string;
   readonly targetPort: number;
@@ -210,6 +213,15 @@ export class ProxyRequestPipeline {
         activeTarget.stripRequestFields ?? new Set(),
         activeTarget.injectRequestFields ?? {},
       );
+      // The session header is planned once, from the first attempt's body. A failover rewrites the
+      // model name but not the conversation, so the second attempt must carry the same value.
+      const sessionHeader = planSessionHeader({
+        name: activeTarget.sessionHeader,
+        headers: baseForwardHeaders(request, activeTarget),
+        body: transformed.body,
+        path: request.url ?? "/",
+      });
+      const addedUpstreamHeaders = sessionHeader === undefined ? [] : [sessionHeader.name];
       const pricingContext = freezeRequestPricing(
         requestModelFromBody(transformed.body),
         activeTarget.modelPrices ?? [],
@@ -227,6 +239,7 @@ export class ProxyRequestPipeline {
           selection,
           transformed.strippedFields,
           transformed.injectedFields,
+          addedUpstreamHeaders,
         ),
         pricing: pendingRequestPricing(pricingContext),
       };
@@ -249,7 +262,12 @@ export class ProxyRequestPipeline {
             target: activeTarget,
             method: request.method ?? "GET",
             path: joinTargetPath(activeTarget.targetBasePath, request.url ?? "/"),
-            headers: upstreamRequestHeaders(request, activeTarget, transformed.body.byteLength),
+            headers: upstreamRequestHeaders(
+              request,
+              activeTarget,
+              transformed.body.byteLength,
+              sessionHeader,
+            ),
             body: transformed.body,
             signal,
           });
@@ -291,7 +309,12 @@ export class ProxyRequestPipeline {
             target: activeTarget,
             method: request.method ?? "GET",
             path: joinTargetPath(activeTarget.targetBasePath, request.url ?? "/"),
-            headers: upstreamRequestHeaders(request, activeTarget, transformed.body.byteLength),
+            headers: upstreamRequestHeaders(
+              request,
+              activeTarget,
+              transformed.body.byteLength,
+              sessionHeader,
+            ),
             body: transformed.body,
             signal,
           });
@@ -597,6 +620,7 @@ export class ProxyRequestPipeline {
         },
         [],
         [],
+        [],
       ),
       pricing: completeRequestPricing(
         freezeRequestPricing(requestModel, host.modelPrices ?? [], {
@@ -797,9 +821,13 @@ function withRequestDetails(
   selection: PipelineTargetSelection,
   strippedFields: readonly string[],
   injectedFields: readonly string[],
+  addedUpstreamHeaders: readonly string[],
 ): TrafficRequestDraft {
   const transformed =
-    selection.upstreamModel !== undefined || strippedFields.length > 0 || injectedFields.length > 0;
+    selection.upstreamModel !== undefined ||
+    strippedFields.length > 0 ||
+    injectedFields.length > 0 ||
+    addedUpstreamHeaders.length > 0;
   return {
     ...record,
     request: {
@@ -809,6 +837,8 @@ function withRequestDetails(
       ...(transformed ? { upstream_body: bytesPayload(upstreamBody) } : {}),
       ...(strippedFields.length > 0 ? { stripped_fields: strippedFields } : {}),
       ...(injectedFields.length > 0 ? { injected_fields: injectedFields } : {}),
+      // Only the name is recorded: the value may be the client's own session id.
+      ...(addedUpstreamHeaders.length > 0 ? { added_upstream_headers: addedUpstreamHeaders } : {}),
       ...(selection.requestModel === undefined
         ? {}
         : {
@@ -989,20 +1019,31 @@ function upstreamRequestHeaders(
   request: IncomingMessage,
   target: ProxyPipelineTarget,
   bodySize: number,
+  sessionHeader: SessionHeaderPlan | undefined,
 ): HeaderEntry[] {
   const clientHeaders = incomingHeaderEntries(request);
+  const forwarded = baseForwardHeaders(request, target);
+  const withSession =
+    sessionHeader === undefined
+      ? forwarded
+      : [...forwarded, [sessionHeader.name, sessionHeader.value] as HeaderEntry];
   return replaceContentLength(
-    buildForwardHeaders(clientHeaders, {
-      clientHost: request.socket.remoteAddress ?? "",
-      targetApiKey: target.targetApiKey ?? "",
-      targetHeaders: target.targetHeaders ?? [],
-      targetHost: target.targetHost,
-      targetPort: target.targetPort,
-      targetScheme: target.targetScheme,
-    }),
+    withSession,
     bodySize,
     clientHeaders.some(([name]) => name.toLowerCase() === "content-length"),
   );
+}
+
+/** The forwarded header set before the body length is known and before a session header is added. */
+function baseForwardHeaders(request: IncomingMessage, target: ProxyPipelineTarget): HeaderEntry[] {
+  return buildForwardHeaders(incomingHeaderEntries(request), {
+    clientHost: request.socket.remoteAddress ?? "",
+    targetApiKey: target.targetApiKey ?? "",
+    targetHeaders: target.targetHeaders ?? [],
+    targetHost: target.targetHost,
+    targetPort: target.targetPort,
+    targetScheme: target.targetScheme,
+  });
 }
 
 function forwardedResponseHeaders(upstream: IncomingMessage): [string, string][] {

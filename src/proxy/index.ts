@@ -268,6 +268,17 @@ export {
   type TargetSelection,
 } from "./routing.js";
 export {
+  SESSION_HEADER_ALIASES,
+  SESSION_TEXT_PREFIX_CHARS,
+  derivedSessionId,
+  firstUserTextPrefix,
+  headerEntryValue,
+  planSessionHeader,
+  sessionAliasValue,
+  type SessionHeaderInput,
+  type SessionHeaderPlan,
+} from "./session-header.js";
+export {
   IncrementalSseAccumulator,
   StreamAccumulator,
   compactSummaryValue,

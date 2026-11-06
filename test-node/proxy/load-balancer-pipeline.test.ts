@@ -1502,6 +1502,84 @@ describe("connection failover and refused groups", () => {
     await close(healthy.server);
   });
 
+  it("SH-09 sends the same session header on both attempts of one request", async () => {
+    // The first node records the headers it saw and drops the connection, which is the only
+    // failure the pipeline retries; the second node answers.
+    const resetHeaders: http.IncomingHttpHeaders[] = [];
+    const answerHeaders: http.IncomingHttpHeaders[] = [];
+    const resetting = http.createServer((request) => {
+      resetHeaders.push(request.headers);
+      request.resume();
+      request.on("end", () => request.socket.destroy());
+    });
+    const answerModels: string[] = [];
+    const answering = http.createServer((request, response) => {
+      answerHeaders.push(request.headers);
+      let body = "";
+      request.setEncoding("utf8");
+      request.on("data", (chunk: string) => {
+        body += chunk;
+      });
+      request.on("end", () => {
+        const parsed: unknown = JSON.parse(body);
+        const model =
+          isRecord(parsed) && typeof parsed["model"] === "string" ? parsed["model"] : "";
+        answerModels.push(model);
+        response.writeHead(200, { "content-type": "application/json" });
+        response.end(
+          JSON.stringify({ id: "resp", model, usage: { input_tokens: 1, output_tokens: 1 } }),
+        );
+      });
+    });
+    const resetPort = await listen(resetting);
+    const answerPort = await listen(answering);
+
+    const records: Readonly<Record<string, unknown>>[] = [];
+    const trafficLog = collectWriter(records);
+    const balancer = new LoadBalancer("pair-lb");
+    balancer.reconfigure(
+      pair(
+        [target("target-reset", resetPort), target("target-answer", answerPort)],
+        [group("lb-session", ["target-reset", "target-answer"])],
+      ),
+    );
+    const pipeline = new ProxyRequestPipeline({
+      pairId: "pair-lb",
+      defaultTargetId: "target-reset",
+      loadBalancer: balancer,
+      loadSamples: () => EMPTY_LOAD_SAMPLES,
+      targets: [
+        {
+          ...pipelineTarget("target-reset", resetPort, trafficLog),
+          sessionHeader: "x-opencode-session",
+        },
+        {
+          ...pipelineTarget("target-answer", answerPort, trafficLog),
+          sessionHeader: "x-opencode-session",
+        },
+      ],
+    });
+    const { port, listener } = await startListener((request, response, context) =>
+      pipeline.handle(request, response, context),
+    );
+
+    // The client sends no session header, so the proxy derives one from the conversation.
+    expect((await post(port, "/v1/responses", bodyFor("Qwen3.8-Flash-Next", "one"))).status).toBe(
+      200,
+    );
+    expect(answerModels).toEqual(["Qwen3.8-Flash-Next"]);
+    const first = resetHeaders[0]?.["x-opencode-session"];
+    expect(first).toMatch(/^proxy-[0-9a-f]{24}$/u);
+    expect(answerHeaders[0]?.["x-opencode-session"]).toBe(first);
+    expect(finishedRecords(records)[0]?.["request"]).toMatchObject({
+      added_upstream_headers: ["x-opencode-session"],
+    });
+
+    await listener.close();
+    await close(resetting);
+    await close(answering);
+  });
+
   it("LB07-02 does not chain retries when both nodes refuse", async () => {
     const records: Readonly<Record<string, unknown>>[] = [];
     const trafficLog = collectWriter(records);

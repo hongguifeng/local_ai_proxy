@@ -28,6 +28,7 @@ export function createDefaultTarget(logRoot = DEFAULT_LOG_ROOT): TargetConfig {
     target_headers: [],
     strip_request_fields: "",
     inject_request_fields: "",
+    session_header: "",
     log_root: logRoot,
     redact_logs: false,
     model_mappings: [],

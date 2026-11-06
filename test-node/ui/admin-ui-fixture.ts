@@ -1177,6 +1177,7 @@ export function fixturePair(): PublicProxyPair {
         target_headers: [],
         strip_request_fields: "",
         inject_request_fields: "",
+        session_header: "",
         log_root: "logs",
         redact_logs: false,
         model_mappings: [],
@@ -1738,6 +1739,7 @@ export function visualPairs(): PublicProxyPair[] {
     target_headers: [],
     strip_request_fields: "",
     inject_request_fields: "",
+    session_header: "",
     log_root: "logs",
     redact_logs: false,
     model_mappings: [

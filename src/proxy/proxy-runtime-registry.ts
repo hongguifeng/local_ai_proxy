@@ -424,6 +424,7 @@ function runtimeTarget(target: TargetConfig, trafficLog: TrafficLogService): Pro
     modelMappings: target.model_mappings,
     modelPrices: target.model_prices,
     name: target.name,
+    sessionHeader: target.session_header,
     stripRequestFields: parseStripRequestFields(target.strip_request_fields),
     targetScheme: parsed.scheme,
     targetHost: parsed.host,

@@ -48,6 +48,14 @@ chunk_hash)` joins `body_chunks(hash, codec, raw_size, data)`. The three kinds a
   what a schema question should assert.
 - Never write to the file. The user's running instance owns it (WAL); a forensic read is a
   separate connection with `mode=ro`.
+- A 4xx that hits only some requests of one target is best answered by grouping on the
+  **header name set**, not on the body: `json_each(request_headers_json)` per status shows
+  whether one shape lacks a header outright. Measured case: 554 requests to OpenCode Go
+  carried `session_id` and all answered 200, while the 70 that carried no session header at
+  all failed (69 × 400 `MissingSessionID`, 1 client abort), and the failing shape was the
+  context-compaction request (`input[0].role = developer` plus the whole transcript). The
+  payload was fine; the missing header was the cause. `session_header` on that target now
+  fills it in, and `added_upstream_headers` records that the proxy did (ADR-016).
 
 ## Standard commands
 

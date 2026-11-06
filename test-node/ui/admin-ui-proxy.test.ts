@@ -662,6 +662,33 @@ describe("admin UI proxy page", { timeout: UI_TEST_TIMEOUT_MS }, () => {
     await expectPage(options).toBeHidden();
   });
 
+  it("saves the session header name on a target", async () => {
+    await loadAdminPage();
+    const firstTarget = (): Locator =>
+      page.locator('.proxy-card[data-index="0"] .target-card').first();
+    await firstTarget().locator("[data-toggle-target-options]").click();
+    const input = firstTarget().locator('[data-target-field="session_header"]');
+    await expectPage(input).toHaveValue("");
+    await expectPage(input).toHaveAttribute("placeholder", "x-opencode-session");
+
+    await input.fill("x-opencode-session");
+    await Promise.all([
+      page.waitForResponse(
+        (response) =>
+          response.url().endsWith("/api/pairs") && response.request().method() === "PUT",
+      ),
+      page.locator("#saveProxies").click(),
+    ]);
+    expect(pairs[0]?.targets[0]?.session_header).toBe("x-opencode-session");
+
+    // The saved name comes back with the configuration, in the same control.
+    await loadAdminPage();
+    await firstTarget().locator("[data-toggle-target-options]").click();
+    await expectPage(firstTarget().locator('[data-target-field="session_header"]')).toHaveValue(
+      "x-opencode-session",
+    );
+  });
+
   it("edits model prices as compact rule cards", async () => {
     await loadAdminPage();
     const target = page.locator('.proxy-card[data-index="0"] .target-card').first();

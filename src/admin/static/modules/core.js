@@ -124,6 +124,7 @@ const translations = {
     upstreamHeaders: "上游 Headers，每行一个 Name: value",
     stripFields: "转发前移除的 request 字段，逗号分隔；留空关闭",
     injectFields: "转发前注入的 request 字段，JSON object；留空关闭",
+    sessionHeader: "会话头名称；缺失时由代理补齐，留空关闭",
     targets: "转发地址",
     addTarget: "添加转发地址",
     dragTarget: "拖动调整顺序（方向键也可移动）",
@@ -641,6 +642,7 @@ const translations = {
     stripFields:
       "Request fields to remove before forwarding, comma-separated; leave blank to disable",
     injectFields: "Request fields to inject before forwarding, JSON object; leave blank to disable",
+    sessionHeader: "Session header name; the proxy fills it in when missing, blank disables",
     targets: "Targets",
     addTarget: "Add target",
     dragTarget: "Drag to reorder (arrow keys also move)",

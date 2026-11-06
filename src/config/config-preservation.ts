@@ -35,6 +35,7 @@ export const TARGET_CONFIG_KEYS = [
   "target_headers",
   "strip_request_fields",
   "inject_request_fields",
+  "session_header",
   "log_root",
   "redact_logs",
   "model_mappings",

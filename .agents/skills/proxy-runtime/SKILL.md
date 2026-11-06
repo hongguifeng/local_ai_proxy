@@ -43,6 +43,13 @@ description: >-
   resolves is still empty.
 - `first_token_ms` and `decode_window_ms` are sampled only for SSE responses; a buffered
   non-stream request legitimately has neither.
+- A target's `session_header` is planned **once per request**, before the first upstream
+  attempt, and the same entry is applied to a failover retry in `upstreamRequestHeaders`.
+  Recomputing it after the model rewrite would change the derived value (the derivation
+  hashes `model`), which silently splits one conversation across two routing buckets. The
+  plan appends only when the forwarded set has no such header, so `target_headers` and the
+  client's own value still win; the fact is recorded as `added_upstream_headers: [name]`
+  with the value deliberately left out of the log (ADR-016).
 
 ## Standard commands
 
@@ -71,8 +78,9 @@ node dist-node/src/main.js --port <admin> --config-file <pairs> --log-root <dir>
 
 - [reference.md](./reference.md) — the before/after reload observation, the harness recipe
   and the byte-identical upstream proof.
-- [ADR-011](../../../docs/decisions/adr/011-listener-reuse-on-config-save.md) and
-  [ADR-012](../../../docs/decisions/adr/012-decoded-response-body-in-logs.md) — the reload and
-  response-logging decisions.
+- [ADR-011](../../../docs/decisions/adr/011-listener-reuse-on-config-save.md),
+  [ADR-012](../../../docs/decisions/adr/012-decoded-response-body-in-logs.md) and
+  [ADR-016](../../../docs/decisions/adr/016-upstream-session-header-injection.md) — the reload,
+  response-logging and session-header decisions.
 - [current-architecture.md](../../../docs/current/architecture.md) §1 and §4 — the runtime
   model and the shutdown order.
