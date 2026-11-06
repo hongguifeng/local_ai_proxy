@@ -93,6 +93,17 @@
 
 便携打包时先构建 Node 产物，再切换到 Electron ABI 并打包；打包和冒烟完成后恢复 Node ABI。构建会清理已经不存在的 UI bundle 输出，交付检查必须确认 `app.asar` 没有残留的旧 bundle 或已删除脚本。
 
+### 维护命令
+
+| 命令 | 作用 | 什么时候用 |
+| --- | --- | --- |
+| `npm run test:watch` | 先重打 UI bundle，再跑 Vitest 监听模式 | 反复跑与改动相关的用例 |
+| `npm run test:coverage` | 带 V8 覆盖率的完整测试，报告写进 `coverage/` | 想确认某段代码到底有没有被测到 |
+| `npm run compact:traffic -- <源日志根> <目标日志根>` | 重建 `traffic.db`、写 `TRUNCATE` checkpoint，并报出前后字节数 | 日志库变大、需要回收空间。两个目录参数必须给，少一个会抛 `Usage: compact_traffic_database ...` |
+| `npm run smoke:database` | 在临时目录里用 `TrafficRepository` 写读一遍数据库 | 重建过原生模块或改过持久化之后；这是验证 SQLite ABI 状态最快的方式 |
+| `npm run checksums` | 对 `release/` 里的产物算 SHA-256，写成 `release/SHA256SUMS.txt` | 发布或核对产物；目录里没有产物时直接报错 |
+| `npm run package:cli` | 构建并打出 `release/llm-proxy-cli-<版本>.zip` | 只需要命令行版本时 |
+
 ## 9. 文档边界
 
 - [产品行为](product.md) 描述用户可见能力和外部行为，不重复模块实现细节。

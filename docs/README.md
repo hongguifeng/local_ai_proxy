@@ -23,6 +23,7 @@
 | --- | --- |
 | [当前架构](current/architecture.md) | 启动、配置、模块、关闭和验证 |
 | [当前产品行为](current/product.md) | 用户能力、代理合同、数据兼容和非目标 |
+| [控制台功能行为](current/console-behavior.md) | 测试、模型列表、指标看板、价格导入、历史面板和统计口径在界面上的具体表现 |
 | [管理 API 合同](current/contracts/admin-api.md) | schema、服务接线、开放字段和错误语义 |
 | [模块边界](current/contracts/module-boundaries.md) | TypeScript、barrel、UI bundle 和依赖检查 |
 | [UI 视觉基线](current/contracts/ui-visual-baseline.md) | 截图、哈希和视觉差异规则 |
