@@ -411,6 +411,121 @@ describe("compactSseValue Claude metadata", () => {
   });
 });
 
+describe("compactSseValue Responses other tool families", () => {
+  it("merges an MCP call snapshot and its lifecycle without flagging it as dropped", () => {
+    const text = [
+      'data: {"type":"response.output_item.added","output_index":1,"item":{"id":"mcp_1","type":"mcp_call","status":"in_progress","server_label":"srv","name":"search","arguments":""}}',
+      'data: {"type":"response.mcp_call.in_progress","item_id":"mcp_1","output_index":1}',
+      'data: {"type":"response.output_item.done","output_index":1,"item":{"id":"mcp_1","type":"mcp_call","status":"completed","server_label":"srv","name":"search","arguments":"{\\"q\\":\\"docs\\"}","output":"[{\\"title\\":\\"Docs\\"}]","error":null}}',
+    ].join("\n\n");
+
+    const summary = compactSseValue(text)?.stream_summary;
+    expect(summary?.["response_other_tool_calls"]).toEqual([
+      {
+        type: "mcp_call",
+        output_index: 1,
+        item_id: "mcp_1",
+        status: "completed",
+        server_label: "srv",
+        name: "search",
+        arguments: '{"q":"docs"}',
+        output: '[{"title":"Docs"}]',
+        error: null,
+      },
+    ]);
+    expect(summary?.["dropped_event_types"]).toBeUndefined();
+  });
+
+  it("keeps the code interpreter code stream and its outputs", () => {
+    const text = [
+      'data: {"type":"response.output_item.added","output_index":0,"item":{"id":"ci_1","type":"code_interpreter_call","status":"in_progress","code":"","container_id":"c1"}}',
+      'data: {"type":"response.code_interpreter_call_code.delta","item_id":"ci_1","output_index":0,"delta":"print(1)"}',
+      'data: {"type":"response.code_interpreter_call_code.done","item_id":"ci_1","output_index":0,"code":"print(1)"}',
+      'data: {"type":"response.code_interpreter_call.completed","item_id":"ci_1","output_index":0}',
+      'data: {"type":"response.output_item.done","output_index":0,"item":{"id":"ci_1","type":"code_interpreter_call","status":"completed","code":"print(1)","container_id":"c1","outputs":[{"type":"logs","logs":"1"}]}}',
+    ].join("\n\n");
+
+    expect(compactSseValue(text)?.stream_summary["response_other_tool_calls"]).toEqual([
+      {
+        type: "code_interpreter_call",
+        output_index: 0,
+        item_id: "ci_1",
+        status: "completed",
+        code: "print(1)",
+        container_id: "c1",
+        outputs: [{ type: "logs", logs: "1" }],
+      },
+    ]);
+  });
+
+  it("keeps the failure of an MCP call whose item never completed", () => {
+    const text = [
+      'data: {"type":"response.mcp_call.in_progress","item_id":"mcp_2","output_index":0}',
+      'data: {"type":"response.mcp_call.failed","item_id":"mcp_2","output_index":0,"error":{"code":"mcp_error","message":"boom"}}',
+    ].join("\n\n");
+
+    expect(compactSseValue(text)?.stream_summary["response_other_tool_calls"]).toEqual([
+      {
+        type: "mcp_call",
+        output_index: 0,
+        item_id: "mcp_2",
+        status: "failed",
+        error: { code: "mcp_error", message: "boom" },
+      },
+    ]);
+  });
+});
+
+describe("compactSseValue citations and reasoning fallbacks", () => {
+  it("keeps Responses URL citations", () => {
+    const text = [
+      'data: {"type":"response.output_text.delta","item_id":"msg_1","output_index":0,"delta":"Answer"}',
+      'data: {"type":"response.output_text.annotation.added","item_id":"msg_1","output_index":0,"annotation_index":0,"annotation":{"type":"url_citation","url":"https://example.com","title":"Example","start_index":0,"end_index":6}}',
+    ].join("\n\n");
+
+    expect(compactSseValue(text)?.stream_summary["annotations"]).toEqual([
+      {
+        type: "url_citation",
+        url: "https://example.com",
+        title: "Example",
+        start_index: 0,
+        end_index: 6,
+      },
+    ]);
+  });
+
+  it("keeps chat annotations", () => {
+    const text =
+      'data: {"choices":[{"index":0,"delta":{"annotations":[{"type":"url_citation","url":"https://x"}]},"finish_reason":null}]}';
+
+    expect(compactSseValue(text)?.stream_summary["annotations"]).toEqual([
+      { type: "url_citation", url: "https://x" },
+    ]);
+  });
+
+  it("keeps Claude citation deltas", () => {
+    const text = [
+      'event: message_start\ndata: {"type":"message_start","message":{"id":"msg_1","type":"message","role":"assistant","model":"claude","usage":{"input_tokens":1}}}',
+      'event: content_block_delta\ndata: {"type":"content_block_delta","index":0,"delta":{"type":"citations_delta","citation":{"type":"web_search_result_location","url":"https://x","title":"X"}}}',
+    ].join("\n\n");
+
+    expect(compactSseValue(text)?.stream_summary["annotations"]).toEqual([
+      { type: "web_search_result_location", url: "https://x", title: "X" },
+    ]);
+  });
+
+  it("falls back to the reasoning summary part when no deltas arrived", () => {
+    const text =
+      'data: {"type":"response.reasoning_summary_part.done","item_id":"rs_1","output_index":0,"summary_index":0,"part":{"type":"summary_text","text":"checked the docs"}}';
+
+    expect(compactSseValue(text)?.stream_summary).toEqual({
+      event_count: 1,
+      done_seen: false,
+      reasoning: "checked the docs",
+    });
+  });
+});
+
 describe("compactSseValue Responses failures and refusals", () => {
   it("keeps the error, status and usage of a failed response", () => {
     const text = [

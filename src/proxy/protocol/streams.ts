@@ -20,7 +20,9 @@ export class StreamAccumulator {
   #toolCallPayloadBytes = 0;
   readonly #responseToolCalls = new Map<string, Record<string, unknown>>();
   readonly #responseCustomToolCalls = new Map<string, Record<string, unknown>>();
+  readonly #responseOtherToolCalls = new Map<string, Record<string, unknown>>();
   readonly #responseWebSearchCalls = new Map<string, Record<string, unknown>>();
+  readonly #annotations: unknown[] = [];
   readonly #toolCalls: unknown[] = [];
   readonly #claudeToolCalls = new Map<number, Record<string, unknown>>();
   readonly #otherPayloads: unknown[] = [];
@@ -104,6 +106,9 @@ export class StreamAccumulator {
     if (this.#refusalParts.length > 0) {
       streamSummary["refusal"] = this.#refusalParts.join("");
     }
+    if (this.#annotations.length > 0) {
+      streamSummary["annotations"] = compactSummaryValue(this.#annotations);
+    }
     if (this.#responseToolCalls.size > 0) {
       streamSummary["response_tool_calls"] = [...this.#responseToolCalls.entries()]
         .sort(([left], [right]) => left.localeCompare(right))
@@ -118,6 +123,11 @@ export class StreamAccumulator {
       streamSummary["web_search_calls"] = [...this.#responseWebSearchCalls.entries()]
         .sort(([left], [right]) => left.localeCompare(right))
         .map(([, call]) => call);
+    }
+    if (this.#responseOtherToolCalls.size > 0) {
+      streamSummary["response_other_tool_calls"] = [...this.#responseOtherToolCalls.entries()]
+        .sort(([left], [right]) => left.localeCompare(right))
+        .map(([, toolCall]) => toolCall);
     }
     if (this.#toolCalls.length > 0) {
       streamSummary["tool_calls"] = compactToolCalls(this.#toolCalls);
@@ -167,6 +177,16 @@ export class StreamAccumulator {
       appendString(this.#refusalParts, event["delta"]);
     } else if (eventType === "response.refusal.done" && this.#refusalParts.length === 0) {
       appendString(this.#refusalParts, event["refusal"]);
+    } else if (eventType === "response.output_text.annotation.added") {
+      this.#annotations.push(compactSummaryValue(event["annotation"]));
+    } else if (
+      eventType === "response.reasoning_summary_part.done" &&
+      this.#reasoningParts.length === 0
+    ) {
+      const part = event["part"];
+      if (isRecord(part)) {
+        appendString(this.#reasoningParts, part["text"]);
+      }
     } else if (eventType.startsWith("response.function_call")) {
       this.#addResponseToolCall(eventType, event);
     } else if (eventType.startsWith("response.custom_tool_call")) {
@@ -177,6 +197,8 @@ export class StreamAccumulator {
       this.#addResponseToolCallItem(this.#responseToolCalls, event, "arguments");
     } else if (isCustomToolCallItem(event["item"])) {
       this.#addResponseToolCallItem(this.#responseCustomToolCalls, event, "input");
+    } else if (otherToolCallItemFamily(event["item"]) !== undefined) {
+      this.#addResponseOtherToolCallItem(event);
     } else if (eventType === "response.created") {
       const response = event["response"];
       if (isRecord(response) && this.#responsePayload === undefined) {
@@ -204,6 +226,8 @@ export class StreamAccumulator {
       }
     } else if (this.#isResponseWebSearchEvent(eventType, event)) {
       this.#addResponseWebSearchCall(eventType, event);
+    } else if (otherToolCallEventFamily(eventType) !== undefined) {
+      this.#addResponseOtherToolCallEvent(eventType, event);
     } else if (!isIgnoredResponseEvent(eventType, event)) {
       // The stored summary is the only copy of the stream, so an unconsumed
       // event type has to leave a trace even though its payload is dropped.
@@ -291,6 +315,70 @@ export class StreamAccumulator {
     }
   }
 
+  #addResponseOtherToolCallItem(event: Readonly<Record<string, unknown>>): void {
+    const item = event["item"];
+    const family = otherToolCallItemFamily(item);
+    if (!isRecord(item) || family === undefined) {
+      return;
+    }
+    const toolCall = this.#toolCallEntry(this.#responseOtherToolCalls, event, item, undefined);
+    toolCall["type"] = family;
+    const itemId = item["id"];
+    if (typeof itemId === "string" && itemId !== "" && toolCall["item_id"] === undefined) {
+      toolCall["item_id"] = itemId;
+    }
+    // These families have no delta stream of their own: the item snapshot is
+    // the whole payload, so compact it instead of hand-picking fields.
+    for (const [key, value] of Object.entries(item)) {
+      if (key === "id" || key === "type") {
+        continue;
+      }
+      toolCall[key] = compactSummaryValue(value);
+    }
+  }
+
+  #addResponseOtherToolCallEvent(
+    eventType: string,
+    event: Readonly<Record<string, unknown>>,
+  ): void {
+    const family = otherToolCallEventFamily(eventType);
+    if (family === undefined) {
+      return;
+    }
+    if (eventType === "response.code_interpreter_call_code.delta") {
+      const toolCall = this.#toolCallEntry(this.#responseOtherToolCalls, event, undefined, "code");
+      toolCall["type"] = family;
+      const delta = event["delta"];
+      if (typeof delta === "string") {
+        this.#toolCallPayloadBytes += Buffer.byteLength(delta);
+        toolCall["code"] = `${stringValue(toolCall["code"])}${delta}`;
+      }
+      return;
+    }
+    if (eventType === "response.code_interpreter_call_code.done") {
+      const toolCall = this.#toolCallEntry(
+        this.#responseOtherToolCalls,
+        event,
+        undefined,
+        undefined,
+      );
+      toolCall["type"] = family;
+      if (typeof event["code"] === "string") {
+        this.#toolCallPayloadBytes += Buffer.byteLength(event["code"]);
+        toolCall["code"] = compactSummaryValue(event["code"]);
+      }
+      return;
+    }
+    const toolCall = this.#toolCallEntry(this.#responseOtherToolCalls, event, undefined, undefined);
+    toolCall["type"] = family;
+    // The lifecycle phase is the only status a call has when its item snapshot
+    // never arrives, so it is assigned rather than kept as a first guess.
+    toolCall["status"] = eventType.slice(eventType.lastIndexOf(".") + 1);
+    if (event["error"]) {
+      toolCall["error"] = compactSummaryValue(event["error"]);
+    }
+  }
+
   #addResponseOutputItems(eventType: string, response: Readonly<Record<string, unknown>>): void {
     const output = response["output"];
     if (!Array.isArray(output)) {
@@ -314,6 +402,8 @@ export class StreamAccumulator {
           { output_index: outputIndex, item },
           "input",
         );
+      } else if (otherToolCallItemFamily(item) !== undefined) {
+        this.#addResponseOtherToolCallItem({ output_index: outputIndex, item });
       }
     }
   }
@@ -418,6 +508,12 @@ export class StreamAccumulator {
         appendString(this.#contentParts, payload["content"]);
         appendString(this.#contentParts, payload["text"]);
         appendString(this.#refusalParts, payload["refusal"]);
+        const annotations = payload["annotations"];
+        if (Array.isArray(annotations)) {
+          for (const annotation of annotations) {
+            this.#annotations.push(compactSummaryValue(annotation));
+          }
+        }
         if (payload["tool_calls"]) {
           this.#toolCalls.push(payload["tool_calls"]);
         }
@@ -473,6 +569,8 @@ export class StreamAccumulator {
       ) {
         const toolCall = this.#claudeToolCall(index);
         toolCall["input_json"] = stringValue(toolCall["input_json"]) + delta["partial_json"];
+      } else if (delta["type"] === "citations_delta" && isRecord(delta["citation"])) {
+        this.#annotations.push(compactSummaryValue(delta["citation"]));
       }
     } else if (eventType === "message_delta") {
       const delta = event["delta"];
@@ -802,9 +900,44 @@ const IGNORED_RESPONSE_EVENT_TYPES: ReadonlySet<string> = new Set([
   "response.reasoning_text.done",
   "response.reasoning_summary_text.done",
   "response.reasoning_summary_part.added",
+  "response.reasoning_summary_part.done",
 ]);
 
 const IGNORED_OUTPUT_ITEM_TYPES: ReadonlySet<string> = new Set(["reasoning", "message"]);
+
+// Tool families whose item snapshot is the whole payload. They share the
+// lifecycle shape response.<family>.<phase>, so one merge path covers them.
+const OTHER_TOOL_CALL_ITEM_TYPES: ReadonlySet<string> = new Set([
+  "mcp_call",
+  "mcp_list_tools",
+  "code_interpreter_call",
+  "file_search_call",
+  "image_generation_call",
+  "local_shell_call",
+  "apply_patch_call",
+]);
+
+function otherToolCallItemFamily(value: unknown): string | undefined {
+  if (!isRecord(value)) {
+    return undefined;
+  }
+  const type = value["type"];
+  return typeof type === "string" && OTHER_TOOL_CALL_ITEM_TYPES.has(type) ? type : undefined;
+}
+
+function otherToolCallEventFamily(eventType: string): string | undefined {
+  const parts = eventType.split(".");
+  if (parts[0] !== "response" || parts.length < 3) {
+    return undefined;
+  }
+  const name = parts[1] ?? "";
+  if (OTHER_TOOL_CALL_ITEM_TYPES.has(name)) {
+    return name;
+  }
+  // response.code_interpreter_call_code.delta|done streams the item's code.
+  const base = name.endsWith("_code") ? name.slice(0, -"_code".length) : "";
+  return OTHER_TOOL_CALL_ITEM_TYPES.has(base) ? base : undefined;
+}
 
 function isIgnoredResponseEvent(
   eventType: string,
@@ -894,6 +1027,7 @@ function isGeneratedDelta(event: Readonly<Record<string, unknown>>): boolean {
       "response.function_call_arguments.delta",
       "response.custom_tool_call_input.delta",
       "response.refusal.delta",
+      "response.code_interpreter_call_code.delta",
     ].includes(String(event["type"]))
   ) {
     return nonempty(event["delta"]);
