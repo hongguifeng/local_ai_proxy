@@ -411,6 +411,67 @@ describe("compactSseValue Claude metadata", () => {
   });
 });
 
+describe("compactSseValue response envelopes", () => {
+  it("keeps the generation parameters the upstream echoes but not tools or instructions", () => {
+    const created = {
+      type: "response.created",
+      response: {
+        id: "resp_1",
+        object: "response",
+        status: "in_progress",
+        model: "gpt-5.6-sol",
+        reasoning: { effort: "medium", summary: "detailed" },
+        text: { verbosity: "low" },
+        service_tier: "auto",
+        tool_choice: "auto",
+        temperature: 1,
+        top_p: 1,
+        max_output_tokens: 4096,
+        store: false,
+        truncation: "disabled",
+        tool_usage: { web_search: { num_requests: 0 } },
+        tools: [{ type: "function", name: "exec", parameters: { type: "object" } }],
+        instructions: "system prompt",
+        output: [],
+      },
+    };
+    const summary = compactSseValue(`data: ${JSON.stringify(created)}`)?.stream_summary;
+
+    expect(summary?.["response"]).toEqual({
+      id: "resp_1",
+      object: "response",
+      status: "in_progress",
+      model: "gpt-5.6-sol",
+      reasoning: { effort: "medium", summary: "detailed" },
+      text: { verbosity: "low" },
+      service_tier: "auto",
+      tool_choice: "auto",
+      temperature: 1,
+      top_p: 1,
+      max_output_tokens: 4096,
+      store: false,
+      truncation: "disabled",
+      tool_usage: { web_search: { num_requests: 0 } },
+    });
+  });
+
+  it("keeps the chat envelope once even though every chunk repeats it", () => {
+    const text = [
+      'data: {"id":"chatcmpl-1","object":"chat.completion.chunk","created":1,"model":"gpt-5.6-sol-2026-01-01","service_tier":"auto","system_fingerprint":"fp_x","choices":[{"index":0,"delta":{"content":"hi"},"finish_reason":null}]}',
+      'data: {"id":"chatcmpl-1","object":"chat.completion.chunk","created":1,"model":"gpt-5.6-sol-2026-01-01","choices":[{"index":0,"delta":{},"finish_reason":"stop"}]}',
+    ].join("\n\n");
+
+    expect(compactSseValue(text)?.stream_summary["response"]).toEqual({
+      id: "chatcmpl-1",
+      object: "chat.completion.chunk",
+      created: 1,
+      model: "gpt-5.6-sol-2026-01-01",
+      service_tier: "auto",
+      system_fingerprint: "fp_x",
+    });
+  });
+});
+
 describe("compactSseValue Responses other tool families", () => {
   it("merges an MCP call snapshot and its lifecycle without flagging it as dropped", () => {
     const text = [

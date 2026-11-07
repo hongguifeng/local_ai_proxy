@@ -483,6 +483,7 @@ export class StreamAccumulator {
   }
 
   #addChatEvent(event: Readonly<Record<string, unknown>>): void {
+    this.#captureChatEnvelope(event);
     if (event["usage"]) {
       this.#usage = event["usage"];
     }
@@ -517,6 +518,23 @@ export class StreamAccumulator {
         if (payload["tool_calls"]) {
           this.#toolCalls.push(payload["tool_calls"]);
         }
+      }
+    }
+  }
+
+  #captureChatEnvelope(event: Readonly<Record<string, unknown>>): void {
+    // Every chat chunk repeats the envelope, so each key is taken once.
+    const payload = (this.#responsePayload ??= {});
+    for (const key of [
+      "id",
+      "object",
+      "created",
+      "model",
+      "system_fingerprint",
+      "service_tier",
+    ] as const) {
+      if (payload[key] === undefined && event[key] !== null && event[key] !== undefined) {
+        payload[key] = event[key];
       }
     }
   }
@@ -858,9 +876,27 @@ function compactResponsePayload(
     "model",
     "parallel_tool_calls",
     "previous_response_id",
+    "service_tier",
+    "store",
+    "background",
+    "temperature",
+    "top_p",
+    "max_output_tokens",
+    "truncation",
+    "frequency_penalty",
+    "presence_penalty",
+    "prompt_cache_key",
   ] as const) {
     if (Object.hasOwn(response, key)) {
       compacted[key] = response[key];
+    }
+  }
+  // Small objects that echo what the upstream actually ran with. The huge
+  // fields (tools, instructions, output) stay out: the request already has
+  // them and the output items are summarised in their own sections.
+  for (const key of ["reasoning", "text", "tool_usage", "tool_choice"] as const) {
+    if (Object.hasOwn(response, key)) {
+      compacted[key] = compactSummaryValue(response[key]);
     }
   }
   for (const key of ["error", "incomplete_details"] as const) {
