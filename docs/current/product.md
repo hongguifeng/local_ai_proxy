@@ -64,7 +64,7 @@ LLM Proxy 是本地 HTTP 代理和 Web 控制台，用于检查 Agent、SDK 或�
 
 ## 4. 历史与统计
 
-历史页面以 task 为一级分组、以 record 为请求级明细，支持分页、搜索、JSON 树、正文复制、导出和删除。请求体和响应体使用分块存储与去重；历史数据库由 `src/persistence/database.ts` 按 schema v1–v14 迁移。流式响应以 `stream_summary` 紧凑摘要落库：工具调用按 item 身份合并成一条并保留 `name`、`call_id`、`output_index`，`function_call` 的 JSON 参数进 `response_tool_calls` 的 `arguments`/`arguments_json`，`custom_tool_call` 的自由文本进 `response_custom_tool_calls` 的 `input`，因为 Responses 的工具名只出现在 `output_item` 快照上，不在参数或 input 增量里。打开历史时按当前配置得到日志根，不能把运行时事件列当成“仍在处理”的唯一依据；待响应语义以统计摘要的 `cost.pending_request_count` 为准。
+历史页面以 task 为一级分组、以 record 为请求级明细，支持分页、搜索、JSON 树、正文复制、导出和删除。请求体和响应体使用分块存储与去重；历史数据库由 `src/persistence/database.ts` 按 schema v1–v14 迁移。流式响应以 `stream_summary` 紧凑摘要落库，工具调用按 item 身份合并成一条并保留 `name`、`call_id`、`output_index`：`function_call` 的 JSON 参数进 `response_tool_calls` 的 `arguments`/`arguments_json`，`custom_tool_call` 的自由文本进 `response_custom_tool_calls` 的 `input`，MCP、代码解释器、文件搜索、图像生成、本地 shell 和 apply_patch 的 item 快照压缩后进 `response_other_tool_calls`——Responses 的工具名只出现在 `output_item` 快照上，不在增量事件里。拒答文本、文本引用和上游回显的生成参数分别落在 `refusal`、`annotations`、`response` 段（`tools`、`instructions`、`output` 不入摘要）；`response.failed` 与 `response.completed` 同路处理，没有被任何分支消费的事件类型只按名字计数进 `dropped_event_types`，所以新增事件族不会静默消失。打开历史时按当前配置得到日志根，不能把运行时事件列当成“仍在处理”的唯一依据；待响应语义以统计摘要的 `cost.pending_request_count` 为准。
 
 统计页面读取日志根内的已存 token、价格和请求时间，展示总量、费用、未计价数和趋势。单次请求的计价在请求开始时冻结，历史记录不会因后来修改价格配置而被重新解释。价格匹配和金额精度规则见 [模型定价设计](../design/accepted/model-token-pricing.md)。
 

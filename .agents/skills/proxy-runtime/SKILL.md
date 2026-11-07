@@ -60,6 +60,17 @@ description: >-
   payload is code, not JSON. Their input bytes also count as generated payload for
   `hasSeenTextToken` and `generatedEvents`, so a response whose only output is a custom tool
   call still gets a decode window.
+- A stream summary is the only copy of the stream: `bodyJsonValue` drops the raw SSE once a
+  summary exists, so every event family that carries an answer has to be read. `response.failed`
+  must take the same path as `response.completed` (error, status, usage), refusal text and
+  citations go to `refusal` and `annotations`, and unconsumed event types are counted into
+  `dropped_event_types` (names only) instead of vanishing; bookkeeping events and duplicate
+  done snapshots are exempt so the counter stays meaningful. Other tool families (MCP, code
+  interpreter, file search, image generation, local shell, apply_patch) have no delta stream:
+  their item snapshot is the payload, so it is compacted into `response_other_tool_calls`
+  rather than hand-picked. The response envelope keeps the parameters the upstream echoed
+  (`reasoning`, `text`, `service_tier`, `tool_usage`, …) but never `tools`, `instructions` or
+  `output`.
 - A target's `session_header` is planned **once per request**, before the first upstream
   attempt, and the same entry is applied to a failover retry in `upstreamRequestHeaders`.
   Recomputing it after the model rewrite would change the derived value (the derivation
