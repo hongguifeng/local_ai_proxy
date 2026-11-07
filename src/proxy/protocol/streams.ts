@@ -16,6 +16,7 @@ export interface StreamSummary {
 export class StreamAccumulator {
   readonly #contentParts: string[] = [];
   readonly #reasoningParts: string[] = [];
+  readonly #refusalParts: string[] = [];
   #toolCallPayloadBytes = 0;
   readonly #responseToolCalls = new Map<string, Record<string, unknown>>();
   readonly #responseCustomToolCalls = new Map<string, Record<string, unknown>>();
@@ -23,6 +24,7 @@ export class StreamAccumulator {
   readonly #toolCalls: unknown[] = [];
   readonly #claudeToolCalls = new Map<number, Record<string, unknown>>();
   readonly #otherPayloads: unknown[] = [];
+  readonly #droppedEventTypes = new Map<string, number>();
   readonly #finishReasons: string[] = [];
   #doneSeen: boolean;
   #eventCount: number;
@@ -64,7 +66,9 @@ export class StreamAccumulator {
     }
     if (
       !this.#firstTextSeen &&
-      (this.#contentParts.length > 0 || this.#reasoningParts.length > 0)
+      (this.#contentParts.length > 0 ||
+        this.#reasoningParts.length > 0 ||
+        this.#refusalParts.length > 0)
     ) {
       this.#firstTextSeen = true;
     }
@@ -96,6 +100,9 @@ export class StreamAccumulator {
     }
     if (this.#contentParts.length > 0) {
       streamSummary["content"] = this.#contentParts.join("");
+    }
+    if (this.#refusalParts.length > 0) {
+      streamSummary["refusal"] = this.#refusalParts.join("");
     }
     if (this.#responseToolCalls.size > 0) {
       streamSummary["response_tool_calls"] = [...this.#responseToolCalls.entries()]
@@ -132,6 +139,11 @@ export class StreamAccumulator {
     if (this.#otherPayloads.length > 0) {
       streamSummary["other_payloads"] = [...this.#otherPayloads];
     }
+    if (this.#droppedEventTypes.size > 0) {
+      streamSummary["dropped_event_types"] = Object.fromEntries(
+        [...this.#droppedEventTypes.entries()].sort(([left], [right]) => left.localeCompare(right)),
+      );
+    }
     return { stream_summary: streamSummary };
   }
 
@@ -151,6 +163,10 @@ export class StreamAccumulator {
       this.#reasoningParts.length === 0
     ) {
       appendString(this.#reasoningParts, event["text"]);
+    } else if (eventType === "response.refusal.delta") {
+      appendString(this.#refusalParts, event["delta"]);
+    } else if (eventType === "response.refusal.done" && this.#refusalParts.length === 0) {
+      appendString(this.#refusalParts, event["refusal"]);
     } else if (eventType.startsWith("response.function_call")) {
       this.#addResponseToolCall(eventType, event);
     } else if (eventType.startsWith("response.custom_tool_call")) {
@@ -167,7 +183,11 @@ export class StreamAccumulator {
         this.#responsePayload = compactResponsePayload(response);
         this.#addResponseOutputItems(eventType, response);
       }
-    } else if (eventType === "response.completed" || eventType === "response.incomplete") {
+    } else if (
+      eventType === "response.completed" ||
+      eventType === "response.incomplete" ||
+      eventType === "response.failed"
+    ) {
       const response = event["response"];
       if (isRecord(response)) {
         this.#responsePayload = {
@@ -184,6 +204,10 @@ export class StreamAccumulator {
       }
     } else if (this.#isResponseWebSearchEvent(eventType, event)) {
       this.#addResponseWebSearchCall(eventType, event);
+    } else if (!isIgnoredResponseEvent(eventType, event)) {
+      // The stored summary is the only copy of the stream, so an unconsumed
+      // event type has to leave a trace even though its payload is dropped.
+      this.#droppedEventTypes.set(eventType, (this.#droppedEventTypes.get(eventType) ?? 0) + 1);
     }
   }
 
@@ -393,6 +417,7 @@ export class StreamAccumulator {
         }
         appendString(this.#contentParts, payload["content"]);
         appendString(this.#contentParts, payload["text"]);
+        appendString(this.#refusalParts, payload["refusal"]);
         if (payload["tool_calls"]) {
           this.#toolCalls.push(payload["tool_calls"]);
         }
@@ -765,6 +790,32 @@ function firstPresent(values: readonly unknown[]): unknown {
 function isFunctionCallItem(value: unknown): boolean {
   return isRecord(value) && value["type"] === "function_call";
 }
+// Bookkeeping and duplicate "done" snapshots are ignored on purpose; counting
+// them would drown the real signal in dropped_event_types.
+const IGNORED_RESPONSE_EVENT_TYPES: ReadonlySet<string> = new Set([
+  "response.queued",
+  "response.in_progress",
+  "response.content_part.added",
+  "response.content_part.done",
+  "response.output_text.done",
+  "response.refusal.done",
+  "response.reasoning_text.done",
+  "response.reasoning_summary_text.done",
+  "response.reasoning_summary_part.added",
+]);
+
+const IGNORED_OUTPUT_ITEM_TYPES: ReadonlySet<string> = new Set(["reasoning", "message"]);
+
+function isIgnoredResponseEvent(
+  eventType: string,
+  event: Readonly<Record<string, unknown>>,
+): boolean {
+  if (IGNORED_RESPONSE_EVENT_TYPES.has(eventType)) {
+    return true;
+  }
+  const item = event["item"];
+  return isRecord(item) && IGNORED_OUTPUT_ITEM_TYPES.has(String(item["type"]));
+}
 
 function isCustomToolCallItem(value: unknown): boolean {
   return isRecord(value) && value["type"] === "custom_tool_call";
@@ -842,6 +893,7 @@ function isGeneratedDelta(event: Readonly<Record<string, unknown>>): boolean {
       "response.reasoning_summary_text.delta",
       "response.function_call_arguments.delta",
       "response.custom_tool_call_input.delta",
+      "response.refusal.delta",
     ].includes(String(event["type"]))
   ) {
     return nonempty(event["delta"]);

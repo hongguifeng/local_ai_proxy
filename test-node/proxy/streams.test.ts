@@ -411,6 +411,62 @@ describe("compactSseValue Claude metadata", () => {
   });
 });
 
+describe("compactSseValue Responses failures and refusals", () => {
+  it("keeps the error, status and usage of a failed response", () => {
+    const text = [
+      'data: {"type":"response.created","response":{"id":"resp_1","model":"m","status":"in_progress"}}',
+      'data: {"type":"response.failed","response":{"id":"resp_1","status":"failed","error":{"code":"server_error","message":"upstream exploded"},"usage":{"input_tokens":5,"output_tokens":0,"total_tokens":5}}}',
+    ].join("\n\n");
+
+    expect(compactSseValue(text)?.stream_summary).toEqual({
+      event_count: 2,
+      done_seen: false,
+      finish_reasons: ["failed"],
+      usage: { input_tokens: 5, output_tokens: 0, total_tokens: 5 },
+      response: {
+        id: "resp_1",
+        status: "failed",
+        model: "m",
+        error: { code: "server_error", message: "upstream exploded" },
+      },
+    });
+  });
+
+  it("stores refusal deltas instead of dropping them", () => {
+    const text = [
+      'data: {"type":"response.refusal.delta","item_id":"msg_1","output_index":0,"delta":"I cannot "}',
+      'data: {"type":"response.refusal.delta","item_id":"msg_1","output_index":0,"delta":"help with that."}',
+      'data: {"type":"response.refusal.done","item_id":"msg_1","output_index":0,"refusal":"I cannot help with that."}',
+    ].join("\n\n");
+
+    expect(compactSseValue(text)?.stream_summary).toEqual({
+      event_count: 3,
+      done_seen: false,
+      refusal: "I cannot help with that.",
+    });
+  });
+
+  it("uses the done refusal only when no deltas arrived", () => {
+    const text = 'data: {"type":"response.refusal.done","refusal":"No."}';
+    expect(compactSseValue(text)?.stream_summary).toEqual({
+      event_count: 1,
+      done_seen: false,
+      refusal: "No.",
+    });
+  });
+
+  it("stores a chat refusal", () => {
+    const text =
+      'data: {"choices":[{"index":0,"delta":{"refusal":"I cannot"},"finish_reason":"stop"}]}';
+    expect(compactSseValue(text)?.stream_summary).toEqual({
+      event_count: 1,
+      done_seen: false,
+      refusal: "I cannot",
+      finish_reasons: ["stop"],
+    });
+  });
+});
+
 describe("compactSseValue unknown events", () => {
   it("preserves unknown ordinary payloads and Claude errors", () => {
     const text = [
@@ -426,17 +482,24 @@ describe("compactSseValue unknown events", () => {
     ]);
   });
 
-  it("ignores unknown Responses and Claude housekeeping events", () => {
+  it("keeps Claude housekeeping silent and only names unconsumed Responses events", () => {
     const text = [
       'data: {"type":"response.future.event","value":"ignored"}',
-      'data: {"type":"response.output_item.done","item":{"type":"mcp_call"}}',
+      'data: {"type":"response.in_progress","response":{"id":"resp_1"}}',
+      'data: {"type":"response.output_item.done","item":{"type":"reasoning"}}',
       'data: {"type":"ping"}',
       'data: {"type":"message_stop"}',
       'data: {"type":"content_block_stop","index":0}',
     ].join("\n\n");
 
     expect(compactSseValue(text)).toEqual({
-      stream_summary: { event_count: 5, done_seen: false },
+      stream_summary: {
+        event_count: 6,
+        done_seen: false,
+        // Bookkeeping and known item types stay out of the counter; only the
+        // unknown event leaves a trace.
+        dropped_event_types: { "response.future.event": 1 },
+      },
     });
   });
 });
@@ -532,6 +595,20 @@ describe("IncrementalSseAccumulator", () => {
     expect(accumulator.hasSeenTextToken()).toBe(true);
   });
 
+  it("treats refusal text as the first token when no text is present", () => {
+    const accumulator = new IncrementalSseAccumulator();
+    accumulator.addChunk('data: {"type":"response.created","response":{"id":"resp_1"}}\n\n');
+    expect(accumulator.hasSeenTextToken()).toBe(false);
+    accumulator.addChunk(
+      `data: ${JSON.stringify({
+        type: "response.refusal.delta",
+        item_id: "msg_1",
+        delta: "No",
+      })}\n\n`,
+    );
+    expect(accumulator.hasSeenTextToken()).toBe(true);
+  });
+
   it("does not report the first token for tool-call-only chat streams", () => {
     const accumulator = new IncrementalSseAccumulator();
     const data = JSON.stringify({
@@ -552,6 +629,7 @@ describe("IncrementalSseAccumulator", () => {
     { type: "content_block_delta", delta: { type: "input_json_delta", partial_json: "{}" } },
     { type: "response.function_call_arguments.delta", delta: "{}" },
     { type: "response.custom_tool_call_input.delta", delta: "const" },
+    { type: "response.refusal.delta", delta: "No" },
     { choices: [{ delta: { reasoning_content: "thinking" } }] },
   ])("counts generated payloads independently of bookkeeping: %j", (event) => {
     const accumulator = new IncrementalSseAccumulator();
